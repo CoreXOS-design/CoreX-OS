@@ -242,6 +242,11 @@ return [
         ['key' => 'packs.create',                'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 23],
         ['key' => 'packs.edit',                  'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 24],
         ['key' => 'packs.archive',               'label' => 'Archive',                     'section' => 'docuperfect',      'type' => 'action',  'module' => 'packs',            'sort_order' => 25],
+        // ── E-Sign Compiler (AT-177) — internal Compile Studio; signers need no new perms ──
+        ['key' => 'esign.compiler.view',         'label' => 'View Compile Studio',         'section' => 'docuperfect',      'type' => 'access',  'module' => 'esign-compiler',   'sort_order' => 30],
+        ['key' => 'esign.compiler.compile',      'label' => 'Compile Templates',           'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 31],
+        ['key' => 'esign.compiler.publish',      'label' => 'Publish Compiled Versions',   'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 32],
+        ['key' => 'esign.compiler.dictionary',   'label' => 'Manage Data Dictionary',      'section' => 'docuperfect',      'type' => 'action',  'module' => 'esign-compiler',   'sort_order' => 33],
 
         // ── Document Library ──
         ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'type' => 'access',  'module' => 'document_library', 'sort_order' => 1],
@@ -417,8 +422,9 @@ return [
         // ── Deal Register V2 ──
         ['key' => 'access_deal_register_v2',     'label' => 'Access Deal Register V2',     'section' => 'deals-v2',         'type' => 'access',  'module' => 'deals_v2',         'sort_order' => 1],
         ['key' => 'deals_v2.view',               'label' => 'View',                        'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 10],
-        ['key' => 'deals_v2.create',             'label' => 'Create',                      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 11],
-        ['key' => 'deals_v2.edit',               'label' => 'Edit',                        'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 12],
+        ['key' => 'deals_v2.create',             'label' => 'Capture Deals (any in scope)',  'section' => 'deals-v2',       'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 11],
+        ['key' => 'deals_v2.capture_own',        'label' => 'Capture Own Deals (agent)',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 12],
+        ['key' => 'deals_v2.edit',               'label' => 'Edit',                        'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 13],
         ['key' => 'deals_v2.archive',            'label' => 'Archive',                     'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 13],
         ['key' => 'deals_v2.manage_pipeline',    'label' => 'Manage Pipeline Templates',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 14],
         ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
@@ -768,7 +774,12 @@ return [
                 'access_knowledge_base', 'knowledge.view',
                 'view_own_stats',
                 'access_deal_register_v2',
-                'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
+                // AT-158 WS-V3 (Ruling b): capture defaults to BM/admin. Agents get
+                // view + edit (to feed back on their own deals); they do NOT get
+                // 'deals_v2.create' by default. An agency can additionally grant
+                // 'deals_v2.capture_own' via Role Manager to let agents capture the
+                // deals they are on (own-membership enforced server-side).
+                'deals_v2.view', 'deals_v2.edit',
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',

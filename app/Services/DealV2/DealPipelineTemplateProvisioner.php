@@ -76,6 +76,51 @@ class DealPipelineTemplateProvisioner
     }
 
     /**
+     * WS-V5 — UPGRADE an agency's shipped default templates to the current
+     * (corrected) definitions WITHOUT hard-deleting anything. Only a default
+     * template that is NOT referenced by any deal is soft-deleted (steps too) and
+     * re-provisioned fresh; a template in use, or one an agency has customised
+     * under a different name, is never touched. Safe/idempotent to re-run.
+     *
+     * @return array{refreshed:int, skipped_in_use:int} + provision result keys
+     */
+    public function refreshDefaultsForAgency(int $agencyId, ?int $createdById = null): array
+    {
+        $refreshed = 0;
+        $skippedInUse = 0;
+
+        foreach ($this->definitions() as $def) {
+            $meta = $def['meta'];
+            $existing = DealPipelineTemplate::where('agency_id', $agencyId)
+                ->where('name', $meta['name'])
+                ->where('deal_type', $meta['deal_type'])
+                ->first();
+
+            if (! $existing) {
+                continue; // nothing to refresh — provisioning below will create it
+            }
+
+            $inUse = \App\Models\DealV2\DealV2::withoutGlobalScopes()
+                ->where('pipeline_template_id', $existing->id)
+                ->exists();
+            if ($inUse) {
+                $skippedInUse++;
+                continue; // preserve a template that live deals depend on
+            }
+
+            DB::transaction(function () use ($existing) {
+                $existing->steps()->delete(); // SoftDeletes — audit-preserved, never hard-deleted
+                $existing->delete();
+            });
+            $refreshed++;
+        }
+
+        $provision = $this->provisionDefaultsForAgency($agencyId, $createdById);
+
+        return array_merge($provision, ['refreshed' => $refreshed, 'skipped_in_use' => $skippedInUse]);
+    }
+
+    /**
      * Resolve a non-null user id to stamp as creator: prefer an admin of the
      * agency, then any user of the agency, then the first admin/user anywhere.
      * created_by_id is NOT-NULL, so this must always return a valid id.
@@ -130,7 +175,9 @@ class DealPipelineTemplateProvisioner
         // replace an already-populated / customised template's steps.
         $stepsCreated = 0;
         if ($template->steps()->count() === 0) {
-            $stepsCreated = $this->createSteps($template, $def['steps']);
+            $stepsCreated = $this->createSteps(
+                $template, $def['steps'], $def['dependencies'] ?? [], $def['suspensive'] ?? []
+            );
         }
 
         return [$wasCreated, $stepsCreated, $template];
@@ -140,7 +187,7 @@ class DealPipelineTemplateProvisioner
      * Create the ordered steps for a template with a two-pass trigger-link
      * resolve (a step's after_step trigger references a sibling by name).
      */
-    private function createSteps(DealPipelineTemplate $template, array $steps): int
+    private function createSteps(DealPipelineTemplate $template, array $steps, array $dependencies = [], array $suspensive = []): int
     {
         $stepMap = [];
 
@@ -177,17 +224,70 @@ class DealPipelineTemplateProvisioner
             }
         }
 
+        // WS-V1 — additional AND-gate dependencies declared as
+        // ['Dependent Step' => ['Predecessor A', 'Predecessor B', ...]].
+        // These are predecessors BEYOND the single primary trigger above; a step
+        // activates only when its primary trigger AND all of these complete.
+        $depRows = [];
+        foreach ($dependencies as $dependentName => $predecessorNames) {
+            $dependent = $stepMap[$dependentName] ?? null;
+            if (! $dependent) {
+                continue;
+            }
+            foreach ((array) $predecessorNames as $predName) {
+                $pred = $stepMap[$predName] ?? null;
+                if (! $pred || $pred->id === $dependent->id) {
+                    continue; // unknown or self
+                }
+                $depRows[] = [
+                    'agency_id' => $template->agency_id,
+                    'pipeline_step_id' => $dependent->id,
+                    'depends_on_step_id' => $pred->id,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+        }
+        if ($depRows) {
+            DB::table('deal_pipeline_step_dependencies')->insert($depRows);
+        }
+
+        // WS-V2 — flag suspensive-condition steps (by name). The deal moves to
+        // Granted only when ALL suspensive steps complete (AND-gate).
+        foreach ($suspensive as $suspName) {
+            if (isset($stepMap[$suspName])) {
+                $stepMap[$suspName]->update(['is_suspensive' => true]);
+            }
+        }
+
         return count($steps);
     }
 
     /**
-     * The three shipped default templates. Tuple order:
+     * The three shipped default templates — corrected against the canonical SA
+     * conveyancing process (AT-158 WS-V5; reference:
+     * .ai/audits/2026-07-05-sa-conveyancing-canonical-reference.md).
+     *
+     * Corrections vs the original seed: Deposit sequenced from OTP (not from bond
+     * grant); added Bond Cancellation Figures, Guarantees Issued, Documents
+     * Signed, Transfer Duty / SARS Receipt, and Levy / HOA Consent; Water
+     * Installation COC dropped from the KZN default (Cape-Town-only); Beetle
+     * present on cash too (coastal seller obligation). Bond Approved (+ Deposit)
+     * flagged SUSPENSIVE so the deal moves to Granted only when ALL are complete
+     * (WS-V2); Deeds Office Lodgement AND-gated on the full preparation cluster
+     * so it never counts down before every certificate/clearance/guarantee is in
+     * (WS-V1). Every offset is a RELATIVE default measured from its predecessor's
+     * completion and is agency-configurable.
+     *
+     * Tuple order:
      * [position, name, is_locked, is_milestone, completion_type, trigger_type,
-     *  trigger_step_name, days_offset, rag_green, rag_amber, rag_red,
+     *  trigger_step_name, days_offset, rag_green(unused), rag_amber, rag_red,
      *  status_trigger, negative_status_trigger, negative_outcome_label,
      *  requires_bm_approval]
+     * Plus per-template 'suspensive' (step names) and 'dependencies'
+     * (dependent => [extra predecessors], AND-gate beyond the primary trigger).
      *
-     * @return array<int,array{meta:array,steps:array}>
+     * @return array<int,array{meta:array,steps:array,suspensive?:array,dependencies?:array}>
      */
     public function definitions(): array
     {
@@ -195,56 +295,82 @@ class DealPipelineTemplateProvisioner
             [
                 'meta' => ['name' => 'Standard Bond Sale', 'deal_type' => 'bond', 'is_default' => true],
                 'steps' => [
-                    [1,  'OTP Signed',                true,  true,  'date_input',       'on_creation', null,                         0,  14, 7,  3,  null,        'cancelled', 'OTP Rejected',   false],
-                    [2,  'Bond Application Submitted', false, false, 'date_input',       'after_step',  'OTP Signed',                 3,  10, 5,  2,  null,        null,        null,             false],
-                    [3,  'Bond Approved',              true,  true,  'date_input',       'after_step',  'Bond Application Submitted',  30, 15, 7,  3,  'granted',   'cancelled', 'Bond Declined',  true],
-                    [4,  'Deposit Paid',               true,  false, 'amount_input',     'after_step',  'Bond Approved',               7,  10, 5,  2,  null,        null,        null,             false],
-                    [5,  'Attorney Instructed',        false, false, 'text_input',       'after_step',  'Bond Approved',               5,  10, 5,  2,  null,        null,        null,             false],
-                    [6,  'FICA Completed (Buyer)',     true,  false, 'document_upload',  'after_step',  'Attorney Instructed',         14, 10, 5,  2,  null,        null,        null,             false],
-                    [7,  'FICA Completed (Seller)',    true,  false, 'document_upload',  'after_step',  'Attorney Instructed',         14, 10, 5,  2,  null,        null,        null,             false],
-                    [8,  'Electrical COC',             true,  false, 'document_upload',  'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,             false],
-                    [9,  'Gas COC',                    false, false, 'document_upload',  'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,             false],
-                    [10, 'Electric Fence COC',         false, false, 'document_upload',  'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,             false],
-                    [11, 'Beetle Certificate',         false, false, 'document_upload',  'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,             false],
-                    [12, 'Water Installation COC',     false, false, 'document_upload',  'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,             false],
-                    [13, 'Rates Clearance',            true,  false, 'document_upload',  'after_step',  'Attorney Instructed',         42, 21, 10, 5,  null,        null,        null,             false],
-                    [14, 'Deeds Office Lodgement',     true,  true,  'date_input',       'after_step',  'Rates Clearance',             7,  10, 5,  2,  null,        null,        null,             false],
-                    [15, 'Registration',               true,  true,  'date_input',       'after_step',  'Deeds Office Lodgement',      15, 10, 5,  2,  'completed', null,        null,             false],
+                    [1,  'OTP Signed',                  true,  true,  'date_input',       'on_creation', null,                          0,  14, 7,  3,  null,        'cancelled', 'OTP Rejected',   false],
+                    [2,  'Deposit Paid',                true,  false, 'amount_input',     'after_step',  'OTP Signed',                  3,  10, 5,  2,  null,        null,        null,             false],
+                    [3,  'Bond Application Submitted',  false, false, 'date_input',       'after_step',  'OTP Signed',                  3,  10, 5,  2,  null,        null,        null,             false],
+                    [4,  'Bond Approved',               true,  true,  'date_input',       'after_step',  'Bond Application Submitted',  21, 15, 7,  3,  'granted',   'declined',  'Bond Declined',  false],
+                    [5,  'Attorneys Instructed',        false, false, 'text_input',       'after_step',  'Bond Approved',               3,  10, 5,  2,  null,        null,        null,             false],
+                    [6,  'Bond Cancellation Figures',   false, false, 'text_input',       'after_step',  'Attorneys Instructed',        5,  10, 5,  2,  null,        null,        null,             false],
+                    [7,  'FICA Completed (Buyer)',      true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',        7,  10, 5,  2,  null,        null,        null,             false],
+                    [8,  'FICA Completed (Seller)',     true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',        7,  10, 5,  2,  null,        null,        null,             false],
+                    [9,  'Guarantees Issued',           true,  false, 'text_input',       'after_step',  'Bond Approved',               10, 14, 7,  3,  null,        null,        null,             false],
+                    [10, 'Electrical COC',              true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,             false],
+                    [11, 'Beetle Certificate',          true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,             false],
+                    [12, 'Gas COC',                     false, false, 'document_upload',  'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,             false],
+                    [13, 'Electric Fence COC',          false, false, 'document_upload',  'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,             false],
+                    [14, 'Rates Clearance',             true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',        21, 21, 10, 5,  null,        null,        null,             false],
+                    [15, 'Levy / HOA Consent',          false, false, 'document_upload',  'after_step',  'Attorneys Instructed',        21, 21, 10, 5,  null,        null,        null,             false],
+                    [16, 'Documents Signed',            true,  false, 'document_signed',  'after_step',  'Guarantees Issued',           3,  10, 5,  2,  null,        null,        null,             false],
+                    [17, 'Transfer Duty / SARS Receipt',true,  false, 'document_upload',  'after_step',  'Documents Signed',            7,  10, 5,  2,  null,        null,        null,             false],
+                    [18, 'Deeds Office Lodgement',      true,  true,  'date_input',       'after_step',  'Rates Clearance',             5,  10, 5,  2,  null,        null,        null,             false],
+                    [19, 'Registration',                true,  true,  'date_input',       'after_step',  'Deeds Office Lodgement',      10, 10, 5,  2,  'completed', null,        null,             false],
+                ],
+                'suspensive' => ['Bond Approved', 'Deposit Paid'],
+                'dependencies' => [
+                    'Documents Signed'       => ['FICA Completed (Buyer)', 'FICA Completed (Seller)'],
+                    'Deeds Office Lodgement' => ['Documents Signed', 'Electrical COC', 'Beetle Certificate', 'Guarantees Issued', 'Transfer Duty / SARS Receipt'],
                 ],
             ],
             [
                 'meta' => ['name' => 'Cash Sale', 'deal_type' => 'cash', 'is_default' => false],
                 'steps' => [
-                    [1, 'OTP Signed',               true,  true,  'date_input',       'on_creation', null,                     0,  14, 7, 3,  null,        'cancelled', 'OTP Rejected', false],
-                    [2, 'Deposit Paid',              true,  false, 'amount_input',     'after_step',  'OTP Signed',             7,  10, 5, 2,  'granted',   null,        null,           true],
-                    [3, 'Attorney Instructed',       false, false, 'text_input',       'after_step',  'OTP Signed',             5,  10, 5, 2,  null,        null,        null,           false],
-                    [4, 'FICA Completed (Buyer)',    true,  false, 'document_upload',  'after_step',  'Attorney Instructed',    14, 10, 5, 2,  null,        null,        null,           false],
-                    [5, 'FICA Completed (Seller)',   true,  false, 'document_upload',  'after_step',  'Attorney Instructed',    14, 10, 5, 2,  null,        null,        null,           false],
-                    [6, 'Electrical COC',            true,  false, 'document_upload',  'after_step',  'OTP Signed',             21, 14, 7, 3,  null,        null,        null,           false],
-                    [7, 'Rates Clearance',           true,  false, 'document_upload',  'after_step',  'Attorney Instructed',    28, 14, 7, 3,  null,        null,        null,           false],
-                    [8, 'Deeds Office Lodgement',    true,  true,  'date_input',       'after_step',  'Rates Clearance',        7,  10, 5, 2,  null,        null,        null,           false],
-                    [9, 'Registration',              true,  true,  'date_input',       'after_step',  'Deeds Office Lodgement', 15, 10, 5, 2,  'completed', null,        null,           false],
+                    [1, 'OTP Signed',                  true,  true,  'date_input',       'on_creation', null,                     0,  14, 7, 3,  null,        'cancelled', 'OTP Rejected', false],
+                    [2, 'Deposit Paid',                true,  false, 'amount_input',     'after_step',  'OTP Signed',             3,  10, 5, 2,  'granted',   null,        null,           false],
+                    [3, 'Attorneys Instructed',        false, false, 'text_input',       'after_step',  'OTP Signed',             5,  10, 5, 2,  null,        null,        null,           false],
+                    [4, 'FICA Completed (Buyer)',      true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',   7,  10, 5, 2,  null,        null,        null,           false],
+                    [5, 'FICA Completed (Seller)',     true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',   7,  10, 5, 2,  null,        null,        null,           false],
+                    [6, 'Electrical COC',              true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',   14, 14, 7, 3,  null,        null,        null,           false],
+                    [7, 'Beetle Certificate',          true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',   14, 14, 7, 3,  null,        null,        null,           false],
+                    [8, 'Rates Clearance',             true,  false, 'document_upload',  'after_step',  'Attorneys Instructed',   21, 21, 10,5,  null,        null,        null,           false],
+                    [9, 'Documents Signed',            true,  false, 'document_signed',  'after_step',  'Attorneys Instructed',   5,  10, 5, 2,  null,        null,        null,           false],
+                    [10,'Transfer Duty / SARS Receipt',true,  false, 'document_upload',  'after_step',  'Documents Signed',       7,  10, 5, 2,  null,        null,        null,           false],
+                    [11,'Deeds Office Lodgement',      true,  true,  'date_input',       'after_step',  'Rates Clearance',        5,  10, 5, 2,  null,        null,        null,           false],
+                    [12,'Registration',                true,  true,  'date_input',       'after_step',  'Deeds Office Lodgement', 10, 10, 5, 2,  'completed', null,        null,           false],
+                ],
+                'suspensive' => ['Deposit Paid'],
+                'dependencies' => [
+                    'Documents Signed'       => ['FICA Completed (Buyer)', 'FICA Completed (Seller)'],
+                    'Deeds Office Lodgement' => ['Documents Signed', 'Electrical COC', 'Beetle Certificate', 'Transfer Duty / SARS Receipt'],
                 ],
             ],
             [
                 'meta' => ['name' => 'Sale of Second Property', 'deal_type' => 'sale_of_2nd', 'is_default' => false],
                 'steps' => [
-                    [1,  'OTP Signed',                true,  true,  'date_input',              'on_creation', null,                         0,  14, 7,  3,  null,        'cancelled', 'OTP Rejected',       false],
-                    [2,  'Linked Property Sold',       true,  true,  'auto_from_linked_deal',   'manual',      null,                         0,  14, 7,  3,  null,        'cancelled', 'Linked Sale Failed', false],
-                    [3,  'Bond Application Submitted', false, false, 'date_input',              'after_step',  'Linked Property Sold',        3,  10, 5,  2,  null,        null,        null,                 false],
-                    [4,  'Bond Approved',              true,  true,  'date_input',              'after_step',  'Bond Application Submitted',  30, 15, 7,  3,  'granted',   'cancelled', 'Bond Declined',      true],
-                    [5,  'Deposit Paid',               true,  false, 'amount_input',            'after_step',  'Bond Approved',               7,  10, 5,  2,  null,        null,        null,                 false],
-                    [6,  'Attorney Instructed',        false, false, 'text_input',              'after_step',  'Bond Approved',               5,  10, 5,  2,  null,        null,        null,                 false],
-                    [7,  'FICA Completed (Buyer)',     true,  false, 'document_upload',         'after_step',  'Attorney Instructed',         14, 10, 5,  2,  null,        null,        null,                 false],
-                    [8,  'FICA Completed (Seller)',    true,  false, 'document_upload',         'after_step',  'Attorney Instructed',         14, 10, 5,  2,  null,        null,        null,                 false],
-                    [9,  'Electrical COC',             true,  false, 'document_upload',         'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,                 false],
-                    [10, 'Gas COC',                    false, false, 'document_upload',         'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,                 false],
-                    [11, 'Electric Fence COC',         false, false, 'document_upload',         'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,                 false],
-                    [12, 'Beetle Certificate',         false, false, 'document_upload',         'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,                 false],
-                    [13, 'Water Installation COC',     false, false, 'document_upload',         'after_step',  'Bond Approved',               30, 14, 7,  3,  null,        null,        null,                 false],
-                    [14, 'Rates Clearance',            true,  false, 'document_upload',         'after_step',  'Attorney Instructed',         42, 21, 10, 5,  null,        null,        null,                 false],
-                    [15, 'Deeds Office Lodgement',     true,  true,  'date_input',              'after_step',  'Rates Clearance',             7,  10, 5,  2,  null,        null,        null,                 false],
-                    [16, 'Registration',               true,  true,  'date_input',              'after_step',  'Deeds Office Lodgement',      15, 10, 5,  2,  'completed', null,        null,                 false],
+                    [1,  'OTP Signed',                  true,  true,  'date_input',            'on_creation', null,                          0,  14, 7,  3,  null,        'cancelled', 'OTP Rejected',       false],
+                    [2,  'Linked Property Sold',        true,  true,  'auto_from_linked_deal', 'manual',      null,                          0,  14, 7,  3,  null,        'cancelled', 'Linked Sale Failed', false],
+                    [3,  'Deposit Paid',                true,  false, 'amount_input',          'after_step',  'OTP Signed',                  3,  10, 5,  2,  null,        null,        null,                 false],
+                    [4,  'Bond Application Submitted',  false, false, 'date_input',            'after_step',  'Linked Property Sold',        3,  10, 5,  2,  null,        null,        null,                 false],
+                    [5,  'Bond Approved',               true,  true,  'date_input',            'after_step',  'Bond Application Submitted',  21, 15, 7,  3,  'granted',   'declined',  'Bond Declined',      false],
+                    [6,  'Attorneys Instructed',        false, false, 'text_input',            'after_step',  'Bond Approved',               3,  10, 5,  2,  null,        null,        null,                 false],
+                    [7,  'Bond Cancellation Figures',   false, false, 'text_input',            'after_step',  'Attorneys Instructed',        5,  10, 5,  2,  null,        null,        null,                 false],
+                    [8,  'FICA Completed (Buyer)',      true,  false, 'document_upload',       'after_step',  'Attorneys Instructed',        7,  10, 5,  2,  null,        null,        null,                 false],
+                    [9,  'FICA Completed (Seller)',     true,  false, 'document_upload',       'after_step',  'Attorneys Instructed',        7,  10, 5,  2,  null,        null,        null,                 false],
+                    [10, 'Guarantees Issued',           true,  false, 'text_input',            'after_step',  'Bond Approved',               10, 14, 7,  3,  null,        null,        null,                 false],
+                    [11, 'Electrical COC',              true,  false, 'document_upload',       'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,                 false],
+                    [12, 'Beetle Certificate',          true,  false, 'document_upload',       'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,                 false],
+                    [13, 'Gas COC',                     false, false, 'document_upload',       'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,                 false],
+                    [14, 'Electric Fence COC',          false, false, 'document_upload',       'after_step',  'Attorneys Instructed',        14, 14, 7,  3,  null,        null,        null,                 false],
+                    [15, 'Rates Clearance',             true,  false, 'document_upload',       'after_step',  'Attorneys Instructed',        21, 21, 10, 5,  null,        null,        null,                 false],
+                    [16, 'Levy / HOA Consent',          false, false, 'document_upload',       'after_step',  'Attorneys Instructed',        21, 21, 10, 5,  null,        null,        null,                 false],
+                    [17, 'Documents Signed',            true,  false, 'document_signed',       'after_step',  'Guarantees Issued',           3,  10, 5,  2,  null,        null,        null,                 false],
+                    [18, 'Transfer Duty / SARS Receipt',true,  false, 'document_upload',       'after_step',  'Documents Signed',            7,  10, 5,  2,  null,        null,        null,                 false],
+                    [19, 'Deeds Office Lodgement',      true,  true,  'date_input',            'after_step',  'Rates Clearance',             5,  10, 5,  2,  null,        null,        null,                 false],
+                    [20, 'Registration',                true,  true,  'date_input',            'after_step',  'Deeds Office Lodgement',      10, 10, 5,  2,  'completed', null,        null,                 false],
+                ],
+                'suspensive' => ['Bond Approved', 'Deposit Paid'],
+                'dependencies' => [
+                    'Documents Signed'       => ['FICA Completed (Buyer)', 'FICA Completed (Seller)'],
+                    'Deeds Office Lodgement' => ['Documents Signed', 'Electrical COC', 'Beetle Certificate', 'Guarantees Issued', 'Transfer Duty / SARS Receipt'],
                 ],
             ],
         ];

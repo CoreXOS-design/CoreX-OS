@@ -161,7 +161,7 @@ class DealSyncService
             return 'completed';
         }
         if ($v1->accepted_status === 'D') {
-            return 'cancelled';
+            return 'declined'; // WS-V2 — DR1 'D' ↔ DR2 'declined' (distinct terminal state)
         }
         if (! empty($v1->granted_at) || $v1->accepted_status === 'G') {
             return 'granted';
@@ -175,7 +175,8 @@ class DealSyncService
         return match ($v2->status) {
             'completed' => ['R', $v2->actual_registration?->toDateString() ?? now()->toDateString(), $v1->granted_at ?? now()],
             'granted'   => ['G', null, $v1->granted_at ?? now()],
-            'cancelled' => ['D', null, null],
+            'declined'  => ['D', null, null], // WS-V2 — suspensive condition failed
+            'cancelled' => ['D', null, null], // withdrawn/cancelled → DR1 has only 'D' for not-proceeding
             default     => ['P', null, null], // active + on_hold (DR1 has no on_hold → pending)
         };
     }

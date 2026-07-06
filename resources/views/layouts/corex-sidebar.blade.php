@@ -1010,6 +1010,9 @@
                 @permission('access_clause_library')
                 <a href="{{ route('docuperfect.clauses.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
                 @endpermission
+                @permission('esign.compiler.view')
+                <a href="{{ route('docuperfect.compiler.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.compiler.*') ? 'active' : '' }}">Compile Studio</a>
+                @endpermission
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
@@ -1504,7 +1507,7 @@
 
 
         {{-- Deals (slide-panel group) --}}
-        @if($user && $user->hasAnyPermission(['access_deal_register_v2', 'deals_v2.create', 'deals_v2.manage_pipeline']))
+        @if($user && $user->hasAnyPermission(['access_deal_register_v2', 'deals_v2.create', 'deals_v2.capture_own', 'deals_v2.manage_pipeline']))
         <div>
             <button type="button" @click="push('deals-v2')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deals-v2' ? 'active' : '' }}">
@@ -1522,11 +1525,11 @@
                 </button>
                 <div class="corex-nav-panel-title">Deals</div>
 
-                @permission('deals_v2.create')
+                @if($user && $user->hasAnyPermission(['deals_v2.create', 'deals_v2.capture_own']))
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.create'))
                 <a href="{{ route('deals-v2.create') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.create') ? 'active' : '' }}">New Deal</a>
                 @endif
-                @endpermission
+                @endif
 
                 @permission('access_deal_register_v2')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.index'))

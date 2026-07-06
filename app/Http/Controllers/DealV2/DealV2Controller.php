@@ -185,9 +185,15 @@ class DealV2Controller extends Controller
         return $this->buildCreateView('deals-v2.create');
     }
 
+    /** WS-V3 (Ruling b): capture is allowed for full-capture (create) OR agent own-capture. */
+    private function canCapture(?\App\Models\User $user): bool
+    {
+        return (bool) ($user?->hasPermission('deals_v2.create') || $user?->hasPermission('deals_v2.capture_own'));
+    }
+
     private function buildCreateView(string $view)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
+        abort_unless($this->canCapture(auth()->user()), 403);
 
         $templates = DealPipelineTemplate::active()
             ->with('steps')
@@ -235,7 +241,7 @@ class DealV2Controller extends Controller
 
     public function store(Request $request)
     {
-        abort_unless(auth()->user()?->hasPermission('deals_v2.create'), 403);
+        abort_unless($this->canCapture(auth()->user()), 403);
 
         $data = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
@@ -299,6 +305,24 @@ class DealV2Controller extends Controller
             $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->id();
         }
 
+        // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may
+        // capture only a deal they are on — clampScope discipline. Full-capture
+        // holders (BM/admin) are unrestricted.
+        $actor = auth()->user();
+        if (! $actor->hasPermission('deals_v2.create') && $actor->hasPermission('deals_v2.capture_own')) {
+            $onDeal = collect($data['agents'] ?? [])->pluck('user_id')
+                ->push($data['listing_agent_id'] ?? null)
+                ->push($data['selling_agent_id'] ?? null)
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->contains((int) $actor->id);
+            if (! $onDeal) {
+                return back()->withInput()->withErrors(
+                    'You can only capture a deal you are an agent on. Add yourself to the listing or selling side.'
+                );
+            }
+        }
+
         // Validate splits total 100
         $listingSplit = (float) ($data['listing_split_percent'] ?? 50);
         $sellingSplit = (float) ($data['selling_split_percent'] ?? 50);
@@ -330,7 +354,11 @@ class DealV2Controller extends Controller
             'stepInstances' => fn ($q) => $q->orderBy('position'),
             'stepInstances.documents',
             'stepInstances.completedBy',
+            'stepInstances.triggerStepInstance', // WS-V1 blocked-state label
+            'stepInstances.dependencies',        // WS-V1 AND-gate blockers
+            'stageMoves' => fn ($q) => $q->with('triggerStep')->latest('id'), // WS-V2 prompt/undo
             'activityLog' => fn ($q) => $q->with('user')->latest()->take(50),
+            'remarks' => fn ($q) => $q->with('author')->latest(), // WS-V6 feedback thread
             'pipelineTemplate',
             'listingAgent',
             'sellingAgent',
@@ -345,6 +373,11 @@ class DealV2Controller extends Controller
         $canOverrideDates = $user->hasPermission('deals_v2.override_dates');
         $canDistribute = $user->hasPermission('deals_v2.distribute_documents');
 
+        // WS-V6 — remark thread. Anyone who can see this deal within their scope
+        // may remark; a branch/all-scope user (BM/admin) may moderate any remark.
+        $canRemark = DealV2::query()->whereKey($deal->id)->visibleTo($user)->exists();
+        $canModerateRemarks = in_array(PermissionService::getDataScope($user, 'deals_v2'), ['branch', 'all'], true);
+
         // Doc-type picker + "satisfies which step" picker for the upload-onto-deal form.
         $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
             ->orderBy('sort_order')->get(['id', 'label']);
@@ -354,7 +387,8 @@ class DealV2Controller extends Controller
             ->values();
 
         return view('deals-v2.show', compact(
-            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'canDistribute', 'documentTypes', 'documentSteps'
+            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'canDistribute', 'documentTypes', 'documentSteps',
+            'canRemark', 'canModerateRemarks'
         ));
     }
 

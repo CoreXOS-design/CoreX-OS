@@ -288,6 +288,19 @@ class PropertyController extends Controller
             );
         }
 
+        // AT-188 — the current agent's own unpublished drafts, newest first.
+        // Drives the "Drafts" control next to "New Property": hidden when there
+        // are none, a direct continue-link when there is exactly one, and a
+        // pick-list popup (title + suburb + age) when there are several — so a
+        // fresh "New Property" click never silently reopens an old draft.
+        $myDrafts = Property::query()
+            ->where('agent_id', $user->id)
+            ->where('status', 'draft')
+            ->whereNull('published_at')
+            ->latest('updated_at')
+            ->limit(20)
+            ->get(['id', 'title', 'suburb', 'updated_at']);
+
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();
 
@@ -318,7 +331,8 @@ class PropertyController extends Controller
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
-            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode'
+            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
+            'myDrafts'
         ));
     }
 

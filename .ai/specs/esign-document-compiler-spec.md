@@ -1,6 +1,6 @@
 # E-Sign Document Compiler — Build Spec
 
-> **Status:** DRAFT for Johan's approval (AT-177). Foundation-first programme; launches the three-lane campaign.
+> **Status:** APPROVED — §12 decisions RULED 2026-07-05 (conductor authority, Johan-delegated). Foundation-first programme; three-lane campaign OPEN. WS0 (this lane) + WS1 (cc3) building; WS2 joins on cc1 clearing DR2.
 > **Supersedes at completion:** the runtime half of `esign-v3-complete-spec.md` (the compile model becomes canonical; that spec's snapshot/merge runtime is retired per §9).
 > **Author:** CC1, synthesizing (a) the conductor's design and (b) the as-built e-sign recon (AT-158 thread + the 2026-05 e-sign audits).
 > **Pillars:** Document (primary) · Deal · Contact · Agent. Cross-pillar reactivity via the domain-events catalogue (NN#9).
@@ -233,12 +233,19 @@ Each WS: one concern, its own gate, its own tests, sized so three lanes run WS0�
 
 ---
 
-## 12. Open decisions for Johan (before WS0)
+## 12. Decisions — RULED (2026-07-05, conductor authority, Johan-delegated)
 
-1. **Data Dictionary storage** — DB table (agency-overridable entries) vs config + migration backfill? (Recommend DB, versioned, with a CoreX-standard seed.)
-2. **CDS storage** — one `compiled_templates` table with a JSON `structure` column + hash, or normalized block/field tables? (Recommend JSON structure + hash for immutability + a thin index table for querying bindings.)
-3. **PDF engine parity** — confirm the PDF renderer (dompdf / Puppeteer) that can meet L6 parity with the web render; this constrains WS2.
-4. **Lane assignment + sequencing** — confirm WS0/WS1/WS2 as the three parallel opening lanes.
+All four opening decisions are **RULED**. WS0 builds to these; WS1/WS2 code against the contract they establish.
+
+1. **Data Dictionary storage — RULED: DB.** The dictionary is **versioned DB table(s)**, with **agency-overridable** entries, shipped with the **CoreX-standard SA real-estate seed** (ZAR money, SA-ID checksum, erf/title-deed, PPRA number, dates, party fields). **Not config files.** A compiled template pins the dictionary *version* it bound against (§2.1), so a later dictionary change can never silently alter a published template's meaning.
+
+2. **CDS storage — RULED: `compiled_templates` table, immutable JSON structure + content hash per published version.** One `compiled_templates` table carries an **immutable JSON `structure` column** plus a **`content_hash`** per published version. **Published rows are NEVER updated — only superseded by a new version row** (NN#1 no hard deletes; supersede, never mutate). A **thin index table** (`compiled_template_field_bindings`) mirrors each version's field→dictionary bindings for querying, but is derived/rebuildable and is never the source of truth. **Immutability is the point:** signing requests pin `(template_id, version, content_hash)` (§5), so the freshness class is unrepresentable.
+
+3. **PDF parity engine — RULED: Puppeteer / headless-Chromium.** The PDF side of the L6 web↔PDF parity diff is **printed by the same engine that renders the web view** (headless Chromium — already on this box from the QA proofs), wrapped as an **internal render service**. **dompdf remains untouched** for legacy packs elsewhere; **no migration of existing features.** This is the single-renderer guarantee behind L6 — web and PDF cannot diverge because one engine prints both.
+
+4. **Formation — RULED: two parallel lanes open now, third joins later.** This lane (**WS0 — Foundation & CDS v2 schema + Data Dictionary**) and cc3 (**WS1 — Linter gate engine**) open simultaneously tonight. The **third lane joins when the DR2 gap-build clears cc1**, taking **WS2 — Render-only runtime**. WS0 therefore ships the **CDS DTO contract first** (typed PHP value objects the linter and renderer both code against) so WS1 is unblocked without waiting on the full schema+seed.
+
+*Original open-decision text retained in git history at the pre-ruling revision.*
 
 ---
 

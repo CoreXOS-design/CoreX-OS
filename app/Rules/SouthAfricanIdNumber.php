@@ -51,6 +51,25 @@ final class SouthAfricanIdNumber implements ValidationRule
         }
     }
 
+    /**
+     * Reusable predicate: is this a structurally valid SA ID (13 digits + valid DOB + Luhn)?
+     *
+     * Null/empty returns false (callers that treat the field as optional guard emptiness
+     * themselves). Whitespace is stripped. Shares the exact date + Luhn logic used by
+     * {@see validate()} — one checksum implementation, many call-sites (AT-177 reuse).
+     */
+    public static function isValid(?string $value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+        $id = preg_replace('/\s+/', '', (string) $value);
+
+        return preg_match('/^\d{13}$/', $id) === 1
+            && self::dateValid($id)
+            && self::luhnValid($id);
+    }
+
     /** Compute the date-of-birth from a 13-digit ID. Returns 'YYYY-MM-DD' or null. */
     public static function dateOfBirth(string $id): ?string
     {

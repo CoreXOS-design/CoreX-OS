@@ -84,10 +84,16 @@ class CalendarLayers
         return $active;
     }
 
+    /** Sanitise a layer set to known keys WITHOUT persisting (used by the explicit-save path). */
+    public static function clean(array $layers): array
+    {
+        return array_values(array_intersect(array_map('strval', $layers), self::allKeys()));
+    }
+
     /** Persist a user's active layer set (sanitised). Returns the stored set. */
     public static function save(User $user, array $layers): array
     {
-        $clean = array_values(array_intersect(array_map('strval', $layers), self::allKeys()));
+        $clean = self::clean($layers);
         $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
         $pref->calendar_layers = $clean;
         $pref->save();

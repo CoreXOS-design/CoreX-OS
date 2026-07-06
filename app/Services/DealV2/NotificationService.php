@@ -176,6 +176,61 @@ class NotificationService
         );
     }
 
+    /**
+     * WS-V2 — a deal advanced a stage (auto-move or a confirmed prompt, or an
+     * undo). Tell the responsible agent(s) + branch manager(s). Point-in-time
+     * event → notify once at emission (no sweep, so no idempotency log needed).
+     */
+    public function notifyStageAdvanced(DealV2 $deal, string $from, string $to, ?DealStepInstance $trigger): void
+    {
+        $title = "Deal {$this->dealRef($deal)} → " . ucfirst($to);
+        $body  = "{$this->dealRef($deal)} moved from \"{$from}\" to \"{$to}\""
+            . ($trigger ? " (via \"{$trigger->name}\")." : '.');
+        $this->notifyStageParties($deal, $trigger, 'stage', $title, $body,
+            $to === 'declined' ? 'overdue' : 'info');
+    }
+
+    /**
+     * WS-V2 (prompt mode) — all conditions met; a one-click confirmation is
+     * waiting. Nudge the agent + BM to confirm the move.
+     */
+    public function notifyStagePrompt(DealV2 $deal, string $from, string $to, ?DealStepInstance $trigger): void
+    {
+        $title = "Ready to move: {$this->dealRef($deal)} → " . ucfirst($to);
+        $body  = "All conditions are met on {$this->dealRef($deal)} — confirm the move to \"{$to}\".";
+        $this->notifyStageParties($deal, $trigger, 'stage_prompt', $title, $body, 'warning');
+    }
+
+    /** Notify agent(s) + BM(s) of a stage event once, plus a deal-timeline entry. */
+    private function notifyStageParties(
+        DealV2 $deal, ?DealStepInstance $trigger, string $kind, string $title, string $body, string $severity
+    ): void {
+        $recipients = $this->responsibleAgents($deal)
+            ->merge($this->branchManagers($deal))
+            ->filter()
+            ->unique('id');
+
+        if ($trigger) {
+            foreach ($recipients as $user) {
+                $emailAllowed = $this->emailAllowedFor($user);
+                $user->notify(new DealStepAlertNotification(
+                    step: $trigger, kind: $kind, title: $title, body: $body,
+                    severity: $severity, allowEmail: $emailAllowed,
+                ));
+            }
+        }
+
+        // Deal-timeline evidence (visible even when there's no step to hang a bell on).
+        DealActivityLog::create([
+            'agency_id'             => $deal->agency_id,
+            'deal_id'               => $deal->id,
+            'deal_step_instance_id' => $trigger?->id,
+            'user_id'               => null,
+            'action'                => 'notification',
+            'description'           => $title,
+        ]);
+    }
+
     // ---- Firing + idempotency ---------------------------------------------
 
     /**

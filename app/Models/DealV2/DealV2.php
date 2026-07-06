@@ -155,6 +155,34 @@ class DealV2 extends Model
         return $this->hasMany(DealActivityLog::class, 'deal_id')->orderBy('created_at', 'desc');
     }
 
+    /** AT-158 WS-V2 — stage advances (auto/prompt/undo) — the undo + audit spine. */
+    public function stageMoves(): HasMany
+    {
+        return $this->hasMany(DealStageMove::class, 'deal_id')->orderBy('created_at', 'desc');
+    }
+
+    /** AT-158 WS-V6 — free-form remarks (the DR1 addRemark analogue). */
+    public function remarks(): HasMany
+    {
+        return $this->hasMany(DealRemark::class, 'deal_id')->orderBy('created_at', 'desc');
+    }
+
+    /** The single pending stage-prompt awaiting confirm (prompt mode), if any. */
+    public function pendingStageMove()
+    {
+        return $this->stageMoves()->where('state', 'pending')->latest('id')->first();
+    }
+
+    /** The most recent applied/confirmed move that can still be undone, if any. */
+    public function undoableStageMove()
+    {
+        return $this->stageMoves()
+            ->whereIn('state', ['applied', 'confirmed'])
+            ->whereNull('undone_at')
+            ->latest('id')
+            ->first();
+    }
+
     /**
      * AT-158 WS3 (D4) — unified documents anchored directly to this deal
      * (upload-onto-deal, PDF-splitter deal target, e-sign auto-file). This is

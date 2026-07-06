@@ -262,12 +262,12 @@ signing pipeline:
 
   - `app/Models/Docuperfect/Template.php`
   - `app/Models/Docuperfect/CdsDraft.php`
-  - `app/Services/Docuperfect/SurfaceNormalizer.php`
   - `app/Services/Docuperfect/SignatureSurfaceNormalizer.php`
   - `app/Services/Docuperfect/LetterheadRefresher.php`
   - `app/Services/Docuperfect/InsertableBlockRenderer.php`
   - `app/Services/Docuperfect/RoleBlockDetectionService.php`
   - `app/Services/Docuperfect/RoleBlockExpansionService.php`
+  - `app/Services/Docuperfect/RoleBlockNormalizer.php`
   - `app/Services/Docuperfect/MergedHtmlFreshnessGuard.php`
   - `app/Http/Controllers/Docuperfect/SigningController.php`
 

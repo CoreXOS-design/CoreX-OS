@@ -679,10 +679,10 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::get('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'plan'])->name('deals-v2.distribute.plan')->middleware('permission:deals_v2.distribute_documents');
     Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
     Route::post('/distributions/{distribution}/revoke', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'revoke'])->name('deals-v2.distributions.revoke')->middleware('permission:deals_v2.distribute_documents');
-    Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
+    Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create,deals_v2.capture_own');
     // AT-158 WS-R2 — optional step wizard (same shared store() write-path)
-    Route::get('/create-wizard', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'createWizard'])->name('deals-v2.create-wizard')->middleware('permission:deals_v2.create');
-    Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
+    Route::get('/create-wizard', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'createWizard'])->name('deals-v2.create-wizard')->middleware('permission:deals_v2.create,deals_v2.capture_own');
+    Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create,deals_v2.capture_own');
     Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
     Route::get('/search/contacts', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchContacts'])->name('deals-v2.search.contacts');
     Route::get('/search/deals', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchDeals'])->name('deals-v2.search.deals');
@@ -698,6 +698,15 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::post('/steps/{step}/reject', [\App\Http\Controllers\DealV2\DealStepController::class, 'reject'])->name('deals-v2.steps.reject');
     Route::post('/steps/{step}/upload', [\App\Http\Controllers\DealV2\DealStepController::class, 'uploadDocument'])->name('deals-v2.steps.upload')->middleware('permission:deals_v2.edit');
     Route::post('/steps/{step}/override-date', [\App\Http\Controllers\DealV2\DealStepController::class, 'overrideDueDate'])->name('deals-v2.steps.override-date')->middleware('permission:deals_v2.override_dates');
+
+    // Deal remarks (WS-V6) — free-form feedback thread, scope-gated, soft-delete only
+    Route::post('/{deal}/remarks', [\App\Http\Controllers\DealV2\DealRemarkController::class, 'store'])->name('deals-v2.remarks.store')->middleware('permission:access_deal_register_v2');
+    Route::delete('/remarks/{remark}', [\App\Http\Controllers\DealV2\DealRemarkController::class, 'destroy'])->name('deals-v2.remarks.destroy')->middleware('permission:access_deal_register_v2');
+
+    // Stage gate (WS-V2) — confirm a prompt-mode move, undo an applied move, dismiss a prompt
+    Route::post('/stage-moves/{move}/confirm', [\App\Http\Controllers\DealV2\DealStageController::class, 'confirm'])->name('deals-v2.stage.confirm')->middleware('permission:deals_v2.edit');
+    Route::post('/stage-moves/{move}/undo', [\App\Http\Controllers\DealV2\DealStageController::class, 'undo'])->name('deals-v2.stage.undo')->middleware('permission:deals_v2.edit');
+    Route::post('/stage-moves/{move}/dismiss', [\App\Http\Controllers\DealV2\DealStageController::class, 'dismiss'])->name('deals-v2.stage.dismiss')->middleware('permission:deals_v2.edit');
 
     // Settlement
     Route::get('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'settle'])->name('deals-v2.settlement.index')->middleware('permission:deals_v2.edit');
@@ -1321,6 +1330,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
         Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');
         Route::post('/calendar/deck/reset', [CommandCenterCalendarController::class, 'resetDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.reset');
+        // AT-164 explicit-save — build ONE tile without persisting (in-session deck add)
+        Route::get('/calendar/tile/{tileId}', [CommandCenterCalendarController::class, 'tile'])->middleware('permission:command_center.calendar.view')->where('tileId', '[A-Za-z0-9_\-]+')->name('command-center.calendar.tile');
 
         // AT-164 Gate 6 — persist the user's active layer toggles
         Route::post('/calendar/layers', [CommandCenterCalendarController::class, 'saveLayers'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.layers.save');
@@ -3032,6 +3043,30 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::post('/{presentation}/restore', [\App\Http\Controllers\Presentation\PresentationController::class, 'restore'])
         ->name('restore')->withTrashed();
 });
+
+// ===== E-SIGN COMPILE STUDIO (AT-177 WS4-S) — internal tool, esign.compiler.* gated =====
+Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view'])
+    ->name('docuperfect.compiler.')->group(function () {
+        $c = \App\Http\Controllers\Docuperfect\Compiler\CompileStudioController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::get('/studio/{id}', [$c, 'studio'])->whereNumber('id')->name('studio');
+
+        Route::middleware('permission:esign.compiler.compile')->group(function () use ($c) {
+            Route::post('/start', [$c, 'start'])->name('start');
+            Route::post('/studio/{id}/bind-field', [$c, 'bindField'])->whereNumber('id')->name('bindField');
+            Route::post('/studio/{id}/structure', [$c, 'updateStructure'])->whereNumber('id')->name('updateStructure');
+            Route::post('/studio/{id}/party', [$c, 'declareParty'])->whereNumber('id')->name('declareParty');
+            Route::post('/studio/{id}/visibility', [$c, 'setVisibility'])->whereNumber('id')->name('setVisibility');
+            Route::post('/studio/{id}/editability', [$c, 'setEditability'])->whereNumber('id')->name('setEditability');
+            Route::post('/studio/{id}/suggest', [$c, 'suggest'])->whereNumber('id')->name('suggest');
+            Route::post('/studio/{id}/lint', [$c, 'lint'])->whereNumber('id')->name('lint');
+            Route::post('/studio/{id}/certify', [$c, 'certify'])->whereNumber('id')->name('certify');
+            Route::post('/studio/{id}/archive', [$c, 'archive'])->whereNumber('id')->name('archive');
+        });
+
+        Route::post('/studio/{id}/publish', [$c, 'publish'])->whereNumber('id')
+            ->middleware('permission:esign.compiler.publish')->name('publish');
+    });
 
 // ===== DOCUPERFECT =====
 Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect'])->group(function () {
