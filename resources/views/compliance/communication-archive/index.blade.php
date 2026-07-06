@@ -85,7 +85,7 @@
                             @if($c->thread_key)
                             <a href="{{ route('compliance.comm-archive.thread', $c->thread_key) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Thread</a>
                             @endif
-                            <a href="{{ route('compliance.comm-archive.show', $c) }}" class="text-xs font-semibold ml-2" style="color: var(--text-muted);">Open</a>
+                            <a href="{{ route('compliance.comm-archive.show', $c) }}" class="text-xs font-semibold ml-2" style="color: var(--brand-icon);">Open</a>
                         </td>
                     </tr>
                     @empty
