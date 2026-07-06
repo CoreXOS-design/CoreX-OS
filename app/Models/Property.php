@@ -1176,6 +1176,24 @@ class Property extends Model
     }
 
     /**
+     * Map one of this property's full-resolution image URLs to the small web
+     * thumbnail used by LIST surfaces (grid/table cards, match tiles, contact
+     * property lists). Falls back to the original URL whenever a thumbnail
+     * hasn't been generated yet, so nothing breaks before/during a backfill.
+     * The property page, brochures and portal feeds keep using the full image.
+     *
+     * @see \App\Services\Images\PropertyThumbnailService
+     */
+    public function thumbFor(?string $imageUrl): ?string
+    {
+        if ($imageUrl === null || $imageUrl === '') {
+            return $imageUrl;
+        }
+
+        return app(\App\Services\Images\PropertyThumbnailService::class)->displayUrl($imageUrl);
+    }
+
+    /**
      * The exact image set the agent sees in the property gallery UI
      * (`gallery_images_json` — the tag-based gallery on the property page).
      * This is the single source of truth for outbound syndication photos:
