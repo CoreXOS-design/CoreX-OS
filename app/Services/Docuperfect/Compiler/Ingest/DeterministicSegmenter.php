@@ -186,10 +186,13 @@ final class DeterministicSegmenter implements SegmentationService
             }
         }
 
-        // (c) Underscore fill-runs in text ("Name: ____").
-        $underscoreRuns = preg_match_all('/_{3,}/', $this->textOf($el));
-        for ($i = 0; $i < $underscoreRuns; $i++) {
-            $fields[] = $this->unboundField(count($fields) + 1, 'Fill-in');
+        // (c) Underscore fill-runs in text ("Purchase Price: ____") — capture the preceding label.
+        if (preg_match_all('/([^_]{0,60}?)_{3,}/u', $this->textOf($el), $matches)) {
+            foreach ($matches[1] as $before) {
+                $words = preg_split('/\s+/', trim((string) $before)) ?: [];
+                $label = trim(implode(' ', array_slice($words, -4)), " :\u{00A0}");
+                $fields[] = $this->unboundField(count($fields) + 1, $label);
+            }
         }
 
         return $fields;
