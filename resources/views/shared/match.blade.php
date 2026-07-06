@@ -200,11 +200,13 @@
             <div class="space-y-3">
                 @foreach($properties as $property)
                 @php
-                    $thumb = $property->gallery_images_json[0]
+                    $thumb = $property->thumbFor(
+                        $property->gallery_images_json[0]
                         ?? $property->dawn_images_json[0]
                         ?? $property->noon_images_json[0]
                         ?? $property->dusk_images_json[0]
-                        ?? null;
+                        ?? null
+                    );
                     $reaction = $feedback[$property->id]->reaction ?? null;
                     $score = (int) ($property->match_score ?? 0);
                     $scoreVariant = $score >= 80 ? 'ds-badge-success' : ($score >= 60 ? 'ds-badge-info' : 'ds-badge-warning');

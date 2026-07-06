@@ -189,9 +189,12 @@ class PropertyWizardController extends Controller
         ]);
 
         $newUrls = [];
+        $thumbs  = app(\App\Services\Images\PropertyThumbnailService::class);
         foreach ($request->file('gallery_images', []) as $file) {
             $path      = $file->store("properties/{$property->id}", 'public');
-            $newUrls[] = Storage::url($path);
+            $url       = Storage::url($path);
+            $thumbs->generateForUrl($url);   // list-view thumbnail; original untouched
+            $newUrls[] = $url;
         }
 
         $existing = $property->gallery_images_json ?? [];

@@ -34,7 +34,14 @@ class PropertyImageStorer
         $path = $file->store("properties/{$propertyId}", 'public');
         $this->downscale($path);
 
-        return Storage::url($path);
+        $url = Storage::url($path);
+
+        // Generate the small list-view thumbnail up front so the Properties
+        // grid/table never serves the full-resolution original. Best-effort:
+        // if it fails, list views fall back to the original (nothing breaks).
+        app(PropertyThumbnailService::class)->generateForUrl($url);
+
+        return $url;
     }
 
     /**
