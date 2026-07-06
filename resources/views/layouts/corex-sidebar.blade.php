@@ -708,6 +708,28 @@
                      (blade-only deploy safe). Every item keeps its existing gate. --}}
                 @php $navSection = 'padding:10px 16px 4px; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);'; @endphp
 
+                {{-- ── Capture — what gets imported (AT-195 findability hotfix) ──
+                     Johan: "cannot find the screen where I mark to import or not for
+                     emails and whatsapps." These ARE those screens — they already existed
+                     but were scattered under WhatsApp/Email with consent-framed labels.
+                     Consolidated here, first, with plain labels. Gates unchanged per page. --}}
+                @php $canCapture = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review') || $u->hasPermission('manage_communication_mailboxes'); @endphp
+                @if($canCapture)
+                <div style="{{ $navSection }}">Capture — what gets imported</div>
+                @permission('access_communication')
+                {{-- AT-136 — per-agent WhatsApp capture: which contacts' WhatsApp you archive. --}}
+                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Capture</a>
+                @endpermission
+                @permission('communications.capture_review')
+                {{-- AT-136 — BM/admin review of agents' capture decisions (declaration, never content). --}}
+                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Review</a>
+                @endpermission
+                @permission('manage_communication_mailboxes')
+                {{-- Email is mailbox-level (no per-contact choice): which mailboxes are imported. --}}
+                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}">Email Mailboxes (import)</a>
+                @endpermission
+                @endif
+
                 {{-- ── Archive & Review ── --}}
                 <div style="{{ $navSection }}">Archive &amp; Review</div>
                 @permission('access_communication_archive')
@@ -731,23 +753,16 @@
                 @permission('access_communication')
                 {{-- AT-156 — self-link QR lives on My Portal → Tools; deep-link to that tab. --}}
                 <a href="{{ route('agent.portal') }}#tools" class="corex-nav-subitem">Link My WhatsApp</a>
-                {{-- AT-136 — per-agent WhatsApp capture consent (which contacts I archive). --}}
-                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My Capture Consent</a>
-                @endpermission
-                {{-- AT-136 — admin/CO review of capture consent decisions (declaration, never content). --}}
-                @permission('communications.capture_review')
-                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Consent (Team)</a>
-                @endpermission
-                @permission('access_communication')
+                {{-- Capture decisions (My WhatsApp Capture / Capture Review) moved up to the
+                     Capture section (AT-195). This section is the WhatsApp CONNECTION setup. --}}
                 <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture (Browser Extension)</a>
                 @endpermission
                 @endif
 
-                {{-- ── Email ── --}}
+                {{-- ── Email ── (mailbox IMPORT toggle lives in the Capture section above) --}}
                 @permission('manage_communication_mailboxes')
                 <div style="{{ $navSection }}">Email</div>
                 <a href="{{ route('settings.email-setup.index') }}" class="corex-nav-subitem {{ request()->routeIs('settings.email-setup.*') ? 'active' : '' }}">Email Capture Setup</a>
-                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}">Archive Mailboxes</a>
                 @endpermission
 
                 {{-- ── Personal setup ── --}}
