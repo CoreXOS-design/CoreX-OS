@@ -252,6 +252,32 @@ copy. Batch capped at 50 properties.
 
 ---
 
+## 10e. Same-origin image resolution (html2canvas + cross-host storage)
+
+The PNG is rasterised by **html2canvas, which can only read SAME-ORIGIN images** —
+a cross-origin `<img>` displays but exports **blank**. `Property::adSafeImageUrl()` is
+the single resolver every ad surface uses (generator `image_1..5` + logo, the
+gallery picker, the bulk manager, the builder preview). It resolves in three tiers:
+
+1. **File is on this host** (`public/storage/…` exists) → **host-relative `/storage/…`**
+   (direct from the web server, same-origin, fastest). This is the normal prod path.
+2. **File is on another of our hosts** (e.g. **Staging referencing live-hosted photos**,
+   stored as absolute `https://corexos.co.za/storage/…` URLs) → route through the
+   **same-origin proxy** `GET corex.properties.ad-media?u=<url>` (root-relative, so
+   same-origin on any host). The proxy streams the local file when present, else
+   fetches the bytes server-side and streams them — so the image **both displays and
+   captures**. SSRF-safe: host allow-list (our storage domains only) + behind auth +
+   `access_properties`; strong `Cache-Control`, no server-side blob cache.
+3. **Genuinely external** (not `/storage/`) → left absolute (nothing we can re-home).
+
+Why: without this, an environment that references images whose files it does not host
+either 404s them (host-relative) or exports blank PNGs (cross-origin absolute). The
+proxy makes every host correct. Handler: `PropertyController@adMedia`; its route is
+declared **before** the `/{property}` catch-all so `ad-media` isn't matched as a
+property slug.
+
+---
+
 ## 10c. Printable Brochure (always-first · always-A4 · true PDF)
 
 A special pre-built template that is **always first** in every picker and **always

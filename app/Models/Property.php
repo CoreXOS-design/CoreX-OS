@@ -1391,6 +1391,16 @@ class Property extends Model
      * current origin whichever of our domains the user is on → same-origin →
      * html2canvas reads it. Genuinely external images (not under /storage/) are
      * left absolute (nothing we can re-home).
+     *
+     * BUT re-homing is only safe when THIS host actually serves the file. On a
+     * working-copy environment (e.g. Staging referencing images whose files live
+     * on the live host) a host-relative "/storage/…" would 404 — the photos
+     * vanish from every ad template while the brochure (absolute URL) still
+     * loads. So we re-home ONLY when the file physically exists under this host's
+     * public/storage; otherwise we keep the absolute URL so the image still
+     * displays (accepting that a cross-origin html2canvas export may drop it —
+     * showing the photo beats hiding it, and real exports run on the host that
+     * owns the files, where re-homing still applies).
      */
     public static function adSafeImageUrl(?string $u): ?string
     {
@@ -1402,7 +1412,18 @@ class Property extends Model
         $path = parse_url($u, PHP_URL_PATH) ?: '';
         $pos  = strpos($path, '/storage/');
         if ($pos !== false) {
-            return substr($path, $pos); // host-relative "/storage/…"
+            $rel = substr($path, $pos); // "/storage/…"
+            // Fast path: the file IS on this host → serve it host-relative
+            // (same-origin, direct from the web server, html2canvas-safe).
+            if (is_file(public_path(ltrim($rel, '/')))) {
+                return $rel;
+            }
+            // The file lives on ANOTHER of our hosts (e.g. Staging referencing
+            // live-hosted images). A host-relative path would 404 and an absolute
+            // cross-origin URL exports BLANK from html2canvas. Route it through
+            // the same-origin ad-media proxy so it both displays AND captures.
+            // `absolute:false` → root-relative, so it's same-origin on any host.
+            return route('corex.properties.ad-media', ['u' => $u], false);
         }
 
         return $u;

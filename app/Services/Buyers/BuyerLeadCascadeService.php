@@ -31,9 +31,10 @@ use App\Models\Property;
  */
 final class BuyerLeadCascadeService
 {
-    public const SOURCE_PORTAL_P24 = 'portal_p24';
-    public const SOURCE_PORTAL_PP  = 'portal_pp';
-    public const SOURCE_MANUAL     = 'manual';
+    public const SOURCE_PORTAL_P24     = 'portal_p24';
+    public const SOURCE_PORTAL_PP      = 'portal_pp';
+    public const SOURCE_PORTAL_WEBSITE = 'portal_website';
+    public const SOURCE_MANUAL         = 'manual';
 
     /**
      * Seed a derived wishlist from the enquired/selected property and let the existing

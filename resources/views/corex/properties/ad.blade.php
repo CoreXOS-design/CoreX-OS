@@ -51,6 +51,13 @@
     @php
         // Single source of truth for the data injected into every template.
         $propertyData = $property->adData();
+        // Full property photo gallery for the "change photo" picker (generator step).
+        // adSafeImageUrl → host-relative "/storage/…" so a swapped image stays
+        // same-origin and html2canvas can still read it into the exported PNG.
+        $galleryImages = array_values(array_filter(array_map(
+            fn ($u) => \App\Models\Property::adSafeImageUrl($u),
+            $property->allImages(),
+        )));
         $img1 = $propertyData['image_1'] ?? null;
         $img2 = $propertyData['image_2'] ?? null;
         $img3 = $propertyData['image_3'] ?? null;
@@ -128,9 +135,36 @@
         .ad-root { position: absolute; inset: 0; font-family: 'Figtree', Arial, sans-serif; }
         .ad-img-fit { width: 100%; height: 100%; object-fit: cover; display: block; }
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
+
+        {{-- ── "Change photo" overlay (generator step) ────────────────────────────
+             These controls live OUTSIDE #ad-canvas (in #ad-img-tools, over the
+             preview area), so html2canvas — which captures only #ad-canvas — can
+             never render them into the downloaded PNG. One region per property
+             image; hovering darkens it and reveals a centred "Change photo" pill,
+             and a small camera badge marks every editable image up-front. --}}
+        #ad-img-tools { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
+        .ad-img-region { position: absolute; pointer-events: auto; cursor: pointer; border-radius: 3px; outline: 2px solid transparent; transition: outline-color .12s; }
+        .ad-img-region:hover { outline-color: var(--brand-button,#00b4d8); }
+        .ad-img-region-veil { position: absolute; inset: 0; background: rgba(4,12,21,0); transition: background .12s; display: flex; align-items: center; justify-content: center; }
+        .ad-img-region:hover .ad-img-region-veil { background: rgba(4,12,21,0.46); }
+        .ad-img-badge { position: absolute; top: 7px; left: 7px; width: 26px; height: 26px; border-radius: 50%; background: var(--brand-button,#00b4d8); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.4); border: 1.5px solid rgba(255,255,255,0.85); }
+        .ad-img-badge svg { width: 14px; height: 14px; }
+        .ad-img-cta { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; font-family: 'Figtree', sans-serif; color: #fff; background: var(--brand-button,#00b4d8); box-shadow: 0 6px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; white-space: nowrap; }
+        .ad-img-region:hover .ad-img-cta { opacity: 1; transform: translateY(0); }
+        .ad-img-cta svg { width: 13px; height: 13px; }
+
+        {{-- Gallery picker modal --}}
+        .ad-modal-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(3,8,14,0.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .ad-modal { background: var(--chrome-surface); border: 1.5px solid var(--chrome-border); border-radius: 16px; width: 100%; max-width: 860px; max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 90px rgba(0,0,0,0.6); }
+        .ad-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+        .ad-gallery-thumb { position: relative; aspect-ratio: 4/3; border-radius: 9px; overflow: hidden; cursor: pointer; border: 2.5px solid transparent; background: var(--chrome-surface-2); transition: border-color .12s, transform .12s; }
+        .ad-gallery-thumb:hover { transform: translateY(-2px); border-color: var(--brand-button,#00b4d8); }
+        .ad-gallery-thumb.current { border-color: var(--brand-button,#00b4d8); }
+        .ad-gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ad-gallery-thumb .ad-current-tag { position: absolute; top: 6px; left: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; background: var(--brand-button,#00b4d8); padding: 3px 7px; border-radius: 5px; }
     </style>
 </head>
-<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }})">
+<body x-data="adApp({{ Js::from($savedTemplates) }}, {{ Js::from($propertyData) }}, {{ Js::from(['listing' => $listingAgentCard, 'co' => $coAgentCard]) }}, {{ Js::from($galleryImages) }})">
 
 {{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
 <header style="background:var(--brand-default,#0b2a4a);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
@@ -378,7 +412,7 @@
     </div>
 
     {{-- Preview — fills remaining height; scales to fit so it never leaves the screen --}}
-    <div id="ad-preview-area" style="flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; padding:24px 20px;">
+    <div id="ad-preview-area" style="position:relative; flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; padding:24px 20px;">
         <div :style="'overflow:hidden;border-radius:4px;box-shadow:0 28px 90px rgba(0,0,0,0.75);flex-shrink:0;width:'+previewW+'px;height:'+previewH+'px;'">
             <div id="ad-scale-wrapper" :style="'transform:scale('+scale+');transform-origin:top left;width:'+cfg.w+'px;height:'+cfg.h+'px;'">
                 <div id="ad-canvas" :style="'width:'+cfg.w+'px;height:'+cfg.h+'px;position:relative;overflow:hidden;font-size:'+cfg.baseFontPx+'px;font-family:Figtree,Arial,sans-serif;background:#071325;'">
@@ -395,11 +429,56 @@
                 </div>
             </div>
         </div>
+
+        {{-- "Change photo" controls — OUTSIDE #ad-canvas so the html2canvas
+             export (which captures only #ad-canvas) can never include them.
+             Populated by mountImageTools(); one region per property image. --}}
+        <div id="ad-img-tools" data-html2canvas-ignore="true"></div>
     </div>
 
 </div>
 
 </div>{{-- /#ad-body --}}
+
+{{-- ═══ GALLERY PICKER MODAL — swap the clicked image for another property photo ═══ --}}
+<div class="ad-modal-overlay" x-show="picker.open" x-cloak @keydown.escape.window="closeImagePicker()" @click.self="closeImagePicker()">
+    <div class="ad-modal" @click.stop>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--chrome-border);flex-shrink:0;">
+            <div>
+                <div style="font-size:15px;font-weight:800;color:var(--chrome-text);">Choose a photo</div>
+                <div style="font-size:12px;color:var(--chrome-text-mute);margin-top:2px;">Pick any of this property's photos to place in the selected slot.</div>
+            </div>
+            <button @click="closeImagePicker()" title="Close" style="flex-shrink:0;width:32px;height:32px;border-radius:8px;border:1.5px solid var(--chrome-border);background:var(--chrome-surface-2);color:var(--chrome-text-soft);font-size:18px;line-height:1;cursor:pointer;font-family:inherit;">&times;</button>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:18px 20px;">
+            <template x-if="galleryImages.length > 0">
+                <div class="ad-gallery-grid">
+                    <template x-for="(url, i) in galleryImages" :key="i">
+                        <div class="ad-gallery-thumb" :class="{ current: url === picker.currentSrc }" @click="chooseImage(url)">
+                            <img :src="url" alt="" loading="lazy">
+                            <span class="ad-current-tag" x-show="url === picker.currentSrc">In use</span>
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <template x-if="galleryImages.length === 0">
+                <div style="text-align:center;color:var(--chrome-text-mute);font-size:13px;padding:40px 0;">
+                    This property has no photos in its gallery yet.
+                </div>
+            </template>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-top:1px solid var(--chrome-border);flex-shrink:0;">
+            <button @click="resetImage()" x-show="picker.canReset" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--chrome-text-soft);background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:8px;padding:7px 13px;cursor:pointer;font-family:inherit;">
+                <svg style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0113.657-3.657L20 8M20 15a8 8 0 01-13.657 3.657L4 16"/></svg>
+                Reset to original
+            </button>
+            <span x-show="!picker.canReset"></span>
+            <button @click="closeImagePicker()" style="font-size:12px;font-weight:600;color:var(--chrome-text-soft);background:none;border:none;cursor:pointer;font-family:inherit;">Cancel</button>
+        </div>
+    </div>
+</div>
 
 <script>
 const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
@@ -417,8 +496,13 @@ const SHAPE_CLIPS = {
     chevron:  'polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%)',
 };
 
-function adApp(savedTemplates, propertyData, agentCfg) {
+function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
     agentCfg = agentCfg || { listing: null, co: null };
+    // Kept OUT of Alpine's reactive object on purpose: a live DOM node (the image
+    // being edited) and the per-custom-element image overrides. Wrapping a DOM
+    // node in Alpine's reactive proxy is a known footgun, so these live in a plain
+    // closure object the methods read/write directly.
+    const priv = { target: null, imgOverrides: {} };
     const platforms = {
         facebook:  { w:1200, h:628,  baseFontPx:16, label:'Facebook'  },
         instagram: { w:1080, h:1080, baseFontPx:28, label:'Instagram' },
@@ -439,6 +523,9 @@ function adApp(savedTemplates, propertyData, agentCfg) {
         platforms,
         savedTemplates: savedTemplates || [],
         propertyData: propertyData || {},
+        // Full property photo gallery + "change photo" picker modal state.
+        galleryImages: galleryImages || [],
+        picker: { open: false, currentSrc: '', canReset: false },
         _customLayout: null,
         // Custom canvas size (the "Custom" size button).
         customW: 1080,
@@ -454,12 +541,18 @@ function adApp(savedTemplates, propertyData, agentCfg) {
         agentMode:    'listing',
 
         init() {
-            const fit = () => { this._vp++; this.fitThumbs(); };
+            const fit = () => { this._vp++; this.fitThumbs(); this.scheduleMountTools(); };
             this.$nextTick(fit);
             window.addEventListener('resize', fit);
             // Refit when returning to the picker or after filtering reflows the grid.
-            this.$watch('step', v => { if (v === 'pick') this.$nextTick(() => this.fitThumbs()); else this.$nextTick(() => this._vp++); });
+            this.$watch('step', v => { if (v === 'pick') this.$nextTick(() => this.fitThumbs()); else this.$nextTick(() => this._vp++); this.scheduleMountTools(); });
             this.$watch('searchQuery', () => this.$nextTick(() => this.fitThumbs()));
+            // The preview re-scales/re-lays-out on template + platform + size changes;
+            // the "change photo" regions must follow the images they sit on.
+            this.$watch('template', () => this.scheduleMountTools());
+            this.$watch('platform', () => this.scheduleMountTools());
+            this.$watch('customW', () => this.scheduleMountTools());
+            this.$watch('customH', () => this.scheduleMountTools());
         },
 
         // Thumbnails render a fixed 1200×628 design scaled to the card's real
@@ -532,7 +625,100 @@ function adApp(savedTemplates, propertyData, agentCfg) {
             this.step = 'generate';
             this.$nextTick(() => this.applyAgent());
         },
-        onGenerate() { this.$nextTick(() => this.applyAgent()); },
+        onGenerate() { this.$nextTick(() => { this.applyAgent(); this.scheduleMountTools(); }); },
+
+        // ── "Change photo" overlay ───────────────────────────────────────────
+        // Rebuild the click regions after any layout change. rAF-after-nextTick so
+        // the preview has scaled/re-rendered before we measure image rects.
+        scheduleMountTools() { this.$nextTick(() => requestAnimationFrame(() => this.mountImageTools())); },
+
+        // An image is editable (a property photo) if it is not a logo or an agent
+        // avatar. Prebuilt templates tag logos js-ad-logo; renderCustomTemplate tags
+        // logo/avatar imgs so both paths share this one rule.
+        _isEditablePhoto(img) {
+            return !img.classList.contains('js-ad-logo') && !img.classList.contains('js-ad-avatar');
+        },
+
+        mountImageTools() {
+            const tools = document.getElementById('ad-img-tools');
+            const area  = document.getElementById('ad-preview-area');
+            const canvas = document.getElementById('ad-canvas');
+            if (!tools || !area || !canvas) return;
+            tools.innerHTML = '';
+            if (this.step !== 'generate') return;
+
+            const areaRect = area.getBoundingClientRect();
+            const imgs = Array.from(canvas.querySelectorAll('img'))
+                .filter(img => img.offsetParent !== null && this._isEditablePhoto(img));
+            // Largest first → added earliest → sits UNDER the smaller images that are
+            // visually on top (e.g. Luxe thumbnails over the hero), so each click
+            // lands on the photo the user actually sees.
+            const rectOf = img => img.getBoundingClientRect();
+            imgs.sort((a, b) => { const ra = rectOf(a), rb = rectOf(b); return (rb.width * rb.height) - (ra.width * ra.height); });
+
+            imgs.forEach(img => {
+                const r = rectOf(img);
+                if (r.width < 8 || r.height < 8) return;
+                const region = document.createElement('div');
+                region.className = 'ad-img-region';
+                region.style.left   = (r.left - areaRect.left) + 'px';
+                region.style.top    = (r.top  - areaRect.top)  + 'px';
+                region.style.width  = r.width + 'px';
+                region.style.height = r.height + 'px';
+                region.title = 'Change photo';
+                region.innerHTML =
+                    '<div class="ad-img-region-veil">' +
+                        '<span class="ad-img-cta">' +
+                            '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="14" height="14" rx="2"/><circle cx="11" cy="7.5" r="1.3"/><path d="M21 13l-4-4-6 6"/><path d="M17 21H5a2 2 0 01-2-2V7"/></svg>' +
+                            'Change photo' +
+                        '</span>' +
+                    '</div>' +
+                    '<span class="ad-img-badge">' +
+                        '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="14" height="14" rx="2"/><circle cx="11" cy="7.5" r="1.3"/><path d="M21 13l-4-4-6 6"/><path d="M17 21H5a2 2 0 01-2-2V7"/></svg>' +
+                    '</span>';
+                region.addEventListener('click', (e) => { e.stopPropagation(); this.openImagePicker(img); });
+                tools.appendChild(region);
+            });
+        },
+
+        openImagePicker(img) {
+            priv.target = img;
+            // Remember the original src once, so "Reset to original" can restore it.
+            if (img.dataset.origSrc === undefined) img.dataset.origSrc = img.getAttribute('src') || '';
+            const cur = img.getAttribute('src') || '';
+            this.picker.currentSrc = cur;
+            this.picker.canReset = cur !== (img.dataset.origSrc || '');
+            this.picker.open = true;
+        },
+
+        chooseImage(url) {
+            const img = priv.target;
+            if (img) {
+                img.setAttribute('src', url);
+                img.src = url;
+                // Custom-template images are re-rendered from layout_json; persist the
+                // choice against the element id so re-renders keep it.
+                const elId = img.dataset.elId;
+                if (elId) priv.imgOverrides[elId] = url;
+            }
+            this.closeImagePicker();
+            this.scheduleMountTools();
+        },
+
+        resetImage() {
+            const img = priv.target;
+            if (img) {
+                const orig = img.dataset.origSrc || '';
+                img.setAttribute('src', orig);
+                img.src = orig;
+                const elId = img.dataset.elId;
+                if (elId) delete priv.imgOverrides[elId];
+            }
+            this.closeImagePicker();
+            this.scheduleMountTools();
+        },
+
+        closeImagePicker() { this.picker.open = false; priv.target = null; },
 
         // ── Co-listing agent choice ──────────────────────────────────────────
         get hasCoAgent() { return !!(this.coAgent && this.coAgent.id); },
@@ -627,11 +813,19 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                 const field = el.field;
 
                 if (this.isImageField(field)) {
-                    const src = field === 'agency_logo' ? prop.logo : prop[field];
+                    const isPhoto = /^image_[1-5]$/.test(field);
+                    const baseSrc = field === 'agency_logo' ? prop.logo : prop[field];
+                    // A gallery swap wins over the slot's default (persists re-renders).
+                    const src = (isPhoto && priv.imgOverrides[el.id]) ? priv.imgOverrides[el.id] : baseSrc;
                     if (src) {
                         const img = document.createElement('img');
                         img.src = src;
                         img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
+                        // Tag so the "change photo" overlay targets property photos only
+                        // (a logo or an agent avatar is not swapped from the gallery).
+                        if (field === 'agency_logo') img.classList.add('js-ad-logo');
+                        else if (field.endsWith('avatar')) img.classList.add('js-ad-avatar');
+                        else if (isPhoto) { img.dataset.elId = el.id; img.dataset.origSrc = baseSrc || ''; }
                         div.appendChild(img);
                     } else if (String(field).startsWith('agent_2')) {
                         // Co-agent absent (single-agent listing) → leave the slot empty,
@@ -642,10 +836,14 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                         div.textContent = el.label;
                     }
                 } else if (field === 'custom_image') {
-                    if (el.src) {
+                    // Editable like a photo slot: a gallery swap overrides the uploaded
+                    // image and persists across re-renders; reset restores the upload.
+                    const src = priv.imgOverrides[el.id] || el.src;
+                    if (src) {
                         const img = document.createElement('img');
-                        img.src = el.src;
+                        img.src = src;
                         img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
+                        img.dataset.elId = el.id; img.dataset.origSrc = el.src || '';
                         div.appendChild(img);
                     }
                 } else if (field === 'custom_video') {
@@ -733,6 +931,7 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                 }
                 root.appendChild(div);
             });
+            this.scheduleMountTools();
         },
 
         _canvasBg() {
@@ -764,6 +963,9 @@ function adApp(savedTemplates, propertyData, agentCfg) {
                 useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
             });
             wrapper.style.transform = saved;
+            // The capture untransformed the wrapper (and resized the canvas for a
+            // custom layout); realign the "change photo" regions to the images.
+            this.scheduleMountTools();
             return c;
         },
 

@@ -122,6 +122,10 @@
                             @if($lead->portal === 'p24')
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
                                       style="background: var(--brand-default, #0b2a4a);">P24</span>
+                            @elseif($lead->portal === 'website')
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
+                                      style="background: var(--brand-icon, #0ea5e9);"
+                                      title="Website enquiry">WEB</span>
                             @else
                                 <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
                                       style="background: var(--brand-button, #0ea5e9);">PP</span>

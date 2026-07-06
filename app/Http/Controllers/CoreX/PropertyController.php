@@ -1728,6 +1728,69 @@ class PropertyController extends Controller
             : $pdf->stream($service->filename($property));
     }
 
+    /**
+     * Same-origin image proxy for the Ad Manager (ad-manager.md).
+     *
+     * The generator's PNG is rasterised by html2canvas, which can only read
+     * SAME-ORIGIN images. When a host references property images whose files
+     * live on ANOTHER of our hosts (e.g. Staging pointing at live-hosted
+     * photos), a cross-origin <img> displays but exports BLANK. So
+     * Property::adSafeImageUrl() routes those through here: this host fetches
+     * the image server-side (or streams the local file when it IS here) and
+     * serves the bytes same-origin, so it both displays AND captures.
+     *
+     * SSRF-safe: only ever fetches from our own storage hosts (allow-list), and
+     * the route already sits behind auth + `access_properties`. The proxied
+     * images are the property photos already served publicly on the live site.
+     */
+    public function adMedia(Request $request)
+    {
+        $u = Property::publicImageUrl((string) $request->query('u', '')) ?? '';
+        if ($u === '') {
+            abort(404);
+        }
+
+        // Allow-list: this host, our live/brand domains, and any *.corexos.co.za.
+        $host    = strtolower((string) parse_url($u, PHP_URL_HOST));
+        $appHost = strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST));
+        $allowed = ['corexos.co.za', 'www.corexos.co.za', 'corex.hfcoastal.co.za'];
+        if (! ($host !== '' && ($host === $appHost || in_array($host, $allowed, true) || str_ends_with($host, '.corexos.co.za')))) {
+            abort(404);
+        }
+
+        // If the file is actually on this host, stream it straight from disk.
+        $path = parse_url($u, PHP_URL_PATH) ?: '';
+        $pos  = strpos($path, '/storage/');
+        if ($pos !== false) {
+            $local = public_path(ltrim(substr($path, $pos), '/'));
+            if (is_file($local)) {
+                return response()->file($local, ['Cache-Control' => 'public, max-age=86400']);
+            }
+        }
+
+        // Otherwise fetch it server-side and stream it same-origin. No server-side
+        // body cache (image blobs don't belong in the cache store) — a strong
+        // Cache-Control lets the browser/CDN cache it, so the origin is hit at most
+        // once per client per day.
+        try {
+            $res = \Illuminate\Support\Facades\Http::timeout(8)->get($u);
+        } catch (\Throwable $e) {
+            abort(404);
+        }
+        if (! $res->successful()) {
+            abort(404);
+        }
+        $ct = $res->header('Content-Type') ?: 'image/jpeg';
+        if (! str_starts_with(strtolower($ct), 'image/')) {
+            abort(404);
+        }
+
+        return response($res->body(), 200, [
+            'Content-Type'  => $ct,
+            'Cache-Control' => 'public, max-age=86400',
+        ]);
+    }
+
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
         // Public listing preview — gate by marketing readiness

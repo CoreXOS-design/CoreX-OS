@@ -1736,7 +1736,7 @@ CREATE TABLE `calendar_event_class_settings` (
   `completion_behaviour` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'freeform',
   `feedback_mode` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'per_contact',
   `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4382,10 +4382,10 @@ CREATE TABLE `deals_v2` (
   `reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `deal_type` enum('bond','cash','sale_of_2nd') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` enum('active','granted','completed','cancelled','on_hold','declined') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
-  `property_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned DEFAULT NULL,
   `listing_agent_id` bigint unsigned NOT NULL,
   `selling_agent_id` bigint unsigned DEFAULT NULL,
-  `pipeline_template_id` bigint unsigned NOT NULL,
+  `pipeline_template_id` bigint unsigned DEFAULT NULL,
   `linked_deal_id` bigint unsigned DEFAULT NULL,
   `purchase_price` decimal(14,2) NOT NULL,
   `commission_percentage` decimal(5,2) DEFAULT NULL,
@@ -4403,6 +4403,7 @@ CREATE TABLE `deals_v2` (
   `expected_registration` date DEFAULT NULL,
   `actual_registration` date DEFAULT NULL,
   `overall_rag` enum('grey','green','amber','red','overdue') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'grey',
+  `backfilled_at` timestamp NULL DEFAULT NULL,
   `commission_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Not Paid',
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `branch_id` bigint unsigned NOT NULL,
@@ -7802,7 +7803,7 @@ DROP TABLE IF EXISTS `portal_leads`;
 CREATE TABLE `portal_leads` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `portal` enum('p24','pp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` enum('p24','pp','website') COLLATE utf8mb4_unicode_ci NOT NULL,
   `lead_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `listing_id` bigint unsigned DEFAULT NULL,
   `listing_portal_ref` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -13069,3 +13070,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (971,'2026_07_06_13
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (972,'2026_07_06_130000_create_wa_capture_purge_events_table',222);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (973,'2026_07_06_160000_add_wa_transcription_language_to_agencies',222);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (974,'2026_07_23_000004_add_compiled_serving_to_docuperfect_templates',222);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (975,'2026_07_06_000001_add_website_to_portal_leads_portal_enum',223);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (976,'2026_07_06_180000_widen_event_class_description_to_text',223);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (977,'2026_07_24_000001_dr2_twin_backfill_relax_and_marker',223);

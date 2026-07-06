@@ -128,9 +128,10 @@ Records each webhook send attempt: `agency_api_key_id`, `event_name`, `payload` 
 | `agents:read` | public agent profile fields |
 | `agency:read` | agency branding/contact (name, logo, colours, address) |
 | `branches:read` | branches (offices) with trading identity + their public agents + listing counts |
+| `leads:write` | submit inbound website leads/enquiries (`POST /website/leads`, §9) — the one write scope |
 | `webhooks:receive` | eligible to receive listing/agent webhook events |
 
-No `*:write` scopes ship in v1.
+`leads:write` (added 2026-07-06) is the only write scope. All other scopes remain read/receive.
 
 ### 3.4 No change to `agencies` table
 
@@ -166,6 +167,7 @@ Reuse the constant-time-compare + HMAC discipline already proven in `PpWebhookCo
 | GET | `/api/v1/website/agency` | `v1.website.agency.show` | `agency:read` |
 | GET | `/api/v1/website/branches` | `v1.website.branches.index` | `branches:read` |
 | GET | `/api/v1/website/branches/{id}` | `v1.website.branches.show` | `branches:read` |
+| POST | `/api/v1/website/leads` | `v1.website.leads.store` | `leads:write` (§9) |
 | GET | `/api/v1/website/ping` | `v1.website.ping` | (any valid key) |
 
 Responses use dedicated **public API Resources** (`app/Http/Resources/WebsiteApi/*`) so the external contract is decoupled from internal model shape — we can refactor models without breaking agency sites. PII not meant for the public web (owner contact, internal notes) is **never** included.
@@ -367,9 +369,46 @@ Gate the panel, the routes (Admin side), and controller actions. Owner/Admin rol
 
 ---
 
-## 9. Explicitly deferred (NOT in v1)
+## 9. Inbound lead capture — BUILT (2026-07-06)
 
-- **Inbound lead capture** (`POST /api/v1/website/leads` → creates a Contact/Lead with the agency scoped from the key). Needs its own write-scope design, spam/abuse protection (captcha/honeypot, rate limits), and Contact-pillar match-or-create (non-negotiable #10). Will be a v2 phase with its own spec section.
+> Status: **BUILT** — `POST /api/v1/website/leads`, scope `leads:write`. The public
+> website POSTs property enquiries; they land in the shared `portal_leads`
+> pipeline (Real Estate → Portal Leads), routed to the listing agent(s) and
+> seeding the buyer pipeline exactly like a Property24 / Private Property lead.
+
+**Endpoint:** `POST /api/v1/website/leads` · name `v1.website.leads.store` · scope `leads:write` (the first write scope; `AgencyApiKey::SCOPE_LEADS_WRITE`). Gated by the same `auth:agency-api` guard + master `website_enabled` switch + per-key `throttle:website-api` rate limit as every other website endpoint. Auto-listed at `/admin/api`.
+
+**Request body** (matches the Home Finders Coastal website's existing call):
+
+```json
+{
+  "source": "website",
+  "listing_id": 12345,
+  "listing_reference": "HFC0042",
+  "agent_ids": [7, 12],
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "phone": "+27 82 123 4567",
+  "message": "I'm interested in this property, please contact me."
+}
+```
+
+- `name` — **required**.
+- `email` / `phone` — **at least one required** (`email` validated; `phone` may be an empty string).
+- `listing_id` — CoreX listing id; resolved **agency-scoped** (a foreign-agency id never resolves). `listing_reference` (= `properties.external_id`) is a fallback resolver. One of the two is required.
+- `agent_ids` — recorded for audit in `lead_source_raw`, but **NOT trusted for routing**. The lead is routed to the resolved listing's own agent(s) (`agent_id` + `pp_second_agent_id`) server-side, so a website cannot redirect a lead to an arbitrary agent. In practice these are the same agents the website read from `GET /website/listings`.
+- `source` — stored; defaults to `"website"`.
+
+**Behaviour:**
+- Match-or-create the enquirer as a **Buyer** contact via `ContactDuplicateService` (canonical email/phone normaliser — no duplicate buyers). New contacts get the per-agency **"Website"** `ContactSource`, owned by the listing agent, attached to the property with role `lead`.
+- Persist a `PortalLead` with `portal = 'website'`, fire `NewPortalLeadReceived` → the existing listeners notify the listing agent(s) (in-app + email + mobile push) and the buyer cascade (`BuyerLeadCascadeService::SOURCE_PORTAL_WEBSITE`) seeds MIC demand.
+- Short-window dedupe (same site + listing + email/phone within 2 min) absorbs double-submits / client retries.
+
+**Response:** `201` with `{ ok, lead_id, contact_id, contact_matched, listing_id, assigned_agent_ids }`. The website treats any non-2xx as "not delivered" (it still emails the agent regardless), so a bad `listing_id` (→ `422`) or throttle (`429`) never breaks the visitor flow.
+
+**Abuse/spam:** per-key `throttle:website-api` rate limit + `website_enabled` master switch + `leads:write` scope. Client-side captcha/honeypot remains the website's responsibility.
+
+### Still deferred (NOT built)
 - Self-service key management by agency Admins (v1 is super-admin/Owner managed from the Agencies screen).
 - OpenAPI/Swagger published doc site for third-party devs (v1 documents endpoints in `/admin/api` + a markdown integration guide).
 
