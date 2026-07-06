@@ -790,6 +790,14 @@ class PrivatePropertyListingMapper
         };
     }
 
+    // BusinessType/FarmType Values use PP's SPACED Title-Case convention — the
+    // same one that made LandType "Residential Land" (not "VacantLand"). Confirmed
+    // spaced multi-word values in the live read-back: "Residential Land",
+    // "Bed And Breakfast". camelCase multi-word values ("MixedUse", "SmallHolding")
+    // are the identical latent PP106 trap and are spelled spaced here. (CoreX's
+    // current property_type vocab only reaches "Commercial"/"Industrial"/"Farm";
+    // the multi-word branches are future-proofing, so they are inferred-not-yet-
+    // live-confirmed — verify against a live push if that vocab ever expands.)
     private function mapBusinessType(?string $type): string
     {
         $t = strtolower(trim($type ?? ''));
@@ -803,7 +811,7 @@ class PrivatePropertyListingMapper
             str_contains($t, 'shop')       => 'Shop',
             str_contains($t, 'restaurant') => 'Restaurant',
             str_contains($t, 'hotel')      => 'Hotel',
-            str_contains($t, 'mixed')      => 'MixedUse',
+            str_contains($t, 'mixed')      => 'Mixed Use',
             default                        => 'Commercial',
         };
     }
@@ -813,11 +821,11 @@ class PrivatePropertyListingMapper
         $t = strtolower(trim($type ?? ''));
 
         return match (true) {
-            str_contains($t, 'game')                                       => 'GameFarm',
-            str_contains($t, 'wine')                                       => 'WineFarm',
-            str_contains($t, 'equestrian')                                 => 'Equestrian',
-            str_contains($t, 'smallholding') || str_contains($t, 'small holding') => 'SmallHolding',
-            default                                                        => 'Farm',
+            str_contains($t, 'game')                                             => 'Game Farm',
+            str_contains($t, 'wine')                                             => 'Wine Farm',
+            str_contains($t, 'equestrian')                                       => 'Equestrian',
+            str_contains($t, 'smallholding') || str_contains($t, 'small holding') => 'Small Holding',
+            default                                                              => 'Farm',
         };
     }
 
