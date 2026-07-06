@@ -43,20 +43,42 @@ class PropertyIntelligenceService
     /**
      * Portal performance metrics for a property (last N days).
      *
-     * Note: portal_captures stores raw page HTML for presentation scraping,
-     * not per-property view/favourite/enquiry metrics. When portal analytics
-     * integration is built (P24 Stats API, PP Dashboard API), this method
-     * will query a dedicated property_portal_metrics table. Until then,
-     * returns zeros to prevent 500 errors on the Property Hub.
+     * Real Property24 engagement, summed from property_portal_metrics (populated
+     * daily by P24StatsService from the P24 v53 statistics API). See
+     * .ai/specs/portal-metrics.md.
+     *
+     * Private Property exposes NO views/statistics API (only lifecycle events +
+     * webhook leads), so there is nothing to sum for PP — `pp_supported` is false
+     * and the UI states this honestly rather than implying a real zero. The
+     * `views` key stays for back-compat and equals the P24 view total.
      */
     public function getPortalPerformance(int $propertyId, int $rangeDays = 30): array
     {
+        $since = now()->subDays($rangeDays)->format('Y-m-d');
+
+        $agg = \App\Models\PropertyPortalMetric::withoutGlobalScopes()
+            ->where('property_id', $propertyId)
+            ->where('portal', \App\Models\PropertyPortalMetric::PORTAL_P24)
+            ->where('metric_date', '>=', $since)
+            ->selectRaw('COALESCE(SUM(view_count),0) AS views')
+            ->selectRaw('COALESCE(SUM(alert_count),0) AS favourites')
+            ->selectRaw('COALESCE(SUM(total_leads),0) AS enquiries')
+            ->selectRaw('COUNT(*) AS day_rows')
+            ->first();
+
+        $views      = (int) ($agg->views ?? 0);
+        $favourites = (int) ($agg->favourites ?? 0);
+        $enquiries  = (int) ($agg->enquiries ?? 0);
+
         return [
-            'views' => 0,
-            'favourites' => 0,
-            'enquiries' => 0,
-            'total' => 0,
+            'views' => $views,
+            'p24_views' => $views,
+            'favourites' => $favourites,
+            'enquiries' => $enquiries,
+            'total' => $views + $favourites + $enquiries,
             'range_days' => $rangeDays,
+            'pp_supported' => false,
+            'has_data' => (int) ($agg->day_rows ?? 0) > 0,
         ];
     }
 

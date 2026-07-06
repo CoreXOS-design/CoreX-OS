@@ -85,11 +85,21 @@ instrument e-signable.
 
 ---
 
-## 4. Staging-host in-situ flip — HELD, runbook ready
+## 4. Staging-host in-situ flip — EXECUTED (2026-07-06, quiet window)
 
-The code + full proof are on the Staging branch. The **in-situ staging-HOST flip** (deploy +
-publish + create/flip the reference-pack rows + open a signing view) is **held pending a quiet host
-window**: cc3 is actively deploying live/staging comms hotfixes to the shared staging host this
-morning (AT-182/184), and a signing-runtime deploy + data flip mid-storm risks interfering with
-Johan's live-QA. The runbook above executes it in minutes once the host is clear or the conductor
-directs. **No live. No QA1.**
+Done on `/corex-staging` / `hfc_staging` (staging.corexos.co.za):
+
+- WS6 dual-path code was already deployed (rode cc1's Studio deploy `817842a6`); `compiled_serving`
+  migration already applied.
+- `deploy:sync-reference-data` + `esign:publish-reference-pack` → **116/117/119 published as
+  immutable compiled_templates** on `hfc_staging` (hashes identical to dev).
+- Created + flipped the reference-pack templates: docuperfect_template **#66→117, #67→119, #68→116**
+  (`compiled_serving=ON`, bound by `compiled_family`).
+- **In-situ verified** (the exact services `SigningController::show()` calls on the compiled path,
+  against the real staging DB): all three serve compiled signing HTML with signature surfaces + real
+  Chromium **wet-ink PDFs** (84 / 64 / 72 KB), **zero compensators**; 116 shows 8 owner-editable
+  fields. **Legacy regression:** Letting Mandate V5 (#52, not cut over) → resolver NULL → serves
+  legacy. Caches cleared; no code deploy needed (data-only on already-deployed code).
+
+**Still gated on Johan's explicit word:** the LIVE cutover flip, and the final compensator-DELETION
+commit. **No live. No QA1.**
