@@ -141,4 +141,93 @@ final class ReferencePackCds
             'assets' => [],
         ];
     }
+
+    // ── 116 (WS5) — the field-bearing reference ──────────────────────────────
+
+    /** A field_group block: visible to all, editable by the named parties. */
+    private static function fieldGroup(string $id, array $editParties, array $fields): array
+    {
+        return [
+            'block_id' => $id,
+            'type' => 'field_group',
+            'visibility' => ['mode' => 'all'],
+            'editability' => ['mode' => 'only', 'party_keys' => $editParties],
+            'condition' => ['kind' => 'always'],
+            'fields' => $fields,
+        ];
+    }
+
+    private static function field(string $fieldId, string $label, string $binding, bool $required = true, string $source = 'agent_input'): array
+    {
+        return [
+            'field_id' => $fieldId,
+            'label' => $label,
+            'binding' => $binding,
+            'source' => $source,
+            'required' => $required,
+        ];
+    }
+
+    /**
+     * Template 116 — HFC Marketing Permission v11 (spec §8: the field-bearing reference that
+     * "adds the field-binding layer on top" of 117/119's signature/letterhead/pagination proof).
+     *
+     * An OPEN marketing mandate (non-exclusive; commission on effective cause; no power of
+     * attorney) — NOT a sale of land, so `legal_class = general` and e-sign is LAWFUL (the
+     * source migration sets `is_esign = true`, `allowed_delivery_modes = 'esign,wet_ink,download'`).
+     * 15 fill-points, each bound to a CoreX-standard Data Dictionary entry; two signers
+     * (owner_party + agent), faithful to `template-116.blade.php`'s `signature-block`.
+     */
+    public static function template116(): array
+    {
+        return [
+            'family' => '116',
+            'data_dictionary_version' => 1,
+            'legal_class' => 'general',
+            'delivery_modes' => ['web_esign', 'pdf_wetink', 'download'],
+            'parties' => [
+                ['key' => 'owner_party', 'role' => 'Seller', 'cardinality' => 'one_or_more', 'ordering' => 1],
+                ['key' => 'agent', 'role' => 'Agent', 'cardinality' => 'one', 'ordering' => 2],
+            ],
+            'blocks' => [
+                self::letterhead(),
+                self::prose('title', '<div class="corex-title-banner"><div class="corex-title">MARKETING PERMISSION</div><div class="corex-subtitle">Sign this so we can legally market your property.</div></div>'),
+
+                // The 15-field intake grid (blade `mp-detail-table`, lines 40–89).
+                self::fieldGroup('blk_property', ['agent'], [
+                    self::field('fld_prop_erf', 'Erf / Unit', 'erf_number'),
+                    self::field('fld_prop_street', 'Street address', 'property_address'),
+                    self::field('fld_prop_suburb', 'Suburb / Complex', 'suburb'),
+                    self::field('fld_prop_district', 'District', 'district'),
+                ]),
+                self::fieldGroup('blk_owner1', ['owner_party', 'agent'], [
+                    self::field('fld_o1_name', 'Owner 1 Name', 'seller_full_name'),
+                    self::field('fld_o1_id', 'Owner 1 ID', 'seller_id_number'),
+                    self::field('fld_o1_cell', 'Owner 1 Cell', 'contact_cell'),
+                    self::field('fld_o1_email', 'Owner 1 Email', 'contact_email'),
+                ]),
+                self::fieldGroup('blk_owner2', ['owner_party', 'agent'], [
+                    // Owner 2 is optional (joint-owner slot) — required=false, per the source schema.
+                    self::field('fld_o2_name', 'Owner 2 Name', 'seller_full_name', required: false),
+                    self::field('fld_o2_id', 'Owner 2 ID', 'seller_id_number', required: false),
+                    self::field('fld_o2_cell', 'Owner 2 Cell', 'contact_cell', required: false),
+                    self::field('fld_o2_email', 'Owner 2 Email', 'contact_email', required: false),
+                ]),
+                self::fieldGroup('blk_terms', ['agent'], [
+                    self::field('fld_terms_type', 'Transaction Type', 'marketing_transaction_type'),
+                    self::field('fld_terms_price', 'Price / Rental', 'purchase_price'),
+                    self::field('fld_terms_comm', 'Commission %', 'commission_pct'),
+                ]),
+
+                self::prose('c_permission', '<div class="corex-clause"><strong>Open Marketing Permission.</strong> This is an OPEN MARKETING PERMISSION — you may list with other agents. Commission is only payable if Home Finders Coastal is the effective cause of a successful sale or lease. Either party may terminate on 7 (seven) days\' written notice. We will not act under power of attorney on your behalf.</div>'),
+                self::prose('c_ffc', '<div class="corex-ffc-warranty"><strong>Fidelity Fund Certificate.</strong> The property practitioner warrants that a valid Fidelity Fund Certificate is held as required by the Property Practitioners Act 22 of 2019.</div>'),
+                self::prose('c_attachments', '<div class="corex-clause"><strong>Attachments &amp; POPIA.</strong> The Mandatory Disclosure (PPA s67) and FICA documents are attached. Personal information is processed and retained in line with our POPIA policy.</div>'),
+
+                self::prose('signed_heading', '<div class="corex-signature-section"><div class="corex-signature-section-title">SIGNED IN ACKNOWLEDGEMENT</div></div>'),
+                self::signature('sig_owner', 'owner_party'),
+                self::signature('sig_agent', 'agent'),
+            ],
+            'assets' => [],
+        ];
+    }
 }
