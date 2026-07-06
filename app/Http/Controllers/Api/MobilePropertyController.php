@@ -600,6 +600,9 @@ class MobilePropertyController extends Controller
         $path = $file->store("properties/{$property->id}", 'public');
         $url  = Storage::url($path);
 
+        // List-view thumbnail (original untouched).
+        app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
+
         // Append to flat gallery list
         $gallery   = $property->gallery_images_json ?? [];
         $gallery[] = $url;
