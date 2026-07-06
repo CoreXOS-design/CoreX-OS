@@ -24,6 +24,15 @@ final class RenderedSurface
     /** @var list<array{block_id:string,type:string,text:string,anchors:list<array{party:string,kind:string}>}>|null */
     private ?array $fingerprintCache = null;
 
+    /** @var list<string>|null */
+    private ?array $fieldIdCache = null;
+
+    /** @var array<string,list<string>>|null */
+    private ?array $anchorMapCache = null;
+
+    private ?\DOMDocument $domCache = null;
+    private bool $domParsed = false;
+
     /**
      * @param list<string> $activePartyKeys
      */
@@ -47,19 +56,10 @@ final class RenderedSurface
         }
 
         $blocks = [];
-        if (trim($this->html) === '') {
+        $dom = $this->dom();
+        if ($dom === null) {
             return $this->fingerprintCache = $blocks;
         }
-
-        $dom = new DOMDocument();
-        $prev = libxml_use_internal_errors(true);
-        // Wrap so a fragment parses; force UTF-8.
-        $dom->loadHTML(
-            '<?xml encoding="UTF-8"><div id="__root__">' . $this->html . '</div>',
-            LIBXML_NOERROR | LIBXML_NOWARNING,
-        );
-        libxml_clear_errors();
-        libxml_use_internal_errors($prev);
 
         foreach ($dom->getElementsByTagName('*') as $el) {
             if (! $el instanceof DOMElement || ! $el->hasAttribute('data-block-id')) {
@@ -93,6 +93,81 @@ final class RenderedSurface
             $this->fingerprint(),
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
         ));
+    }
+
+    /**
+     * The field_ids whose fill-points actually appear in the rendered body (for the golden
+     * harness's "expected bound fields populated, none dropped" assertion).
+     *
+     * @return list<string>
+     */
+    public function fieldIds(): array
+    {
+        if ($this->fieldIdCache !== null) {
+            return $this->fieldIdCache;
+        }
+
+        $ids = [];
+        $dom = $this->dom();
+        if ($dom !== null) {
+            foreach ($dom->getElementsByTagName('*') as $el) {
+                if ($el instanceof DOMElement && $el->hasAttribute('data-field-id')) {
+                    $ids[] = $el->getAttribute('data-field-id');
+                }
+            }
+        }
+
+        return $this->fieldIdCache = array_values(array_unique($ids));
+    }
+
+    /**
+     * partyKey (instance) → the anchor_ids placed for that signer in the rendered body (for
+     * the golden harness's "every present signer has a place to sign" assertion).
+     *
+     * @return array<string,list<string>>
+     */
+    public function anchorMap(): array
+    {
+        if ($this->anchorMapCache !== null) {
+            return $this->anchorMapCache;
+        }
+
+        $map = [];
+        $dom = $this->dom();
+        if ($dom !== null) {
+            foreach ($dom->getElementsByTagName('*') as $el) {
+                if ($el instanceof DOMElement && $el->hasAttribute('data-anchor-party')) {
+                    $party = $el->getAttribute('data-anchor-party');
+                    $map[$party][] = $el->getAttribute('data-anchor-id');
+                }
+            }
+        }
+
+        return $this->anchorMapCache = $map;
+    }
+
+    private function dom(): ?DOMDocument
+    {
+        if ($this->domParsed) {
+            return $this->domCache;
+        }
+        $this->domParsed = true;
+
+        if (trim($this->html) === '') {
+            return $this->domCache = null;
+        }
+
+        $dom = new DOMDocument();
+        $prev = libxml_use_internal_errors(true);
+        // Wrap so a fragment parses; force UTF-8.
+        $dom->loadHTML(
+            '<?xml encoding="UTF-8"><div id="__root__">' . $this->html . '</div>',
+            LIBXML_NOERROR | LIBXML_NOWARNING,
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        return $this->domCache = $dom;
     }
 
     private static function normalizeText(string $text): string

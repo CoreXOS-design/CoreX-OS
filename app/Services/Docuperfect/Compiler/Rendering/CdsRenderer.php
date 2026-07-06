@@ -104,7 +104,7 @@ final class CdsRenderer
                 $id,
             ),
             BlockType::FieldGroup => $this->renderFieldGroup($block, $isWeb, $viewerPartyKey, $values),
-            BlockType::Signature, BlockType::Initial => $this->renderSignatureBlock($block, $isWeb),
+            BlockType::Signature, BlockType::Initial => $this->renderSignatureBlock($block, $isWeb, $activePartyKeys),
             BlockType::InsertableSlot => sprintf(
                 '<div data-block-id="%s" data-block-type="insertable_slot" data-slot-id="%s" class="cds-slot"></div>',
                 $id, e($block->slot?->slotId ?? $block->blockId),
@@ -157,27 +157,48 @@ final class CdsRenderer
         return sprintf('<label class="cds-field">%s%s</label>', $label, $control);
     }
 
-    private function renderSignatureBlock(Block $block, bool $isWeb): string
+    /**
+     * @param list<string> $activePartyKeys
+     */
+    private function renderSignatureBlock(Block $block, bool $isWeb, array $activePartyKeys): string
     {
+        $surfaceClass = $isWeb ? 'cds-sign-surface cds-sign-web' : 'cds-sign-surface cds-sign-print';
+
         $anchors = [];
         foreach ($block->anchors as $anchor) {
-            $roleLabel = ucwords(str_replace(['_', '-'], ' ', PartyExpr::roleBase($anchor->partyKey)));
+            $role = PartyExpr::roleBase($anchor->partyKey);
+            $roleLabel = ucwords(str_replace(['_', '-'], ' ', $role));
             $kindLabel = ucfirst($anchor->kind->value);
-            $surfaceClass = $isWeb ? 'cds-sign-surface cds-sign-web' : 'cds-sign-surface cds-sign-print';
 
-            // Anchors carry BOTH the compiled attrs (data-anchor-*) AND the legacy signable-surface
-            // attrs (data-marker-*) so existing engine selectors recognise a compiled surface —
-            // surfaces are COMPILED here, never stamped at serve time.
-            $anchors[] = sprintf(
-                '<div data-anchor-id="%s" data-anchor-party="%s" data-anchor-kind="%s" '
-                . 'data-marker-party="%s" data-marker-type="%s" class="%s">'
-                . '<span class="cds-sign-line"></span>'
-                . '<span class="cds-sign-caption">%s — %s</span>'
-                . '</div>',
-                e($anchor->anchorId), e($anchor->partyKey), e($anchor->kind->value),
-                e($anchor->partyKey), e($anchor->kind->value), $surfaceClass,
-                e($roleLabel), e($kindLabel),
-            );
+            // COMPILED role-loop expansion (obsoletes RoleBlockExpansionService's LCA guessing):
+            // one signable surface per PRESENT INSTANCE of the anchor's role. Instances are the
+            // active-combination keys whose role base matches (e.g. seller_1, seller_2). A
+            // template preview with no specific instance falls back to the declared role once.
+            $instances = array_values(array_filter(
+                $activePartyKeys,
+                static fn (string $key): bool => PartyExpr::roleBase($key) === $role,
+            ));
+            if ($instances === []) {
+                $instances = [$anchor->partyKey];
+            }
+
+            foreach ($instances as $idx => $instanceKey) {
+                // Live marker convention (recon §2): first present recipient = role base, then
+                // "{role}_2", "{role}_3" … — kept for backward-compatible engine selectors.
+                $markerKey = $idx === 0 ? $role : $role . '_' . ($idx + 1);
+
+                // Compiled anchor identity is the unambiguous instance key.
+                $anchors[] = sprintf(
+                    '<div data-anchor-id="%s" data-anchor-party="%s" data-anchor-kind="%s" '
+                    . 'data-marker-party="%s" data-marker-type="%s" data-marker-index="%d" class="%s">'
+                    . '<span class="cds-sign-line"></span>'
+                    . '<span class="cds-sign-caption">%s — %s</span>'
+                    . '</div>',
+                    e($anchor->anchorId . '__' . $instanceKey), e($instanceKey), e($anchor->kind->value),
+                    e($markerKey), e($anchor->kind->value), $idx, $surfaceClass,
+                    e($roleLabel), e($kindLabel),
+                );
+            }
         }
 
         return sprintf(

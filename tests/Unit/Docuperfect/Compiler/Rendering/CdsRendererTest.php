@@ -61,15 +61,34 @@ final class CdsRendererTest extends TestCase
     {
         $surface = (new CdsRenderer())->renderDocument($this->cds(), DeliveryMode::PdfWetInk, ['seller_1', 'agent']);
 
-        // Compiled surfaces carry BOTH the compiled anchor attrs AND the legacy signable-surface
-        // contract (data-marker-party + data-marker-type="signature") — never stamped at serve time.
-        $this->assertStringContainsString('data-anchor-party="seller"', $surface->html);
+        // Compiled surfaces carry BOTH the compiled anchor attrs (the unambiguous INSTANCE key)
+        // AND the legacy signable-surface contract (data-marker-party + data-marker-type) —
+        // never stamped at serve time.
+        $this->assertStringContainsString('data-anchor-party="seller_1"', $surface->html);
         $this->assertStringContainsString('data-marker-party="seller"', $surface->html);
         $this->assertStringContainsString('data-marker-type="signature"', $surface->html);
 
         $sigBlocks = array_values(array_filter($surface->fingerprint(), fn ($b) => $b['type'] === 'signature'));
         $this->assertCount(2, $sigBlocks);
-        $this->assertSame([['party' => 'seller', 'kind' => 'signature']], $sigBlocks[0]['anchors']);
+        $this->assertSame([['party' => 'seller_1', 'kind' => 'signature']], $sigBlocks[0]['anchors']);
+    }
+
+    public function test_signature_expands_one_surface_per_present_instance_of_a_one_or_more_party(): void
+    {
+        // Two sellers present → two seller signable surfaces (compiled role-loop), agent one.
+        $surface = (new CdsRenderer())->renderDocument($this->cds(), DeliveryMode::PdfWetInk, ['seller_1', 'seller_2', 'agent']);
+
+        $this->assertStringContainsString('data-anchor-party="seller_1"', $surface->html);
+        $this->assertStringContainsString('data-anchor-party="seller_2"', $surface->html);
+        // Live marker convention: first present recipient = role base, second = "{role}_2".
+        $this->assertStringContainsString('data-marker-party="seller"', $surface->html);
+        $this->assertStringContainsString('data-marker-party="seller_2"', $surface->html);
+
+        $sellerBlock = array_values(array_filter($surface->fingerprint(), fn ($b) => $b['block_id'] === 'sigS'))[0];
+        $this->assertSame(
+            [['party' => 'seller_1', 'kind' => 'signature'], ['party' => 'seller_2', 'kind' => 'signature']],
+            $sellerBlock['anchors'],
+        );
     }
 
     public function test_signer_projection_hides_blocks_not_visible_to_the_signer(): void
