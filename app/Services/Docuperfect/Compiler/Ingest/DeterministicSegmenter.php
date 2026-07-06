@@ -144,16 +144,25 @@ final class DeterministicSegmenter implements SegmentationService
 
     private function isSignatureZone(DOMElement $el): bool
     {
-        // Explicit compiled/legacy signable surfaces.
-        if ($this->xpathHas($el, './/*[@data-marker-type="signature"] | .//*[@data-anchor-kind="signature"] | .//*[contains(@class,"sig-cell-line")] | .//*[contains(@class,"sig-inline-line")]')) {
+        // Explicit compiled/legacy signable surfaces — check the element ITSELF and descendants
+        // (the live signature-line partial puts data-marker-party ON the span itself).
+        if ($this->xpathHas($el, 'descendant-or-self::*[@data-marker-type="signature"] | descendant-or-self::*[@data-anchor-kind="signature"] | descendant-or-self::*[contains(@class,"sig-cell-line")] | descendant-or-self::*[contains(@class,"sig-inline-line")]')) {
             return true;
         }
 
-        $text = strtolower($this->textOf($el));
-
-        return str_contains($text, 'thus done and signed')
+        // A textual signature cue alone is NOT enough — a bare "THUS DONE AND SIGNED" heading is
+        // prose, and the real signatures follow. Require the cue PLUS a signing party or a
+        // fill-line (so "Signature of the Agent" / "Signature: ____" qualify, the heading doesn't).
+        $raw = $this->textOf($el);
+        $text = strtolower($raw);
+        $hasCue = str_contains($text, 'thus done and signed')
             || str_contains($text, 'signature')
             || (bool) preg_match('/\bsigned\b.{0,40}\b(at|on|by)\b/', $text);
+        if (! $hasCue) {
+            return false;
+        }
+
+        return $this->rolesInText($text) !== [] || preg_match('/_{3,}/', $raw) === 1;
     }
 
     private function looksLikeClause(DOMElement $el): bool
@@ -205,8 +214,8 @@ final class DeterministicSegmenter implements SegmentationService
     {
         $roles = [];
 
-        // Explicit marker parties first.
-        foreach ($this->xpathNodes($el, './/*[@data-marker-party] | .//*[@data-anchor-party]') as $node) {
+        // Explicit marker parties first (element itself and descendants).
+        foreach ($this->xpathNodes($el, 'descendant-or-self::*[@data-marker-party] | descendant-or-self::*[@data-anchor-party]') as $node) {
             $party = $node->getAttribute('data-marker-party') ?: $node->getAttribute('data-anchor-party');
             $role = $this->roleBase($party);
             if ($role !== null) {
