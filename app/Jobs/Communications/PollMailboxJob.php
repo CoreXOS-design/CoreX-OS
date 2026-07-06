@@ -32,6 +32,15 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /**
+     * Dedicated `mail` queue (not `default`). IMAP polls are slow (5-30s+);
+     * kept on `default` they head-of-line-block fast transactional jobs
+     * (webhooks, portal leads, buyer matches) and wedge the queue. A separate
+     * queue + its own worker isolates the slow I/O so neither starves the
+     * other. Served by supervisor program corex-worker-*-mail.
+     */
+    public const QUEUE_NAME = 'mail';
+
     public int $tries = 3;
     public int $backoff = 120;
 
@@ -40,6 +49,7 @@ class PollMailboxJob implements ShouldQueue, ShouldBeUnique
 
     public function __construct(public int $mailboxId)
     {
+        $this->onQueue(self::QUEUE_NAME);
     }
 
     public function uniqueId(): string

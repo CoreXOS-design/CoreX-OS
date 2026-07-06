@@ -119,6 +119,17 @@ final class PollMailboxesStaggerTest extends TestCase
         $this->assertSame([null, 100, 200, 250, 250], $this->dispatchedDelays());
     }
 
+    public function test_poll_jobs_are_dispatched_to_the_dedicated_mail_queue(): void
+    {
+        Queue::fake();
+        $this->dueMailboxes(2);
+
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+
+        Queue::assertPushedOn('mail', PollMailboxJob::class);
+        $this->assertSame('mail', PollMailboxJob::QUEUE_NAME);
+    }
+
     public function test_poll_job_is_unique_per_mailbox(): void
     {
         $job = new PollMailboxJob(42);
