@@ -89,6 +89,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Mailbox failure-alert threshold (AT-181)
+    |--------------------------------------------------------------------------
+    | Consecutive failed polls before the agency's admins are alerted (once per
+    | failure episode; reset on recovery). Agency-overridable via
+    | agencies.communication_failure_alert_threshold.
+    */
+    'failure_alert_threshold' => (int) env('COMMUNICATIONS_FAILURE_ALERT_THRESHOLD', 3),
+
+    /*
+    |--------------------------------------------------------------------------
     | Sent-folder candidates (AT-43)
     |--------------------------------------------------------------------------
     | Fallback paths tried (in order) when a server does not advertise the
