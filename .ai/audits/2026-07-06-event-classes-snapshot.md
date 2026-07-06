@@ -1678,3 +1678,220 @@ via `CalendarEventClassSetting::forAgencyAndClass()` + `is_active`:
 - **All non-calendar notifications** (WA capture, outreach, deal/DR1 flows outside the class feed,
   comms) — unaffected.
 - **DR2 advisories** — would be class-driven, but DR2 is dormant (0 `deals_v2` rows) → nil impact.
+
+
+---
+
+# PART C — EXISTENCE AUDIT (setup-session dossier)
+
+# AT-197 — Event-Class Emitter Reconciliation Dossier
+
+**Read-only audit.** Code truth from `app/Services/CommandCenter/Calendar/Sources/`, the manual-create paths, and `LeaveCalendarService`. Routing from the seed defaults in `database/seeders/CalendarEventClassSeeder.php`. Row counts are **LIVE** (`/corex`, `calendar_events` grouped by `category`, all rows incl. soft-deleted; "active" excludes `deleted_at`).
+
+---
+
+## 0. Global-row inventory (the "49")
+
+- `calendar_event_class_settings` has **49 global (agency_id NULL) rows**.
+- **48 distinct `event_class` keys** — `manual` is duplicated: **id=1 and id=2, both label "Manual", both active** → the DUPLICATE.
+- The seeder (`CalendarEventClassSeeder`) defines **47** classes (#1–#46 plus #44b `private`). It does **NOT** seed `manual` — the two `manual` rows are legacy/un-seeded. `manual` is the runtime **default category** written when a manual event is created with no explicit category (`CalendarEventService.php:44`, `CalendarEventCreator.php`).
+- One data anomaly: **1 live event with `category = NULL`** (source_type unknown, created 2026-04-23) — pre-dates the "category MUST be set" guard.
+
+---
+
+## 8 registered reconcile sources (AppServiceProvider.php:184–191)
+
+ComplianceCalendarSource, DealCalendarSource, PropertyCalendarSource, RentalCalendarSource, PayrollCalendarSource, DocumentCalendarSource, PeopleCalendarSource, RecurringCalendarSource — all driven nightly by `corex:calendar:reconcile` (`ReconcileCalendarEvents.php`), upserted keyed by `(source_type, source_id, category)`. Leave events are **not** a reconcile source — they are written on leave-approval by `LeaveCalendarService`. Manual events are written by `CalendarEventService` / `CalendarEventCreator`.
+
+---
+
+## (i) Full reconciliation table
+
+| # | Class | Label | Emitter (file:line) | Trigger (code truth) | Routing (seed vis / owner) | Rows live (active/total, max event) | Verdict |
+|---|-------|-------|---------------------|----------------------|----------------------------|--------------------------------------|---------|
+| 1 | `mandate_expiry` | Mandate Expiry | PropertyCalendarSource.php:49 | `properties.expiry_date` set & status in active/for_sale/draft/to_let | agent → +bm → +admin; digest bm/admin | 651/651, 2027-07-01 | **LIVE** |
+| 2 | `lease_expiry` | Lease Expiry | RentalCalendarSource.php:45 & :83 (canonical `lease_records`/`rentals`) + PropertyCalendarSource.php:76 (fallback) | lease_end_date on lease_records / active rentals / property w/o lease_record | agent → +bm → +admin; digest bm | 52/52, 2029-08-14 | **LIVE** |
+| 3 | `ffc_expiry` | FFC Expiry | ComplianceCalendarSource.php:44 | `users.ffc_expiry_date` not null | agent → +bm+compliance → +admin; digest compliance/admin | 12/12, 2029-01-01 | **LIVE** |
+| 4 | `pi_insurance_expiry` | PI Insurance Expiry | ComplianceCalendarSource.php:64 | `users.pi_insurance_expiry` not null | agent → +compliance → +admin; digest compliance | 0/0 | **DORMANT** |
+| 5 | `tax_clearance_expiry` | Tax Clearance Expiry | ComplianceCalendarSource.php:84 | `users.tax_clearance_expiry` not null | agent → +compliance → +admin | 0/0 | **DORMANT** |
+| 6 | `deal_step_deadline` | Deal Pipeline Step Due | DealCalendarSource.php:40 | `deal_step_instances.due_date` on active/not_started step of live V2 deal | agent → +bm → +admin; digest bm | 0/0 | **DORMANT** |
+| 7 | `deal_registration_target` | Target Registration Date | DealCalendarSource.php:84 | `deals_v2.expected_registration` on live deal | agent → +bm → +admin; digest bm | 0/0 | **DORMANT** |
+| 8 | `fica_renewal_due` | FICA Renewal Due | ComplianceCalendarSource.php:106 | `fica_submissions.fica_expires_at` where status=approved | agent → +compliance → +admin; digest compliance | 98/98, 2028-07-03 | **LIVE** |
+| 9 | `payroll_run` | Payroll Run | PayrollCalendarSource.php:41 | `payroll_runs.pay_date` where status draft/processing/pending/open | payroll → +admin; digest payroll/admin | 0/0 | **DORMANT** |
+| 10 | `sars_emp201` | SARS EMP201 Due | PayrollCalendarSource.php:64 (computed) | 7th of each month, +3 lookahead | payroll → +admin; digest payroll/admin | 5/5, 2026-10-07 | **LIVE** |
+| 11 | `sars_emp501` | SARS EMP501 Reconciliation | PayrollCalendarSource.php:81 (computed) | 31 May + 31 Oct biannual | payroll → +admin+accountant; digest same | 3/3, 2027-05-31 | **LIVE** |
+| 12 | `rmcp_review_due` | RMCP Review Due | ComplianceCalendarSource.php:138 | `rmcp_versions.next_review_due` not null | compliance → +admin; digest compliance/admin | 1/1, 2027-04-21 | **LIVE** |
+| 13 | `screening_due` | Employee Screening Due | ComplianceCalendarSource.php:160 | `employee_screenings.next_due_on` not null | compliance → +hr → +admin; digest compliance/hr | 0/0 | **DORMANT** |
+| 14 | `ppra_trust_audit` | PPRA Trust Audit Report | RecurringCalendarSource.php:37 (computed) | annual 30 June | admin only; digest admin | 2/2, 2027-06-30 | **LIVE** |
+| 15 | `training_expiry` | Training Certification Expiry | ComplianceCalendarSource.php:192 | `training_completions.expires_at` not null | agent → +bm → +compliance; digest bm/compliance | 0/0 | **DORMANT** |
+| 16 | `compliance_provision_expiry` | Compliance Provision Expiry | ComplianceCalendarSource.php:221 | `agency_compliance_provisions.effective_until` not null | compliance → +admin; digest compliance/admin | 0/0 | **DORMANT** |
+| 17 | `compliance_override_expiry` | Compliance Override Expiry | ComplianceCalendarSource.php:250 | `user_compliance_overrides.expires_at` not null | compliance → +admin | 0/0 | **DORMANT** |
+| 18 | `agent_document_expiry` | Agent Document Expiry | ComplianceCalendarSource.php:280 | `user_documents.expiry_date` set (type has_expiry or no config) | agent → +compliance → +admin; digest compliance | 16/16, 2029-01-01 | **LIVE** |
+| 19 | `property_showday` | Show Day / Open House | PropertyCalendarSource.php:103 | `property_showdays.start_date` ≥ now−2d | agent → +bm; no digest | 0/0 | **DORMANT** |
+| 20 | `signature_expiry` | Signature Request Expiry | DocumentCalendarSource.php:42 | `signature_requests.token_expires_at`, status waiting/pending/viewed | agent → +bm; no digest | 26/26, 2026-06-11 | **LIVE** |
+| 21 | `sales_doc_expiry` | Sales Document Expiry | DocumentCalendarSource.php:71 | `sales_document_recipients.token_expires_at`, status sent | agent → +bm; no digest | 0/0 | **DORMANT** |
+| 22 | `portal_listing_expiry` | Portal Listing Expiry | PropertyCalendarSource.php:140 | `listing_stocks.expires_at` not null | agent → +bm; no digest | 205/210, 2027-02-02 | **LIVE** |
+| 23 | `rent_escalation` | Rent Escalation Effective | RentalCalendarSource.php:118 | `rental_amount_versions.effective_from` within next 30d | agent → +bm; no digest | 0/0 | **DORMANT** |
+| 24 | `rent_due` | Rent Due Date | RentalCalendarSource.php:157 (computed) | next 1st-of-month per active rental w/ future lease_end | agent → +bm; no digest | 47/47, 2026-08-01 | **LIVE** |
+| 25 | `commercial_lease_expiry` | Commercial Lease Expiry | RentalCalendarSource.php:193 | `commercial_evaluation_units.lease_end` not null | agent → +bm → +admin; digest bm | 0/0 | **DORMANT** |
+| 26 | `leave_cycle_end` | Leave Cycle End | PeopleCalendarSource.php:160 | `leave_entitlements.cycle_end_date` ≥ now−30d | agent → +bm; no digest | 0/0 | **DORMANT** |
+| 27 | `employee_termination` | Employee Last Day | PeopleCalendarSource.php:131 | `payroll_employees.termination_date` ≥ now−30d | hr → +payroll+admin → +bm; digest hr/payroll | 0/0 | **DORMANT** |
+| 28 | `tax_year_end` | Tax Year End | PayrollCalendarSource.php:101 (computed) | annual 28 Feb | payroll → +admin+accountant; digest same | 1/1, 2027-02-28 | **LIVE** |
+| 29 | `uif_declaration` | UIF Declaration Due | PayrollCalendarSource.php:69 (computed) | 7th of each month | payroll → +admin; digest payroll | 5/5, 2026-10-07 | **LIVE** |
+| 30 | `sdl_submission` | SDL Submission Due | PayrollCalendarSource.php:74 (computed) | 7th of each month | payroll → +admin; digest payroll | 5/5, 2026-10-07 | **LIVE** |
+| 31 | `irp5_deadline` | IRP5 Issue Deadline | PayrollCalendarSource.php:119 (computed) | annual 31 May | payroll → +admin → +accountant; digest payroll/admin | 2/2, 2027-05-31 | **LIVE** |
+| 32 | `employment_anniversary` | Employment Anniversary | PeopleCalendarSource.php:96 (computed) | annual from `users.employment_date` (skips year 1) | agent+bm; no digest | 0/0 | **DORMANT** |
+| 33 | `agent_birthday` | Agent Birthday | PeopleCalendarSource.php:44 (computed) | annual from `users.date_of_birth`, active users | bm only; no digest | 0/0 | **DORMANT** |
+| 34 | `contact_birthday` | Contact Birthday | PeopleCalendarSource.php:67 (computed) | annual from `contacts.birthday` **where `birthday_reminder=true`** (opt-in) | agent only; no digest | 3417/3421, 2027-06-07 | **LIVE** |
+| 35 | `rmcp_ack_expiry` | RMCP Acknowledgement Expiry | PeopleCalendarSource.php:189 | `rmcp_acknowledgements.valid_until` ≥ now−30d | agent → +compliance → +admin; digest compliance | 18/20, 2027-06-01 | **LIVE** |
+| 36 | `salary_review` | Annual Salary Review | RecurringCalendarSource.php:42 (computed) | annual 1 March | hr → +admin; no digest | 1/1, 2027-03-01 | **LIVE** |
+| 37 | `filed_document_expiry` | Filed Document Expiry | PropertyCalendarSource.php:175 | `document_filing_register.expiry_date`, excl. types EA/OA | agent → +bm; no digest | 0/0 | **DORMANT** |
+| 38 | `office_closure` | Office Closure | **none** (deferred — RecurringCalendarSource.php:14 note) | n/a — `is_active=false`, Tier-2 leave module deferred | all; no notifications | 0/0 | **ORPHAN (deferred, inactive)** |
+| 39 | `viewing` | Property viewing | CalendarController.php:24 + CalendarEventService.php:26 (manual) | agent creates a buyer-viewing appointment (multi-property allowed) | agent → +bm → +admin; digest agent/bm | 32/33, 2026-07-14 | **LIVE** |
+| 40 | `property_evaluation` | Property evaluation | manual (creatable set) | agent books a property evaluation | agent → +bm → +admin; digest agent/bm | 4/4, 2026-07-07 | **LIVE** |
+| 41 | `listing_presentation` | Listing presentation | manual (creatable set) | agent books a CMA/listing presentation to a seller | agent → +bm → +admin; digest agent/bm | 11/11, 2026-07-10 | **LIVE** |
+| 42 | `meeting` | Meeting | manual (creatable set) | agent creates a general meeting | agent → +bm; digest agent | 13/13, 2026-07-08 | **LIVE** |
+| 43 | `task` | Task / To-do | manual (creatable set) | agent creates a personal task with a deadline | agent only; no digest | 24/24, 2027-01-12 | **LIVE** |
+| 44 | `other` | Other | manual (creatable set) | catch-all manual event | agent only; no digest | 32/37, 2026-07-25 | **LIVE** |
+| 45 | `private` | Private | CalendarController.php:24 & :728 (manual) | agent creates a personal busy block (content redacted to others) | all see busy slot, creator sees detail; no digest | 13/14, 2026-07-31 | **LIVE** |
+| 46 | `leave_annual` | Annual Leave | LeaveCalendarService.php:55–72 | on leave **approval**, `category='leave_'+leaveType.category`=annual | bm+admin (agent via creator bypass); digest bm | 0/0 | **DORMANT** |
+| 47 | `leave_sick` | Sick Leave | LeaveCalendarService.php:55–72 | on leave approval, category=sick | bm+admin (agent via creator bypass); digest bm | 0/0 | **DORMANT** |
+| 48 | `manual` (id=1) | Manual | CalendarEventService.php:44 default / CalendarEventCreator.php | **default category** when a manual event is created without an explicit class | creator (always visible to creator, CalendarController:444) | 23/25, 2026-07-25 | **LIVE (legacy, un-seeded)** |
+| — | `manual` (id=2) | Manual | — (no distinct emitter; second global row) | duplicate of id=1 | same | (shares the `manual` count) | **DUPLICATE** |
+| — | `(null)` | — | none (pre-guard anomaly) | 1 orphaned event with NULL category | — | 1/1, 2026-04-23 | **DATA ANOMALY** |
+
+**Tally:** LIVE = 24 · DORMANT = 20 · ORPHAN = 1 (`office_closure`) · DUPLICATE = 1 (`manual` id=2) · plus 1 NULL-category data anomaly. (48 distinct keys; `manual` counted once as class + once as duplicate.)
+
+---
+
+## (ii) Plain-language descriptions (Johan format) — from code truth
+
+**mandate_expiry** — The countdown to a listing mandate lapsing. Fires when a stock property's `expiry_date` enters the 90-day show window and it's still on-market. Routes to the listing agent, escalating to BM then admin as it reddens. *e.g. Sole mandate expiring in 14 days on 12 Beach Rd → agent + BM.*
+
+**lease_expiry** — A tenant's lease reaching its end date. Fires from a signed `lease_record` (canonical), an active rental, or a property carrying a `lease_end_date` with no lease record (fallback). Routes to the managing agent then BM/admin. *e.g. Lease ends in 30 days at 4 Marine Dr → agent + BM.*
+
+**ffc_expiry** — An agent's Fidelity Fund Certificate running out; they cannot legally transact without it. Fires from `users.ffc_expiry_date`. Routes agent → BM + compliance → admin. *e.g. FFC expires in 14 days — J. Smith → agent + compliance officer + BM.*
+
+**pi_insurance_expiry** — Professional Indemnity cover lapsing. Fires from `users.pi_insurance_expiry`. Routes agent → compliance → admin. *e.g. PI insurance expires in 30 days — J. Smith → agent + compliance officer.*
+
+**tax_clearance_expiry** — An agent's SARS tax-clearance validity ending. Fires from `users.tax_clearance_expiry`. Routes agent → compliance → admin. *e.g. Tax clearance expires in 14 days — J. Smith → agent + compliance officer.*
+
+**deal_step_deadline** — A due date on a live V2 deal-pipeline step (bond, transfer, compliance). Fires from `deal_step_instances.due_date` on active/not-started steps. Routes to the deal's agent → BM → admin. *e.g. "Bond approval Due" in 3 days — DEAL-1042, 12 Beach Rd → agent + BM.*
+
+**deal_registration_target** — The expected deeds-registration date for a live deal. Fires from `deals_v2.expected_registration`. Routes agent → BM → admin. *e.g. Registration expected in 5 days — DEAL-1042 → agent + BM.*
+
+**fica_renewal_due** — A contact's approved FICA verification approaching its 24-month PPRA expiry. Fires from `fica_submissions.fica_expires_at` (approved only). Routes agent → compliance → admin. *e.g. FICA renewal due in 30 days — A. Buyer → agent + compliance officer.*
+
+**payroll_run** — A scheduled pay date for a payroll run still in draft/processing. Fires from `payroll_runs.pay_date`. Routes payroll → admin. *e.g. Payroll run #7 pay date in 3 days → payroll + admin.*
+
+**sars_emp201** — The monthly PAYE/UIF/SDL declaration to SARS, due the 7th. Computed monthly (3 months ahead). Routes payroll → admin. *e.g. EMP201 due 7 Oct → payroll + admin.*
+
+**sars_emp501** — The biannual employer reconciliation (31 May / 31 Oct). Computed. Routes payroll → admin + accountant. *e.g. EMP501 reconciliation due 31 May → payroll + admin + accountant.*
+
+**rmcp_review_due** — The agency's Risk Management & Compliance Programme reaching its scheduled review. Fires from `rmcp_versions.next_review_due`. Routes compliance → admin. *e.g. RMCP review due in 30 days → compliance officer + admin.*
+
+**screening_due** — A staff member's periodic background screening coming due (risk-based cadence). Fires from `employee_screenings.next_due_on`. Routes compliance → HR → admin. *e.g. Background screening due in 30 days — R. Clerk → compliance officer + HR.*
+
+**ppra_trust_audit** — The annual PPRA trust-account audit report (30 June). Computed. Routes admin only. *e.g. PPRA trust audit report due 30 Jun → admin.*
+
+**training_expiry** — A CPD/training certification lapsing. Fires from `training_completions.expires_at`. Routes agent → BM → compliance. *e.g. Training expires in 14 days — J. Smith → agent + BM.*
+
+**compliance_provision_expiry** — An agency-level regulatory provision reaching the end of its validity. Fires from `agency_compliance_provisions.effective_until`. Routes compliance → admin. *e.g. Compliance provision expires in 30 days → compliance officer + admin.*
+
+**compliance_override_expiry** — A temporary waiver on a user's compliance requirement expiring (the requirement re-activates). Fires from `user_compliance_overrides.expires_at`. Routes compliance → admin. *e.g. Compliance override expires in 7 days — J. Smith → compliance officer.*
+
+**agent_document_expiry** — A generic agent document (ID copy, cert, etc.) with an expiry reaching renewal. Fires from `user_documents.expiry_date`, honouring the doc-type's renewal window. Routes agent → compliance → admin. *e.g. ID copy expires in 30 days — J. Smith → agent + compliance officer.*
+
+**property_showday** — A scheduled show day / open house. Fires from `property_showdays.start_date` (from 2 days ago onward). Routes agent → BM. *e.g. Show day tomorrow — 12 Beach Rd → agent + BM.*
+
+**signature_expiry** — An e-sign signing link approaching its token expiry while still unsigned. Fires from `signature_requests.token_expires_at` (waiting/pending/viewed). Routes agent → BM. *e.g. Signature link expires in 2 days — A. Buyer → agent.*
+
+**sales_doc_expiry** — A sent sales-document recipient link nearing token expiry. Fires from `sales_document_recipients.token_expires_at` (status sent). Routes agent → BM. *e.g. Sales document expires in 2 days — A. Buyer → agent.*
+
+**portal_listing_expiry** — A P24/PP portal listing about to expire and drop off the market. Fires from `listing_stocks.expires_at`. Routes agent → BM. *e.g. Portal listing expires in 5 days — 12 Beach Rd → agent + BM.*
+
+**rent_escalation** — A scheduled rent-escalation effective date approaching (bill the new amount). Fires from `rental_amount_versions.effective_from` within 30 days. Routes agent → BM. *e.g. Rent escalation effective in 7 days — 4 Marine Dr → agent + BM.*
+
+**rent_due** — The monthly rent-due marker (1st of month) for each active rental. Computed, rolls forward nightly. Routes agent → BM. *e.g. Rent due 1 Aug — 4 Marine Dr → agent.*
+
+**commercial_lease_expiry** — A commercial tenancy unit's lease ending (higher revenue impact). Fires from `commercial_evaluation_units.lease_end`. Routes agent → BM → admin. *e.g. Commercial lease expires in 30 days — Unit 3, Main St → agent + BM.*
+
+**leave_cycle_end** — An employee's leave-accrual cycle ending (use-or-lose warning). Fires from `leave_entitlements.cycle_end_date`. Routes agent → BM. *e.g. Leave cycle ends in 14 days — R. Clerk → agent + BM.*
+
+**employee_termination** — A staff member's last working day (triggers final payroll, access revocation, equipment return). Fires from `payroll_employees.termination_date`. Routes HR → payroll + admin → BM. *e.g. Last working day in 7 days — R. Clerk → HR + payroll.*
+
+**tax_year_end** — The SA tax year end (28 Feb) that triggers IRP5/EMP501/annual recon. Computed. Routes payroll → admin + accountant. *e.g. Tax year end 28 Feb → payroll + admin + accountant.*
+
+**uif_declaration** — The monthly UIF declaration to Dept. of Employment & Labour, due the 7th. Computed. Routes payroll → admin. *e.g. UIF declaration due 7 Oct → payroll.*
+
+**sdl_submission** — The monthly Skills Development Levy submission, due the 7th. Computed. Routes payroll → admin. *e.g. SDL submission due 7 Oct → payroll.*
+
+**irp5_deadline** — The deadline to issue IRP5 certificates (~31 May). Computed. Routes payroll → admin → accountant. *e.g. IRP5 issue deadline 31 May → payroll + admin.*
+
+**employment_anniversary** — A staff work anniversary (retention milestone). Computed annually from `users.employment_date`, skipping the first year. Routes agent + BM. *e.g. 3-year anniversary in 3 days — J. Smith → BM.*
+
+**agent_birthday** — A team member's birthday, so the BM can acknowledge it. Computed annually from `users.date_of_birth` (active users). Routes BM. *e.g. Birthday in 3 days — J. Smith → BM.*
+
+**contact_birthday** — A contact's birthday, surfaced only when the agent opted that contact in (`birthday_reminder=true`). Computed annually from `contacts.birthday`. Routes the owning agent. *e.g. Birthday in 3 days — A. Buyer → agent.*
+
+**rmcp_ack_expiry** — An agent's RMCP acknowledgement reaching its 12-month re-sign point. Fires from `rmcp_acknowledgements.valid_until`. Routes agent → compliance → admin. *e.g. RMCP acknowledgement expires in 14 days — J. Smith → agent + compliance officer.*
+
+**salary_review** — The annual salary-review planning marker (1 March). Computed. Routes HR → admin. *e.g. Annual salary review 1 Mar → HR + admin.*
+
+**filed_document_expiry** — A document in the filing register expiring (non-mandate types; EA/OA excluded to avoid duplicating mandate_expiry). Fires from `document_filing_register.expiry_date`. Routes agent → BM. *e.g. COC expires in 14 days — 12 Beach Rd → agent.*
+
+**office_closure** — An agency-wide closure day everyone should see (public holiday, shutdown). **No emitter — deferred to the Tier-2 leave module; row is inactive.** Would route to all. *e.g. Office closed 16 Dec → everyone.*
+
+**viewing** — An agent-booked buyer viewing appointment; the one multi-property class (a viewing trip can span several homes). Created manually. Same-day actionable; asks for feedback after. Routes agent → BM → admin. *e.g. Viewing tomorrow, 3 properties for A. Buyer → agent + BM.*
+
+**property_evaluation** — An agent's booked visit to evaluate a property for a potential seller (longer planning cycle). Created manually. Routes agent → BM → admin. *e.g. Evaluation in 5 days — 12 Beach Rd → agent + BM.*
+
+**listing_presentation** — An agent presenting a CMA/market analysis to win a seller's mandate. Created manually. Routes agent → BM → admin. *e.g. Listing presentation in 5 days — Seller J → agent + BM.*
+
+**meeting** — A general meeting (team/client/external). Created manually; informational, never overdue. Routes agent → BM. *e.g. Team meeting tomorrow → agent + BM.*
+
+**task** — A personal to-do with a deadline. Created manually. Routes the agent only. *e.g. Task due 12 Jan — follow up bank → agent.*
+
+**other** — Catch-all for manual events that fit no other class. Informational. Routes the agent only. *e.g. Misc appointment 25 Jul → agent.*
+
+**private** — A personal busy block: everyone in scope sees the slot is taken, but only the creator sees the detail (role-blind redaction). Created manually. *e.g. "Private" busy block Fri 14:00 → creator sees detail, others see busy.*
+
+**leave_annual** — Approved annual leave placed on the calendar. Written on leave **approval** by `LeaveCalendarService` (`category = leave_annual`). Agents see their own via creator bypass; BM + admin see all. *e.g. Annual leave 12–16 Aug — R. Clerk → BM + admin.*
+
+**leave_sick** — Approved sick leave on the calendar. Written on approval (`category = leave_sick`). Same visibility as annual. *e.g. Sick leave 3 Aug — R. Clerk → BM + admin.*
+
+**manual** — The runtime **default** class for a manually created event when no explicit class is chosen. Not seeded; two legacy global rows exist. Visible to the creator. *e.g. Ad-hoc event with no class → falls to `manual`, creator only.*
+
+---
+
+## (iii) Orphans / anomalies
+
+1. **`office_closure` — ORPHAN (deferred).** Seeded row exists but `is_active=false` and **no source emits it**. RecurringCalendarSource.php:14 explicitly defers it to the Tier-2 leave module. Either build the emitter (stored office-closure dates) or leave it flagged as not-yet-wired in the AT-197 overhaul.
+2. **`manual` (id=2) — DUPLICATE global row.** Two identical `agency_id=NULL, event_class='manual'` rows (ids 1 & 2). Neither is seeded (the seeder never emits `manual`). One should be soft-deleted; `manual` should arguably be formalised in the seeder (it IS the live default category with 23 active events) or replaced by making manual creation always pick a real class.
+3. **1 event with `category = NULL` — DATA ANOMALY.** A single pre-guard row (created 2026-04-23). `ReconcileCalendarEvents`/GET filters `whereIn('category', …)` so it is effectively invisible. Candidate for a one-time backfill to `other`/`manual`.
+4. **20 DORMANT classes (emitter exists, zero live rows).** Not orphans — the code path is wired but no live data has triggered them yet: `pi_insurance_expiry, tax_clearance_expiry, deal_step_deadline, deal_registration_target, payroll_run, screening_due, training_expiry, compliance_provision_expiry, compliance_override_expiry, property_showday, sales_doc_expiry, rent_escalation, commercial_lease_expiry, leave_cycle_end, employee_termination, employment_anniversary, agent_birthday, filed_document_expiry, leave_annual, leave_sick`. These reflect data gaps on live (e.g. no `users.date_of_birth` → agent_birthday empty though contact_birthday has 3,417), **not** missing emitters — worth noting for the descriptions so Johan doesn't mistake "0 rows" for "broken".
+
+---
+
+## (iv) MISSING-class CANDIDATES (reverse sweep — notification-worthy flows with NO calendar class)
+
+Grounded in code that already fires but emits no calendar event:
+
+1. **Mailbox health failing** — `app/Services/Communications/MailboxHealthRecorder.php` (AT-181) computes Inactive/Pending/Healthy/**Failing** and raises an episode-once admin alert (live revealed `johan@` = auth_failed). No calendar class. **Candidate `mailbox_health_alert`** → admin/BM. Rationale: a dead mailbox silently stops comms capture — deserves a red calendar surface until fixed.
+
+2. **FICA lifecycle beyond renewal** — `app/Events/Fica/{FicaSubmitted,FicaApproved,FicaRejected,FicaExpired}` all fire. Only the *upcoming expiry* (`fica_renewal_due`) has a class. **Candidates `fica_review_due`** (submitted, awaiting compliance action) and **`fica_rejected`** (must re-submit) → compliance officer. Rationale: an unactioned or rejected FICA is a live compliance gap with no time-bound surface.
+
+3. **Commission / payout milestones** — `app/Events/Deal/{DealClosed,DealCommissionFinalised,DealMoneyLineChanged}` fire. `deal_step_deadline` + `deal_registration_target` cover deadlines but nothing marks *commission due / payout expected*. **Candidate `commission_payout_due`** → agent + BM + finance. Rationale: agents chase commission dates manually today.
+
+4. **Viewing-pack follow-up** — `app/Services/ViewingPack/*` builds/sends buyer packs (redaction, buyer PDF) with no calendar follow-up class. **Candidate `viewing_pack_followup`** → listing agent. Rationale: a pack sent to a buyer with no logged follow-up is a lead leaking; a dated nudge closes the loop (parallels the existing missed-feedback auto-task).
+
+5. **Mandate signed — key dates** — `app/Events/Mandate/MandateSigned` fires (drives Tracked→Stock promotion). Only expiry has a class. **Candidate `mandate_signed`** (or a sole-mandate exclusivity/cooling-off marker) → listing agent + BM. Rationale: the start of a mandate has its own actionable dates, not just the end. *(Lower priority than 1–4.)*
+
+6. **E-sign completion** — `app/Events/Document/DocumentSigned` + `app/Events/Esign/TemplatePublished` fire. `signature_expiry` covers the *unsigned link expiring* but there is no positive "document fully signed → file / next step" calendar surface. **Candidate `signing_completed`** → sending agent. Rationale: marginal (it's an activity, not a deadline) — note but likely fold into deal/document activity rather than a calendar class.
+
+7. **DR2 escalation-rung visibility** — `app/Services/DealV2/NotificationService::escalateOverdueStep()` fires BM (+N days) and admin (+M days) rungs off overdue steps. These are notifications only; the underlying `deal_step_deadline` class already surfaces the step, so **no new class needed** — flagged only so the overhaul doesn't double-model it.
+
+8. **Consent / opt-out** — `app/Events/Contact/ContactConsentChanged` + `app/Events/SellerOutreach/OptOutRecorded` (AT-183 POPIA) fire. Weak calendar fit (point-in-time compliance events, not future deadlines). **No class recommended** unless a "re-consent due" cadence is introduced.
+
+**Strong candidates to spec in AT-197:** `mailbox_health_alert`, `fica_review_due` / `fica_rejected`, `commission_payout_due`, `viewing_pack_followup`.
+**Weaker / note-only:** `mandate_signed`, `signing_completed`, DR2 rungs, consent events.
