@@ -88,6 +88,14 @@ class PublishReferencePack extends Command
             $template->structure = $structure;
             $template->lint_status = CompiledTemplate::LINT_PASSED;
             $template->lint_report = $lint->toArray();
+            // Stamp the proven web/PDF parity hashes on the artifact (§2 render_parity) for the
+            // primary combination (one present instance per declared party).
+            $primary = array_map(
+                static fn (array $p): string => ($p['key'] ?? 'party') . '_1',
+                $structure['parties'] ?? [],
+            );
+            $parityResult = $parity->verify($structure, $primary);
+            $template->render_parity = ['web_hash' => $parityResult->webHash, 'pdf_hash' => $parityResult->pdfHash];
             $template->status = CompiledTemplate::STATUS_DRAFT;
             $template->save();
 
