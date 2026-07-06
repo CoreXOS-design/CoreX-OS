@@ -61,9 +61,17 @@
     // Does this week open a new month? (first-of-month cell → seam marker)
     $seamMonth = null;
     foreach ($weekDates as $d) { if ($d->day === 1) { $seamMonth = $d; break; } }
+
+    // AT-164 — MONTH BOUNDARY TINT: alternating faint wash per month so a month change reads
+    // as a glanceable full-width colour shift (continuous mode only — scoped by the parent
+    // .cal-scroll-continuous class; strength tuned via --cal-month-tint-alpha in one place).
+    // The week's OWNING month = its Thursday (ISO), matching the sticky-label logic.
+    $ownMonth   = $weekStart->copy()->addDays(3);
+    $monthParity = ($ownMonth->year * 12 + $ownMonth->month) % 2;
 @endphp
 
-<div class="cal-week-row" data-week="{{ $weekStart->toDateString() }}"
+<div class="cal-week-row cal-month-tint-{{ $monthParity }}" data-week="{{ $weekStart->toDateString() }}"
+     data-month-parity="{{ $monthParity }}"
      @if($seamMonth) data-month-first="{{ $seamMonth->format('Y-m') }}" @endif
      style="border-bottom: 1px solid var(--border);{{ $seamMonth ? ' border-top: 2px solid var(--brand-button);' : '' }}">
 
