@@ -29,13 +29,15 @@ class BackfillP24Stats extends Command
     protected $signature = 'p24:backfill-stats
         {--days=180 : How many days back to pull (capped at 180 by the API)}
         {--agency= : Restrict to a single agency id}
-        {--property= : Backfill just one property id}';
+        {--property= : Backfill just one property id}
+        {--pause=800 : Milliseconds between P24 calls — raise for a gentler sweep}';
 
     protected $description = 'Backfill Property24 listing statistics (views + lead counts) into property_portal_metrics.';
 
     public function handle(P24StatsService $service): int
     {
         $days = (int) $this->option('days');
+        $service->setPacing((int) $this->option('pause'));
 
         // Single-property fast path.
         if ($propertyId = $this->option('property')) {
