@@ -3042,6 +3042,30 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
         ->name('restore')->withTrashed();
 });
 
+// ===== E-SIGN COMPILE STUDIO (AT-177 WS4-S) — internal tool, esign.compiler.* gated =====
+Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view'])
+    ->name('docuperfect.compiler.')->group(function () {
+        $c = \App\Http\Controllers\Docuperfect\Compiler\CompileStudioController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::get('/studio/{id}', [$c, 'studio'])->whereNumber('id')->name('studio');
+
+        Route::middleware('permission:esign.compiler.compile')->group(function () use ($c) {
+            Route::post('/start', [$c, 'start'])->name('start');
+            Route::post('/studio/{id}/bind-field', [$c, 'bindField'])->whereNumber('id')->name('bindField');
+            Route::post('/studio/{id}/structure', [$c, 'updateStructure'])->whereNumber('id')->name('updateStructure');
+            Route::post('/studio/{id}/party', [$c, 'declareParty'])->whereNumber('id')->name('declareParty');
+            Route::post('/studio/{id}/visibility', [$c, 'setVisibility'])->whereNumber('id')->name('setVisibility');
+            Route::post('/studio/{id}/editability', [$c, 'setEditability'])->whereNumber('id')->name('setEditability');
+            Route::post('/studio/{id}/suggest', [$c, 'suggest'])->whereNumber('id')->name('suggest');
+            Route::post('/studio/{id}/lint', [$c, 'lint'])->whereNumber('id')->name('lint');
+            Route::post('/studio/{id}/certify', [$c, 'certify'])->whereNumber('id')->name('certify');
+            Route::post('/studio/{id}/archive', [$c, 'archive'])->whereNumber('id')->name('archive');
+        });
+
+        Route::post('/studio/{id}/publish', [$c, 'publish'])->whereNumber('id')
+            ->middleware('permission:esign.compiler.publish')->name('publish');
+    });
+
 // ===== DOCUPERFECT =====
 Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'index'])->name('docuperfect.dashboard');

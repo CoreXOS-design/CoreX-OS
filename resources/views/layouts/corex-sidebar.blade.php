@@ -1010,6 +1010,9 @@
                 @permission('access_clause_library')
                 <a href="{{ route('docuperfect.clauses.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
                 @endpermission
+                @permission('esign.compiler.view')
+                <a href="{{ route('docuperfect.compiler.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.compiler.*') ? 'active' : '' }}">Compile Studio</a>
+                @endpermission
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
