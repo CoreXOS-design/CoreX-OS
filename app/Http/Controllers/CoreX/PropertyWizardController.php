@@ -32,14 +32,19 @@ class PropertyWizardController extends Controller
         $user = auth()->user();
         abort_unless($user->hasPermission('properties.create'), 403);
 
-        // Offer to resume an existing empty draft owned by this user
-        $draft = Property::query()
-            ->where('agent_id', $user->id)
-            ->where('status', 'draft')
-            ->whereNull('published_at')
-            ->whereNull('description')
-            ->latest('updated_at')
-            ->first();
+        // Resume an existing draft ONLY when explicitly asked (AT-188). The
+        // "Drafts" button on the listing links here with ?resume; a plain
+        // "New Property" visit carries no ?resume and always starts fresh, so
+        // it no longer silently drops the user back onto their last draft.
+        $draft = null;
+        if ($request->has('resume')) {
+            $draft = Property::query()
+                ->where('agent_id', $user->id)
+                ->where('status', 'draft')
+                ->whereNull('published_at')
+                ->latest('updated_at')
+                ->first();
+        }
 
         $settingItems = [
             'types'        => PropertySettingItem::group('property_type')->where('active', true)->get(),

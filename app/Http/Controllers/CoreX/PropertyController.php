@@ -288,6 +288,16 @@ class PropertyController extends Controller
             );
         }
 
+        // AT-188 — count the current agent's own unpublished drafts. Drives the
+        // "Drafts" button next to "New Property" (hidden when the agent has none)
+        // so resuming a draft is an explicit choice, not what a fresh "New
+        // Property" click silently does.
+        $myDraftCount = Property::query()
+            ->where('agent_id', $user->id)
+            ->where('status', 'draft')
+            ->whereNull('published_at')
+            ->count();
+
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();
 
@@ -318,7 +328,8 @@ class PropertyController extends Controller
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
-            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode'
+            'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
+            'myDraftCount'
         ));
     }
 
