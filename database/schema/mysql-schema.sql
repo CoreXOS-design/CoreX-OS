@@ -4254,6 +4254,27 @@ CREATE TABLE `deal_v2_contacts` (
   CONSTRAINT `deal_v2_contacts_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `deal_v2_remarks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `deal_v2_remarks` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `body` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `dvr_user_fk` (`user_id`),
+  KEY `dvr_deal_created_idx` (`deal_id`,`created_at`),
+  KEY `dvr_agency_idx` (`agency_id`),
+  CONSTRAINT `dvr_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dvr_deal_fk` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dvr_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_v2_settlements`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12984,3 +13005,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (964,'2026_07_05_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (965,'2026_07_23_000001_create_data_dictionary_entries_table',220);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (966,'2026_07_23_000002_create_compiled_templates_table',220);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (967,'2026_07_23_000003_create_compiled_template_field_bindings_table',220);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (968,'2026_07_06_000001_create_deal_v2_remarks_table',221);

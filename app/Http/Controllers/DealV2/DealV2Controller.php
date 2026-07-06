@@ -358,6 +358,7 @@ class DealV2Controller extends Controller
             'stepInstances.dependencies',        // WS-V1 AND-gate blockers
             'stageMoves' => fn ($q) => $q->with('triggerStep')->latest('id'), // WS-V2 prompt/undo
             'activityLog' => fn ($q) => $q->with('user')->latest()->take(50),
+            'remarks' => fn ($q) => $q->with('author')->latest(), // WS-V6 feedback thread
             'pipelineTemplate',
             'listingAgent',
             'sellingAgent',
@@ -372,6 +373,11 @@ class DealV2Controller extends Controller
         $canOverrideDates = $user->hasPermission('deals_v2.override_dates');
         $canDistribute = $user->hasPermission('deals_v2.distribute_documents');
 
+        // WS-V6 — remark thread. Anyone who can see this deal within their scope
+        // may remark; a branch/all-scope user (BM/admin) may moderate any remark.
+        $canRemark = DealV2::query()->whereKey($deal->id)->visibleTo($user)->exists();
+        $canModerateRemarks = in_array(PermissionService::getDataScope($user, 'deals_v2'), ['branch', 'all'], true);
+
         // Doc-type picker + "satisfies which step" picker for the upload-onto-deal form.
         $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
             ->orderBy('sort_order')->get(['id', 'label']);
@@ -381,7 +387,8 @@ class DealV2Controller extends Controller
             ->values();
 
         return view('deals-v2.show', compact(
-            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'canDistribute', 'documentTypes', 'documentSteps'
+            'deal', 'canEdit', 'canApprove', 'canOverrideDates', 'canDistribute', 'documentTypes', 'documentSteps',
+            'canRemark', 'canModerateRemarks'
         ));
     }
 

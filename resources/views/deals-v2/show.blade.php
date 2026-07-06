@@ -535,7 +535,7 @@
 
                                     {{-- Not started info --}}
                                     @if($step->status === 'not_started')
-                                        @php($blockedLabel = $step->blockedByLabel())
+                                        @php $blockedLabel = $step->blockedByLabel(); @endphp
                                         <div class="text-xs" style="color: var(--text-muted);">
                                             @if($blockedLabel)
                                                 {{-- WS-V1: real blocker(s) — never a false countdown --}}
@@ -556,31 +556,77 @@
                 </div>
             </div>
 
-            {{-- ACTIVITY LOG --}}
+            {{-- DEAL TIMELINE — WS-V6: remarks interleaved with the activity log (the deal's story on one screen) --}}
             <div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Activity Log</h2>
-                <div class="rounded-xl overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
-                    @forelse($deal->activityLog as $log)
-                        @php
-                            $accentColor = match($log->action) {
-                                'step_completed' => '#34d399',
-                                'step_activated' => '#60a5fa',
-                                'status_changed' => '#2dd4bf',
-                                'step_approved', 'approval_pending', 'step_rejected' => '#fbbf24',
-                                'deal_created' => '#a78bfa',
-                                default => 'var(--text-muted)',
-                            };
-                        @endphp
-                        <div class="px-4 py-2.5 flex items-start gap-3" style="border-bottom: 1px solid var(--border);">
-                            <span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background: {{ $accentColor }};"></span>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm" style="color: var(--text-primary);">{{ $log->description }}</div>
-                                <div class="text-xs" style="color: var(--text-muted);">
-                                    {{ $log->created_at->format('d M Y H:i') }}
-                                    · {{ $log->user ? $log->user->name : 'System' }}
-                                </div>
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Deal Timeline</h2>
+
+                {{-- Add a remark (feedback thread) --}}
+                @if($canRemark)
+                    <form method="POST" action="{{ route('deals-v2.remarks.store', $deal) }}" class="mb-3">
+                        @csrf
+                        <div class="rounded-xl p-3" style="border: 1px solid var(--border); background: var(--surface);">
+                            <textarea name="body" rows="2" maxlength="2000" required
+                                      placeholder="Add a remark — feedback, a call outcome, anything worth recording on this deal…"
+                                      class="w-full text-sm rounded-lg px-3 py-2 mb-2" style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"></textarea>
+                            @error('body')<div class="text-xs mb-2" style="color: #f87171;">{{ $message }}</div>@enderror
+                            <div class="flex justify-end">
+                                <button type="submit" class="px-3 py-1.5 rounded text-xs font-medium" style="background: var(--surface-2); color: #2dd4bf; border: 1px solid var(--border);">Add Remark</button>
                             </div>
                         </div>
+                    </form>
+                @endif
+
+                @php
+                    // One chronological stream: immutable activity-log events + soft-deletable remarks.
+                    $timeline = collect();
+                    foreach ($deal->activityLog as $log) { $timeline->push((object)['kind' => 'log', 'at' => $log->created_at, 'row' => $log]); }
+                    foreach ($deal->remarks as $rem) { $timeline->push((object)['kind' => 'remark', 'at' => $rem->created_at, 'row' => $rem]); }
+                    $timeline = $timeline->filter(fn ($i) => $i->at !== null)->sortByDesc('at')->values();
+                @endphp
+
+                <div class="rounded-xl overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+                    @forelse($timeline as $item)
+                        @if($item->kind === 'remark')
+                            @php $rem = $item->row; @endphp
+                            <div class="px-4 py-3 flex items-start gap-3" style="border-bottom: 1px solid var(--border); background: rgba(45,212,191,0.05);">
+                                <span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background: #2dd4bf;"></span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm whitespace-pre-line" style="color: var(--text-primary);">{{ $rem->body }}</div>
+                                    <div class="text-xs mt-0.5 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Remark · {{ $rem->author->name ?? 'Unknown' }} · {{ $rem->created_at->format('d M Y H:i') }}</span>
+                                        @if($canModerateRemarks || (int) $rem->user_id === (int) auth()->id())
+                                            <form method="POST" action="{{ route('deals-v2.remarks.destroy', $rem) }}" onsubmit="return confirm('Remove this remark?');">
+                                                @csrf @method('DELETE')
+                                                <button type="submit" class="text-xs" style="color: #f87171;">Remove</button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        @else
+                            @php
+                                $log = $item->row;
+                                $accentColor = match($log->action) {
+                                    'step_completed' => '#34d399',
+                                    'step_activated' => '#60a5fa',
+                                    'status_changed', 'stage_advanced' => '#2dd4bf',
+                                    'step_approved', 'approval_pending', 'step_rejected', 'stage_prompt' => '#fbbf24',
+                                    'stage_undone', 'remark_removed', 'steps_cancelled' => '#f87171',
+                                    'deal_created' => '#a78bfa',
+                                    default => 'var(--text-muted)',
+                                };
+                            @endphp
+                            <div class="px-4 py-2.5 flex items-start gap-3" style="border-bottom: 1px solid var(--border);">
+                                <span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background: {{ $accentColor }};"></span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm" style="color: var(--text-primary);">{{ $log->description }}</div>
+                                    <div class="text-xs" style="color: var(--text-muted);">
+                                        {{ $log->created_at->format('d M Y H:i') }}
+                                        · {{ $log->user ? $log->user->name : 'System' }}
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     @empty
                         <div class="px-4 py-6 text-center text-sm" style="color: var(--text-muted);">No activity yet.</div>
                     @endforelse

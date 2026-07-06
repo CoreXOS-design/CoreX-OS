@@ -161,6 +161,12 @@ class DealV2 extends Model
         return $this->hasMany(DealStageMove::class, 'deal_id')->orderBy('created_at', 'desc');
     }
 
+    /** AT-158 WS-V6 — free-form remarks (the DR1 addRemark analogue). */
+    public function remarks(): HasMany
+    {
+        return $this->hasMany(DealRemark::class, 'deal_id')->orderBy('created_at', 'desc');
+    }
+
     /** The single pending stage-prompt awaiting confirm (prompt mode), if any. */
     public function pendingStageMove()
     {
