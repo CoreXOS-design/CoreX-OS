@@ -25,7 +25,7 @@
 @php
     $renderLogo = function ($style = '', $emHeight = '2.6em', $wordColor = '#ffffff') use ($logoUrl) {
         if ($logoUrl) {
-            return '<img src="' . e($logoUrl) . '" alt="" style="height:' . $emHeight . ';object-fit:contain;object-position:left center;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.55));' . $style . '">';
+            return '<img src="' . e($logoUrl) . '" alt="" class="js-ad-logo" style="height:' . $emHeight . ';object-fit:contain;object-position:left center;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.55));' . $style . '">';
         }
         return '<div style="font-family:Figtree,sans-serif;font-weight:900;font-size:' . $emHeight . ';line-height:1;color:' . $wordColor . ';' . $style . '">corex<span style="color:#33c4e0">os</span></div>';
     };
