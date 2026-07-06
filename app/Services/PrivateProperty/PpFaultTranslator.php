@@ -19,7 +19,15 @@ class PpFaultTranslator
 {
     /** Known PP error codes → short, agent-friendly message. */
     private const FRIENDLY = [
-        'PP60'  => 'Complex/Scheme name is required for this listing.',
+        // NOTE: PP60 is deliberately NOT overridden. It is a GENERIC "insufficient"
+        // code PP reuses for several distinct reasons, each with its own message:
+        //   "PP60 - The address details are insufficient, please add a Scheme/Complex name..."
+        //   "PP60 - The attributes are insufficient. Bathrooms is a mandatory attribute..."
+        // Hardcoding it to "Complex/Scheme name is required" (the old value) hid the
+        // real reason: a vacant-land listing rejected for bathrooms showed the agent
+        // "complex name required" in CoreX while PP's email said "Bathrooms mandatory"
+        // (property 2391). PP's own PP60 text is already human-readable, so we surface
+        // it verbatim instead of guessing.
         // PP106 is a DATATYPE error, not a location error (verified from the live
         // fault: "PP106 - Please match attribute datatypes to Appendix A of API").
         // It fires when an attribute's Value type is wrong — e.g. a count-type
