@@ -7032,6 +7032,11 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
                     body: JSON.stringify({
                         gallery_categories_json: this.buildCategories(),
                         gallery_images_json: this.images,
+                        // Send the full tag library (derived + custom, in the
+                        // agent's chosen order) so the server can persist custom
+                        // tags that have no photos filed under them yet — without
+                        // this an empty custom tag is lost on reload.
+                        gallery_available_tags: this.availableTags,
                     }),
                 });
                 this.dirty = !res.ok;

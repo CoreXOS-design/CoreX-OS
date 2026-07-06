@@ -1106,6 +1106,56 @@ class Property extends Model
      */
     public function getAvailableGalleryTags(): array
     {
+        $tags = $this->derivedGalleryTags();
+
+        // Append every tag that exists BEYOND the derived room set, case-
+        // insensitively de-duped against what we already have. Two sources:
+        //
+        //   1. gallery_custom_tags — the explicit custom-tag registry (mobile
+        //      add/remove endpoints keep it; the web sorter does NOT write it).
+        //   2. category names already in use in gallery_categories_json — tags
+        //      the agent created in the web gallery sorter and FILED PHOTOS
+        //      under. That save path persists the names ONLY inside
+        //      gallery_categories_json, never into gallery_custom_tags, so
+        //      before this a custom tag with photos silently vanished from the
+        //      tag library on reload (property 6060: "View", "Store room", …
+        //      had photos but were gone from the list). A tag that has images
+        //      filed under it MUST appear in the list — deriving the list from
+        //      in-use categories makes it self-consistent regardless of which
+        //      save path wrote them.
+        $appendIfNew = function (?string $name) use (&$tags): void {
+            if (!is_string($name)) return;
+            $name = trim($name);
+            if ($name === '') return;
+            foreach ($tags as $t) {
+                if (strcasecmp($t, $name) === 0) return;
+            }
+            $tags[] = $name;
+        };
+
+        foreach (($this->gallery_custom_tags ?? []) as $custom) {
+            $appendIfNew($custom);
+        }
+
+        foreach (($this->gallery_categories_json['categories'] ?? []) as $cat) {
+            $appendIfNew($cat['name'] ?? null);
+        }
+
+        return $tags;
+    }
+
+    /**
+     * The gallery tags DERIVED from the property's rooms — `spaces_json`
+     * (preferred) or the legacy beds/baths/garages columns. ONLY spaces the
+     * user has actually added (count >= 1) produce tags. This is the room-based
+     * baseline; custom tags are layered on top by getAvailableGalleryTags().
+     * Kept separate so the reorder-save path can tell custom tags from derived
+     * ones when persisting the registry.
+     *
+     * @return string[]
+     */
+    public function derivedGalleryTags(): array
+    {
         $allowed = ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'];
 
         // Prefer spaces_json — it's the canonical source after the
@@ -1135,18 +1185,6 @@ class Property extends Model
             for ($i = 1; $i <= (int) ($this->beds ?? 0); $i++)  $tags[] = 'Bedroom ' . $i;
             for ($i = 1; $i <= (int) ($this->baths ?? 0); $i++) $tags[] = 'Bathroom ' . $i;
             if ((int) ($this->garages ?? 0) > 0) $tags[] = 'Garage';
-        }
-
-        // Merge user-defined custom tags (case-insensitive de-dupe).
-        foreach (($this->gallery_custom_tags ?? []) as $custom) {
-            if (!is_string($custom)) continue;
-            $custom = trim($custom);
-            if ($custom === '') continue;
-            $exists = false;
-            foreach ($tags as $t) {
-                if (strcasecmp($t, $custom) === 0) { $exists = true; break; }
-            }
-            if (!$exists) $tags[] = $custom;
         }
 
         return $tags;
