@@ -2525,6 +2525,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/wizard/{property}/step',          [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'saveStep'])->name('wizard.step');
         Route::post('/wizard/{property}/finalize',      [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'finalize'])->name('wizard.finalize');
         Route::delete('/wizard/{property}',             [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'discardDraft'])->name('wizard.discard');
+        // Same-origin image proxy for the Ad Manager (html2canvas needs same-origin
+        // images). MUST be declared before the /{property} catch-all so "ad-media"
+        // isn't matched as a property slug. See PropertyController@adMedia.
+        Route::get('/ad-media',                [\App\Http\Controllers\CoreX\PropertyController::class, 'adMedia'])->name('ad-media');
         Route::get('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'show'])->name('show');
         // Phase 3g — JSON detail card for the Map module.
         Route::get('/{property}/map-card',     [\App\Http\Controllers\Map\MapController::class, 'propertyCard'])->name('map-card');

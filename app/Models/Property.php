@@ -1413,13 +1413,17 @@ class Property extends Model
         $pos  = strpos($path, '/storage/');
         if ($pos !== false) {
             $rel = substr($path, $pos); // "/storage/…"
-            // Re-home to the current origin only if the file is actually here.
-            // public_path('storage/…') follows the storage symlink to the real
-            // file; a missing file means it lives on the origin host → keep it
-            // absolute so it still loads.
+            // Fast path: the file IS on this host → serve it host-relative
+            // (same-origin, direct from the web server, html2canvas-safe).
             if (is_file(public_path(ltrim($rel, '/')))) {
                 return $rel;
             }
+            // The file lives on ANOTHER of our hosts (e.g. Staging referencing
+            // live-hosted images). A host-relative path would 404 and an absolute
+            // cross-origin URL exports BLANK from html2canvas. Route it through
+            // the same-origin ad-media proxy so it both displays AND captures.
+            // `absolute:false` → root-relative, so it's same-origin on any host.
+            return route('corex.properties.ad-media', ['u' => $u], false);
         }
 
         return $u;
