@@ -251,6 +251,22 @@ class SigningController extends Controller
             // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
 
+            // AT-177/WS6 — COMPILED SERVING PATH. If this template has been cut over
+            // (compiled_serving + a published compiled_templates family), serve the document
+            // from its canonical compiled CDS via the render-only runtime, bypassing the ENTIRE
+            // legacy merged_html + compensator chain below (§9 retirement). Dual-path: templates
+            // not cut over fall through to the untouched legacy `else` branch.
+            $compiledServing = app(\App\Services\Docuperfect\Compiler\Serving\CompiledServingResolver::class)
+                ->resolve($docTemplate);
+            if ($compiledServing !== null) {
+                $recipientPartyRoles = SignatureRequest::where('signature_template_id', $template->id)
+                    ->pluck('party_role')
+                    ->map(fn ($r) => (string) $r)
+                    ->all();
+                [$webTemplateHtml, $editableFields] = app(\App\Services\Docuperfect\Compiler\Serving\CompiledSigningRenderer::class)
+                    ->renderForSigning($compiledServing, (string) $signingRequest->party_role, $recipientPartyRoles);
+            } else {
+            // ── LEGACY SERVING PATH (unchanged; runs only for non-cutover templates) ──
             // E-sign reset Q3 Layer B — re-render merged_html when the
             // template has been edited since the snapshot was captured.
             // Closes the "served a stale snapshot" path identified in
@@ -341,6 +357,7 @@ class SigningController extends Controller
                     $signingRequest,
                     $fieldMappingsRaw,
                 );
+            } // ── end LEGACY SERVING PATH (AT-177/WS6 dual-path) ──
         }
 
         // Build page image URLs — use flattened images when available (PDF path)

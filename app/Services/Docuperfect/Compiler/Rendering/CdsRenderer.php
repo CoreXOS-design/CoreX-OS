@@ -56,10 +56,30 @@ final class CdsRenderer
     }
 
     /**
+     * Render the interactive SIGNING VIEW for a signer (AT-177/WS6 compiled serving).
+     *
+     * Unlike {@see renderForSigner()}, this does NOT hide other parties' blocks — a signer must
+     * SEE the whole document (all clauses + every signature line, others' shown pending). It
+     * stamps `data-viewer-editable="1"` on the fields THIS signer may edit (the signing JS gates
+     * input by that attribute) and emits the `data-marker-party`/`data-marker-type="signature"`
+     * surfaces the JS activates for the signer's own role. This is the compiled replacement for
+     * the legacy merged_html + RoleBlockExpansionService `data-viewer-editable` stamping.
+     *
+     * @param list<string>         $activePartyKeys all present recipient instances
+     * @param array<string,string> $values
+     */
+    public function renderSigningView(Cds $cds, string $signerPartyKey, array $activePartyKeys, array $values = []): RenderedSurface
+    {
+        $html = $this->renderBlocks($cds, DeliveryMode::WebEsign, $activePartyKeys, $values, viewerPartyKey: $signerPartyKey, filterVisibility: false);
+
+        return new RenderedSurface($html, DeliveryMode::WebEsign, array_values($activePartyKeys), $signerPartyKey);
+    }
+
+    /**
      * @param list<string>         $activePartyKeys
      * @param array<string,string> $values
      */
-    private function renderBlocks(Cds $cds, DeliveryMode $mode, array $activePartyKeys, array $values, ?string $viewerPartyKey): string
+    private function renderBlocks(Cds $cds, DeliveryMode $mode, array $activePartyKeys, array $values, ?string $viewerPartyKey, bool $filterVisibility = true): string
     {
         $scenario = $this->scenario($activePartyKeys, $values);
         $isWeb = $mode === DeliveryMode::WebEsign;
@@ -70,8 +90,9 @@ final class CdsRenderer
             if (! $block->condition->evaluate($scenario)) {
                 continue;
             }
-            // Per-signer projection: hide blocks this signer may not see.
-            if ($viewerPartyKey !== null && ! $block->visibility->appliesTo($viewerPartyKey)) {
+            // Per-signer projection: hide blocks this signer may not see (skipped for the signing
+            // view, where the signer sees the whole document — WS6 renderSigningView).
+            if ($viewerPartyKey !== null && $filterVisibility && ! $block->visibility->appliesTo($viewerPartyKey)) {
                 continue;
             }
 
@@ -139,7 +160,9 @@ final class CdsRenderer
         if ($isWeb) {
             $control = $editable
                 ? sprintf(
-                    '<input type="text" data-field-id="%s" data-binding="%s" class="cds-field-input" value="%s"%s>',
+                    // data-viewer-editable="1" = the contract the signing-view JS gates input on
+                    // (compiled replacement for RoleBlockExpansionService's serve-time stamping).
+                    '<input type="text" data-field-id="%s" data-binding="%s" data-viewer-editable="1" class="cds-field-input" value="%s"%s>',
                     e($field->fieldId), e($field->binding), e($value), $field->required ? ' required' : '',
                 )
                 : sprintf(
