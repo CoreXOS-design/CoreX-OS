@@ -91,7 +91,7 @@
                     <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Key Dates</div>
                     <div class="text-sm" style="color: var(--text-primary);">Offer: {{ $deal->offer_date->format('d M Y') }}</div>
                     <div class="text-sm" style="color: var(--text-primary);">Exp. Reg: {{ $deal->expected_registration ? $deal->expected_registration->format('d M Y') : '—' }}</div>
-                    <div class="text-xs" style="color: var(--text-muted);">{{ $daysInPipeline }} days in pipeline</div>
+                    <div class="text-xs" style="color: var(--text-muted);">{{ $deal->isPrePipeline() ? 'Legacy (pre-pipeline)' : $daysInPipeline.' days in pipeline' }}</div>
                 </div>
             </div>
 
@@ -262,6 +262,13 @@
             @endif
 
             <div data-tour="deals-detail-pipeline">
+                @if($deal->isPrePipeline())
+                    {{-- Backfilled DR1 twin: honest pre-pipeline banner; no pipeline tracker (.ai/specs/dr2-twin-backfill.md) --}}
+                    <div class="rounded-lg p-4" style="background: var(--surface-alt, rgba(148,163,184,0.08)); border: 1px solid var(--border);">
+                        <h2 class="text-sm font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Pipeline</h2>
+                        <p class="text-sm" style="color: var(--text-secondary);">Captured in the legacy Deal Register (DR1) before the pipeline system. Linked here for a complete register — <strong>no pipeline is attached</strong>. Pipelines activate only on deals captured in DR2 from now on.</p>
+                    </div>
+                @else
                 <h2 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Pipeline Tracker</h2>
                 <div class="space-y-2">
                     @foreach($deal->stepInstances as $step)
@@ -554,6 +561,7 @@
                         </div>
                     @endforeach
                 </div>
+                @endif
             </div>
 
             {{-- DEAL TIMELINE — WS-V6: remarks interleaved with the activity log (the deal's story on one screen) --}}
