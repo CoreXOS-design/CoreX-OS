@@ -142,3 +142,33 @@ The sync job runs server-side (scheduler), no user-facing route.
 `PropertyIntelligenceService.php` (real `getPortalPerformance`);
 `resources/views/corex/properties/show.blade.php` (card);
 `routes/console.php` (schedule); `database/schema/mysql-schema.sql` (dump).
+
+---
+
+## 9. Addendum — engagement chart + historical backfill (2026-07-06)
+
+**Production reality discovered on wiring:** P24's live statistics host answers
+narrow date ranges (~1-2s) but intermittently drops the SSL handshake on wide
+(30d+) ranges. The service therefore splits every lookback into ≤14-day windows
+(`buildDateChunks`) with pacing + one retry, and scopes the nightly pull to
+`p24_syndication_status='active'` only. P24 retains ~up to 6 months of per-day
+stats; older ranges return HTTP 200 with an empty array (harmless).
+
+**Engagement chart.** Below Portal Leads on the Intelligence tab, a Chart.js line
+graph (`_portal-engagement-chart.blade.php`) plots daily **Views** and **P24 lead
+counts** with a **30D / 90D / 6M** range filter. Data is the zero-filled daily
+series from `PropertyIntelligenceService::getPortalEngagementSeries()` (≤180 days),
+embedded in the page and sliced client-side by Alpine — no extra endpoint. Chart
+built via `window.NexusCharts.portalEngagement()` (added to `nexus-charts.js`;
+requires `npm run build`). "P24 Leads" here is the historical per-day lead COUNT
+from the stats API — distinct from the Portal Leads table's individual records
+(the leads endpoint only serves ~30 days back).
+
+**Historical backfill.** `php artisan p24:backfill-stats {--days=180} {--agency=}
+{--property=}` deep-pulls the full retained history into `property_portal_metrics`
+(idempotent; long-running — pace in background). The nightly job keeps a short
+recent window fresh; this seeds listings that were live before tracking began.
+
+**Added files:** `_portal-engagement-chart.blade.php`,
+`app/Console/Commands/BackfillP24Stats.php`. **Modified:** `nexus-charts.js`,
+`getPortalEngagementSeries()` + engagement include in `show.blade.php`.
