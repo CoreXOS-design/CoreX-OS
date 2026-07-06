@@ -461,10 +461,16 @@ scroll mode) are server-rendered shells; they are carried across navigation by a
 param and a differing transient — it cannot loop and never fires on a reload.
 
 ## 16.4 Controls
-- **"Save default"** (deck header) → `window.CoreXCal.save()` reads the live arrangement across the
+- **"Save default" + "Reset"** live in the **persistent top toolbar** (beside the Stream/Pages
+  toggle), NOT in the deck header — so they stay reachable in EVERY arrangement state, including
+  deck-hidden and both-panels-hidden (Johan QA1 finding: a deck-header button vanished with the deck,
+  so you couldn't save a "deck hidden" default). They render in all views. Verified visible+clickable
+  across deck-hidden / panel-hidden / both-hidden / month·week·day / Stream·Paged at 1920×1080 +
+  1366×768 (`proof-savebtn-visibility.js`).
+- **"Save default"** → `window.CoreXCal.save()` reads the live arrangement across the
   registered Alpine components + current view/scroll and POSTs it to `saveCockpit`; on success it
   clears the transient (current == default) and toasts. THE only write path to the default.
-- **"Reset"** (deck header) → `window.CoreXCal.reset()` clears the transient and reloads a clean URL
+- **"Reset"** → `window.CoreXCal.reset()` clears the transient and reloads a clean URL
   (strips `?view/scroll/anchor/date`) → the server renders the SAVED default. It does **not** erase
   the saved default. (`POST /calendar/cockpit/reset` remains as a harder "reset to factory" and is
   retained for completeness, no longer wired to the button.)
