@@ -300,6 +300,9 @@ class ReconcileCalendarEvents extends Command
             }
 
             CalendarEventAuditEntry::create([
+                // Console context: no Auth::user(), so stamp the tenant from the
+                // event (same forAgency-default class as the health-score fix).
+                'agency_id'            => $evt->agency_id,
                 'calendar_event_id'    => $evt->id,
                 'action'               => 'feedback_task_created',
                 'new_values'           => ['reason' => 'feedback_missed_24h_grace', 'properties_count' => $properties->count()],

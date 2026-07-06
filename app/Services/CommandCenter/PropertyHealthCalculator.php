@@ -104,9 +104,26 @@ class PropertyHealthCalculator
         $score = max(0, min(100, $score));
         $grade = PropertyHealthScore::gradeFromScore($score);
 
+        // Multi-tenancy write-site scoping. This runs from a nightly CLI job
+        // (command-center:health) where there is no Auth::user(), so
+        // BelongsToAgency's creating() hook cannot infer the tenant — and with
+        // more than one agency on the box its single-agency fallback yields 0,
+        // leaving agency_id unset and the NOT-NULL insert failing ("Field
+        // 'agency_id' doesn't have a default value"). The property IS the tenant
+        // anchor, so stamp its agency_id explicitly here. Fixes the silent
+        // nightly data loss where health scores never persisted for any
+        // property once agency_id became NOT NULL (2026-05-23). Do NOT solve
+        // this with a column default — that would orphan the row's tenant.
+        if (empty($property->agency_id)) {
+            // A property with no agency is itself an orphan (data defect upstream);
+            // surface it distinctly rather than emit a confusing NOT-NULL error.
+            throw new \RuntimeException("Property #{$property->id} has no agency_id; cannot scope health score.");
+        }
+
         return PropertyHealthScore::updateOrCreate(
             ['property_id' => $property->id],
             [
+                'agency_id'          => $property->agency_id,
                 'score'              => $score,
                 'grade'              => $grade,
                 'factors'            => $factors,

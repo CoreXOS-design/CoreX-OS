@@ -23,7 +23,8 @@
                     @foreach($variableList as $var)
                     <tr style="border-bottom:1px solid var(--border, #f1f5f9);" x-data="{ editing: false, value: '{{ e($var['value']) }}' }">
                         <td class="px-4 py-3">
-                            <code class="text-xs font-mono" style="color:#0d9488;">{{ '{{' . $var['key'] . '}}' }}</code>
+                            {{-- Render literal mustache braces around the key. The delimiters are split ('{'.'{' / '}'.'}') so no literal }} sits inside this echo — a literal }} makes Blade's non-greedy {{ }} regex close the echo early and emit invalid PHP (AT-182 compile class). --}}
+                            <code class="text-xs font-mono" style="color:#0d9488;">{{ '{' . '{' . $var['key'] . '}' . '}' }}</code>
                         </td>
                         <td class="px-4 py-3">
                             @if($var['source'] === 'agency_column')

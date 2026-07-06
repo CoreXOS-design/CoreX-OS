@@ -69,8 +69,9 @@
                     <h3 class="text-xs font-semibold uppercase mb-2" style="color:#64748b; letter-spacing:0.05em;">Available Variables</h3>
                     <div class="space-y-1" style="max-height:calc(100vh - 120px); overflow-y:auto;">
                         @foreach($variableKeys as $key)
-                        <div class="text-xs p-1.5 bg-slate-50" style="border-radius:6px; cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{{' . $key . '}}' }}')">
-                            <code class="font-mono" style="color:#0d9488;">{{ '{{' . $key . '}}' }}</code>
+                        {{-- Split mustache delimiters ('{'.'{' / '}'.'}') so no literal }} sits inside these echos — a literal }} closes Blade's {{ }} echo early and emits invalid PHP (AT-182 compile class). --}}
+                        <div class="text-xs p-1.5 bg-slate-50" style="border-radius:6px; cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{' . '{' . $key . '}' . '}' }}')">
+                            <code class="font-mono" style="color:#0d9488;">{{ '{' . '{' . $key . '}' . '}' }}</code>
                             <div class="mt-0.5 truncate" style="color:#94a3b8;">{{ $variables[$key] ?? '(empty)' }}</div>
                         </div>
                         @endforeach
