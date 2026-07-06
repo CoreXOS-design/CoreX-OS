@@ -23,8 +23,10 @@ class ImapMailboxPoller
     /** Skip attachments larger than this many bytes (keep, but don't store the blob). */
     private const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-    public function __construct(private EmailArchiveIngestor $ingestor)
-    {
+    public function __construct(
+        private EmailArchiveIngestor $ingestor,
+        private MailboxHealthRecorder $health = new MailboxHealthRecorder(),
+    ) {
     }
 
     public function poll(CommunicationMailbox $mailbox): array
@@ -35,6 +37,9 @@ class ImapMailboxPoller
             return ['status' => 'skipped', 'reason' => 'inactive', 'stats' => $stats];
         }
         if (empty($mailbox->imap_host) || empty($mailbox->username) || empty($mailbox->encrypted_password)) {
+            // Health (AT-181): a config-incomplete mailbox is failing — record it (no last_polled_at
+            // stamp; it never connected, so that ground-truth signal stays honest).
+            $this->health->recordFailure($mailbox, 'incomplete_credentials');
             return ['status' => 'error', 'reason' => 'incomplete_credentials', 'stats' => $stats];
         }
 
@@ -42,6 +47,9 @@ class ImapMailboxPoller
             $client = $this->connect($mailbox);
         } catch (\Throwable $e) {
             Log::error("Communication archive IMAP connect failed (mailbox {$mailbox->id}): {$e->getMessage()}");
+            // Health (AT-181): distinguish a login rejection from an unreachable/failed connect so
+            // the admin sees the actionable reason. Recorded BEFORE any last_polled_at stamp.
+            $this->health->recordFailure($mailbox, $this->classifyConnectError($e));
             return ['status' => 'error', 'reason' => 'connect_failed', 'stats' => $stats];
         }
 
@@ -130,7 +138,32 @@ class ImapMailboxPoller
             $mailbox->forceFill(['last_polled_at' => now()])->save();
         }
 
+        // Health (AT-181). A fully successful poll clears the failure state. A read_timeout is a
+        // POST-AUTH failure — the connect + login succeeded (so last_polled_at legitimately
+        // advanced in `finally`), but the folder read did not complete; we still record it as a
+        // failed poll (labelled 'read_timeout', distinct from an auth/connect failure) so the
+        // badge shows Failing and a mailbox that stalls every cycle raises the admin alert.
+        // Per-message parse errors ($stats['errors']) do NOT fail the mailbox — auth + read worked.
+        if ($status === 'success') {
+            $this->health->recordSuccess($mailbox);
+        } else {
+            $this->health->recordFailure($mailbox, $reason ?? 'poll_failed');
+        }
+
         return ['status' => $status, 'reason' => $reason, 'stats' => $stats];
+    }
+
+    /** Classify a connect exception into an actionable reason (auth rejection vs connect failure). */
+    private function classifyConnectError(\Throwable $e): string
+    {
+        $msg = strtolower($e->getMessage());
+        foreach (['authenticat', 'login', 'credential', 'password', 'invalid user', 'auth failed'] as $needle) {
+            if (str_contains($msg, $needle)) {
+                return 'auth_failed';
+            }
+        }
+
+        return 'connect_failed';
     }
 
     /**

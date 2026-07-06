@@ -42,7 +42,27 @@
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $m->poll_interval_minutes }} min</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $m->last_polled_at?->format('d M H:i') ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge {{ $m->active ? 'ds-badge-success' : 'ds-badge-default' }}">{{ $m->active ? 'Active' : 'Inactive' }}</span>
+                            @php
+                                // AT-181 — honest health badge. The manual on/off flag is only one
+                                // input; genuine ingestion health is derived from poll success + freshness.
+                                $health = $m->pollHealth();
+                                $badge = [
+                                    'inactive' => ['class' => 'ds-badge-default', 'label' => 'Inactive'],
+                                    'pending'  => ['class' => 'ds-badge-info',    'label' => 'Active · Pending first poll'],
+                                    'healthy'  => ['class' => 'ds-badge-success', 'label' => 'Active · Healthy'],
+                                    'failing'  => ['class' => 'ds-badge-danger',  'label' => 'Active · Failing'],
+                                ][$health];
+                                $reason = $m->lastErrorLabel();
+                                $tip = $health === 'failing'
+                                    ? ($reason ?? ($m->last_polled_at ? 'No successful poll within the last two intervals.' : 'Has never polled successfully — check the mailbox settings.'))
+                                    : ($health === 'pending' ? 'Added recently; the scheduler has not polled it yet.' : ($health === 'inactive' ? 'Manually switched off — no polling.' : 'Polling and ingesting normally.'));
+                            @endphp
+                            <span class="ds-badge {{ $badge['class'] }}" title="{{ $tip }}">{{ $badge['label'] }}</span>
+                            @if($health === 'failing')
+                                <div class="mt-1 text-xs" style="color: var(--ds-crimson);">
+                                    {{ $reason ?? ($m->last_polled_at ? 'Stale — no recent successful poll' : 'Never connected') }}@if($m->last_error_at) · {{ $m->last_error_at->format('d M H:i') }}@endif
+                                </div>
+                            @endif
                         </td>
                         <td class="px-4 py-3 text-right">
                             <a href="{{ route('compliance.comm-mailboxes.edit', $m) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Edit</a>
