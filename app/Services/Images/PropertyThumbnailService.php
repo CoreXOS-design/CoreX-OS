@@ -30,7 +30,10 @@ class PropertyThumbnailService
     public const THUMB_DIR = 'thumbs';
 
     public function __construct(
-        private int $maxEdge = 600,
+        // 500px longest edge covers the list-card display size (~176px tall,
+        // up to ~450px wide) sharply even on retina, while keeping a 20-row
+        // page well under 1 MB. Quality 80 is visually lossless at card size.
+        private int $maxEdge = 500,
         private int $quality = 80,
     ) {
     }
