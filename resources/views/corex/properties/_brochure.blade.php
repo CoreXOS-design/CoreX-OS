@@ -103,6 +103,13 @@
         @endif
     </div>
 
+    {{-- ── 3b. Price — prominent, centred, above the specs/features ── --}}
+    @if(!empty($b['price']))
+    <div style="text-align:center;padding:14px 32px 0;">
+        <span style="font-size:26px;font-weight:700;color:#1a2a6c;letter-spacing:0.01em;">{{ $b['price'] }}</span>
+    </div>
+    @endif
+
     {{-- ── 4. Specs bar (beds / baths / garages / parking) ── --}}
     @if(count($specs))
     <table style="margin:16px auto 0;border-collapse:collapse;"><tr>
@@ -127,9 +134,13 @@
     </div>
     @endif
 
-    {{-- ── 6. Description (justified, capped to one page) ── --}}
+    {{-- ── 6. Description (justified, shrink-to-fit one page) ──
+         The service trims the text to a char budget sized from the space left on
+         the page — THAT is what keeps the PDF to one page (dompdf does not clip
+         overflow). The max-height + overflow:hidden below is a secondary guard
+         for the BROWSER preview host, where overflow clipping does work. --}}
     @if(count($b['description']))
-    <div style="padding:18px 32px 0;">
+    <div style="padding:18px 32px 0;max-height:{{ (int) ($b['descMaxPx'] ?? 260) }}px;overflow:hidden;">
         @foreach($b['description'] as $para)
             <p style="font-size:12px;font-weight:500;line-height:1.6;color:#2b2b2b;margin:0 0 9px;text-align:justify;">{{ $para }}</p>
         @endforeach
