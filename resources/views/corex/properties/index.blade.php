@@ -603,7 +603,7 @@
             {{-- Thumbnail --}}
             <a href="{{ route('corex.properties.show', $property) }}" class="relative block h-44 flex-shrink-0 overflow-hidden" style="background:var(--brand-default,#0b2a4a);">
                 @if($thumb)
-                    <img src="{{ $thumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover">
+                    <img src="{{ $thumb }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy">
                 @else
                     <div class="absolute inset-0 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:rgba(255,255,255,0.12);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
