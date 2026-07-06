@@ -103,6 +103,19 @@
 
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
+    @once
+    <style>
+        /* AT-164 — MONTH BOUNDARY TINT (continuous month stream only). Alternating faint wash
+           per month so the boundary reads as a glanceable full-width colour change (Johan:
+           "the 2px line + Jul 1 — do not cover it" — this ADDS to them, keeping both). Applies
+           only under .cal-scroll-continuous so the classic paged month (one month, uniform)
+           is untinted. STRENGTH is a single tunable variable — Johan can dial it on QA1. */
+        :root { --cal-month-tint-alpha: 0.045; }        /* barely-there slate; 0 = off */
+        .cal-scroll-continuous .cal-week-row.cal-month-tint-1 { background: rgba(100, 116, 139, var(--cal-month-tint-alpha)); }
+        .cal-scroll-continuous .cal-week-row.cal-month-tint-0 { background: transparent; }
+    </style>
+    @endonce
+
     {{-- ══════ HEADER STRIP (fixed, compact — cockpit density) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-1.5 space-y-1.5 pt-2" style="background: var(--bg);">
 
@@ -200,13 +213,59 @@
         <div class="flex items-center gap-2">
             <div data-tour="cal-views" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                 @foreach(['month' => 'Month', 'week' => 'Week', 'day' => 'Day', 'agenda' => 'Agenda'] as $vKey => $vLabel)
-                    <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => $vKey])) }}"
+                    {{-- AT-164 explicit-save — the view is transient (sessionStorage); it becomes
+                         the default only via "Save as my default". Record it before navigating. --}}
+                    <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => $vKey] + (in_array($scrollMode ?? 'continuous', ['continuous','paged'], true) ? ['scroll' => $scrollMode] : []))) }}"
+                       @click="window.CoreXCal.patch({ view: '{{ $vKey }}' })"
                        class="px-3 py-1.5 text-xs font-semibold transition-colors"
                        style="{{ $currentView === $vKey ? 'background: var(--brand-button); color: #fff;' : 'color: var(--text-secondary);' }}">
                         {{ $vLabel }}
                     </a>
                 @endforeach
             </div>
+
+            {{-- AT-164 — CALENDAR SCROLLING preference: continuous stream vs classic paged.
+                 Only month/week have two shells (day is single). Per-user transient; saved to
+                 the default via "Save as my default". Andre gets pages, Johan gets the stream. --}}
+            @if(in_array($currentView, ['month', 'week'], true))
+                <div data-tour="cal-scrollmode" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);" title="Calendar scrolling: continuous stream or classic paged">
+                    @foreach(['continuous' => 'Stream', 'paged' => 'Pages'] as $sKey => $sLabel)
+                        <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories','date']), ['view' => $currentView, 'scroll' => $sKey])) }}"
+                           @click="window.CoreXCal.patch({ scroll_mode: '{{ $sKey }}' })"
+                           class="px-2.5 py-1.5 text-xs font-semibold transition-colors inline-flex items-center gap-1"
+                           style="{{ ($scrollMode ?? 'continuous') === $sKey ? 'background: var(--brand-button); color: #fff;' : 'color: var(--text-secondary);' }}">
+                            {{ $sLabel }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+
+            {{-- AT-164 explicit-save — ALWAYS-VISIBLE arrangement controls (Johan QA1): the
+                 Save/Reset pair lives in the persistent toolbar so it is reachable in EVERY
+                 state — deck hidden, right panel hidden, both hidden, any view, Stream or
+                 Pages. "Save default" promotes the current live arrangement (INCLUDING hidden
+                 panels) to the per-user saved default; "Reset" restores that default,
+                 discarding in-session (transient) changes. Rendered in all views (arrangement
+                 applies beyond month/week), so it sits OUTSIDE the scroll-mode gate. --}}
+            <div x-data="arrangementControls()" class="inline-flex items-center rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <button type="button" data-tour="cal-saveview" @click="save()" :disabled="state==='saving'"
+                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80 inline-flex items-center gap-1 disabled:opacity-70"
+                        :style="'border-right: 1px solid var(--border);' + (state==='saved' ? 'background: var(--brand-button); color:#fff;' : (state==='error' ? 'background:#dc2626; color:#fff;' : 'color: var(--text-primary);'))"
+                        :title="state==='error' ? 'Save failed — click to try again' : 'Save the current layout — including hidden panels — as your default (shown on every fresh load)'">
+                    {{-- idle / saving: save (disk) icon --}}
+                    <svg x-show="state==='idle' || state==='saving'" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 6h-15m15 0a2.25 2.25 0 0 1 2.25 2.25v9A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25v-9A2.25 2.25 0 0 1 4.5 6m15 0-1.5-1.5A2.25 2.25 0 0 0 16.5 3h-9a2.25 2.25 0 0 0-1.5.6L4.5 6"/></svg>
+                    {{-- saved: check icon --}}
+                    <svg x-show="state==='saved'" x-cloak class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                    {{-- error: warning icon --}}
+                    <svg x-show="state==='error'" x-cloak class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.9 13.67A1.5 1.5 0 0 0 3.73 20h16.54a1.5 1.5 0 0 0 1.3-2.39L13.66 3.94a1.5 1.5 0 0 0-2.6 0z"/></svg>
+                    <span x-text="saveLabel()"></span>
+                </button>
+                <button type="button" data-tour="cal-resetview" @click="reset()"
+                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                        style="color: var(--text-muted);"
+                        title="Restore your saved default (discard in-session changes)">Reset</button>
+            </div>
+
             {{-- Guided-tour "?" launcher relocates here (AT-164 calendar tour). Empty +
                  additive — the tour engine appends its button; no effect if absent. --}}
             <span id="tour-launcher-slot" class="tour-slot-surface inline-flex"></span>
@@ -336,6 +395,52 @@
          remainder; the view inside is the ONLY thing that scrolls) ══════ --}}
     <div class="flex-1 min-h-0 flex flex-col">
     @if($currentView === 'month')
+    @if(($scrollMode ?? 'continuous') === 'paged')
+        {{-- ══════ MONTH VIEW — CLASSIC PAGED (single month + prev/next) ══════
+             The classic shell for agents who dislike the continuous stream. ONE rendering
+             truth: the SAME _week-row partial as the stream, scoped to the anchor month's
+             weeks, with month paging instead of scroll. Today + ?date deep-links work. --}}
+        @php
+            $pagedBase = array_merge(request()->only(['scope','types','categories']), ['view' => 'month', 'scroll' => 'paged']);
+        @endphp
+        <div class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0; position: relative;">
+
+            {{-- Month header + prev/next paging --}}
+            <div class="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+                 style="z-index: 21; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+                <a href="{{ route('command-center.calendar', array_merge($pagedBase, ['date' => $prevMonth->toDateString()])) }}"
+                   class="corex-btn-outline text-[11px] py-0.5" aria-label="Previous month">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                </a>
+                <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">{{ $anchorDate->format('F Y') }}</span>
+                <a href="{{ route('command-center.calendar', array_merge($pagedBase, ['date' => $nextMonth->toDateString()])) }}"
+                   class="corex-btn-outline text-[11px] py-0.5" aria-label="Next month">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </a>
+            </div>
+
+            {{-- Day-of-week header (pinned) --}}
+            <div class="grid grid-cols-7 flex-shrink-0" style="z-index: 20; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+                @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dayName)
+                    <div class="px-2 py-2 text-xs font-semibold text-center uppercase tracking-wider"
+                         style="color: var(--text-muted); {{ !$loop->last ? 'border-right: 1px solid var(--border);' : '' }}">
+                        {{ $dayName }}
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- The anchor month's weeks (scrolls only if it overflows — rare). --}}
+            <div class="flex-1 min-h-0 overflow-y-auto cal-scroll-paged">
+                @foreach(($pagedWeekRows ?? []) as $wk)
+                    @include('command-center.calendar.partials._week-row', [
+                        'weekStart' => $wk['weekStart'], 'byDate' => $wk['byDate'],
+                        'deadlineGroups' => $wk['deadlineGroups'], 'spanningBars' => $wk['spanningBars'],
+                    ])
+                @endforeach
+            </div>
+        </div>
+    @else
         {{-- ══════ MONTH VIEW — ONE continuous week stream (§15.3, AT-164) ══════
              Every calendar week exists exactly once; months flow into each other; a
              month boundary is MARKED (first cell "Jul 1" + seam accent), never repeated
@@ -373,7 +478,7 @@
                  lazy-prepends/appends adjacent weeks through the identical _week-row
                  partial (via /calendar/week-rows) — one renderer, full interaction
                  parity, no dual JS cell renderer, no duplicated boundary weeks. --}}
-            <div x-ref="weeks">
+            <div x-ref="weeks" class="cal-scroll-continuous">
                 @foreach(($weekRows ?? []) as $wk)
                     @include('command-center.calendar.partials._week-row', [
                         'weekStart' => $wk['weekStart'], 'byDate' => $wk['byDate'],
@@ -386,7 +491,49 @@
             <div class="text-center py-2 text-xs" style="color: var(--text-muted);" x-show="loadingBottom" x-cloak>Loading…</div>
             </div>{{-- END scroll region --}}
         </div>
+    @endif
     @elseif($currentView === 'week')
+    @if(($scrollMode ?? 'continuous') === 'paged')
+        {{-- ══════ WEEK VIEW — CLASSIC PAGED (single week + prev/next) ══════
+             Same _day-column renderer as the continuous strip, scoped to one week, paged
+             instead of scrolled. Today jumps to this week; ?date deep-links land. --}}
+        @php $pagedWeekBase = array_merge(request()->only(['scope','types','categories']), ['view' => 'week', 'scroll' => 'paged']); @endphp
+        <div class="rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); flex: 1 1 0%; min-height: 0;">
+            {{-- Week header + prev/next paging --}}
+            <div class="flex items-center justify-between px-3 py-1.5 flex-shrink-0"
+                 style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
+                <a href="{{ route('command-center.calendar', array_merge($pagedWeekBase, ['date' => $prevAnchor])) }}"
+                   class="corex-btn-outline text-[11px] py-0.5" aria-label="Previous week">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+                </a>
+                <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">{{ $weekStart->format('d M') }} – {{ $weekEnd->format('d M Y') }}</span>
+                <a href="{{ route('command-center.calendar', array_merge($pagedWeekBase, ['date' => $nextAnchor])) }}"
+                   class="corex-btn-outline text-[11px] py-0.5" aria-label="Next week">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </a>
+            </div>
+            {{-- Single-week grid: sticky time gutter + 7 day columns (vertical hour scroll). --}}
+            <div class="flex-1 min-h-0 overflow-auto">
+                <div class="flex" style="min-width: 100%;">
+                    <div class="flex-shrink-0 sticky left-0" style="width: 56px; z-index: 7; background: var(--surface);">
+                        <div class="sticky top-0" style="height: 44px; z-index: 8; background: var(--surface-2); border-bottom: 1px solid var(--border);"></div>
+                        <div style="height: 40px; border-bottom: 1px solid var(--border);"></div>
+                        @foreach(range(6, 19) as $gh)
+                            <div class="text-[10px] pt-1 pl-1.5 select-none" style="height: 48px; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                {{ str_pad((string)$gh, 2, '0', STR_PAD_LEFT) }}:00
+                            </div>
+                        @endforeach
+                    </div>
+                    <div class="flex flex-1">
+                        @foreach(($pagedDayColumns ?? []) as $col)
+                            @include('command-center.calendar.partials._day-column', ['date' => $col['date'], 'events' => $col['events']])
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </div>
+    @else
         {{-- ══════ WEEK VIEW — continuous HORIZONTAL scroll (§15.3, cockpit) ══════ --}}
         <div x-data="continuousWeek()" x-init="initWeek()"
              class="rounded-md overflow-hidden flex flex-col"
@@ -426,6 +573,7 @@
                 </div>
             </div>
         </div>
+    @endif
 
     @elseif($currentView === 'day')
         {{-- ══════ DAY VIEW — Time-slot grid ══════ --}}
@@ -2412,8 +2560,9 @@
                 <span x-show="saving" x-cloak class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Saving…</span>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0" x-show="!stripCollapsed">
-                {{-- Reset the whole cockpit arrangement to the role default --}}
-                <button type="button" data-tour="cal-saveview" @click="resetView()" class="corex-btn-outline text-[11px] py-0.5" title="Reset the whole cockpit arrangement to the default">Reset view</button>
+                {{-- AT-164 explicit-save — the "Save default" / "Reset" arrangement controls
+                     live in the ALWAYS-VISIBLE top toolbar (near Stream/Pages), NOT here:
+                     they must stay reachable when the deck itself is hidden (Johan QA1). --}}
                 <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
                     <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
                             class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
@@ -2429,7 +2578,6 @@
                         </template>
                     </div>
                 </div>
-                <button type="button" x-show="editing" x-cloak @click="reset()" class="corex-btn-outline text-[11px] py-0.5" title="Reset to default layout">Reset</button>
                 <button type="button" @click="toggleEdit()" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
                     <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
                 </button>
@@ -2484,6 +2632,168 @@
 </div>{{-- END outer x-data wrapper --}}
 
 <script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   AT-164 cockpit — EXPLICIT-SAVE arrangement model (2026-07-06, replaces auto-persist)
+
+   Three tiers of arrangement state:
+     • SAVED DEFAULT  — server-injected from calendar_user_preferences on every page
+                        load. Written ONLY by "Save as my default" (window.CoreXCal.save).
+     • TRANSIENT      — sessionStorage. Every in-session change writes here SYNCHRONOUSLY
+                        (no debounce, no DB). Survives navigate-away-and-return (same tab).
+                        A hard reload discards it → the saved default renders.
+     • FACTORY/ROLE   — the fallback when a user never saved (null pref columns).
+
+   This kills the "popping panels" bug: the old model debounced every change to the DB
+   default, so a hide + navigate-within-400ms abandoned the write and the panel came back.
+   Now the hide is recorded synchronously in the transient and re-applied on return; the
+   DB is only touched on an explicit Save.
+
+   Client-reactive tiers (collapse / height / ratios / deck / layers) apply instantly on
+   load. Structural tiers (view / scroll mode) are server-rendered shells carried across
+   navigation via a single guarded ?view=&scroll= redirect (never on a reload).
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.CoreXCal = {
+    KEY: 'corex.calendar.arrangement',
+    _reload: (() => {
+        try {
+            const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+            if (nav && nav.type) return nav.type === 'reload';
+            // Legacy fallback.
+            return performance.navigation && performance.navigation.type === 1;
+        } catch (e) { return false; }
+    })(),
+    saveUrl: '{{ route('command-center.calendar.cockpit.save') }}',
+    csrf: (document.querySelector('meta[name="csrf-token"]') || {}).content || '',
+    // Live component registry — set by each Alpine component's init so Save can read the
+    // true current arrangement across components.
+    page: null, deck: null, layers: null,
+
+    FLASH_KEY: 'corex.calendar.flash',
+    isReload() { return this._reload; },
+    // On a hard reload, discard the transient so the SAVED DEFAULT renders. Runs at parse
+    // time — before any Alpine component reads get() — so components see a clean slate. Also
+    // surfaces any queued cross-reload confirmation toast (e.g. after Reset).
+    boot() {
+        if (this._reload) { try { sessionStorage.removeItem(this.KEY); } catch (e) {} }
+        const self = this;
+        if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => self.showPendingFlash()); }
+        else { self.showPendingFlash(); }
+    },
+    // Cross-reload flash: Reset reloads the page, so its confirmation must survive the reload.
+    // Queued in sessionStorage, drained on the next load through the canonical CoreX toast.
+    flashOnNextLoad(message, type) { try { sessionStorage.setItem(this.FLASH_KEY, JSON.stringify({ message: message, type: type || 'success' })); } catch (e) {} },
+    showPendingFlash() {
+        let f = null;
+        try { f = JSON.parse(sessionStorage.getItem(this.FLASH_KEY) || 'null'); sessionStorage.removeItem(this.FLASH_KEY); } catch (e) {}
+        if (!f || !f.message) return;
+        const show = () => { if (typeof window.showToast === 'function') { window.showToast(f.message, f.type || 'success'); } else { setTimeout(show, 120); } };
+        show();
+    },
+    get() { try { return JSON.parse(sessionStorage.getItem(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
+    has(k) { return Object.prototype.hasOwnProperty.call(this.get(), k); },
+    patch(obj) {
+        try { const c = this.get(); Object.assign(c, obj); sessionStorage.setItem(this.KEY, JSON.stringify(c)); }
+        catch (e) { /* private-mode / quota — degrade silently */ }
+    },
+    clear() { try { sessionStorage.removeItem(this.KEY); } catch (e) {} },
+
+    // Promote the CURRENT LIVE arrangement to the per-user saved default (the ONLY DB write).
+    // Returns Promise<boolean>: true on a persisted 2xx, false on ANY failure (network OR a
+    // non-2xx status). On failure the transient is NOT cleared and NO false success is
+    // signalled — the caller shows an error state and the live arrangement is left intact.
+    async save() {
+        const body = {};
+        if (this.page)  { body.panel_collapsed = !!this.page.panelCollapsed; }
+        if (this.deck)  {
+            body.strip_collapsed = !!this.deck.stripCollapsed;
+            body.strip_height    = Math.round(this.deck.stripHeight || 176);
+            body.tile_ratios     = (this.deck.cockpit && Array.isArray(this.deck.cockpit.tile_ratios))
+                                      ? this.deck.cockpit.tile_ratios.map(Number) : [];
+            body.deck_layout     = Array.isArray(this.deck.layout) ? this.deck.layout.slice() : [];
+        }
+        if (this.layers) { body.layers = Array.isArray(this.layers.active) ? this.layers.active.slice() : []; }
+        body.scroll_mode = @json($scrollMode ?? 'continuous');
+        body.view        = @json($currentView ?? 'month');
+        try {
+            const r = await fetch(this.saveUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body),
+            });
+            if (!r.ok) { return false; }   // 4xx/5xx — NOT a success (fetch does not reject on these)
+            // Persisted. Current == default now → drop the transient so a later reload shows
+            // exactly what was just saved.
+            this.clear();
+            return true;
+        } catch (e) {
+            return false;                   // network failure — transient kept, no false success
+        }
+    },
+
+    // Reset = restore the SAVED default, discarding transients. No DB write (the saved
+    // default is untouched). Clear transient, queue a confirmation for after the reload, and
+    // reload a clean URL (strip transient params).
+    reset() {
+        this.clear();
+        this.flashOnNextLoad('Calendar default restored', 'success');
+        const u = new URL(window.location.href);
+        ['anchor', 'view', 'scroll', 'date'].forEach(p => u.searchParams.delete(p));
+        window.location.replace(u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : ''));
+    },
+
+    // Structural (view/scroll) transient carry-across-navigation. On a NON-reload load with
+    // no explicit ?view=/?scroll= param, if the transient asks for a different shell than the
+    // server rendered (the saved default), redirect ONCE to apply it. Guarded so it can't
+    // loop (the redirected URL carries the params) and never fires on a reload (transient is
+    // already cleared). Returns true if it redirected (caller should stop init).
+    reconcileStructural(curView, curScroll) {
+        if (this._reload) return false;
+        const u = new URL(window.location.href);
+        if (u.searchParams.has('view') || u.searchParams.has('scroll')) return false;
+        const t = this.get();
+        const wantView   = t.view;
+        const wantScroll = t.scroll_mode;
+        const viewDiff   = wantView   && wantView   !== curView;
+        const scrollDiff = wantScroll && wantScroll !== curScroll;
+        if (!viewDiff && !scrollDiff) return false;
+        u.searchParams.set('view',   wantView   || curView);
+        u.searchParams.set('scroll', wantScroll || curScroll);
+        window.location.replace(u.pathname + '?' + u.searchParams.toString());
+        return true;
+    },
+};
+window.CoreXCal.boot();
+
+/* AT-164 — the always-visible toolbar Save/Reset pair with explicit feedback (Johan QA:
+   "a confirmation that save worked"). Success: the button briefly flips to "Saved ✓" +
+   the canonical CoreX toast ("Calendar default saved"). Failure (network/500): the button
+   shows "Save failed", an error toast fires, and it returns to actionable — never a silent
+   nothing, never a false success. Reset confirms via a cross-reload toast. */
+function arrangementControls() {
+    return {
+        state: 'idle',   // idle | saving | saved | error
+        _t: null,
+        saveLabel() { return { idle: 'Save default', saving: 'Saving…', saved: 'Saved', error: 'Save failed' }[this.state] || 'Save default'; },
+        async save() {
+            if (this.state === 'saving') return;
+            clearTimeout(this._t);
+            this.state = 'saving';
+            const ok = await window.CoreXCal.save();
+            if (ok) {
+                this.state = 'saved';
+                if (typeof window.showToast === 'function') window.showToast('Calendar default saved', 'success');
+                this._t = setTimeout(() => { this.state = 'idle'; }, 2200);
+            } else {
+                this.state = 'error';
+                if (typeof window.showToast === 'function') window.showToast('Save failed — try again', 'error');
+                this._t = setTimeout(() => { this.state = 'idle'; }, 3500);  // returns to actionable
+            }
+        },
+        reset() { window.CoreXCal.reset(); },
+    };
+}
+
 function calendarPage() {
     return {
         showCreateEvent: false,
@@ -2966,6 +3276,18 @@ function calendarPage() {
 
         // â”€â”€ Right Panel â”€â”€
         initPanel() {
+            // AT-164 explicit-save — register this component so "Save as my default" can read
+            // the live panel state; apply the client-side TRANSIENT over the saved default;
+            // and carry any transient view/scroll shell across navigation (guarded redirect).
+            window.CoreXCal.page = this;
+            if (window.CoreXCal.reconcileStructural(@json($currentView ?? 'month'), @json($scrollMode ?? 'continuous'))) {
+                return; // redirecting to apply the transient shell — stop init
+            }
+            const _t = window.CoreXCal.get();
+            if (Object.prototype.hasOwnProperty.call(_t, 'panel_collapsed')) {
+                this.panelCollapsed = !!_t.panel_collapsed;
+            }
+
             // AT-164 Gate 6 — keep the panel agenda's layer lens in sync with the Layers
             // control. The layerFilter component broadcasts its active set; we mirror it
             // so the x-for'd agenda items hide/show reactively (calendar surface).
@@ -3660,19 +3982,13 @@ function calendarPage() {
             }).then(r => { if (r.ok) { this.panelData.status = 'completed'; window.dispatchEvent(new Event('focus')); } });
         },
 
-        // AT-164 cockpit v2 — right-panel collapse (persisted, debounced).
+        // AT-164 cockpit — right-panel collapse. EXPLICIT-SAVE model: the change is recorded
+        // SYNCHRONOUSLY in the client transient (survives navigation), never auto-persisted to
+        // the DB default. It reaches the default only via "Save as my default".
         togglePanelCollapse() {
             this.panelCollapsed = !this.panelCollapsed;
             if (this.panelCollapsed) { this.showCreateEvent = false; this.panelOpen = false; }
-            clearTimeout(this._panelSaveTimer);
-            this._panelSaveTimer = setTimeout(() => {
-                fetch('{{ route('command-center.calendar.cockpit.save') }}', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ panel_collapsed: this.panelCollapsed }),
-                }).catch(() => {});
-            }, 400);
+            window.CoreXCal.patch({ panel_collapsed: this.panelCollapsed });
         },
 
         // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default, then reload.
@@ -4031,9 +4347,9 @@ function calendarDeck() {
         _csrf: document.querySelector('meta[name="csrf-token"]')?.content || '',
         _urls: {
             deck:  '{{ route('command-center.calendar.deck') }}',
-            save:  '{{ route('command-center.calendar.deck.save') }}',
             reset: '{{ route('command-center.calendar.deck.reset') }}',
             cockpit: '{{ route('command-center.calendar.cockpit.save') }}',
+            tile:  '{{ route('command-center.calendar.tile', ['tileId' => '__ID__']) }}',
         },
         // AT-164 cockpit v2 — resizable/collapsible strip + adjustable tile ratios.
         cockpit: @json($cockpit ?? []),
@@ -4055,20 +4371,14 @@ function calendarDeck() {
             while (r.length < n) r.push(1);
             return r.map(v => (Math.max(0.2, +v || 1)) + 'fr').join(' ');
         },
+        // AT-164 explicit-save — record strip geometry in the client TRANSIENT (synchronous,
+        // survives navigation). Never auto-persisted; reaches the default only via Save.
         persistCockpit() {
-            clearTimeout(this._cockpitTimer);
-            this._cockpitTimer = setTimeout(() => {
-                fetch(this._urls.cockpit, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                        strip_height: Math.round(this.stripHeight),
-                        strip_collapsed: this.stripCollapsed,
-                        tile_ratios: (this.cockpit.tile_ratios || []).map(v => +v),
-                    }),
-                }).catch(() => {});
-            }, 450);
+            window.CoreXCal.patch({
+                strip_height: Math.round(this.stripHeight),
+                strip_collapsed: this.stripCollapsed,
+                tile_ratios: (this.cockpit.tile_ratios || []).map(v => +v),
+            });
         },
         toggleStripCollapse() { this.cockpit.strip_collapsed = !this.cockpit.strip_collapsed; this.persistCockpit(); },
         // Strip vertical resize (pointer) — bounded so the calendar never drops below ~45vh.
@@ -4108,23 +4418,28 @@ function calendarDeck() {
             this.cockpit.tile_ratios = r;
         },
         ratioEnd() { if (this._ratio.on) { this._ratio.on = false; this.persistCockpit(); } },
-        // AT-164 cockpit v2 — reset the WHOLE arrangement to the role default + reload.
-        resetView() {
-            fetch('{{ route('command-center.calendar.cockpit.reset') }}', {
-                method: 'POST', headers: { 'X-CSRF-TOKEN': this._csrf, 'Accept': 'application/json' }, credentials: 'same-origin',
-            }).then(() => { const u = new URL(location.href); u.searchParams.delete('anchor'); location.href = u.pathname; });
-        },
+        // AT-164 explicit-save — "Reset view" restores the saved default (discards transient).
+        resetView() { window.CoreXCal.reset(); },
 
         init() {
-            // AT-164 SELF-HEAL (Johan 05:45): if a previously-persisted strip height is
-            // egregiously out of range (e.g. a pre-clamp stuck arrangement), correct it to
-            // the viewport-safe value AND persist the correction so it recovers permanently.
-            // (The stripHeight getter also clamps DISPLAY per-viewport, so headers can never
-            // be pushed off regardless.)
+            // AT-164 explicit-save — register this component and APPLY the client TRANSIENT
+            // (strip geometry / ratios / deck layout) over the server-rendered saved default.
+            // A hard reload already cleared the transient (window.CoreXCal.boot), so a reload
+            // renders the saved default; a navigate-back re-applies the in-session arrangement.
+            window.CoreXCal.deck = this;
+            const _t = window.CoreXCal.get();
+            if (Object.prototype.hasOwnProperty.call(_t, 'strip_collapsed')) this.cockpit.strip_collapsed = !!_t.strip_collapsed;
+            if (typeof _t.strip_height === 'number') this.cockpit.strip_height = _t.strip_height;
+            if (Array.isArray(_t.tile_ratios)) this.cockpit.tile_ratios = _t.tile_ratios.slice();
+            if (Array.isArray(_t.deck_layout)) { this._applyTransientLayout(_t.deck_layout); }
+
+            // AT-164 SELF-HEAL (Johan 05:45): if a saved strip height is egregiously out of
+            // range (e.g. a pre-clamp stuck arrangement), correct the in-memory value. The
+            // stripHeight getter also clamps DISPLAY per-viewport, so headers can never be
+            // pushed off regardless.
             const raw = this.cockpit.strip_height;
             if (raw != null && (!isFinite(raw) || raw > 450 || raw < 100)) {
                 this.cockpit.strip_height = this.stripHeight;
-                this.persistCockpit();
             }
             // Live-RAG loop (Gate 7): refetch on focus/visibility + a light poll.
             window.addEventListener('focus', () => this.refresh());
@@ -4145,35 +4460,52 @@ function calendarDeck() {
 
         toggleEdit() { this.editing = !this.editing; if (!this.editing) this.pickerOpen = false; },
 
-        async _post(url, body) {
-            this.saving = true;
+        // Fetch ONE tile's built card (non-persisting) — used to render a newly-added tile
+        // and to reconcile a transient layout that references a tile not currently loaded.
+        async _fetchTile(id) {
             try {
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf },
-                    credentials: 'same-origin',
-                    body: JSON.stringify(body || {}),
+                const r = await fetch(this._urls.tile.replace('__ID__', encodeURIComponent(id)), {
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf }, credentials: 'same-origin',
                 });
-                if (r.ok) {
-                    const data = await r.json();
-                    if (Array.isArray(data.layout)) this.layout = data.layout;
-                    if (Array.isArray(data.cards))  this.cards = data.cards;
-                }
-            } catch (e) { console.warn('Deck save failed:', e); }
-            this.saving = false;
+                if (r.ok) { const d = await r.json(); return d.card || null; }
+            } catch (e) { /* degrade */ }
+            return null;
         },
+        // Apply a transient deck layout over the server-rendered cards WITHOUT persisting:
+        // reuse loaded cards, fetch any missing tile, drop de-selected tiles, reorder.
+        async _applyTransientLayout(layout) {
+            const clean = (Array.isArray(layout) ? layout : [])
+                .filter(id => this.catalog.some(t => t.tile_id === id))
+                .slice(0, this.slots);
+            const byId = {}; this.cards.forEach(c => { byId[c.card_id] = c; });
+            const result = [];
+            for (const id of clean) {
+                if (byId[id]) { result.push(byId[id]); }
+                else { const card = await this._fetchTile(id); if (card) result.push(card); }
+            }
+            this.cards = result;
+            this.layout = result.map(c => c.card_id);
+        },
+
+        // AT-164 explicit-save — deck edits are TRANSIENT (sessionStorage), never auto-saved
+        // to the default. They reach the default only via "Save as my default".
+        _recordDeckTransient() { window.CoreXCal.patch({ deck_layout: this.layout.slice() }); },
 
         async addTile(id) {
             if (!this.canAddMore) return;
             this.pickerOpen = false;
-            const next = [...this.layout, id];
-            await this._post(this._urls.save, { tiles: next });
+            if (this.layout.includes(id)) return;
+            const card = await this._fetchTile(id);
+            if (!card) return;
+            this.cards = [...this.cards, card];
+            this.layout = this.cards.map(c => c.card_id);
+            this._recordDeckTransient();
         },
-        async removeTile(id) {
-            const next = this.layout.filter(x => x !== id);
-            await this._post(this._urls.save, { tiles: next });
+        removeTile(id) {
+            this.cards = this.cards.filter(c => c.card_id !== id);
+            this.layout = this.cards.map(c => c.card_id);
+            this._recordDeckTransient();
         },
-        async reset() { await this._post(this._urls.reset, {}); },
 
         // Drag reorder (edit mode)
         dragStart(idx, ev) { if (!this.editing) return; this.dragIndex = idx; try { ev.dataTransfer.effectAllowed = 'move'; } catch (e) {} },
@@ -4184,7 +4516,7 @@ function calendarDeck() {
             this.cards.splice(idx, 0, moved);
             this.layout = this.cards.map(c => c.card_id);
             this.dragIndex = null;
-            this._post(this._urls.save, { tiles: this.layout });
+            this._recordDeckTransient();
         },
         dragEndDeck() { this.dragIndex = null; },
 
@@ -4687,6 +5019,11 @@ function layerFilter() {
         get hiddenCount() { return Math.max(0, this.catalog.length - this.active.length); },
 
         initLayers() {
+            // AT-164 explicit-save — register + apply the client TRANSIENT layer set over the
+            // server-rendered saved default (reload already cleared it → saved default shows).
+            window.CoreXCal.layers = this;
+            const _t = window.CoreXCal.get();
+            if (Array.isArray(_t.layers)) { this.active = _t.layers.slice(); }
             this.apply();
             // Re-apply when the continuous-scroll controller appends a new month block.
             window.addEventListener('calendar:block-appended', () => this.apply());
@@ -4696,13 +5033,15 @@ function layerFilter() {
                 ? this.active.filter(k => k !== key)
                 : [...this.active, key];
             this.apply();
-            this.persist();
+            this._record();
         },
         setAll(on) {
             this.active = on ? this.catalog.map(l => l.key) : [];
             this.apply();
-            this.persist();
+            this._record();
         },
+        // Record the active layer set in the client transient (no DB write until Save).
+        _record() { window.CoreXCal.patch({ layers: this.active.slice() }); },
         apply() {
             // Grid surfaces (month/week/day/agenda) hide/show via data-layer tags —
             // instant, reversible, no reload. The panel agenda is Alpine-reactive and
@@ -4716,20 +5055,12 @@ function layerFilter() {
             // deliberately does NOT listen (its tiles are independent instruments).
             window.dispatchEvent(new CustomEvent('calendar:layers-changed', { detail: [...this.active] }));
         },
-        async persist() {
-            try {
-                await fetch(this._url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this._csrf },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ layers: this.active }),
-                });
-            } catch (e) { /* silent — the client hide already applied */ }
-            // NOTE: the Deck is intentionally NOT notified — deck tiles are independent
-            // instruments and never respect layers (AT-164 doctrine). The instant
-            // client-side hide in apply() (+ its calendar:layers-changed broadcast for
-            // the panel agenda) is the whole of the toggle's effect.
-        },
+        // NOTE (AT-164 explicit-save): layer toggles no longer POST to the DB — the change is
+        // recorded in the client transient by _record() and reaches the saved default only via
+        // "Save as my default". The instant client-side hide in apply() (+ its
+        // calendar:layers-changed broadcast for the panel agenda) is the whole of the effect.
+        // The Deck is intentionally NOT notified — deck tiles are independent instruments and
+        // never respect layers (AT-164 doctrine).
     };
 }
 </script>

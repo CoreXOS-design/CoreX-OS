@@ -99,18 +99,47 @@ class CalendarTileService
      */
     public function saveLayout(User $user, array $tileIds): array
     {
-        $available = array_column($this->catalog($user), 'tile_id');
-        $clean = array_values(array_unique(array_values(array_filter(
-            array_map('strval', $tileIds),
-            fn ($id) => in_array($id, $available, true)
-        ))));
-        $clean = array_slice($clean, 0, $this->slotCount($user));
+        $clean = $this->cleanLayout($user, $tileIds);
 
         $pref = CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
         $pref->calendar_deck_layout = $clean;
         $pref->save();
 
         return $clean;
+    }
+
+    /**
+     * Sanitise a Deck layout to available tile-ids + slot count WITHOUT persisting.
+     * Used by the explicit-save path (the arrangement is transient until "Save as my default").
+     *
+     * @param  string[]  $tileIds
+     * @return string[]
+     */
+    public function cleanLayout(User $user, array $tileIds): array
+    {
+        $available = array_column($this->catalog($user), 'tile_id');
+        $clean = array_values(array_unique(array_values(array_filter(
+            array_map('strval', $tileIds),
+            fn ($id) => in_array($id, $available, true)
+        ))));
+
+        return array_slice($clean, 0, $this->slotCount($user));
+    }
+
+    /**
+     * Build a SINGLE tile's card payload (non-persisting) — used when the user adds a tile
+     * in-session so the new tile's content renders without writing the layout to the default.
+     * Returns null for an unknown/unavailable tile.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function buildOne(User $user, string $tileId): ?array
+    {
+        $available = array_column($this->catalog($user), 'tile_id');
+        if (! in_array($tileId, $available, true)) {
+            return null;
+        }
+        return $this->buildTile($user, $tileId);
     }
 
     /** Reset to the role/agency/code default (nulls the per-user override). Returns the resolved default. */

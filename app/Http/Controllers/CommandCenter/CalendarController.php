@@ -38,15 +38,16 @@ class CalendarController extends Controller
     {
         $user = $request->user();
 
-        // AT-164 cockpit — layout memory: no ?view= → last used view (per-user);
-        // an explicit ?view= is remembered for next time.
+        // AT-164 cockpit — EXPLICIT-SAVE model (2026-07-06): the view is part of the saved
+        // arrangement. An explicit ?view= renders that view for THIS request but is NEVER
+        // auto-persisted — it becomes the default only via "Save as my default" (saveCockpit).
+        // With no ?view=, we render the user's SAVED default view (role/factory default =
+        // 'month' when they never saved). The transient in-session view lives client-side
+        // (sessionStorage) and is carried back via ?view= on navigation — see index.blade.php.
         $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
         $view = $request->get('view');
-        if (! $view) {
+        if (! in_array($view, ['month', 'week', 'day', 'agenda'], true)) {
             $view = in_array($pref->default_view, ['month', 'week', 'day', 'agenda'], true) ? $pref->default_view : 'month';
-        } elseif (in_array($view, ['month', 'week', 'day', 'agenda'], true) && $pref->default_view !== $view) {
-            $pref->default_view = $view;
-            $pref->save();
         }
 
         // Filter params (shared across all views)
@@ -75,9 +76,19 @@ class CalendarController extends Controller
         $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
 
         // AT-164 cockpit v2 — the user's saved arrangement (split height / tile ratios /
-        // collapsed states), with code defaults; and the resident agenda for the panel.
-        $shared['cockpit'] = $this->resolveCockpit($pref);
+        // collapsed states / scroll mode), with code defaults; and the resident agenda.
+        $cockpit = $this->resolveCockpit($pref);
+        $shared['cockpit'] = $cockpit;
         $shared['agenda']  = $this->tiles->panelAgenda($user);
+
+        // AT-164 — CALENDAR SCROLLING preference (continuous stream vs classic paged).
+        // Per-user, part of the saved arrangement. An explicit ?scroll= renders that mode
+        // for THIS request (transient); it persists to the default only via "Save as my
+        // default". Only month/week have two shells; day is single either way.
+        $reqScroll = $request->get('scroll');
+        $shared['scrollMode'] = in_array($reqScroll, ['continuous', 'paged'], true)
+            ? $reqScroll
+            : $cockpit['scroll_mode'];
 
         // ── Week view ──
         if ($view === 'week') {
@@ -205,6 +216,7 @@ class CalendarController extends Controller
             'weekSpanningBars' => $weekSpanningBars,
             'weekBarSlots'    => $weekBarSlots,
             'dayColumns'      => $dayColumns,                     // AT-164 cockpit — continuous week strip
+            'pagedDayColumns' => $this->dayColumnsData($user, $weekStart->copy(), 7, $typeFilter, $categoryFilter, $scope), // AT-164 paged — single week
             'weekWindowStart' => $weekWindowStart->toDateString(),
             'anchorMonday'    => $weekStart->toDateString(),
             'anchorDate'      => $anchor,
@@ -297,6 +309,13 @@ class CalendarController extends Controller
         $weekRows       = $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
         $anchorWeek     = $anchorMonday->toDateString();
 
+        // AT-164 — PAGED shell data: exactly the weeks of the anchor MONTH (Monday of the
+        // first week .. Sunday of the last), a classic single-month grid. Same _week-row
+        // renderer as the continuous stream (one rendering truth, two navigation shells).
+        $monthLastMonday = Carbon::create($year, $month, 1)->endOfMonth()->startOfWeek(Carbon::MONDAY);
+        $pagedWeekCount  = (int) round($anchorMonday->diffInWeeks($monthLastMonday)) + 1;
+        $pagedWeekRows   = $this->weekRowsData($user, $anchorMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
+
         // Agenda range logic
         $rangeGroups = [
             'Current'  => ['month' => 'This month', 'year' => 'This year'],
@@ -368,6 +387,7 @@ class CalendarController extends Controller
             'deadlineGroups'   => $deadlineGroupsByDate, // AT-164 Gate 1 — aggregate deadline chips
             'spanningBars'     => $filteredSpanningBars,
             'weekRows'         => $weekRows,            // AT-164 single week-stream — preloaded weeks
+            'pagedWeekRows'    => $pagedWeekRows,       // AT-164 paged shell — the anchor month's weeks only
             'anchorWeek'       => $anchorWeek,          // AT-164 — Monday of the anchor month's first week
             'anchorMonth'      => sprintf('%04d-%02d', $year, $month),
             'colourMap'        => $colourMap,
@@ -543,10 +563,22 @@ class CalendarController extends Controller
             'tile_ratios'     => (isset($c['tile_ratios']) && is_array($c['tile_ratios']))
                                     ? array_values(array_map(fn ($v) => max(0.2, min(20, (float) $v)), $c['tile_ratios']))
                                     : [],
+            // AT-164 — calendar scrolling mode (continuous stream vs classic paged).
+            'scroll_mode'     => in_array($c['scroll_mode'] ?? null, ['continuous', 'paged'], true)
+                                    ? $c['scroll_mode'] : 'continuous',
         ];
     }
 
-    /** AT-164 cockpit v2 — persist the arrangement (debounced auto-save from the client). */
+    /**
+     * AT-164 cockpit — "Save as my default" (EXPLICIT-SAVE model, 2026-07-06).
+     *
+     * The ONLY write path to the saved default. Replaces the old debounced auto-persist:
+     * in-session changes now live in a client-side transient (sessionStorage) and are
+     * promoted to the per-user default ONLY when the user clicks Save. One atomic write of
+     * the WHOLE arrangement — arrangement JSON (strip height / collapses / tile ratios /
+     * scroll mode) + deck layout + layers + view. Every field is optional (present-only
+     * merge), each clamped/sanitised by its owning validator/service.
+     */
     public function saveCockpit(Request $request)
     {
         $user = $request->user();
@@ -556,22 +588,47 @@ class CalendarController extends Controller
             'panel_collapsed' => ['nullable', 'boolean'],
             'tile_ratios'     => ['nullable', 'array', 'max:12'],
             'tile_ratios.*'   => ['numeric', 'min:0.1', 'max:20'],
+            'scroll_mode'     => ['nullable', \Illuminate\Validation\Rule::in(['continuous', 'paged'])],
+            'view'            => ['nullable', \Illuminate\Validation\Rule::in(['month', 'week', 'day', 'agenda'])],
+            'deck_layout'     => ['nullable', 'array', 'max:24'],
+            'deck_layout.*'   => ['string', 'max:64'],
+            'layers'          => ['nullable', 'array', 'max:32'],
+            'layers.*'        => ['string', 'max:32'],
         ]);
 
         $pref = \App\Models\CommandCenter\CalendarUserPreference::firstOrNew(['user_id' => $user->id]);
-        $cur  = is_array($pref->calendar_cockpit) ? $pref->calendar_cockpit : [];
-        foreach (['strip_height', 'strip_collapsed', 'panel_collapsed', 'tile_ratios'] as $k) {
+
+        // Arrangement JSON — present-only merge onto the current saved value.
+        $cur = is_array($pref->calendar_cockpit) ? $pref->calendar_cockpit : [];
+        foreach (['strip_height', 'strip_collapsed', 'panel_collapsed', 'tile_ratios', 'scroll_mode'] as $k) {
             if (array_key_exists($k, $data) && $data[$k] !== null) {
                 $cur[$k] = $data[$k];
             }
         }
         $pref->calendar_cockpit = $cur;
+
+        // View (own NOT-NULL column), deck layout + layers (sanitised, not saved separately).
+        if (array_key_exists('view', $data) && $data['view'] !== null) {
+            $pref->default_view = $data['view'];
+        }
+        if (array_key_exists('deck_layout', $data) && is_array($data['deck_layout'])) {
+            $pref->calendar_deck_layout = $this->tiles->cleanLayout($user, $data['deck_layout']);
+        }
+        if (array_key_exists('layers', $data) && is_array($data['layers'])) {
+            $pref->calendar_layers = \App\Services\CommandCenter\Calendar\CalendarLayers::clean($data['layers']);
+        }
+
         $pref->save();
 
         return response()->json(['ok' => true, 'cockpit' => $this->resolveCockpit($pref)]);
     }
 
-    /** AT-164 cockpit v2 — reset the WHOLE arrangement to the role/agency default. */
+    /**
+     * AT-164 cockpit — reset the SAVED default to the role/factory default (nulls the
+     * per-user overrides). Note: the toolbar "Reset" button restores the saved default by
+     * discarding the client transient + reloading (no server call); this endpoint is the
+     * harder "reset to factory" and is retained for completeness / future surfacing.
+     */
     public function resetCockpit(Request $request)
     {
         $user = $request->user();
@@ -596,6 +653,20 @@ class CalendarController extends Controller
         $active = \App\Services\CommandCenter\Calendar\CalendarLayers::save($user, $data['layers']);
 
         return response()->json(['ok' => true, 'layers' => $active]);
+    }
+
+    /**
+     * AT-164 cockpit (explicit-save model) — build ONE tile's card payload WITHOUT persisting.
+     * The Deck picker uses this so adding a tile renders its content in-session; the layout
+     * only reaches the default via "Save as my default". Unknown tile → 404 JSON.
+     */
+    public function tile(Request $request, string $tileId)
+    {
+        $card = $this->tiles->buildOne($request->user(), $tileId);
+        if ($card === null) {
+            return response()->json(['ok' => false, 'error' => 'unknown_tile'], 404);
+        }
+        return response()->json(['ok' => true, 'card' => $card]);
     }
 
     public function show(Request $request, CalendarEvent $calendarEvent)

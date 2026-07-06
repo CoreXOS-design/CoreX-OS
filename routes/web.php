@@ -1330,6 +1330,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/calendar/deck', [CommandCenterCalendarController::class, 'deck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck');
         Route::post('/calendar/deck', [CommandCenterCalendarController::class, 'saveDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.save');
         Route::post('/calendar/deck/reset', [CommandCenterCalendarController::class, 'resetDeck'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.deck.reset');
+        // AT-164 explicit-save — build ONE tile without persisting (in-session deck add)
+        Route::get('/calendar/tile/{tileId}', [CommandCenterCalendarController::class, 'tile'])->middleware('permission:command_center.calendar.view')->where('tileId', '[A-Za-z0-9_\-]+')->name('command-center.calendar.tile');
 
         // AT-164 Gate 6 — persist the user's active layer toggles
         Route::post('/calendar/layers', [CommandCenterCalendarController::class, 'saveLayers'])->middleware('permission:command_center.calendar.view')->name('command-center.calendar.layers.save');
