@@ -334,6 +334,34 @@ class Property24ApiClient
     }
 
     /**
+     * Fetch per-day engagement statistics (views, alerts, lead breakdown) for a
+     * single listing over an optional date range.
+     *
+     * Endpoint per Listing Service v53:
+     *   GET /listings/{listingNumber}/statistics?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+     * P24 aggregates daily and publishes next-day; `endDate` is EXCLUSIVE and time
+     * of day is not supported (dates only). The 200 body is an array of daily
+     * ListingStatistics rows — each carries `date`, `viewCount`, `alertCount`,
+     * `telLeads`, `smsLeads`, `requestDetailsLeads`, `totalLeads`,
+     * `totalContactLeads` and a `price` snapshot. Returned under the standard
+     * envelope's `data`; caller (P24StatsService) upserts one metric row per day.
+     */
+    public function getListingStatistics(
+        int $listingNumber,
+        ?string $startDate = null,
+        ?string $endDate = null,
+        ?int $propertyId = null
+    ): array {
+        $params = array_filter([
+            'startDate' => $startDate,
+            'endDate'   => $endDate,
+        ]);
+        $query = $params ? '?' . http_build_query($params) : '';
+
+        return $this->request('GET', "/listings/{$listingNumber}/statistics{$query}", [], $propertyId, 'fetch_statistics');
+    }
+
+    /**
      * Smoke test: echo-authenticated to verify credentials.
      */
     public function smokeTest(): array

@@ -149,6 +149,15 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
     ->withoutOverlapping()
     ->name('p24-leads-pull');
 
+// Property24 ExDev per-listing statistics (views/alerts/lead breakdown) pull —
+// runs daily at 04:00. P24 aggregates daily and publishes next-day, so a rolling
+// lookback each run corrects late figures; sub-daily cadence would waste API calls.
+// Persists into property_portal_metrics. See .ai/specs/portal-metrics.md.
+Schedule::job(new \App\Jobs\Syndication\Property24\PullP24StatsJob())
+    ->dailyAt('04:00')
+    ->withoutOverlapping()
+    ->name('p24-stats-pull');
+
 // ── Command Center ──
 
 // Process calendar/task reminders — runs EVERY MINUTE (AT-178). Per-minute ticks
