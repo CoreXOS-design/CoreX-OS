@@ -176,6 +176,26 @@ class WaArchiveIngestor
         } else {
             $this->consent->ensurePending($agencyId, $agentUserId, (int) $contact->id);
         }
+
+        // AT-183 — an EXPLICIT per-contact opt-out is a POPIA exclusion: this pairing is
+        // personal. DROP the message entirely BEFORE any storage — no envelope, no raw, no row
+        // (the message is never stored-then-hidden). This is distinct from 'pending', which keeps
+        // the FICA envelope and embargoes the body. ensureSelfLinkedConsent above never overrides
+        // an explicit opt-out, so a self-linked device cannot silently re-enable capture.
+        if ($this->consent->isOptedOut($agentUserId, (int) $contact->id)) {
+            Log::info('Communication archive: WA ingestion dropped — capture opted out (POPIA exclusion)', [
+                'agency_id'  => $agencyId,
+                'device_id'  => $device->id,
+                'channel'    => Communication::CHANNEL_WHATSAPP,
+                'direction'  => $direction,
+                'contact_id' => $contact->id,
+                'reason'     => 'capture_opted_out',
+                'dropped_at' => now()->toIso8601String(),
+            ]);
+
+            return self::RESULT_DROPPED;
+        }
+
         $captureOptedIn = $this->consent->isCaptureOptedIn($agentUserId, (int) $contact->id);
 
         // AT-168 Part B — EMBARGO, not discard. opted_in → the body is displayed

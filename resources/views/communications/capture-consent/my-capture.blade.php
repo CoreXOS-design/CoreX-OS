@@ -1,5 +1,5 @@
 {{-- AT-136 — agent's "My WhatsApp Capture" consent screen. Per-contact decision on
-     whether their WhatsApp chat BODIES are archived. SEPARATE from the AT-125 contact
+     whether their WhatsApp chat BODIES are captured. SEPARATE from the AT-125 contact
      marketing opt-out. DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md (tokens, no emojis). --}}
 @extends('layouts.corex-app')
 
@@ -7,7 +7,7 @@
 <div class="space-y-6" x-data="captureConsent()">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <h1 class="text-xl font-bold text-white leading-tight">My WhatsApp Capture</h1>
-        <p class="text-sm text-white/60 max-w-2xl">Decide, per contact, whether your WhatsApp chats with them are archived to CoreX for compliance. Only contacts that match a CoreX record appear here — personal numbers are never captured. This controls archiving (FICA); it is separate from a contact's marketing opt-out.</p>
+        <p class="text-sm text-white/60 max-w-2xl">Decide, per contact, whether your WhatsApp chats with them are captured to CoreX for compliance. Only contacts that match a CoreX record appear here — personal numbers are never captured. This controls capture (FICA); it is separate from a contact's marketing opt-out.</p>
     </div>
 
     @if(session('success'))
@@ -16,7 +16,7 @@
 
     @if($pendingCount)
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent); color: var(--text-primary);">
-        <strong>{{ $pendingCount }}</strong> matched {{ \Illuminate\Support\Str::plural('contact', $pendingCount) }} awaiting your decision — choose whether to archive your WhatsApp with them. Until you decide, their message bodies are not captured.
+        <strong>{{ $pendingCount }}</strong> matched {{ \Illuminate\Support\Str::plural('contact', $pendingCount) }} awaiting your decision — choose whether to capture your WhatsApp with them. Until you decide, their message bodies are not captured.
     </div>
     @endif
 
@@ -26,7 +26,7 @@
                 <tr style="background: var(--surface-2);">
                     <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Contact</th>
                     <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
-                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Archive my chats?</th>
+                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Capture my chats?</th>
                 </tr>
             </thead>
             <tbody>
@@ -41,7 +41,7 @@
                     </td>
                     <td class="px-4 py-3">
                         @php
-                            $map = ['pending'=>['Awaiting decision','var(--ds-amber, #f59e0b)'],'opted_in'=>['Archiving on','var(--ds-green, #059669)'],'opted_out'=>['Not archiving','var(--text-muted)']];
+                            $map = ['pending'=>['Awaiting decision','var(--ds-amber, #f59e0b)'],'opted_in'=>['Capturing','var(--ds-green, #059669)'],'opted_out'=>['Not capturing','var(--text-muted)']];
                             [$lbl,$col] = $map[$row->status] ?? ['—','var(--text-muted)'];
                         @endphp
                         <span class="text-xs font-semibold" style="color: {{ $col }};">{{ $lbl }}</span>
@@ -51,10 +51,10 @@
                         <div class="inline-flex gap-2">
                             <button type="button" @click="decide({{ $row->contact_id }}, 'opted_in')" :disabled="busy"
                                     class="text-[11px] font-semibold rounded px-3 py-1.5"
-                                    style="background: {{ $row->status==='opted_in' ? 'var(--ds-green, #059669)' : 'var(--surface-2)' }}; color: {{ $row->status==='opted_in' ? '#fff' : 'var(--text-secondary)' }}; border:1px solid var(--border);">Archive</button>
+                                    style="background: {{ $row->status==='opted_in' ? 'var(--ds-green, #059669)' : 'var(--surface-2)' }}; color: {{ $row->status==='opted_in' ? '#fff' : 'var(--text-secondary)' }}; border:1px solid var(--border);">Capture</button>
                             <button type="button" @click="decide({{ $row->contact_id }}, 'opted_out')" :disabled="busy"
                                     class="text-[11px] font-semibold rounded px-3 py-1.5"
-                                    style="background: {{ $row->status==='opted_out' ? 'var(--text-muted)' : 'var(--surface-2)' }}; color: {{ $row->status==='opted_out' ? '#fff' : 'var(--text-secondary)' }}; border:1px solid var(--border);">Don't archive</button>
+                                    style="background: {{ $row->status==='opted_out' ? 'var(--text-muted)' : 'var(--surface-2)' }}; color: {{ $row->status==='opted_out' ? '#fff' : 'var(--text-secondary)' }}; border:1px solid var(--border);">Don't capture</button>
                         </div>
                     </td>
                 </tr>
@@ -73,7 +73,7 @@ function captureConsent() {
         busy: false,
         async decide(contactId, status) {
             let reason = '';
-            if (status === 'opted_out') { reason = prompt('Optional: why are you not archiving this contact? (recorded for compliance)') || ''; }
+            if (status === 'opted_out') { reason = prompt('Optional: why are you not capturing this contact? (recorded for compliance)') || ''; }
             this.busy = true;
             try {
                 const r = await fetch('{{ route('communications.capture.decide') }}', {
