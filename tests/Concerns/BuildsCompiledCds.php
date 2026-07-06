@@ -99,14 +99,121 @@ trait BuildsCompiledCds
         return $this->validCdsDto()->toArray();
     }
 
-    /** The Data Dictionary (version 1) the valid CDS binds against. */
+    /**
+     * The Data Dictionary (version 1) the whole seed corpus binds against — base + mandate +
+     * lease variants all resolve here (extend, don't duplicate).
+     */
     protected function validDictionary(): InMemoryDataDictionaryResolver
     {
         return InMemoryDataDictionaryResolver::atVersion(1, [
             'seller_full_name' => ['category' => 'party', 'type' => 'string', 'validation' => ['required' => true, 'max_length' => 120]],
             'seller_id_number' => ['category' => 'identity', 'type' => 'sa_id', 'validation' => ['required' => true, 'max_length' => 13, 'min_length' => 13]],
             'witness_full_name' => ['category' => 'party', 'type' => 'string', 'validation' => ['required' => false, 'max_length' => 120]],
+            'mandate_type' => ['category' => 'other', 'type' => 'string', 'validation' => ['required' => true, 'enum' => ['sole', 'open']]],
+            'agent_ppra_no' => ['category' => 'practitioner', 'type' => 'ppra_no', 'validation' => ['required' => false]],
+            'lessor_full_name' => ['category' => 'party', 'type' => 'string', 'validation' => ['required' => true, 'max_length' => 120]],
+            'lessee_full_name' => ['category' => 'party', 'type' => 'string', 'validation' => ['required' => true, 'max_length' => 120]],
         ]);
+    }
+
+    /**
+     * Seed corpus variant — a mandate with a `mandate_type` data field and SOLE vs OPEN
+     * conditional branches, and a 1..n seller. The golden harness derives four named
+     * combinations from it: seller×{1,2} × mandate_type∈{sole,open}.
+     */
+    protected function mandateCdsDto(): Cds
+    {
+        return new Cds(
+            family: 'MDF',
+            dataDictionaryVersion: 1,
+            legalClass: LegalClass::General,
+            deliveryModes: [DeliveryMode::WebEsign, DeliveryMode::PdfWetInk, DeliveryMode::Download],
+            parties: [
+                new Party('seller', 'seller', Cardinality::OneOrMore, required: true, ordering: 1),
+                new Party('agent', 'agent', Cardinality::One, required: true, ordering: 2),
+            ],
+            blocks: [
+                new Block('blk_letterhead', BlockType::Letterhead, PartyExpr::all(), PartyExpr::none(), Condition::always()),
+                new Block(
+                    'blk_parties',
+                    BlockType::FieldGroup,
+                    PartyExpr::all(),
+                    PartyExpr::none(),
+                    Condition::always(),
+                    fields: [
+                        new Field('fld_seller_name', 'Seller Full Name', 'seller_full_name', FieldSource::PartyInput, required: true),
+                        new Field('fld_seller_id', 'Seller ID Number', 'seller_id_number', FieldSource::PartyInput, required: true),
+                    ],
+                ),
+                new Block(
+                    'blk_mandate',
+                    BlockType::FieldGroup,
+                    PartyExpr::all(),
+                    PartyExpr::none(),
+                    Condition::always(),
+                    fields: [
+                        new Field('fld_mandate_type', 'Mandate Type', 'mandate_type', FieldSource::AgentInput, required: true),
+                    ],
+                ),
+                new Block('blk_sole', BlockType::Conditional, PartyExpr::all(), PartyExpr::none(), new Condition(Condition::FIELD_EQUALS, fieldId: 'fld_mandate_type', value: 'sole')),
+                new Block('blk_open', BlockType::Conditional, PartyExpr::all(), PartyExpr::none(), new Condition(Condition::FIELD_EQUALS, fieldId: 'fld_mandate_type', value: 'open')),
+                new Block(
+                    'blk_sign',
+                    BlockType::Signature,
+                    PartyExpr::all(),
+                    PartyExpr::none(),
+                    Condition::always(),
+                    anchors: [
+                        new Anchor('anc_seller', AnchorKind::Signature, 'seller'),
+                        new Anchor('anc_agent', AnchorKind::Signature, 'agent'),
+                    ],
+                ),
+            ],
+        );
+    }
+
+    /**
+     * Seed corpus variant — a lease with lessor + lessee + agent (the lessor variant §7 names).
+     */
+    protected function leaseCdsDto(): Cds
+    {
+        return new Cds(
+            family: 'LEASE',
+            dataDictionaryVersion: 1,
+            legalClass: LegalClass::General,
+            deliveryModes: [DeliveryMode::WebEsign, DeliveryMode::PdfWetInk, DeliveryMode::Download],
+            parties: [
+                new Party('lessor', 'lessor', Cardinality::One, required: true, ordering: 1),
+                new Party('lessee', 'lessee', Cardinality::One, required: true, ordering: 2),
+                new Party('agent', 'agent', Cardinality::One, required: true, ordering: 3),
+            ],
+            blocks: [
+                new Block('blk_letterhead', BlockType::Letterhead, PartyExpr::all(), PartyExpr::none(), Condition::always()),
+                new Block(
+                    'blk_parties',
+                    BlockType::FieldGroup,
+                    PartyExpr::all(),
+                    PartyExpr::none(),
+                    Condition::always(),
+                    fields: [
+                        new Field('fld_lessor_name', 'Lessor Full Name', 'lessor_full_name', FieldSource::PartyInput, required: true),
+                        new Field('fld_lessee_name', 'Lessee Full Name', 'lessee_full_name', FieldSource::PartyInput, required: true),
+                    ],
+                ),
+                new Block(
+                    'blk_sign',
+                    BlockType::Signature,
+                    PartyExpr::all(),
+                    PartyExpr::none(),
+                    Condition::always(),
+                    anchors: [
+                        new Anchor('anc_lessor', AnchorKind::Signature, 'lessor'),
+                        new Anchor('anc_lessee', AnchorKind::Signature, 'lessee'),
+                        new Anchor('anc_agent', AnchorKind::Signature, 'agent'),
+                    ],
+                ),
+            ],
+        );
     }
 
     /**
