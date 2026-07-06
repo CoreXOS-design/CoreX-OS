@@ -7,6 +7,7 @@ namespace Tests\Feature\Communications;
 use App\Jobs\Communications\PollMailboxJob;
 use App\Models\Communications\CommunicationMailbox;
 use App\Models\PerformanceSetting;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -116,6 +117,32 @@ final class PollMailboxesStaggerTest extends TestCase
 
         // 0,100,200,300→cap 250,400→cap 250
         $this->assertSame([null, 100, 200, 250, 250], $this->dispatchedDelays());
+    }
+
+    public function test_poll_job_is_unique_per_mailbox(): void
+    {
+        $job = new PollMailboxJob(42);
+        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame('42', $job->uniqueId());
+    }
+
+    public function test_re_dispatch_is_suppressed_while_a_poll_is_still_pending(): void
+    {
+        // Real DB queue so pending (unrun) jobs persist and hold their unique
+        // lock — the exact condition the amplification bug exploited.
+        config(['queue.default' => 'database']);
+        $this->dueMailboxes(3);
+
+        // First scheduler tick dispatches all three.
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+        $this->assertSame(3, DB::table('jobs')->where('payload', 'like', '%PollMailboxJob%')->count());
+
+        // A later tick while the polls are still queued (no worker ran, so the
+        // mailboxes are still "due"): ShouldBeUnique must collapse the
+        // re-dispatch to zero net new jobs — no amplification.
+        Carbon::setTestNow(now()->addSeconds(30));
+        $this->artisan('communications:poll-mailboxes')->assertSuccessful();
+        $this->assertSame(3, DB::table('jobs')->where('payload', 'like', '%PollMailboxJob%')->count());
     }
 
     public function test_only_due_mailboxes_are_dispatched(): void
