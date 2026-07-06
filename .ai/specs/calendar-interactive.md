@@ -416,3 +416,96 @@ the WS0 `deals:process-rag` / observer already repaint the `calendar_events` row
 - Layer toggles hide/show species and persist; agency defaults apply to new users.
 - Mobile: Deck is a sheet/tabs; `MobileCalendarController` fields unchanged; event CRUD identical on both.
 - Server-side aggregation proven: a busy month issues a bounded number of grouped chips, not hundreds of bars.
+
+---
+
+# 16. Calendar Versatility Round — EXPLICIT-SAVE arrangement model (AT-164 amendment)
+
+> **Status:** AS-BUILT on the QA1 lane (branch `AT-164-calendar-versatility`, off `origin/Staging`),
+> deployed to **qatesting1** for Johan's first QA. **NOT on Staging, NOT live** until his pass is
+> relayed. Authored 2026-07-06. This section AMENDS §15.9's persistence model: the debounced
+> auto-persist is **retired** and replaced by an explicit-save default with a session transient.
+
+## 16.1 Why (Johan-directed)
+The v2 cockpit auto-persisted every tweak straight to the per-user DB default (debounced 400–450ms).
+Two problems: (a) the "popping panels" bug — hiding My Deck / the right panel then navigating away
+within the debounce window abandoned the pending write, so the hide was lost and the panel returned
+on the next load; (b) there was no separation between "how I've arranged the calendar right now" and
+"my saved default" — every accidental drag became permanent. Johan's ruling: **on reload it loads the
+saved default; in-session changes persist across navigation but a fresh reload returns to the default;
+an explicit control promotes the current arrangement to the default.**
+
+## 16.2 Three tiers of arrangement state
+- **SAVED DEFAULT** — `calendar_user_preferences` (`calendar_cockpit` JSON + `calendar_deck_layout`
+  + `calendar_layers` + `default_view`). Rendered by the server on **every fresh page load**.
+  Written by **exactly one path**: "Save as my default" → `POST /calendar/cockpit`
+  (`CalendarController::saveCockpit`, repurposed from the old debounced endpoint into a single atomic
+  full-arrangement write). Existing per-user rows become the initial saved default for free — nobody
+  loses their arrangement on deploy (no data migration).
+- **TRANSIENT** — client `sessionStorage['corex.calendar.arrangement']`. Every in-session change writes
+  here **synchronously** (no debounce, no DB). Survives navigate-away-and-return (same tab). A hard
+  reload discards it. Owned by `window.CoreXCal` (index.blade.php).
+- **FACTORY / ROLE** — the fallback when a user never saved (null pref columns / `resolveCockpit`
+  code defaults / agency `calendar_default_deck_layouts` per role).
+
+## 16.3 Reload vs navigate — the distinction that makes it work
+`window.CoreXCal` classifies the load via `performance.getEntriesByType('navigation')[0].type`:
+- **reload** → `boot()` clears the transient at script-parse time (before any Alpine component reads
+  it) → the SAVED DEFAULT renders.
+- **navigate / back_forward** → each component applies the transient over the server-rendered default
+  in its `init()` (panel-collapse, strip height/collapse, tile ratios, deck layout, layers).
+
+Client-reactive tiers apply instantly with no server round-trip. The **structural** tiers (view mode,
+scroll mode) are server-rendered shells; they are carried across navigation by a single **guarded**
+`?view=&scroll=` redirect (`reconcileStructural`) that fires only on a non-reload load with no explicit
+param and a differing transient — it cannot loop and never fires on a reload.
+
+## 16.4 Controls
+- **"Save default"** (deck header) → `window.CoreXCal.save()` reads the live arrangement across the
+  registered Alpine components + current view/scroll and POSTs it to `saveCockpit`; on success it
+  clears the transient (current == default) and toasts. THE only write path to the default.
+- **"Reset"** (deck header) → `window.CoreXCal.reset()` clears the transient and reloads a clean URL
+  (strips `?view/scroll/anchor/date`) → the server renders the SAVED default. It does **not** erase
+  the saved default. (`POST /calendar/cockpit/reset` remains as a harder "reset to factory" and is
+  retained for completeness, no longer wired to the button.)
+- Auto-persist writers removed: `default_view` no longer saved on `?view=` (controller `index()`);
+  `persistCockpit`, `togglePanelCollapse`, the deck add/remove/reorder, and the layer `persist()` all
+  now write the transient only. Deck add uses a new non-persisting single-tile endpoint
+  `GET /calendar/tile/{tileId}` (`CalendarController::tile` → `CalendarTileService::buildOne`).
+
+## 16.5 Calendar scrolling preference (continuous vs paged)
+New per-user arrangement key `scroll_mode ∈ {continuous, paged}` (lives in the `calendar_cockpit` JSON,
+**no migration**; default `continuous`). Context: Andre dislikes the continuous stream, Johan loves it.
+- **CONTINUOUS** — the as-built week-stream (§15.3), unchanged.
+- **PAGED** — a classic single-month grid with prev/next month paging (week = a single week with
+  prev/next; day unchanged). **One rendering truth, two navigation shells:** the paged month reuses the
+  SAME `_week-row.blade.php` partial (scoped to the anchor month's weeks via `renderMonthAgenda`'s new
+  `pagedWeekRows`); the paged week reuses `_day-column.blade.php` (`pagedDayColumns`). Today + `?date`
+  deep-links work in both. Toolbar toggle (Stream / Pages) beside the view switcher; server honours
+  `?scroll=` for the request without persisting (transient), promoted to the default only via Save.
+
+## 16.6 Continuous-mode month boundary tint
+Each week row carries an alternating faint month wash so a month change reads as a glanceable
+full-width colour shift — **in addition to** (never covering) the existing 2px seam accent + "Jul 1"
+first-cell label + sticky header label. Implementation: `_week-row.blade.php` computes the week's
+owning month (its Thursday, ISO) → parity class `cal-month-tint-{0,1}`; the CSS colours it only under
+the continuous container (`.cal-scroll-continuous`) so the paged month (one month) stays untinted.
+Strength is a single tunable CSS variable `--cal-month-tint-alpha` (default `0.045`, slate) so Johan
+can dial it on QA1. (Complementary option, not shipped: a slim full-width month band — the tint is the
+primary treatment.)
+
+## 16.7 Invariants preserved
+The cockpit hardening (locked frame, per-panel scroll, pinned month/day-of-week headers, viewport
+strip-height clamp + self-heal) is untouched and re-asserted. The `MobileCalendarController` frozen
+envelope is untouched (2/2 green). Event CRUD, recurring `{this,future,all}`, attendee auto-fill,
+conflict warnings, private redaction — all unchanged (render + persistence-model change only).
+
+## 16.8 Tests
+`tests/Feature/CommandCenter/CalendarExplicitSaveTest.php` (12 tests): save promotes the whole
+arrangement; unknown tiles/layers sanitised; no-param load renders the saved default view; a `?view=`
+/ `?scroll=` request renders the shell but NEVER auto-persists (the regression proof); reset nulls the
+factory default; scroll defaults to continuous; paged month + week render with paging; continuous month
+carries alternating tint classes; the single-tile endpoint builds without persisting + 404s an unknown
+tile. Headless proof (`proof-explicit-save.js`, 1920×1080 + 1366×768): popping-panels
+reproduced→dead, transient-survives-navigation, reload-renders-default, save-promotes-current,
+reset-discards-transients, continuous alternating tints, paged month paging.
