@@ -15,6 +15,7 @@ window.NexusCharts = {
                 labels: labels,
                 datasets: [
                     {
+                        type: 'line',
                         label: 'Views',
                         data: viewsData,
                         borderColor: '#00d4aa',
@@ -25,18 +26,24 @@ window.NexusCharts = {
                         tension: 0.3,
                         fill: true,
                         yAxisID: 'y',
+                        order: 2,
                     },
                     {
+                        // Leads render as bars on their OWN right-hand axis — their
+                        // magnitude is tiny next to views, so a shared axis would
+                        // flat-line them. Bars make single-day leads visible.
+                        type: 'bar',
                         label: 'P24 Leads',
                         data: leadsData,
+                        backgroundColor: 'rgba(239, 68, 68, 0.55)',
                         borderColor: '#ef4444',
-                        backgroundColor: 'rgba(239, 68, 68, 0.10)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        pointHoverRadius: 4,
-                        tension: 0.3,
-                        fill: false,
-                        yAxisID: 'y',
+                        borderWidth: 0,
+                        borderRadius: 2,
+                        barPercentage: 0.9,
+                        categoryPercentage: 0.9,
+                        maxBarThickness: 14,
+                        yAxisID: 'yLeads',
+                        order: 1,
                     },
                 ],
             },
@@ -62,8 +69,21 @@ window.NexusCharts = {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        position: 'left',
+                        title: { display: true, text: 'Views', font: { size: 10 }, color: '#00d4aa' },
                         grid: { color: 'rgba(148, 163, 184, 0.15)' },
                         ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0 },
+                        border: { display: false },
+                    },
+                    yLeads: {
+                        beginAtZero: true,
+                        position: 'right',
+                        // Keep the lead axis to whole numbers and give a little
+                        // headroom so a lone lead doesn't become a full-height bar.
+                        suggestedMax: 4,
+                        title: { display: true, text: 'Leads', font: { size: 10 }, color: '#ef4444' },
+                        grid: { drawOnChartArea: false },
+                        ticks: { font: { size: 11 }, color: '#9ca3af', precision: 0, stepSize: 1 },
                         border: { display: false },
                     },
                     x: {
