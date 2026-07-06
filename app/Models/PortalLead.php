@@ -75,11 +75,20 @@ class PortalLead extends Model
     }
 
     /**
-     * The agents who "own" this lead: the listing's primary + second agent and,
-     * when the enquirer matched an existing contact, that contact's agent. This
-     * is the canonical recipient set for lead notifications and the basis for
-     * the 'own' visibility scope below (mirrors the agent filter in
-     * PortalLeadController::index).
+     * The agents who "own" this lead — the canonical recipient set for lead
+     * notifications (mobile push + email).
+     *
+     * For P24 / Private Property this is the listing's primary + second agent
+     * PLUS, when the enquirer matched an existing contact, that contact's agent
+     * (the buyer already has a relationship with that agent, so they're told the
+     * buyer enquired again).
+     *
+     * For WEBSITE leads the enquiry is explicitly about one listing, so it routes
+     * to the LISTING agent(s) ONLY. The matched-contact's owner is deliberately
+     * NOT buzzed — otherwise a website enquiry on agent A's listing pings agent B
+     * merely because B once captured that buyer (the reported cross-agent noise).
+     * The contact's owner is still recorded on the lead and can still SEE it via
+     * the visibility scope; they're just not notified.
      *
      * @return int[]
      */
@@ -87,11 +96,16 @@ class PortalLead extends Model
     {
         $this->loadMissing('listing:id,agent_id,pp_second_agent_id');
 
-        return array_values(array_unique(array_filter([
+        $ids = [
             $this->listing?->agent_id,
             $this->listing?->pp_second_agent_id,
-            $this->existing_contact_agent_id,
-        ])));
+        ];
+
+        if ($this->portal !== self::PORTAL_WEBSITE) {
+            $ids[] = $this->existing_contact_agent_id;
+        }
+
+        return array_values(array_unique(array_filter($ids)));
     }
 
     /**
