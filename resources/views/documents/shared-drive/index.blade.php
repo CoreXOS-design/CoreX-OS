@@ -1,11 +1,12 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 
-<div x-data="driveList()">
+<div class="w-full space-y-5" x-data="driveList()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="flex items-center gap-3">
                 <svg class="w-7 h-7 text-white/90" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -48,11 +49,11 @@
                             <div class="text-sm font-semibold truncate flex items-center gap-2" style="color: var(--text-primary);" title="{{ $d->name }}">
                                 {{ $d->name }}
                                 @if($d->is_default)
-                                    <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded" style="background: var(--surface-2, var(--surface)); color: var(--text-secondary); border: 1px solid var(--border);">Default</span>
+                                    <span class="ds-badge ds-badge-default">Default</span>
                                 @endif
                             </div>
                             <div class="text-xs mt-0.5" style="color: var(--text-secondary);">
-                                {{ $d->is_restricted ? 'Restricted' : 'Open to agency' }} · {{ $d->folders_count }} folder(s) · {{ $d->files_count }} file(s)
+                                {{ $d->is_restricted ? 'Restricted' : 'Open to agency' }} · {{ number_format($d->folders_count) }} folder(s) · {{ number_format($d->files_count) }} file(s)
                             </div>
                         </div>
                     </a>
@@ -69,8 +70,18 @@
             @endforeach
         </div>
     @else
-        <div class="rounded-md px-6 py-12 text-center" style="background: var(--surface); border: 1px dashed var(--border);">
-            <p class="text-sm" style="color: var(--text-secondary);">No drives yet.</p>
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No drives yet</h3>
+            <p class="text-sm mb-4" style="color: var(--text-muted);">Create a drive to start filing shared documents for your team.</p>
+            @if($can['createDrive'])
+                <button type="button" @click="showDriveModal = true" class="corex-btn-primary">+ New Drive</button>
+            @endif
         </div>
     @endif
 

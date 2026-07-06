@@ -48,6 +48,19 @@
         </div>
     @endif
 
+    {{-- Validation errors --}}
+    @if($errors->any())
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-crimson);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
+            </svg>
+            <div class="flex-1">{{ $errors->first() }}</div>
+        </div>
+    @endif
+
     {{-- Filter bar --}}
     <div class="rounded-md px-4 py-3" data-tour="dp-templates-filters" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('docuperfect.templates.index') }}" class="flex flex-wrap items-center gap-3">
@@ -137,7 +150,7 @@
     @else
         <div>
             {{-- View toggle --}}
-            <div class="flex items-center justify-end gap-2">
+            <div x-cloak class="flex items-center justify-end gap-2">
                 <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
                             :style="viewMode === 'grid' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);'"
@@ -157,7 +170,7 @@
             </div>
 
             {{-- Grid View --}}
-            <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
+            <div x-show="viewMode === 'grid'" x-cloak class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
                 @foreach($templates as $tpl)
                 <div class="corex-template-card rounded-md p-4 flex flex-col transition-all duration-300"
                      style="background: var(--surface); border: 1px solid var(--border);">

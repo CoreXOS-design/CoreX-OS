@@ -85,7 +85,7 @@
     @endif
 
     {{-- Two upload methods side-by-side on large screens --}}
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         {{-- Standard upload --}}
         <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border);"
@@ -291,17 +291,17 @@
                 </p>
                 <div class="space-y-2">
                     <div class="flex items-center gap-2 text-xs">
-                        <code class="px-2 py-0.5 rounded font-mono font-bold"
-                              style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">@@@@</code>
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                              style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">@@@@</code>
                         <span style="color: var(--text-secondary);">Input field &mdash; where data needs to be filled in</span>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
-                        <code class="px-2 py-0.5 rounded font-mono font-bold"
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
                               style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber);">%%%%</code>
                         <span style="color: var(--text-secondary);">Signature block &mdash; where parties sign</span>
                     </div>
                     <div class="flex items-center gap-2 text-xs">
-                        <code class="px-2 py-0.5 rounded font-mono font-bold"
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
                               style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">####</code>
                         <span style="color: var(--text-secondary);">Initial block &mdash; where parties initial</span>
                     </div>

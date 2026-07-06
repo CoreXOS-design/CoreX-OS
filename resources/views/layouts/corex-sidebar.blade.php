@@ -1018,7 +1018,7 @@
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
                 <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
                 @if(app(\App\Services\CandidatePractitionerService::class)->canAuthorise(auth()->user()))
-                <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
+                <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
                 @endif
                 @endpermission
                 @permission('access_docuperfect')

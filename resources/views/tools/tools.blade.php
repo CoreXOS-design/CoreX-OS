@@ -28,12 +28,17 @@
   padding: 0;
 }
 
-/* Tab navigation */
+/* Tab navigation — full-width menu that scrolls (never wraps/overflows) on
+   narrow screens so the tab row always renders correctly. */
 #hf-tool-root .tab-nav {
   display: flex;
   gap: 0;
   border-bottom: 2px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+#hf-tool-root .tab-nav::-webkit-scrollbar { display: none; }
 
 #hf-tool-root .tab-btn {
   padding: 0.625rem 1.25rem;
@@ -238,9 +243,10 @@
   letter-spacing: 0.05em;
   color: var(--text-muted);
   font-weight: 600;
-  padding: 0.625rem 1rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   text-align: left;
+  white-space: nowrap;
 }
 
 #hf-tool-root .history-table tbody tr {
@@ -254,9 +260,14 @@
 }
 
 #hf-tool-root .history-table td {
-  padding: 0.625rem 1rem;
+  padding: 0.75rem 1rem;
   font-size: 0.8125rem;
   color: var(--text-primary);
+}
+
+/* Reference number must never wrap — it is a single token identifier. */
+#hf-tool-root .history-table td.mono {
+  white-space: nowrap;
 }
 
 #hf-tool-root .history-table td.actions-cell {
@@ -286,6 +297,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+  white-space: nowrap;
 }
 
 /* Sub text */
@@ -340,15 +352,9 @@
   {{-- Page Header --}}
   <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5" data-tour="tools-header">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div class="flex items-center gap-3">
-        @if(!empty($printSettings['logoUrl']))
-          <img src="{{ $printSettings['logoUrl'] }}" alt="{{ $printSettings['companyName'] ?? '' }}"
-               class="h-10 w-auto rounded bg-white p-1" style="object-fit: contain;">
-        @endif
-        <div>
-          <h1 class="text-xl font-bold text-white leading-tight">Tools</h1>
-          <p class="text-sm text-white/60">Commission Calculator &middot; CMA Certificate &middot; History</p>
-        </div>
+      <div>
+        <h1 class="text-xl font-bold text-white leading-tight">Tools</h1>
+        <p class="text-sm text-white/60">Commission Calculator &middot; CMA Certificate &middot; History</p>
       </div>
       <div class="flex items-center gap-3">
         @include('layouts.partials.tour-header-launcher')
@@ -461,7 +467,7 @@
         </div>
         <div class="result">
           <div class="k">Owner Pocket</div>
-          <div class="v" id="rOwnerPocket" style="color: var(--ds-green);">&mdash;</div>
+          <div class="v" id="rOwnerPocket" style="color: var(--ds-green, #059669);">&mdash;</div>
         </div>
         <div class="result">
           <div class="k">Commission (VAT Incl)</div>
@@ -470,7 +476,7 @@
 
         <div class="result">
           <div class="k">Discount vs Default</div>
-          <div class="v" id="rLostInc" style="color: var(--ds-amber);">&mdash;</div>
+          <div class="v" id="rLostInc" style="color: var(--ds-amber, #f59e0b);">&mdash;</div>
           <div class="mono">Lost: <span id="rLostVsDefault">0%</span></div>
         </div>
         <div class="result" style="grid-column:span 8">
@@ -571,7 +577,7 @@
       </div>
 
       <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto" id="historyTableWrap">
           <table class="history-table">
             <thead>
               <tr>
@@ -711,11 +717,14 @@ function renderHistory() {
   body.innerHTML = "";
 
   const emptyEl = document.getElementById("historyEmpty");
+  const tableWrap = document.getElementById("historyTableWrap");
   if (!HISTORY_ITEMS || HISTORY_ITEMS.length === 0) {
     if (emptyEl) emptyEl.style.display = "block";
+    if (tableWrap) tableWrap.style.display = "none";
     return;
   }
   if (emptyEl) emptyEl.style.display = "none";
+  if (tableWrap) tableWrap.style.display = "block";
 
   (HISTORY_ITEMS || []).forEach(item => {
     const tr = document.createElement("tr");
@@ -724,10 +733,14 @@ function renderHistory() {
     const d = item.occurred_at ? new Date(item.occurred_at) : null;
     const dateText = d ? d.toLocaleDateString("en-ZA") : "—";
 
+    // Plain-English label for the type code (UI_DESIGN_SYSTEM.md §F.8 — no raw
+    // codes as visible labels). Underlying item.type is left untouched.
+    const typeLabel = ({ CALC: "Commission", CMA: "CMA" })[item.type] || (item.type || "");
+
     tr.innerHTML = `
       <td class="mono">${escapeHtml(item.ref || "")}</td>
       <td style="white-space:nowrap;">${escapeHtml(dateText)}</td>
-      <td><span class="ds-badge ds-badge-info">${escapeHtml(item.type || "")}</span></td>
+      <td><span class="ds-badge ds-badge-info" title="${escapeHtml(item.type || "")}">${escapeHtml(typeLabel)}</span></td>
       <td>${escapeHtml(item.property || "")}</td>
       <td style="white-space:nowrap;">${escapeHtml(item.agent_name || "")}</td>
       <td style="font-weight:700; white-space:nowrap; text-align:right;">${fmtZAR(Number(item.value || 0))}</td>
