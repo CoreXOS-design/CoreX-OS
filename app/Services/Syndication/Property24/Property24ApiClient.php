@@ -507,9 +507,19 @@ class Property24ApiClient
         return "HTTP {$statusCode} — check P24 syndication log for full response";
     }
 
+    /**
+     * High-frequency, read-only telemetry actions that must NOT write an audit row
+     * per call. p24_syndication_logs is an unpruned multi-GB table larger than the
+     * InnoDB buffer pool; logging every stats pull churns the pool and drags the
+     * whole DB (a bulk stats backfill can insert tens of thousands of rows).
+     * Failures still land in the `property24` FILE log via $this->log('error',…).
+     */
+    private const UNAUDITED_ACTIONS = ['fetch_statistics'];
+
     private function logToDb(?int $propertyId, string $action, ?array $request, mixed $response, ?int $statusCode, ?int $roundTripMs = null): void
     {
         if ($propertyId === null) return;
+        if (in_array($action, self::UNAUDITED_ACTIONS, true)) return;
 
         // Ensure response is array for JSON column
         if (!is_array($response)) {
