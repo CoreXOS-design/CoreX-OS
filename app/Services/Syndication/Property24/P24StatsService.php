@@ -18,6 +18,20 @@ use Illuminate\Support\Facades\Log;
  */
 class P24StatsService
 {
+    /**
+     * P24's production statistics endpoint reliably answers narrow date ranges in
+     * ~1-2s but intermittently fails the SSL/connection handshake on wide ranges
+     * (observed: ≤14 days fast; 30/60-day single calls time out). We therefore
+     * split every requested lookback into ≤14-day windows and page through them.
+     */
+    private const MAX_WINDOW_DAYS = 14;
+
+    /** Pace between P24 calls to avoid tripping connection throttling (µs). */
+    private const INTER_CALL_PAUSE_US = 250000;
+
+    /** One connection retry per chunk (P24 handshake is intermittently flaky). */
+    private const CHUNK_RETRIES = 1;
+
     public function __construct(
         private readonly Property24ApiClient $api,
     ) {
@@ -27,7 +41,7 @@ class P24StatsService
      * Pull statistics for every agency that has P24 credentials configured.
      * Returns counts per agency for the calling job to log.
      */
-    public function pullForAllAgencies(int $lookbackDays = 7): array
+    public function pullForAllAgencies(int $lookbackDays = 10): array
     {
         $results = [];
 
@@ -53,18 +67,21 @@ class P24StatsService
      * Pull statistics for one agency (or default credentials when $agency is null),
      * across every live-syndicated Property that carries a numeric P24 listing number.
      */
-    public function pullForAgency(?Agency $agency, int $lookbackDays = 7): array
+    public function pullForAgency(?Agency $agency, int $lookbackDays = 10): array
     {
         $api = $agency ? new Property24ApiClient($agency) : $this->api;
 
         // endDate is EXCLUSIVE and P24 publishes next-day, so [today - lookback, today)
         // captures the last $lookbackDays of finalised daily stats (through yesterday).
-        $startDate = now()->subDays($lookbackDays)->format('Y-m-d');
-        $endDate   = now()->format('Y-m-d');
+        // Split into ≤14-day windows — see MAX_WINDOW_DAYS.
+        $chunks = $this->buildDateChunks($lookbackDays);
 
+        // Only currently-active syndications get polled — a sold/withdrawn/errored
+        // listing accrues no new views and must not burn a P24 call each night.
         $query = Property::withoutGlobalScopes()
             ->whereNotNull('p24_ref')
-            ->where('p24_ref', '!=', '');
+            ->where('p24_ref', '!=', '')
+            ->whereRaw('LOWER(p24_syndication_status) = ?', ['active']);
 
         if ($agency) {
             $query->where('agency_id', $agency->id);
@@ -75,7 +92,7 @@ class P24StatsService
         $skipped  = 0;
         $errors   = 0;
 
-        $query->chunkById(200, function ($properties) use ($api, $startDate, $endDate, &$listings, &$upserted, &$skipped, &$errors) {
+        $query->chunkById(200, function ($properties) use ($api, $chunks, &$listings, &$upserted, &$skipped, &$errors) {
             foreach ($properties as $property) {
                 $listingNumber = $this->resolveListingNumber($property);
                 if ($listingNumber === null) {
@@ -84,31 +101,121 @@ class P24StatsService
                 }
 
                 $listings++;
-                $response = $api->getListingStatistics($listingNumber, $startDate, $endDate, $property->id);
 
-                if (! ($response['success'] ?? false)) {
-                    $errors++;
-                    Log::channel('property24')->warning('P24 stats pull failed for listing', [
-                        'property_id'    => $property->id,
-                        'listing_number' => $listingNumber,
-                        'message'        => $response['message'] ?? null,
-                        'status'         => $response['status_code'] ?? null,
-                    ]);
-                    continue;
-                }
+                foreach ($chunks as [$startDate, $endDate]) {
+                    $response = $this->fetchChunk($api, $listingNumber, $startDate, $endDate, $property->id);
 
-                $rows = $this->extractRows($response['data'] ?? []);
-                foreach ($rows as $row) {
-                    if ($this->upsertRow($property, $listingNumber, $row)) {
-                        $upserted++;
-                    } else {
-                        $skipped++;
+                    if (! ($response['success'] ?? false)) {
+                        $errors++;
+                        Log::channel('property24')->warning('P24 stats pull failed for listing', [
+                            'property_id'    => $property->id,
+                            'listing_number' => $listingNumber,
+                            'window'         => "{$startDate}..{$endDate}",
+                            'message'        => $response['message'] ?? null,
+                            'status'         => $response['status_code'] ?? null,
+                        ]);
+                        continue;
+                    }
+
+                    $rows = $this->extractRows($response['data'] ?? []);
+                    foreach ($rows as $row) {
+                        if ($this->upsertRow($property, $listingNumber, $row)) {
+                            $upserted++;
+                        } else {
+                            $skipped++;
+                        }
                     }
                 }
             }
         });
 
         return compact('listings', 'upserted', 'skipped', 'errors');
+    }
+
+    /**
+     * Pull statistics for a single property (targeted refresh / seed). Returns the
+     * same counts shape as pullForAgency. Uses the property's agency credentials.
+     */
+    public function pullForProperty(Property $property, int $lookbackDays = 30): array
+    {
+        $listingNumber = $this->resolveListingNumber($property);
+        if ($listingNumber === null) {
+            return ['listings' => 0, 'upserted' => 0, 'skipped' => 1, 'errors' => 0];
+        }
+
+        $agency = $property->agency_id ? Agency::find($property->agency_id) : null;
+        $api = $agency ? new Property24ApiClient($agency) : $this->api;
+
+        $upserted = 0;
+        $skipped  = 0;
+        $errors   = 0;
+
+        foreach ($this->buildDateChunks($lookbackDays) as [$startDate, $endDate]) {
+            $response = $this->fetchChunk($api, $listingNumber, $startDate, $endDate, $property->id);
+            if (! ($response['success'] ?? false)) {
+                $errors++;
+                Log::channel('property24')->warning('P24 stats pull failed for listing', [
+                    'property_id'    => $property->id,
+                    'listing_number' => $listingNumber,
+                    'window'         => "{$startDate}..{$endDate}",
+                    'message'        => $response['message'] ?? null,
+                ]);
+                continue;
+            }
+            foreach ($this->extractRows($response['data'] ?? []) as $row) {
+                $this->upsertRow($property, $listingNumber, $row) ? $upserted++ : $skipped++;
+            }
+        }
+
+        return ['listings' => 1, 'upserted' => $upserted, 'skipped' => $skipped, 'errors' => $errors];
+    }
+
+    /**
+     * Split a lookback window into consecutive ≤MAX_WINDOW_DAYS ranges, oldest
+     * first, each expressed as [startDate, endDate] Y-m-d with endDate EXCLUSIVE.
+     * e.g. lookback 30 → [[t-30,t-16],[t-16,t-2],[t-2,t]].
+     */
+    private function buildDateChunks(int $lookbackDays): array
+    {
+        $lookbackDays = max(1, $lookbackDays);
+        $chunks = [];
+        $cursor = now()->startOfDay()->subDays($lookbackDays);
+        $end    = now()->startOfDay();
+
+        while ($cursor < $end) {
+            $chunkEnd = (clone $cursor)->addDays(self::MAX_WINDOW_DAYS);
+            if ($chunkEnd > $end) {
+                $chunkEnd = clone $end;
+            }
+            $chunks[] = [$cursor->format('Y-m-d'), $chunkEnd->format('Y-m-d')];
+            $cursor = clone $chunkEnd;
+        }
+
+        return $chunks;
+    }
+
+    /**
+     * Fetch one date chunk with pacing and a single connection retry — P24's
+     * production statistics host intermittently drops the SSL handshake.
+     */
+    private function fetchChunk(
+        Property24ApiClient $api,
+        int $listingNumber,
+        string $startDate,
+        string $endDate,
+        int $propertyId
+    ): array {
+        $response = ['success' => false];
+
+        for ($attempt = 0; $attempt <= self::CHUNK_RETRIES; $attempt++) {
+            usleep(self::INTER_CALL_PAUSE_US);
+            $response = $api->getListingStatistics($listingNumber, $startDate, $endDate, $propertyId);
+            if ($response['success'] ?? false) {
+                break;
+            }
+        }
+
+        return $response;
     }
 
     /**
