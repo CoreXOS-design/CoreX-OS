@@ -122,6 +122,11 @@ return [
         'sandbox'        => env('P24_EXDEV_SANDBOX', true),
         'image_base_url' => env('P24_EXDEV_IMAGE_BASE_URL', ''),
         'api_version'    => 'v53',
+        // First-ever leads pull (no cursor yet) reaches back this many days so a
+        // newly-onboarded agency captures the FULL window P24 still retains,
+        // not just the last few days. P24 v53 rejects `after` older than 30 days,
+        // so this is clamped below that ceiling in P24LeadService. Default 28.
+        'leads_first_pull_days' => env('P24_EXDEV_LEADS_FIRST_PULL_DAYS', 28),
     ],
 
     'private_property' => [

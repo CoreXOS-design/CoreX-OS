@@ -64,11 +64,17 @@ class P24LeadService
         $cursorKey = self::CURSOR_CACHE_KEY . ($agency?->id ?? 'default');
         $after     = Cache::get($cursorKey);
 
-        // P24 v53 requires `after` and rejects values older than 30 days.
-        // First run (no cursor): default to 7 days ago so we capture recent leads
-        // without hitting the 30-day ceiling.
+        // First run (no cursor): reach back the FULL retained window so a newly-
+        // onboarded agency captures every lead P24 still holds — not just the
+        // last few days. P24 v53 rejects `after` older than 30 days, so the
+        // configured window is clamped to [1, 29] to stay under that ceiling.
+        // (The previous hardcoded 7-day default silently abandoned ~3 weeks of
+        // still-available leads on the very first pull, and those leads then aged
+        // out of the API permanently — AT lead-backfill.)
         if (!$after) {
-            $after = now()->subDays(7)->toIso8601String();
+            $firstPullDays = (int) config('services.property24_syndication.leads_first_pull_days', 28);
+            $firstPullDays = max(1, min(29, $firstPullDays));
+            $after = now()->subDays($firstPullDays)->toIso8601String();
         }
 
         $response = $api->getLeads($after);
