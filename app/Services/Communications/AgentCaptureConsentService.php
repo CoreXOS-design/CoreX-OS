@@ -103,6 +103,20 @@ class AgentCaptureConsentService
             ->exists();
     }
 
+    /**
+     * AT-183 — is this pairing an EXPLICIT opt-out? Distinct from "not opted-in" (which also
+     * covers pending). An explicit opt-out is a POPIA exclusion: the ingestor drops the message
+     * entirely (no envelope, no storage), whereas pending keeps the envelope + embargoes the body.
+     */
+    public function isOptedOut(int $agentUserId, int $contactId): bool
+    {
+        return AgentCaptureConsent::withoutGlobalScope(AgencyScope::class)
+            ->where('agent_user_id', $agentUserId)
+            ->where('contact_id', $contactId)
+            ->where('status', AgentCaptureConsent::STATUS_OPTED_OUT)
+            ->exists();
+    }
+
     /** Agent decision: opt_in (bodies flow) or opt_out (bodies withheld; logged). */
     public function setDecision(int $agentUserId, Contact $contact, string $status, ?string $reason, User $decidedBy): AgentCaptureConsent
     {
@@ -131,7 +145,40 @@ class AgentCaptureConsentService
             $this->releaseEmbargoedBodies((int) $contact->agency_id, $agentUserId, (int) $contact->id);
         }
 
+        // AT-183 — opting OUT is a POPIA exclusion: retroactively PURGE the body content of
+        // every already-archived WA message for this (agent, contact) — including bodies that
+        // were captured (not just embargoed), which the daily embargo purge never reaches. The
+        // envelope stays; an immutable audit event records that the purge happened. Guarded and
+        // lazy-resolved so a purge hiccup never breaks the consent decision itself.
+        if ($status === AgentCaptureConsent::STATUS_OPTED_OUT) {
+            $this->purgeCapturedBodies((int) $contact->agency_id, $agentUserId, (int) $contact->id, $row->reason, $decidedBy->id);
+        }
+
         return $row;
+    }
+
+    /**
+     * AT-183 — purge already-archived WA bodies for this (agent, contact) on opt-out.
+     * Lazy-resolved + fully guarded — a purge failure must never roll back or block the
+     * consent decision (the opt-out declaration itself is the priority record).
+     */
+    private function purgeCapturedBodies(int $agencyId, int $agentUserId, int $contactId, ?string $declaration, ?int $actorUserId): void
+    {
+        try {
+            $purged = app(WaCapturePurgeService::class)
+                ->purgeForAgentContact($agencyId, $agentUserId, $contactId, $declaration, $actorUserId);
+            if ($purged > 0) {
+                Log::info('AT-183 WA bodies purged on capture opt-out', [
+                    'agency_id' => $agencyId, 'agent_user_id' => $agentUserId,
+                    'contact_id' => $contactId, 'purged' => $purged,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('AT-183 WA opt-out purge failed (non-fatal — opt-out still recorded)', [
+                'agency_id' => $agencyId, 'agent_user_id' => $agentUserId,
+                'contact_id' => $contactId, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

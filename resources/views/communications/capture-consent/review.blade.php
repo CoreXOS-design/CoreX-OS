@@ -8,7 +8,7 @@
 <div class="space-y-6" x-data="captureReview()">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture Opt-outs — Review</h1>
-        <p class="text-sm text-white/60 max-w-2xl">Agents who chose NOT to archive their WhatsApp with a matched contact, and why. This is a declaration for compliance — message content is never shown here. If you judge a chat to be business, flag it for the agent to reconsider; you cannot override their choice.</p>
+        <p class="text-sm text-white/60 max-w-2xl">Agents who chose NOT to capture their WhatsApp with a matched contact, and why. This is a declaration for compliance — message content is never shown here. If you judge a chat to be business, flag it for the agent to reconsider; you cannot override their choice.</p>
     </div>
 
     @if(session('success'))
@@ -59,7 +59,7 @@ function captureReview() {
     return {
         busy: false,
         async flag(id) {
-            const note = prompt('Why is this a business chat the agent should archive? (sent to the agent)') || '';
+            const note = prompt('Why is this a business chat the agent should capture? (sent to the agent)') || '';
             this.busy = true;
             try {
                 const r = await fetch('/communications/capture/' + id + '/flag', {

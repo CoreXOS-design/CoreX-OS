@@ -1882,7 +1882,7 @@
                  style="background:var(--surface-2); border:1px solid var(--border);"
                  x-data="{ status: @js($myCaptureStatus), busy:false,
                     async set(s){ if(s===this.status) return; let reason='';
-                        if(s==='opted_out'){ reason = prompt('Optional: why not archive your WhatsApp with this contact? (recorded for compliance)') || ''; }
+                        if(s==='opted_out'){ reason = prompt('Optional: why not capture your WhatsApp with this contact? (recorded for compliance)') || ''; }
                         this.busy=true;
                         try{ const r=await fetch('{{ route('communications.capture.decide') }}',{method:'POST',
                             headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content},
@@ -1891,19 +1891,19 @@
                             const d=await r.json(); if(r.ok&&d.ok){ this.status=d.status; } else { alert(d.error||'Could not save.'); }
                         }catch(e){ alert('Network error — try again.'); } finally{ this.busy=false; } } }">
                 <div class="min-w-0">
-                    <div class="text-xs font-semibold" style="color:var(--text-primary);">Archive my WhatsApp chats with this contact</div>
+                    <div class="text-xs font-semibold" style="color:var(--text-primary);">Capture my WhatsApp chats with this contact</div>
                     <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">
-                        <span x-show="status==='opted_in'" style="color:var(--ds-green,#059669);">On — bodies archived for compliance.</span>
-                        <span x-show="status==='opted_out'">Off — only that a message occurred is kept; bodies are not archived.</span>
-                        <span x-show="status==='pending'" style="color:var(--ds-amber,#f59e0b);">Awaiting your decision — bodies not archived until you choose.</span>
+                        <span x-show="status==='opted_in'" style="color:var(--ds-green,#059669);">On — bodies captured for compliance.</span>
+                        <span x-show="status==='opted_out'">Off — only that a message occurred is kept; bodies are not captured.</span>
+                        <span x-show="status==='pending'" style="color:var(--ds-amber,#f59e0b);">Awaiting your decision — bodies not captured until you choose.</span>
                         <span x-show="!status" style="color:var(--text-muted);">No WhatsApp match with this contact yet — choose to pre-set your preference.</span>
                     </p>
                 </div>
                 <div class="inline-flex gap-2 shrink-0">
                     <button type="button" @click="set('opted_in')" :disabled="busy" class="text-[11px] font-semibold rounded px-3 py-1.5"
-                            :style="status==='opted_in' ? 'background:var(--ds-green,#059669);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Archive</button>
+                            :style="status==='opted_in' ? 'background:var(--ds-green,#059669);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Capture</button>
                     <button type="button" @click="set('opted_out')" :disabled="busy" class="text-[11px] font-semibold rounded px-3 py-1.5"
-                            :style="status==='opted_out' ? 'background:var(--text-muted);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Don't archive</button>
+                            :style="status==='opted_out' ? 'background:var(--text-muted);color:#fff;border:1px solid var(--border);' : 'background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);'">Don't capture</button>
                 </div>
             </div>
 
