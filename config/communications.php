@@ -166,6 +166,12 @@ return [
         // endpoint refuses every POST (never accept an unauthenticated webhook).
         'webhook_secret'    => env('WAHA_WEBHOOK_SECRET'),
         'webhook_hmac_algo' => env('WAHA_WEBHOOK_HMAC_ALGO', 'sha512'),
+        // AT-158 (2026-07-06) — session-name environment marker. NEW WAHA session
+        // names are prefixed with this so a fresh link on one environment can
+        // never collide with another's, even when staging is a clone of the live
+        // DB (agency wa_session_prefix is copied across, APP_ENV is NOT — .env is
+        // per-environment). Defaults to APP_ENV; override explicitly if needed.
+        'session_env' => env('WAHA_SESSION_ENV', env('APP_ENV', 'app')),
         'download_timeout_seconds' => (int) env('WAHA_MEDIA_DOWNLOAD_TIMEOUT', 30),
         'max_media_bytes' => (int) env('WAHA_MEDIA_MAX_BYTES', 50 * 1024 * 1024),
         'allowed_media_hosts' => array_values(array_filter(array_map('trim', explode(

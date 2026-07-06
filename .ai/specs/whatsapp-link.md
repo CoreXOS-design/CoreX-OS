@@ -23,8 +23,28 @@ Agent (`User`) ←→ Contact (captured WA threads attach to contacts via existi
 7. **failed** — session FAILED → **Restart** from the UI.
 
 ## Session model
-- One WAHA session per agent: name = `{prefix}-agent-{userId}`, `prefix` = agency `wa_session_prefix` (default `agency{ID}`), sanitised `[a-z0-9-]`. Agency-scoped.
-- Session webhook = staging webhook URL + the configured HMAC secret (unchanged AT-149 path).
+- **Session name (env-safe, AT-158 2026-07-06).** A NEW link generates
+  `{env}-{prefix}-agent-{userId}` where **`env`** = `config('communications.waha.session_env')`
+  (→ `WAHA_SESSION_ENV`, default `APP_ENV`) and **`prefix`** = agency
+  `wa_session_prefix` (default `agency{ID}`), all `Str::slug`-sanitised. Example:
+  `production-agency1-agent-22`.
+  - **Why the env marker (bug-class kill):** staging is a clone of the live DB,
+    so `wa_session_prefix` (a DB field) is copied across environments and CANNOT
+    distinguish them. `APP_ENV` comes from each environment's own `.env` (never
+    cloned), so a fresh link on staging can never generate a name that collides
+    with live's — even immediately after a refresh. The webhook is env-derived
+    too (`config('app.url')`), so each env's session self-points.
+  - **Stored-name authoritative (zero re-links).** Generation applies to NEW
+    links only. An already-linked user's status/qr/link/restart/unlink resolve to
+    the device's **stored** `waha_session` (`resolveSessionName` → active
+    device's stored name, else `generateSessionName`). WAHA posts inbound under
+    the name the session was started with, and ingest maps by that stored name
+    (`WaSessionWebhookController` → `CommunicationWaDevice::forWahaSession`
+    = `where('waha_session', …)`). So changing the format never disturbs a live
+    session — it keeps capturing with its original name.
+- Session webhook = `config('app.url')` + `/communications/wa/webhook` + the
+  configured HMAC secret (AT-149 path). Live and staging share one WAHA
+  container but keep independent sessions via the env-safe names above.
 - On session `WORKING`, ensure a `communication_wa_devices` row (agency_id, user_id, waha_session, wa_number from session `me`, active). Idempotent.
 
 ## Data model

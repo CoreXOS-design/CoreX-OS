@@ -37,7 +37,7 @@ class WhatsAppLinkController extends Controller
             return response()->json(['state' => $blocked, 'consent' => $this->consentSummary($request)]);
         }
 
-        $session = $this->sessionName($request, $agency);
+        $session = $this->resolveSessionName($request, $agency);
 
         try {
             $waha = $this->waha->status($session);
@@ -66,7 +66,7 @@ class WhatsAppLinkController extends Controller
         if ($blocked) {
             abort(403, 'WhatsApp linking is not available for this account.');
         }
-        $session = $this->sessionName($request, $agency);
+        $session = $this->resolveSessionName($request, $agency);
 
         try {
             $png = $this->waha->qrPng($session);
@@ -96,7 +96,7 @@ class WhatsAppLinkController extends Controller
             return response()->json(['state' => 'disabled'], 422);
         }
 
-        $session = $this->sessionName($request, $agency);
+        $session = $this->resolveSessionName($request, $agency);
 
         try {
             $this->waha->ensureStarted($session, $this->webhookUrl(), $this->secret());
@@ -115,7 +115,7 @@ class WhatsAppLinkController extends Controller
         if ($blocked) {
             return response()->json(['state' => $blocked], 422);
         }
-        $session = $this->sessionName($request, $agency);
+        $session = $this->resolveSessionName($request, $agency);
 
         try {
             $this->waha->restart($session, $this->webhookUrl(), $this->secret());
@@ -133,7 +133,7 @@ class WhatsAppLinkController extends Controller
         if ($blocked === 'blocked') {
             return response()->json(['state' => 'blocked'], 422);
         }
-        $session = $this->sessionName($request, $agency);
+        $session = $this->resolveSessionName($request, $agency);
 
         $devices = CommunicationWaDevice::where('user_id', $request->user()->id)
             ->where('waha_session', $session)
@@ -179,14 +179,58 @@ class WhatsAppLinkController extends Controller
         return [$agency, null];
     }
 
-    private function sessionName(Request $request, ?Agency $agency): string
+    /**
+     * The session name to use for WAHA calls for THIS user.
+     *
+     * STORED-NAME AUTHORITATIVE (AT-158 fix, 2026-07-06): an already-linked
+     * device keeps its stored `waha_session` — WAHA posts inbound under the name
+     * the session was started with, and ingest maps by that stored name
+     * (WaSessionWebhookController → CommunicationWaDevice::forWahaSession). So a
+     * linked user's page/status/restart/unlink always resolve to the SAME stored
+     * name — it keeps capturing, zero re-links, even after the generation format
+     * changes. Only a BRAND-NEW link (no active device) gets the env-safe
+     * generated name below.
+     */
+    private function resolveSessionName(Request $request, ?Agency $agency): string
+    {
+        $stored = CommunicationWaDevice::where('user_id', $request->user()->id)
+            ->where('active', true)
+            ->whereNotNull('waha_session')
+            ->orderByDesc('id')
+            ->value('waha_session');
+
+        return $stored ?: $this->generateSessionName($request, $agency);
+    }
+
+    /**
+     * Generate a NEW env-safe session name. Format:
+     *   {env}-{agency-prefix}-agent-{userId}   e.g. production-agency1-agent-22
+     *
+     * BUG-CLASS KILL: the environment marker is derived from CODE/CONFIG
+     * (WAHA_SESSION_ENV, defaulting to APP_ENV) — NEVER from a DB field. Staging
+     * is a clone of the live DB, so an agency's `wa_session_prefix` (DB) is
+     * copied across environments and cannot distinguish them; APP_ENV differs per
+     * environment (.env is not cloned), so a fresh link on staging can never
+     * generate a name that collides with live's — even immediately after a
+     * staging refresh from a live DB copy. The agency/prefix concept is retained
+     * as the middle segment.
+     */
+    private function generateSessionName(Request $request, ?Agency $agency): string
     {
         $prefix = $agency && $agency->wa_session_prefix
             ? $agency->wa_session_prefix
             : 'agency' . ($agency->id ?? 0);
         $prefix = Str::slug($prefix) ?: 'agency';
 
-        return $prefix . '-agent-' . $request->user()->id;
+        return $this->envMarker() . '-' . $prefix . '-agent-' . $request->user()->id;
+    }
+
+    /** Environment marker for session names — code/config-derived, never DB. */
+    private function envMarker(): string
+    {
+        $marker = (string) config('communications.waha.session_env', config('app.env', 'app'));
+
+        return Str::slug($marker) ?: 'app';
     }
 
     private function webhookUrl(): string
