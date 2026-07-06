@@ -239,6 +239,28 @@
                     @endforeach
                 </div>
             @endif
+
+            {{-- AT-164 explicit-save — ALWAYS-VISIBLE arrangement controls (Johan QA1): the
+                 Save/Reset pair lives in the persistent toolbar so it is reachable in EVERY
+                 state — deck hidden, right panel hidden, both hidden, any view, Stream or
+                 Pages. "Save default" promotes the current live arrangement (INCLUDING hidden
+                 panels) to the per-user saved default; "Reset" restores that default,
+                 discarding in-session (transient) changes. Rendered in all views (arrangement
+                 applies beyond month/week), so it sits OUTSIDE the scroll-mode gate. --}}
+            <div class="inline-flex items-center rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <button type="button" data-tour="cal-saveview" @click="window.CoreXCal.save()"
+                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80 inline-flex items-center gap-1"
+                        style="color: var(--text-primary); border-right: 1px solid var(--border);"
+                        title="Save the current layout — including hidden panels — as your default (shown on every fresh load)">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 6h-15m15 0a2.25 2.25 0 0 1 2.25 2.25v9A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25v-9A2.25 2.25 0 0 1 4.5 6m15 0-1.5-1.5A2.25 2.25 0 0 0 16.5 3h-9a2.25 2.25 0 0 0-1.5.6L4.5 6"/></svg>
+                    Save default
+                </button>
+                <button type="button" data-tour="cal-resetview" @click="window.CoreXCal.reset()"
+                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                        style="color: var(--text-muted);"
+                        title="Restore your saved default (discard in-session changes)">Reset</button>
+            </div>
+
             {{-- Guided-tour "?" launcher relocates here (AT-164 calendar tour). Empty +
                  additive — the tour engine appends its button; no effect if absent. --}}
             <span id="tour-launcher-slot" class="tour-slot-surface inline-flex"></span>
@@ -2533,14 +2555,9 @@
                 <span x-show="saving" x-cloak class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Saving…</span>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0" x-show="!stripCollapsed">
-                {{-- AT-164 explicit-save — promote the CURRENT arrangement to the per-user
-                     saved default (the only write path). Reset restores that saved default,
-                     discarding in-session (transient) changes. --}}
-                <button type="button" data-tour="cal-saveview" @click="window.CoreXCal.save()" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" title="Save the current layout as your default (shown on every fresh load)">
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 6h-15m15 0a2.25 2.25 0 0 1 2.25 2.25v9A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25v-9A2.25 2.25 0 0 1 4.5 6m15 0-1.5-1.5A2.25 2.25 0 0 0 16.5 3h-9a2.25 2.25 0 0 0-1.5.6L4.5 6"/></svg>
-                    Save default
-                </button>
-                <button type="button" @click="window.CoreXCal.reset()" class="corex-btn-outline text-[11px] py-0.5" title="Restore your saved default (discard in-session changes)">Reset</button>
+                {{-- AT-164 explicit-save — the "Save default" / "Reset" arrangement controls
+                     live in the ALWAYS-VISIBLE top toolbar (near Stream/Pages), NOT here:
+                     they must stay reachable when the deck itself is hidden (Johan QA1). --}}
                 <div x-show="editing" x-cloak class="relative" @click.outside="pickerOpen = false">
                     <button type="button" @click="pickerOpen = !pickerOpen" :disabled="!canAddMore"
                             class="corex-btn-outline text-[11px] py-0.5 disabled:opacity-40"
