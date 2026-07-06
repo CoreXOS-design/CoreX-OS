@@ -177,7 +177,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->whereBetween('cma_gps_lat', [$lat - $tol, $lat + $tol])
                 ->whereBetween('cma_gps_lng', [$lng - $tol, $lng + $tol])
                 ->first();
-            if ($byCmaGps) {
+            if ($byCmaGps && ! $this->numbersConflict($facts, $byCmaGps)) {
                 Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_cma', [
                     'agency_id' => $agencyId, 'tracked_property_id' => $byCmaGps->id,
                 ]);
@@ -190,7 +190,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
                 ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
                 ->first();
-            if ($byGps) {
+            if ($byGps && ! $this->numbersConflict($facts, $byGps)) {
                 Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=2_gps_latlng', [
                     'agency_id' => $agencyId, 'tracked_property_id' => $byGps->id,
                 ]);
@@ -223,7 +223,9 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('street_name', $this->normaliseStreetName($facts['street_name']))
                 ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
                 ->first();
-            if ($addressMatch) {
+            // street_number already matches exactly here; the gate adds the UNIT
+            // dimension so Unit 1 and Unit 2 at "1 The Oval" don't collapse.
+            if ($addressMatch && ! $this->numbersConflict($facts, $addressMatch)) {
                 Log::debug('TrackedPropertyMatchOrCreateService::resolveMatch matched via strategy=4_normalised_address', [
                     'agency_id' => $agencyId, 'tracked_property_id' => $addressMatch->id,
                 ]);
@@ -246,6 +248,13 @@ final class TrackedPropertyMatchOrCreateService
 
             if (!empty($factTokens)) {
                 foreach ($candidates as $cand) {
+                    // Street/unit number is a hard discriminator: the tokeniser
+                    // drops <3-char tokens (so "1"/"2" never reach $factTokens),
+                    // which is exactly how "1 The Oval" used to match "2 The Oval".
+                    // Veto a differing number before any token comparison.
+                    if ($this->numbersConflict($facts, $cand)) {
+                        continue;
+                    }
                     $candTokens = $this->extractAddressTokens(
                         ($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')
                     );
@@ -261,6 +270,87 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return null;
+    }
+
+    /**
+     * Street/unit number as a HARD discriminator (SA address reality).
+     *
+     * "1 The Oval" and "2 The Oval" on the same street are DIFFERENT properties;
+     * so are Unit 1 and Unit 2 at one sectional-title address. Returns true only
+     * when BOTH sides carry the number and they differ — a MISSING number on
+     * either side never blocks a match, so estate-only / messy captures still
+     * resolve through the token and GPS strategies (do not overtighten into
+     * exact-string matching). This never CREATES a match; it only vetoes the
+     * address-SIMILARITY strategies (token overlap, GPS proximity) and adds a
+     * unit dimension to the exact-street strategies, so none of them can collapse
+     * two distinct numbers. NOT applied to source-ref (strategy 1) or erf
+     * (strategy 3) — those are exact external / legal identities.
+     */
+    private function numbersConflict(array $facts, TrackedProperty $candidate): bool
+    {
+        // (1) Structured street number — the primary discriminator.
+        $factStreet = $this->numberKey($facts['street_number'] ?? null);
+        $candStreet = $this->numberKey($candidate->street_number);
+        if ($factStreet !== null && $candStreet !== null && $factStreet !== $candStreet) {
+            return true;
+        }
+
+        // (2) Structured unit number — sectional-title discriminator.
+        $factUnit = $this->numberKey($facts['unit_number'] ?? null);
+        $candUnit = $this->numberKey($candidate->unit_number);
+        if ($factUnit !== null && $candUnit !== null && $factUnit !== $candUnit) {
+            return true;
+        }
+
+        // (4) Numbers embedded in the NAME strings ("Aqua Breeze 3" vs
+        // "Aqua Breeze 5", "Forest Walk 4") — the structured fields are empty for
+        // these, and the tokeniser would otherwise match them on the shared word
+        // tokens alone. When BOTH sides carry name-embedded numbers and they are
+        // wholly disjoint, they are different units/blocks → veto. One side
+        // without any name number never vetoes (enrichment stays possible).
+        $factNameNums = $this->nameNumbers($facts['street_name'] ?? null, $facts['complex_name'] ?? null);
+        $candNameNums = $this->nameNumbers($candidate->street_name, $candidate->complex_name);
+        if ($factNameNums !== [] && $candNameNums !== [] && array_intersect($factNameNums, $candNameNums) === []) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalise a street/unit number for equality (lowercased + trimmed). A
+     * trailing letter is PRESERVED ("1a" != "1" — a subdivided stand is a
+     * different property). Blank ⇒ null ("no number captured", never a veto).
+     */
+    private function numberKey($value): ?string
+    {
+        $v = strtolower(trim((string) ($value ?? '')));
+
+        return $v === '' ? null : $v;
+    }
+
+    /**
+     * Distinct numeric tokens embedded in free-text name fields (e.g. the "3" in
+     * a "Aqua Breeze 3" complex name). Used only as a disjoint-set discriminator
+     * so two differently-numbered units in the same-named complex don't collapse.
+     *
+     * @return array<int,string>
+     */
+    private function nameNumbers(?string ...$parts): array
+    {
+        $nums = [];
+        foreach ($parts as $part) {
+            if (! filled($part)) {
+                continue;
+            }
+            if (preg_match_all('/\d+[a-z]?/i', mb_strtolower($part), $m)) {
+                foreach ($m[0] as $token) {
+                    $nums[$token] = true;
+                }
+            }
+        }
+
+        return array_keys($nums);
     }
 
     /**
@@ -305,7 +395,7 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find((int) $hit->tracked_property_id);
-                if ($tp) return $tp;
+                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
             }
         }
 
@@ -327,7 +417,7 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find((int) $hit->tracked_property_id);
-                if ($tp) return $tp;
+                if ($tp && ! $this->numbersConflict($facts, $tp)) return $tp;
             }
         }
 
