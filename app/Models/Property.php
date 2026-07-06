@@ -1243,7 +1243,9 @@ class Property extends Model
             'phone'       => (string) ($agent?->cell ?: $agent?->phone ?: ''),
             'designation' => (string) ($agent?->designation ?: 'Property Practitioner'),
             'initial'     => strtoupper(mb_substr($name !== '' ? $name : 'A', 0, 1)),
-            'avatar'      => $agent?->profilePhotoUrl(),
+            // Host-relative so html2canvas can read it same-origin on any of our
+            // domains (see adSafeImageUrl) — the agent swap re-points this in the ad.
+            'avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
         ];
     }
 
@@ -1318,6 +1320,39 @@ class Property extends Model
     }
 
     /**
+     * Image URL safe for the Ad Manager's client-side html2canvas capture.
+     *
+     * The exported PNG is rasterised from a canvas, and a canvas can only read
+     * pixels from SAME-ORIGIN images. Our images live under /storage/, but they
+     * are stored (and asset()-generated) as absolute URLs pinned to APP_URL
+     * (corexos.co.za). A user who reaches the app on another live host
+     * (corex.hfcoastal.co.za, www.corexos.co.za) therefore loads those images
+     * cross-origin — they display in the builder but /storage/ sends no CORS
+     * headers, so html2canvas silently drops them from the download (property
+     * photo missing while text/shapes remain).
+     *
+     * Emitting a HOST-RELATIVE path makes the browser load the image from the
+     * current origin whichever of our domains the user is on → same-origin →
+     * html2canvas reads it. Genuinely external images (not under /storage/) are
+     * left absolute (nothing we can re-home).
+     */
+    public static function adSafeImageUrl(?string $u): ?string
+    {
+        $u = self::publicImageUrl($u);
+        if ($u === null) {
+            return null;
+        }
+
+        $path = parse_url($u, PHP_URL_PATH) ?: '';
+        $pos  = strpos($path, '/storage/');
+        if ($pos !== false) {
+            return substr($path, $pos); // host-relative "/storage/…"
+        }
+
+        return $u;
+    }
+
+    /**
      * All property images normalised for browser display (Photos picker, ad
      * previews, publishing). See publicImageUrl().
      *
@@ -1344,7 +1379,9 @@ class Property extends Model
     public function adData(): array
     {
         $imgs = $this->allImages();
-        $img  = fn (int $i) => self::publicImageUrl($imgs[$i] ?? null);
+        // adSafeImageUrl → host-relative so html2canvas can read them same-origin
+        // on any of our live domains (see the method's docblock).
+        $img  = fn (int $i) => self::adSafeImageUrl($imgs[$i] ?? null);
 
         $agent   = $this->agent;
         // Co-listing agent (pp_second_agent_id) — drives the dual-agent ad layouts
@@ -1356,7 +1393,7 @@ class Property extends Model
         $agency  = $this->agency;
 
         $logoPath = $branch?->logo_path ?: $agency?->logo_path;
-        $logoUrl  = $logoPath ? asset('storage/' . $logoPath) : null;
+        $logoUrl  = $logoPath ? self::adSafeImageUrl(asset('storage/' . $logoPath)) : null;
 
         $beds    = $this->beds;
         $baths   = $this->baths;
@@ -1408,7 +1445,7 @@ class Property extends Model
             'agent_designation' => $agent?->designation ?? 'Property Practitioner',
             // User has no `avatar_url` column — the photo URL comes from
             // profilePhotoUrl() (user_documents → legacy agent_photo_path).
-            'agent_avatar'      => $agent?->profilePhotoUrl(),
+            'agent_avatar'      => self::adSafeImageUrl($agent?->profilePhotoUrl()),
 
             // Agent 2 — the co-listing agent (empty when the listing is single-agent).
             // Powers the dual-agent prebuilt layouts + the builder's Agent 2 fields.
@@ -1416,7 +1453,7 @@ class Property extends Model
             'agent_2_email'       => $agent2?->email ?? '',
             'agent_2_phone'       => $agent2 ? ($agent2->cell ?: $agent2->phone ?: '') : '',
             'agent_2_designation' => $agent2 ? ($agent2->designation ?: 'Property Practitioner') : '',
-            'agent_2_avatar'      => $agent2?->profilePhotoUrl(),
+            'agent_2_avatar'      => self::adSafeImageUrl($agent2?->profilePhotoUrl()),
             'agent_2_initial'     => $agent2 ? strtoupper(mb_substr((string) $agent2->name, 0, 1)) : '',
 
             'agency_name'       => $agency?->name ?? '',
