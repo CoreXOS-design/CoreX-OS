@@ -247,15 +247,20 @@
                  panels) to the per-user saved default; "Reset" restores that default,
                  discarding in-session (transient) changes. Rendered in all views (arrangement
                  applies beyond month/week), so it sits OUTSIDE the scroll-mode gate. --}}
-            <div class="inline-flex items-center rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <button type="button" data-tour="cal-saveview" @click="window.CoreXCal.save()"
-                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80 inline-flex items-center gap-1"
-                        style="color: var(--text-primary); border-right: 1px solid var(--border);"
-                        title="Save the current layout — including hidden panels — as your default (shown on every fresh load)">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 6h-15m15 0a2.25 2.25 0 0 1 2.25 2.25v9A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25v-9A2.25 2.25 0 0 1 4.5 6m15 0-1.5-1.5A2.25 2.25 0 0 0 16.5 3h-9a2.25 2.25 0 0 0-1.5.6L4.5 6"/></svg>
-                    Save default
+            <div x-data="arrangementControls()" class="inline-flex items-center rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <button type="button" data-tour="cal-saveview" @click="save()" :disabled="state==='saving'"
+                        class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80 inline-flex items-center gap-1 disabled:opacity-70"
+                        :style="'border-right: 1px solid var(--border);' + (state==='saved' ? 'background: var(--brand-button); color:#fff;' : (state==='error' ? 'background:#dc2626; color:#fff;' : 'color: var(--text-primary);'))"
+                        :title="state==='error' ? 'Save failed — click to try again' : 'Save the current layout — including hidden panels — as your default (shown on every fresh load)'">
+                    {{-- idle / saving: save (disk) icon --}}
+                    <svg x-show="state==='idle' || state==='saving'" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 6h-15m15 0a2.25 2.25 0 0 1 2.25 2.25v9A2.25 2.25 0 0 1 19.5 19.5h-15A2.25 2.25 0 0 1 2.25 17.25v-9A2.25 2.25 0 0 1 4.5 6m15 0-1.5-1.5A2.25 2.25 0 0 0 16.5 3h-9a2.25 2.25 0 0 0-1.5.6L4.5 6"/></svg>
+                    {{-- saved: check icon --}}
+                    <svg x-show="state==='saved'" x-cloak class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                    {{-- error: warning icon --}}
+                    <svg x-show="state==='error'" x-cloak class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.9 13.67A1.5 1.5 0 0 0 3.73 20h16.54a1.5 1.5 0 0 0 1.3-2.39L13.66 3.94a1.5 1.5 0 0 0-2.6 0z"/></svg>
+                    <span x-text="saveLabel()"></span>
                 </button>
-                <button type="button" data-tour="cal-resetview" @click="window.CoreXCal.reset()"
+                <button type="button" data-tour="cal-resetview" @click="reset()"
                         class="px-2.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
                         style="color: var(--text-muted);"
                         title="Restore your saved default (discard in-session changes)">Reset</button>
@@ -2663,10 +2668,27 @@ window.CoreXCal = {
     // true current arrangement across components.
     page: null, deck: null, layers: null,
 
+    FLASH_KEY: 'corex.calendar.flash',
     isReload() { return this._reload; },
     // On a hard reload, discard the transient so the SAVED DEFAULT renders. Runs at parse
-    // time — before any Alpine component reads get() — so components see a clean slate.
-    boot() { if (this._reload) { try { sessionStorage.removeItem(this.KEY); } catch (e) {} } },
+    // time — before any Alpine component reads get() — so components see a clean slate. Also
+    // surfaces any queued cross-reload confirmation toast (e.g. after Reset).
+    boot() {
+        if (this._reload) { try { sessionStorage.removeItem(this.KEY); } catch (e) {} }
+        const self = this;
+        if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', () => self.showPendingFlash()); }
+        else { self.showPendingFlash(); }
+    },
+    // Cross-reload flash: Reset reloads the page, so its confirmation must survive the reload.
+    // Queued in sessionStorage, drained on the next load through the canonical CoreX toast.
+    flashOnNextLoad(message, type) { try { sessionStorage.setItem(this.FLASH_KEY, JSON.stringify({ message: message, type: type || 'success' })); } catch (e) {} },
+    showPendingFlash() {
+        let f = null;
+        try { f = JSON.parse(sessionStorage.getItem(this.FLASH_KEY) || 'null'); sessionStorage.removeItem(this.FLASH_KEY); } catch (e) {}
+        if (!f || !f.message) return;
+        const show = () => { if (typeof window.showToast === 'function') { window.showToast(f.message, f.type || 'success'); } else { setTimeout(show, 120); } };
+        show();
+    },
     get() { try { return JSON.parse(sessionStorage.getItem(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
     has(k) { return Object.prototype.hasOwnProperty.call(this.get(), k); },
     patch(obj) {
@@ -2676,7 +2698,10 @@ window.CoreXCal = {
     clear() { try { sessionStorage.removeItem(this.KEY); } catch (e) {} },
 
     // Promote the CURRENT LIVE arrangement to the per-user saved default (the ONLY DB write).
-    save() {
+    // Returns Promise<boolean>: true on a persisted 2xx, false on ANY failure (network OR a
+    // non-2xx status). On failure the transient is NOT cleared and NO false success is
+    // signalled — the caller shows an error state and the live arrangement is left intact.
+    async save() {
         const body = {};
         if (this.page)  { body.panel_collapsed = !!this.page.panelCollapsed; }
         if (this.deck)  {
@@ -2689,25 +2714,29 @@ window.CoreXCal = {
         if (this.layers) { body.layers = Array.isArray(this.layers.active) ? this.layers.active.slice() : []; }
         body.scroll_mode = @json($scrollMode ?? 'continuous');
         body.view        = @json($currentView ?? 'month');
-        return fetch(this.saveUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify(body),
-        }).then(() => {
-            // Current == default now → the transient is redundant; drop it so a later reload
-            // shows exactly what was just saved.
+        try {
+            const r = await fetch(this.saveUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body),
+            });
+            if (!r.ok) { return false; }   // 4xx/5xx — NOT a success (fetch does not reject on these)
+            // Persisted. Current == default now → drop the transient so a later reload shows
+            // exactly what was just saved.
             this.clear();
-            window.dispatchEvent(new CustomEvent('corex-toast', { detail: { message: 'Saved as your default view', type: 'success' } }));
-        }).catch(() => {
-            window.dispatchEvent(new CustomEvent('corex-toast', { detail: { message: 'Could not save your default — try again', type: 'error' } }));
-        });
+            return true;
+        } catch (e) {
+            return false;                   // network failure — transient kept, no false success
+        }
     },
 
     // Reset = restore the SAVED default, discarding transients. No DB write (the saved
-    // default is untouched). Clear transient + reload a clean URL (strip transient params).
+    // default is untouched). Clear transient, queue a confirmation for after the reload, and
+    // reload a clean URL (strip transient params).
     reset() {
         this.clear();
+        this.flashOnNextLoad('Calendar default restored', 'success');
         const u = new URL(window.location.href);
         ['anchor', 'view', 'scroll', 'date'].forEach(p => u.searchParams.delete(p));
         window.location.replace(u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : ''));
@@ -2735,6 +2764,35 @@ window.CoreXCal = {
     },
 };
 window.CoreXCal.boot();
+
+/* AT-164 — the always-visible toolbar Save/Reset pair with explicit feedback (Johan QA:
+   "a confirmation that save worked"). Success: the button briefly flips to "Saved ✓" +
+   the canonical CoreX toast ("Calendar default saved"). Failure (network/500): the button
+   shows "Save failed", an error toast fires, and it returns to actionable — never a silent
+   nothing, never a false success. Reset confirms via a cross-reload toast. */
+function arrangementControls() {
+    return {
+        state: 'idle',   // idle | saving | saved | error
+        _t: null,
+        saveLabel() { return { idle: 'Save default', saving: 'Saving…', saved: 'Saved', error: 'Save failed' }[this.state] || 'Save default'; },
+        async save() {
+            if (this.state === 'saving') return;
+            clearTimeout(this._t);
+            this.state = 'saving';
+            const ok = await window.CoreXCal.save();
+            if (ok) {
+                this.state = 'saved';
+                if (typeof window.showToast === 'function') window.showToast('Calendar default saved', 'success');
+                this._t = setTimeout(() => { this.state = 'idle'; }, 2200);
+            } else {
+                this.state = 'error';
+                if (typeof window.showToast === 'function') window.showToast('Save failed — try again', 'error');
+                this._t = setTimeout(() => { this.state = 'idle'; }, 3500);  // returns to actionable
+            }
+        },
+        reset() { window.CoreXCal.reset(); },
+    };
+}
 
 function calendarPage() {
     return {
