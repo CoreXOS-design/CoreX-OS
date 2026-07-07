@@ -212,7 +212,10 @@ class ServerHealthService
         }
         // The worker process TITLE is "php-fpm: pool www" for every PHP version
         // on the box (8.2 staging, 8.3 live, 8.4). Distinguish the live 8.3 pool
-        // by its binary: /proc/PID/exe → php-fpm8.3.
+        // by /proc/PID/comm (the binary name, e.g. "php-fpm8.3"). NB: NOT
+        // /proc/PID/exe — fpm workers are spawned by the root master then drop
+        // to www-data, which makes them non-dumpable, so exe is root-only; comm
+        // and stat stay readable by the same uid (the www-data web context).
         $pids = trim((string) @shell_exec('pgrep -f "php-fpm: pool www" 2>/dev/null'));
         if ($pids === '') {
             return null;
@@ -220,8 +223,8 @@ class ServerHealthService
         $total = 0;
         $active = 0;
         foreach (preg_split('/\s+/', $pids) as $pid) {
-            $exe = @readlink("/proc/{$pid}/exe");
-            if ($exe === false || strpos($exe, 'php-fpm8.3') === false) {
+            $comm = @file_get_contents("/proc/{$pid}/comm");
+            if ($comm === false || trim($comm) !== 'php-fpm8.3') {
                 continue; // not the live 8.3 pool
             }
             $stat = @file_get_contents("/proc/{$pid}/stat");
