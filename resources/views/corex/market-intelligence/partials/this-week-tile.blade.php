@@ -26,7 +26,9 @@
           text-decoration: none;
           background: var(--surface);
           transition: background 120ms ease, border-color 120ms ease;">
-    <div style="font-size: 1.5rem; line-height: 1;">{{ $tile->emoji }}</div>
+    {{-- Urgency dot — replaces the legacy emoji marker. Colour matches the
+         left border so the row reads as one urgency signal (no emoji). --}}
+    <div style="width: 10px; height: 10px; border-radius: 50%; background: {{ $urgencyColor }}; flex-shrink: 0;"></div>
     <div style="flex: 1; min-width: 0;">
         <div style="font-size: 0.875rem; font-weight: 500; color: var(--text-primary);">{{ $tile->sentence }}</div>
     </div>
