@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-wa-devices-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -15,7 +16,7 @@
     </div>
 
     @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
+    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
 
     {{-- AT-135 — agency-wide read-only body backfill toggle (admin/owner only).
@@ -34,7 +35,7 @@
         <form method="POST" action="{{ route('communications.wa-devices.backfill-toggle') }}" class="shrink-0">
             @csrf
             <input type="hidden" name="enabled" value="{{ $backfillEnabled ? '0' : '1' }}">
-            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
                     style="background: {{ $backfillEnabled ? 'var(--surface-2)' : 'var(--brand-button, #0ea5e9)' }}; color: {{ $backfillEnabled ? 'var(--text-secondary)' : '#fff' }}; border:1px solid var(--border);"
                     onclick="return confirm('{{ $backfillEnabled ? 'Turn OFF body backfill? Only live messages will be captured.' : 'Turn ON read-only body backfill for this agency?' }}')">
                 {{ $backfillEnabled ? 'Turn OFF' : 'Turn ON' }}
@@ -61,8 +62,8 @@
         <form method="POST" action="{{ route('communications.wa-devices.embargo-retention') }}" class="shrink-0 flex items-center gap-2">
             @csrf
             <input type="number" name="days" min="1" max="365" value="{{ (int) $embargoRetentionDays }}"
-                   class="w-20 text-xs rounded px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
-            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+                   class="w-20 text-xs rounded-md px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
+            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
                     style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
                 Save
             </button>
@@ -101,10 +102,10 @@
     </div>
 
     @if($plainToken)
-    <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+    <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
         <div class="text-sm font-semibold mb-1">Your device token (shown once)</div>
-        <code class="block text-xs p-2 break-all" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary);">{{ $plainToken }}</code>
-        <p class="text-xs mt-2" style="color:#a16207;">Paste this into the WhatsApp Capture extension now. For security it will not be shown again — revoke and re-register if you lose it.</p>
+        <code class="block text-xs p-2 break-all rounded-md" style="background: var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ $plainToken }}</code>
+        <p class="text-xs mt-2" style="color: var(--ds-amber, #a16207);">Paste this into the WhatsApp Capture extension now. For security it will not be shown again — revoke and re-register if you lose it.</p>
     </div>
     @endif
 
@@ -124,6 +125,7 @@
     </div>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comms-wa-devices-table">
+        <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
             <thead>
                 <tr style="background: var(--surface-2);">
@@ -155,6 +157,7 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 </div>
 @endsection

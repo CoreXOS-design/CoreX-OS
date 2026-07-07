@@ -94,10 +94,10 @@ class KnowledgeDocument extends Model
     public function getStatusBadgeAttribute(): string
     {
         return match ($this->status) {
-            'ready' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Ready</span>',
-            'processing' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Processing</span>',
-            'error' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Error</span>',
-            default => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">' . e($this->status) . '</span>',
+            'ready' => '<span class="ds-badge ds-badge-success">Ready</span>',
+            'processing' => '<span class="ds-badge ds-badge-warning">Processing</span>',
+            'error' => '<span class="ds-badge ds-badge-danger">Error</span>',
+            default => '<span class="ds-badge ds-badge-default">' . e(ucfirst($this->status)) . '</span>',
         };
     }
 }

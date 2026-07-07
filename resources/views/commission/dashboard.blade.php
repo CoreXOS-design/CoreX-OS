@@ -2,7 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -25,21 +25,21 @@
         {{-- Card 1: This Month --}}
         <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">This Month</div>
-            <div class="text-2xl font-extrabold" style="color:var(--text-primary);">R {{ number_format($thisMonthGCI, 2) }}</div>
+            <div class="text-[1.625rem] font-semibold leading-tight" style="color:var(--text-primary);">R {{ number_format($thisMonthGCI, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">Net agent earnings</div>
         </div>
 
         {{-- Card 2: This Year --}}
         <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">This Year</div>
-            <div class="text-2xl font-extrabold" style="color:var(--text-primary);">R {{ number_format($thisYearGCI, 2) }}</div>
+            <div class="text-[1.625rem] font-semibold leading-tight" style="color:var(--text-primary);">R {{ number_format($thisYearGCI, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">Net agent earnings</div>
         </div>
 
         {{-- Card 3: Cap Progress --}}
         <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Cap Progress</div>
-            <div class="text-2xl font-extrabold" style="color:var(--text-primary);">
+            <div class="text-[1.625rem] font-semibold leading-tight" style="color:var(--text-primary);">
                 R {{ number_format($capProgress, 0) }} <span class="text-sm font-normal" style="color:var(--text-secondary);">/ R {{ number_format($capTotal, 0) }}</span>
             </div>
             {{-- Mini progress bar --}}
@@ -59,7 +59,7 @@
         {{-- Card 4: Revenue Share --}}
         <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Revenue Share</div>
-            <div class="text-2xl font-extrabold" style="color:#14b8a6;">R {{ number_format($thisMonthRevShare, 2) }}</div>
+            <div class="text-[1.625rem] font-semibold leading-tight" style="color:var(--ds-teal, #14b8a6);">R {{ number_format($thisMonthRevShare, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">This month</div>
         </div>
     </div>
@@ -249,11 +249,11 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div class="p-3 rounded-md" style="background:var(--surface-2, rgba(0,0,0,0.05)); border:1px solid var(--border);">
                         <div class="text-xs" style="color:var(--text-muted);">Rev Share This Month</div>
-                        <div class="text-lg font-bold" style="color:#14b8a6;">R {{ number_format($thisMonthRevShare, 2) }}</div>
+                        <div class="text-lg font-bold" style="color:var(--ds-teal, #14b8a6);">R {{ number_format($thisMonthRevShare, 2) }}</div>
                     </div>
                     <div class="p-3 rounded-md" style="background:var(--surface-2, rgba(0,0,0,0.05)); border:1px solid var(--border);">
                         <div class="text-xs" style="color:var(--text-muted);">Rev Share This Year</div>
-                        <div class="text-lg font-bold" style="color:#14b8a6;">R {{ number_format($thisYearRevShare, 2) }}</div>
+                        <div class="text-lg font-bold" style="color:var(--ds-teal, #14b8a6);">R {{ number_format($thisYearRevShare, 2) }}</div>
                     </div>
                 </div>
             </div>

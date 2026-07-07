@@ -77,18 +77,26 @@ class AgentPerformanceService
                 $derived['listings_needed'] = $listingsTarget;
                 $derived['value_target']    = $valueTarget;
 
-                // Sync into targets so dashboards use a single source (leave points_target untouched)
-                DB::table('targets')->updateOrInsert(
-                    ['period' => $month->format('Y-m'), 'user_id' => (int)$user->id],
-                    [
-                        'agency_id' => $user->agency_id,
-                        'branch_id' => $user->branch_id,
-                        'listings_target' => $listingsTarget,
-                        'deals_target' => $dealsTarget,
-                        'value_target' => $valueTarget,
-                        'updated_at' => now(),
-                    ]
-                );
+                // Sync into targets so dashboards use a single source (leave points_target untouched).
+                // Resolve the tenant via the canonical path (branch → direct agency_id) so a BM whose
+                // agency is derived from their branch is written correctly. Global owner/super_admin
+                // users have no agency context (agency_id NULL by design) — the targets row requires a
+                // non-null agency_id, so for them we skip the persistence and just return the derived
+                // values in-memory; the dashboard still renders.
+                $agencyId = $user->effectiveAgencyId();
+                if ($agencyId !== null) {
+                    DB::table('targets')->updateOrInsert(
+                        ['period' => $month->format('Y-m'), 'user_id' => (int)$user->id],
+                        [
+                            'agency_id' => $agencyId,
+                            'branch_id' => $user->effectiveBranchId(),
+                            'listings_target' => $listingsTarget,
+                            'deals_target' => $dealsTarget,
+                            'value_target' => $valueTarget,
+                            'updated_at' => now(),
+                        ]
+                    );
+                }
             }
         }
 

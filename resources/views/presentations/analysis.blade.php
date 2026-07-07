@@ -10,10 +10,10 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
 ══════════════════════════════════════════════════════════════════════════ --}}
-<div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-6">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+<div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5 mb-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div data-tour="pres-analysis-intro">
-            <h2 class="text-xl font-bold text-white leading-tight">Market Analysis</h2>
+            <h1 class="text-xl font-bold text-white leading-tight">Market Analysis</h1>
             <div class="text-sm text-white/60">
                 {{ $presentation->title }}
                 @if($presentation->property_address)
@@ -66,7 +66,7 @@
     <div class="flex items-center justify-between mb-3">
         <h2 class="ds-section-header">Run Analysis</h2>
         @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
-            <span class="text-xs text-emerald-600 font-medium">
+            <span class="text-xs font-medium" style="color: var(--ds-green, #059669);">
                 Snapshot saved {{ $latestSnapshot->generated_at->diffForHumans() }}
             </span>
         @endif
@@ -82,7 +82,7 @@
                        class="w-full pres-input px-3 py-2 text-sm"
                        placeholder="e.g. 2500000">
                 <p class="mt-0.5 text-xs" style="color: var(--text-muted);">Saves to presentation and freezes analysis snapshot.</p>
-                @error('asking_price_inc')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+                @error('asking_price_inc')<p class="mt-1 text-xs" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
             </div>
             <div class="flex items-end">
                 <button type="submit" class="corex-btn-primary">
@@ -121,7 +121,6 @@
 <div class="ds-status-card mb-4 flex flex-wrap items-center justify-between gap-3"
      style="border-left-color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent);">
     <div class="flex items-start gap-2">
-        <span aria-hidden="true" style="font-size:16px; line-height:1.2;">&#128274;</span>
         <div>
             <div class="text-sm font-semibold" style="color: var(--text-primary);">This presentation is confirmed (locked)</div>
             <div class="text-xs" style="color: var(--text-secondary);">
@@ -286,7 +285,7 @@
         @foreach($items as $item)
             <div class="flex items-center gap-2">
                 @if($item['ok'])
-                    <span class="text-emerald-500 font-bold">✓</span>
+                    <span class="font-bold" style="color: var(--ds-green, #059669);">✓</span>
                     <span style="color: var(--text-primary);">{{ $item['label'] }}</span>
                 @else
                     <span class="font-bold" style="color: var(--text-muted);">○</span>
@@ -382,35 +381,15 @@
     }
 
     // ── CMA tile click ───────────────────────────────────────────────────
+    // Selection is a single theme-aware `.is-selected` class (see corex.css
+    // `.analysis-tile`) — no per-element Tailwind/hex swapping.
     document.querySelectorAll('.cma-tile').forEach(function (tile) {
         tile.addEventListener('click', function () {
             var range = tile.dataset.range;
             var value = parseInt(tile.dataset.value, 10);
 
-            // Visual update — all CMA tiles
             document.querySelectorAll('.cma-tile').forEach(function (t) {
-                var isSel = t.dataset.range === range;
-                t.className = t.className
-                    .replace(/bg-sky-50|bg-gray-50|hover:bg-gray-100|ring-1|ring-sky-200/g, '')
-                    .trim();
-                if (isSel) {
-                    t.classList.add('bg-sky-50', 'ring-1', 'ring-sky-200');
-                } else {
-                    t.classList.add('bg-gray-50', 'hover:bg-gray-100');
-                }
-                var label = t.querySelector('span');
-                var valP  = t.querySelector('p');
-                if (label) {
-                    label.className = label.className.replace(/text-\[#38bfe0\]|text-gray-400/g, '').trim();
-                    label.classList.add(isSel ? 'text-[#38bfe0]' : 'text-gray-400');
-                }
-                if (valP) {
-                    valP.className = valP.className
-                        .replace(/font-bold|font-semibold|text-\[#0b2a4a\]|text-gray-700|text-lg/g, '')
-                        .trim();
-                    if (isSel) valP.classList.add('font-bold', 'text-[#0b2a4a]', 'text-lg');
-                    else valP.classList.add('font-semibold', 'text-gray-700');
-                }
+                t.classList.toggle('is-selected', t.dataset.range === range);
             });
 
             // Update asking-vs-CMA comparison box
@@ -431,26 +410,7 @@
             var value = parseInt(tile.dataset.value, 10);
 
             document.querySelectorAll('.vicinity-tile').forEach(function (t) {
-                var isSel = t.dataset.range === range;
-                t.className = t.className
-                    .replace(/bg-sky-50|bg-gray-50|hover:bg-gray-100|ring-1|ring-sky-200/g, '')
-                    .trim();
-                if (isSel) t.classList.add('bg-sky-50', 'ring-1', 'ring-sky-200');
-                else t.classList.add('bg-gray-50', 'hover:bg-gray-100');
-
-                var label = t.querySelector('span');
-                var valP  = t.querySelector('p');
-                if (label) {
-                    label.className = label.className.replace(/text-\[#38bfe0\]|text-gray-400/g, '').trim();
-                    label.classList.add(isSel ? 'text-[#38bfe0]' : 'text-gray-400');
-                }
-                if (valP) {
-                    valP.className = valP.className
-                        .replace(/font-bold|font-semibold|text-\[#0b2a4a\]|text-gray-700|text-lg/g, '')
-                        .trim();
-                    if (isSel) valP.classList.add('font-bold', 'text-[#0b2a4a]', 'text-lg');
-                    else valP.classList.add('font-semibold', 'text-gray-700');
-                }
+                t.classList.toggle('is-selected', t.dataset.range === range);
             });
 
             updateInsightCard('vicinity', range, value);
@@ -459,6 +419,8 @@
     });
 
     // ── Asking vs CMA recalculation ──────────────────────────────────────
+    // Tone is a single class on the box (`tone-amber` = over CMA / needs
+    // attention, `tone-green` = fair); child text recolours via CSS.
     function updateAskingVsCma(range, cmaValue) {
         var box = document.getElementById('asking-vs-cma');
         if (!box) return;
@@ -477,25 +439,15 @@
         if (values) values.textContent = fmtZar(asking) + ' vs ' + fmtZar(cmaValue);
         if (pctEl) pctEl.textContent = (pct > 0 ? '+' : '') + pct + '%';
 
-        // Update colors
-        box.className = box.className
-            .replace(/bg-red-50|bg-emerald-50|border-red-200|border-emerald-200/g, '').trim();
-        box.classList.add(overpriced ? 'bg-red-50' : 'bg-emerald-50', overpriced ? 'border-red-200' : 'border-emerald-200');
+        box.classList.toggle('tone-amber', overpriced);
+        box.classList.toggle('tone-green', !overpriced);
 
-        if (label) {
-            label.className = label.className.replace(/text-red-600|text-emerald-600/g, '').trim();
-            label.classList.add(overpriced ? 'text-red-600' : 'text-emerald-600');
-        }
-        if (pctEl) {
-            pctEl.className = pctEl.className.replace(/text-red-600|text-emerald-600/g, '').trim();
-            pctEl.classList.add(overpriced ? 'text-red-600' : 'text-emerald-600');
-        }
         if (note) {
             if (overpriced) {
                 note.textContent = 'Above CMA evaluation';
-                note.classList.remove('hidden', 'text-emerald-500');
-                note.classList.add('text-red-500');
+                note.classList.remove('hidden');
             } else {
+                note.textContent = '';
                 note.classList.add('hidden');
             }
         }
@@ -539,24 +491,11 @@
             var pctEl = card.querySelector('.insight-pct');
             if (pctEl) pctEl.textContent = (pct > 0 ? '+' : '') + pct + '%';
 
-            // Update colors
-            var statusMap = {
-                danger:  { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', pct: 'text-red-600' },
-                warning: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', pct: 'text-amber-600' },
-                ok:      { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', pct: 'text-emerald-600' }
-            };
-            var colors = statusMap[status];
-            card.className = card.className
-                .replace(/bg-(red|amber|emerald)-50/g, '')
-                .replace(/border-(red|amber|emerald)-200/g, '')
-                .replace(/text-(red|amber|emerald)-700/g, '')
-                .trim();
-            card.classList.add(colors.bg, colors.border, colors.text);
-            if (pctEl) {
-                pctEl.className = pctEl.className
-                    .replace(/text-(red|amber|emerald)-600/g, '').trim();
-                pctEl.classList.add(colors.pct);
-            }
+            // Update tone — single class; child text recolours via CSS
+            // (danger = crimson genuine mispricing, warning = amber, ok = green).
+            var tone = status === 'danger' ? 'tone-crimson' : (status === 'warning' ? 'tone-amber' : 'tone-green');
+            card.classList.remove('tone-crimson', 'tone-amber', 'tone-green');
+            card.classList.add(tone);
         });
     }
 

@@ -60,9 +60,9 @@
                 <label for="file" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Propcon XLSX file</label>
                 <input id="file" type="file" name="file" accept=".xlsx" required
                        class="block w-full text-sm rounded-md px-3 py-2 transition-all duration-300
-                              file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:cursor-pointer"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
-                              --file-bg: var(--brand-button, #0ea5e9);" />
+                              file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+                              file:cursor-pointer file:text-white file:bg-[color:var(--brand-button)] hover:file:brightness-110"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
             </div>
             <button type="submit" class="corex-btn-primary">Import</button>
         </form>

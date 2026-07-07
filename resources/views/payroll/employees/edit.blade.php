@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -61,10 +62,8 @@
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-                        Update Profile
-                    </button>
-                    <a href="{{ route('payroll.employees.show', $employee) }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
+                    <button type="submit" class="corex-btn-primary text-sm">Update Profile</button>
+                    <a href="{{ route('payroll.employees.show', $employee) }}" class="corex-btn-outline text-sm">Cancel</a>
                 </div>
             </div>
         </form>

@@ -3,7 +3,7 @@
 
 @section('corex-content')
 
-<div class="w-full space-y-6">
+<div class="w-full space-y-5" x-data="categoryManager()">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -12,8 +12,26 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Knowledge Base</h1>
                 <p class="text-sm text-white/60">Ellie's training documents &amp; agent resources</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" @click="openCreate()" class="corex-btn-primary text-sm inline-flex items-center gap-1.5">
+                    <i class="fas fa-plus text-[10px]"></i> New Category
+                </button>
+            </div>
         </div>
     </div>
+
+    @if(session('status'))
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
+            {{ session('status') }}
+        </div>
+    @endif
+    @if(session('error'))
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
+            {{ session('error') }}
+        </div>
+    @endif
 
     {{-- Upload Section --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
@@ -98,15 +116,15 @@
     </div>
 
     {{-- Categories Section --}}
-    <div x-data="categoryManager()">
+    <div>
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-base font-semibold" style="color: var(--text-primary);">Categories</h3>
-            <button type="button" @click="openCreate()" class="corex-btn-primary text-xs px-3 py-1.5 inline-flex items-center gap-1.5">
+            <button type="button" @click="openCreate()" class="corex-btn-outline text-xs px-3 py-1.5 inline-flex items-center gap-1.5">
                 <i class="fas fa-plus text-[10px]"></i> New Category
             </button>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            @foreach($categories as $idx => $cat)
+            @forelse($categories as $idx => $cat)
                 <div class="rounded-md p-4 transition-all duration-300 relative"
                      style="background: var(--surface); border: 1px solid var(--border);"
                      onmouseover="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -157,11 +175,22 @@
                         </div>
                     </div>
                 </div>
-            @endforeach
+            @empty
+                <div class="md:col-span-2 lg:col-span-3 rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                        <i class="fas fa-folder-open"></i>
+                    </div>
+                    <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No categories yet</h3>
+                    <p class="text-sm mb-4" style="color: var(--text-muted);">Create your first category to organise Ellie's knowledge documents.</p>
+                    <button type="button" @click="openCreate()" class="corex-btn-primary text-sm">New Category</button>
+                </div>
+            @endforelse
         </div>
 
         {{-- Create / Edit Modal --}}
-        <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @keydown.escape.window="showModal = false">
+        <template x-teleport="body">
+        <div x-show="showModal" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @keydown.escape.window="showModal = false">
             <div class="rounded-md shadow-xl w-full max-w-md mx-4 p-6" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showModal = false">
                 <h4 class="text-sm font-bold mb-4" style="color: var(--text-primary);" x-text="editId ? 'Edit Category' : 'New Category'"></h4>
                 <form :action="editId ? '{{ url('admin/knowledge/categories') }}/' + editId : '{{ route('admin.knowledge.storeCategory') }}'" method="POST">
@@ -205,9 +234,11 @@
                 </form>
             </div>
         </div>
+        </template>
 
         {{-- Delete Confirmation Modal --}}
-        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @keydown.escape.window="showDeleteModal = false">
+        <template x-teleport="body">
+        <div x-show="showDeleteModal" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @keydown.escape.window="showDeleteModal = false">
             <div class="rounded-md shadow-xl w-full max-w-sm mx-4 p-6" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showDeleteModal = false">
                 <h4 class="text-sm font-bold mb-2" style="color: var(--ds-crimson);">Delete Category</h4>
                 <p class="text-sm mb-4" style="color: var(--text-secondary);">Are you sure you want to delete <strong x-text="deleteName" style="color: var(--text-primary);"></strong>? This cannot be undone.</p>
@@ -221,6 +252,7 @@
                 </form>
             </div>
         </div>
+        </template>
     </div>
 
     <script>

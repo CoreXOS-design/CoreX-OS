@@ -2,7 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -14,12 +14,12 @@
         </div>
     </div>
 
-    <div class="max-w-5xl mx-auto w-full">
+    <div class="w-full">
         @include('tools.pdf-suite._alerts')
 
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {{-- Left: when to use --}}
-            <div class="lg:col-span-2">
+            <div class="lg:col-span-5 xl:col-span-4">
                 <div class="rounded-md p-6 h-full" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center justify-center w-12 h-12 rounded-md mb-4"
                          style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
@@ -41,7 +41,7 @@
             </div>
 
             {{-- Right: convert form --}}
-            <div class="lg:col-span-3">
+            <div class="lg:col-span-7 xl:col-span-8">
                 <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
                     <h3 class="font-semibold text-base mb-1" style="color: var(--text-primary);">Convert images</h3>
                     <p class="text-sm mb-5" style="color: var(--text-secondary);">Up to 50 files, 50 MB each.</p>

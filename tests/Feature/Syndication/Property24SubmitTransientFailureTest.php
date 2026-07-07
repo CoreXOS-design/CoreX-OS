@@ -85,7 +85,7 @@ class Property24SubmitTransientFailureTest extends TestCase
         return $p;
     }
 
-    private function seed(): array
+    private function seedWorld(): array
     {
         Queue::fake(); // isolate from MatchPropertyJob / observers
         $agency = Agency::create([
@@ -100,7 +100,7 @@ class Property24SubmitTransientFailureTest extends TestCase
 
     public function test_timeout_on_a_live_listing_keeps_it_active_not_error(): void
     {
-        [$agency, $branch, $agent] = $this->seed();
+        [$agency, $branch, $agent] = $this->seedWorld();
         $p = $this->makeProperty($agency, $branch, $agent, [
             'p24_syndication_status' => 'submitting', // controller sets this before dispatch
             'p24_ref'                => '117201765',
@@ -120,7 +120,7 @@ class Property24SubmitTransientFailureTest extends TestCase
 
     public function test_timeout_on_a_first_submit_marks_pending_not_error(): void
     {
-        [$agency, $branch, $agent] = $this->seed();
+        [$agency, $branch, $agent] = $this->seedWorld();
         $p = $this->makeProperty($agency, $branch, $agent, [
             'p24_syndication_status' => 'submitting',
             'p24_ref'                => null, // never submitted before

@@ -88,7 +88,7 @@
                         <td class="px-4 py-3" style="color: var(--text-primary);">{{ $h->name }}</td>
                         <td class="px-4 py-3 text-center">
                             @if($h->is_movable)
-                                <span class="ds-badge ds-badge-warning">Moveable</span>
+                                <span class="ds-badge ds-badge-info">Moveable</span>
                             @else
                                 <span class="ds-badge ds-badge-default">Fixed</span>
                             @endif

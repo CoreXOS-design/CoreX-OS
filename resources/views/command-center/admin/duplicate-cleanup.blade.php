@@ -3,7 +3,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
 @section('corex-content')
-<div class="space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (branded, Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -43,7 +43,7 @@
             <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No duplicate clusters detected</h3>
             <p class="text-sm mb-2" style="color:var(--text-muted);">Your contacts are clean — there are no pending duplicates to review.</p>
             <p class="text-xs" style="color:var(--text-muted);">
-                Run <code class="rounded" style="background:var(--surface-2); padding:2px 6px;">php artisan contacts:detect-duplicates</code> to scan again.
+                Run <code class="rounded px-1.5 py-0.5" style="background:var(--surface-2);">php artisan contacts:detect-duplicates</code> to scan again.
             </p>
         </div>
     @else
@@ -96,7 +96,7 @@
                             @csrf
                             <button type="submit" class="corex-btn-outline text-sm">Not Duplicate</button>
                         </form>
-                        <button type="button" onclick="alert('Merge flow will be available in a follow-up release.')"
+                        <button type="button" onclick="window.showToast('Merge flow will be available in a follow-up release.', 'info')"
                                 class="corex-btn-primary text-sm">
                             Merge (Coming Soon)
                         </button>

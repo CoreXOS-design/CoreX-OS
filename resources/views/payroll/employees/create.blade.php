@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -52,14 +53,14 @@
                         <option value="">-- Choose a user --</option>
                         @foreach($eligibleUsers as $user)
                             <option value="{{ $user->id }}" {{ old('user_id') == $user->id ? 'selected' : '' }}>
-                                {{ $user->name }} ({{ $user->designation ?? 'No designation' }}) â€” {{ $user->email }}
+                                {{ $user->name }} ({{ $user->designation ?? 'No designation' }}) — {{ $user->email }}
                             </option>
                         @endforeach
                     </select>
                     @error('user_id') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
 
                     {{-- Preview card --}}
-                    <div x-show="selectedUser" x-cloak class="mt-3 p-3 flex items-center gap-3" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                    <div x-show="selectedUser" x-cloak class="mt-3 p-3 flex items-center gap-3" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                         <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-icon);">
                             <span x-text="selectedUser ? selectedUser.name.charAt(0).toUpperCase() : ''"></span>
                         </div>
@@ -181,21 +182,19 @@
                 </div>
 
                 {{-- SECTION 4: Default Earnings --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
                     <strong style="color:var(--brand-icon);">Earnings:</strong> Basic Salary will be added at R0. You can update it and add more earnings on the next screen.
                 </div>
 
                 {{-- SECTION 5: Default Deductions --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
                     <strong style="color:var(--brand-icon);">Deductions:</strong> PAYE and UIF will be auto-calculated each run. You can add custom deductions on the next screen.
                 </div>
 
                 {{-- Actions --}}
                 <div x-show="selectedUserId" x-cloak class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-                        Add to Payroll
-                    </button>
-                    <a href="{{ route('payroll.employees.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
+                    <button type="submit" class="corex-btn-primary text-sm">Add to Payroll</button>
+                    <a href="{{ route('payroll.employees.index') }}" class="corex-btn-outline text-sm">Cancel</a>
                 </div>
             </div>
         </form>

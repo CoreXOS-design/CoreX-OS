@@ -20,10 +20,10 @@
     $lastSummary = $latestSnapshot ? $latestSnapshot->getOutputSummaryArray() : null;
 @endphp
 
-<div class="w-full">
+<div class="w-full space-y-6">
 
 {{-- Branded page header (Pattern A) — full-width brand bar, matches Properties / Core Matches --}}
-<div class="rounded-md px-6 py-5 mb-8" style="background: var(--brand-default, #0b2a4a);">
+<div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
     <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div>
             <div class="flex items-center gap-3 mb-1.5 flex-wrap">
@@ -79,7 +79,7 @@
 {{-- Flash messages handled by global toast system --}}
 
 {{-- ACTION BUTTONS --}}
-<div class="ds-status-card mb-8">
+<div class="ds-status-card">
     <div class="flex flex-wrap items-center gap-3 px-5 py-3.5">
         @if($latestSnapshot)
             <a href="{{ route('presentations.analysis', $presentation) }}"
@@ -183,7 +183,7 @@
         ->get();
 @endphp
 @if($openRefreshRequests->isNotEmpty())
-<div class="rounded-md px-4 py-3 mb-4"
+<div class="rounded-md px-4 py-3"
      style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
             border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
@@ -225,7 +225,7 @@
     ];
     $shareLinkSummary = $shareLinkService->engagementSummary($presentation);
 @endphp
-<div class="ds-status-card mb-8" id="share-links">
+<div class="ds-status-card" id="share-links">
     <div class="flex items-center justify-between mb-3">
         <div>
             <h2 class="ds-section-header" style="margin-bottom:0">Share Links</h2>
@@ -251,7 +251,7 @@
         </div>
     @else
         @if($shareLinkSummary['total_views'] > 0)
-        <div style="margin-bottom: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--ds-green, #16a34a) 8%, transparent); border-left: 3px solid var(--ds-green, #16a34a); border-radius: 4px; font-size: 0.8125rem;">
+        <div style="margin-bottom: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--ds-green, #059669) 8%, transparent); border-left: 3px solid var(--ds-green, #059669); border-radius: 4px; font-size: 0.8125rem;">
             <strong>Recent activity:</strong>
             Sellers opened the presentation
             <strong>{{ $shareLinkSummary['total_views'] }}</strong> {{ \Illuminate\Support\Str::plural('time', $shareLinkSummary['total_views']) }}
@@ -262,7 +262,7 @@
                 · avg {{ floor($shareLinkSummary['avg_duration_seconds'] / 60) }}m {{ $shareLinkSummary['avg_duration_seconds'] % 60 }}s on page
             @endif
             @if($shareLinkSummary['any_flagged'])
-                · <span style="color: var(--ds-amber, #d97706); font-weight: 600;">⚠ at least one flagged access</span>
+                · <span style="color: var(--ds-amber, #f59e0b); font-weight: 600;">⚠ at least one flagged access</span>
             @endif
         </div>
         @endif
@@ -347,7 +347,7 @@
                         <form method="POST" action="{{ route('presentations.snapshot-links.revoke', [$presentation, $sl]) }}" style="display:inline;"
                               onsubmit="return confirm('Revoke this link? The seller will no longer be able to view it.');">
                             @csrf
-                            <button type="submit" class="corex-btn-outline corex-btn-xs" style="color: var(--ds-red, #dc2626);">Revoke</button>
+                            <button type="submit" class="corex-btn-outline corex-btn-xs" style="color: var(--ds-crimson, #c41e3a);">Revoke</button>
                         </form>
                     </td>
                 </tr>
@@ -417,7 +417,7 @@
 {{-- Documents — relocated to sit next to Share Links (was previously
      grouped with the removed Property Links + Portal Captures sections). --}}
 {{-- DOCUMENT UPLOAD --}}
-<div class="ds-status-card mb-8" id="documents">
+<div class="ds-status-card" id="documents">
     <h2 class="ds-section-header mb-3">Documents</h2>
     <div>
 
@@ -1284,7 +1284,7 @@
             ->get()
         : collect();
 @endphp
-<div class="ds-status-card mb-8" id="ai-summary">
+<div class="ds-status-card" id="ai-summary">
     <div class="flex items-center justify-between mb-3">
         <div>
             <h2 class="ds-section-header" style="margin-bottom:0">Executive Summary <span style="font-size:0.6875rem;color:var(--text-muted);font-weight:500;text-transform:none;letter-spacing:0;">(AI-generated, agent-reviewable)</span></h2>
@@ -1305,7 +1305,7 @@
         </div>
     @else
         @if($summaryStale)
-            <div style="margin-bottom:10px;padding:8px 12px;background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent);border-left:3px solid var(--ds-amber, #d97706);border-radius:4px;font-size:0.8125rem;">
+            <div style="margin-bottom:10px;padding:8px 12px;background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);border-left:3px solid var(--ds-amber, #f59e0b);border-radius:4px;font-size:0.8125rem;">
                 Analysis was re-run after this summary was generated — consider regenerating.
             </div>
         @endif
@@ -1479,7 +1479,7 @@
 
 {{-- ── POWER PANEL (UI1) ──────────────────────────────────────────────── --}}
 @if($powerPanel)
-<div class="ds-status-card mb-8">
+<div class="ds-status-card">
     <div class="flex items-center justify-between mb-3">
         <h2 class="ds-section-header" style="margin-bottom:0">Power Panel</h2>
         <span class="text-xs font-medium" style="color: var(--text-muted);">Snapshot {{ $powerPanel['snapshot_at']->format('Y-m-d H:i') }}</span>
@@ -1655,7 +1655,7 @@
     $bdShow      = !empty($buyerDemand) && ($bdActive > 0 || $bdHistoric > 0 || $bdAreaCount > 0 || $bdPreapp > 0);
 @endphp
 @if($bdShow)
-<div class="ds-status-card mb-8">
+<div class="ds-status-card">
     <h2 class="ds-section-header mb-4">
         <span class="flex items-center gap-2">
             <svg class="w-5 h-5" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
@@ -1725,7 +1725,7 @@
 </div>
 @endif
 
-<div class="grid grid-cols-1 gap-6 md:grid-cols-2 mb-8">
+<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
 
     {{-- LAST ANALYSIS SUMMARY --}}
     <div class="ds-status-card">
@@ -1799,7 +1799,7 @@
 
 {{-- ── MARKET NEWS & ARTICLES ─────────────────────────────────────────── --}}
 @if(config('features.article_suggestions_v1'))
-<div class="mb-8" id="articles">
+<div id="articles">
     <div class="ds-status-card">
         <h2 class="ds-section-header mb-3">Market News &amp; Articles</h2>
 
@@ -1914,7 +1914,7 @@
      while the version is still a mutable draft. Editing them here (post-confirm,
      after the snapshot freeze) would defeat the confirm model — confirmed means
      final — so the Overview shows them READ-ONLY with a link back to Analysis. --}}
-<div class="mb-8" id="holding-costs">
+<div id="holding-costs">
     <div class="ds-status-card">
         @php
             $hcRows = [

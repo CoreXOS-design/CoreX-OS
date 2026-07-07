@@ -72,13 +72,22 @@
                 </svg>
             </div>
             <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No API endpoints registered</h3>
-            <p class="text-sm" style="color: var(--text-muted);">Register a route under <code>/api/v1/*</code> with a <code>->name()</code> and it will appear here automatically.</p>
+            <p class="text-sm" style="color: var(--text-muted);">Register a route under <code class="font-mono" style="font-size:0.6875rem; background:var(--surface-2); color:var(--text-primary); padding:0.05rem 0.35rem; border-radius:4px; border:1px solid var(--border);">/api/v1/*</code> with a <code class="font-mono" style="font-size:0.6875rem; background:var(--surface-2); color:var(--text-primary); padding:0.05rem 0.35rem; border-radius:4px; border:1px solid var(--border);">-&gt;name()</code> and it will appear here automatically.</p>
         </div>
     @endforelse
 
-    <div class="rounded-md p-4 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-        <strong style="color: var(--text-primary);">Adding a new API?</strong>
-        Per <code>CLAUDE.md</code>, every new endpoint must (1) be registered under the matching <code>/api/v1/*</code> prefix, (2) have a route <code>->name()</code>, and (3) appear automatically in this catalog. No manual list to maintain — Laravel's route table is the source of truth.
+    <div class="rounded-md px-4 py-3 text-xs flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);
+                color: var(--text-secondary);">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+             class="w-5 h-5 flex-shrink-0" style="color: var(--brand-icon, #0ea5e9);">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <div class="flex-1">
+            <strong style="color: var(--text-primary);">Adding a new API?</strong>
+            Per <code class="font-mono" style="font-size:0.6875rem; background:var(--surface-2); color:var(--text-primary); padding:0.05rem 0.35rem; border-radius:4px; border:1px solid var(--border);">CLAUDE.md</code>, every new endpoint must (1) be registered under the matching <code class="font-mono" style="font-size:0.6875rem; background:var(--surface-2); color:var(--text-primary); padding:0.05rem 0.35rem; border-radius:4px; border:1px solid var(--border);">/api/v1/*</code> prefix, (2) have a route <code class="font-mono" style="font-size:0.6875rem; background:var(--surface-2); color:var(--text-primary); padding:0.05rem 0.35rem; border-radius:4px; border:1px solid var(--border);">-&gt;name()</code>, and (3) appear automatically in this catalog. No manual list to maintain — Laravel's route table is the source of truth.
+        </div>
     </div>
 </div>
 @endsection

@@ -93,7 +93,10 @@
     {{-- COMPANY REQUIREMENT --}}
     {{-- ============================================================ --}}
     @if(!empty($companyRequirement))
-    <div class="ds-status-card {{ (data_get($companyRequirement, 'shortfall', 0) > 0) ? 'ds-status-declined' : 'ds-status-granted' }}">
+    {{-- A shortfall is a "needs attention" state, not a danger/loss — spec §5.3 reserves
+         red/crimson for genuine danger. Use the amber (pending) status border so the card
+         matches the amber shortfall value and the amber warning alert below. --}}
+    <div class="ds-status-card {{ (data_get($companyRequirement, 'shortfall', 0) > 0) ? 'ds-status-pending' : 'ds-status-granted' }}">
         <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Company Requirement</h3>
 
         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -288,10 +291,14 @@
             @endphp
 
             {{-- Column Headers --}}
+            {{-- These bands are standalone column labels sitting above ungrouped grid rows
+                 (not boxed columns), so they use full rounded-md rather than rounded-t-md —
+                 a top-only radius reads as a broken/detached tab when there is a gap and no
+                 boxed column beneath it. --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                 <div></div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Plan Inputs (BM / Worksheet)</div>
-                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Deal Register (Actuals)</div>
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Plan Inputs (BM / Worksheet)</div>
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-md px-3 py-2" style="background: var(--brand-default, #0b2a4a);">Deal Register (Actuals)</div>
             </div>
 
             {{-- ROW: Avg Sale Price --}}

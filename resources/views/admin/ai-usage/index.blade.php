@@ -157,6 +157,17 @@
                 <span class="text-xs" style="color:var(--text-muted);">View-only — super_admin required to edit.</span>
             @endunless
         </div>
+        {{-- Per-row budget forms live OUTSIDE the table: a <form> cannot be a child of
+             <tr>/<tbody> (the HTML parser foster-parents it out, shifting every cell).
+             Inputs/buttons in the cells associate to these via the form="" attribute. --}}
+        @if($canEditBudgets)
+            @foreach($agencies as $a)
+                <form id="ai-budget-form-{{ $a['id'] }}" method="POST"
+                      action="{{ route('admin.ai-usage.budget.update', ['agency' => $a['id']]) }}" class="hidden">
+                    @csrf
+                </form>
+            @endforeach
+        @endif
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
@@ -187,35 +198,33 @@
                         @endphp
                         <tr style="border-top:1px solid var(--border);">
                             @if($canEditBudgets)
-                                <form method="POST" action="{{ route('admin.ai-usage.budget.update', ['agency' => $a['id']]) }}">
-                                    @csrf
-                                    <td class="px-4 py-3"><a href="{{ $agencyLink }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a></td>
-                                    <td class="px-4 py-3 text-right">
-                                        <input type="number" step="0.01" min="0" name="ai_monthly_budget_zar"
-                                               value="{{ number_format($a['budget_zar'], 2, '.', '') }}"
-                                               class="w-28 text-right rounded-md px-2 py-1 text-sm font-mono"
-                                               style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                    </td>
-                                    <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['used_zar'], 2) }}</td>
-                                    <td class="px-4 py-3 text-right font-mono" style="color: {{ $pctColor }};">{{ number_format($a['used_pct'], 1) }}%</td>
-                                    <td class="px-4 py-3"><span class="ds-badge {{ $statusBadge[$a['status']] ?? 'ds-badge-default' }}">{{ ucfirst($a['status']) }}</span></td>
-                                    <td class="px-4 py-3 text-right">
-                                        <input type="number" min="0" max="100" name="ai_budget_warning_pct" value="{{ $a['warning_pct'] }}"
-                                               class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
-                                               style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                        /
-                                        <input type="number" min="50" max="200" name="ai_budget_hard_cap_pct" value="{{ $a['hard_cap_pct'] }}"
-                                               class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
-                                               style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        <label class="inline-flex items-center gap-1 text-xs" style="color:var(--text-secondary);">
-                                            <input type="checkbox" name="ai_budget_overage_allowed" value="1" {{ $a['overage_allowed'] ? 'checked' : '' }}
-                                                   style="accent-color:var(--brand-button,#0ea5e9);"> allow
-                                        </label>
-                                    </td>
-                                    <td class="px-4 py-3 text-right"><button type="submit" class="corex-btn-primary text-xs">Save</button></td>
-                                </form>
+                                @php $budgetForm = 'ai-budget-form-' . $a['id']; @endphp
+                                <td class="px-4 py-3"><a href="{{ $agencyLink }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a></td>
+                                <td class="px-4 py-3 text-right">
+                                    <input type="number" step="0.01" min="0" name="ai_monthly_budget_zar" form="{{ $budgetForm }}"
+                                           value="{{ number_format($a['budget_zar'], 2, '.', '') }}"
+                                           class="w-28 text-right rounded-md px-2 py-1 text-sm font-mono"
+                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                                </td>
+                                <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['used_zar'], 2) }}</td>
+                                <td class="px-4 py-3 text-right font-mono" style="color: {{ $pctColor }};">{{ number_format($a['used_pct'], 1) }}%</td>
+                                <td class="px-4 py-3"><span class="ds-badge {{ $statusBadge[$a['status']] ?? 'ds-badge-default' }}">{{ ucfirst($a['status']) }}</span></td>
+                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                    <input type="number" min="0" max="100" name="ai_budget_warning_pct" value="{{ $a['warning_pct'] }}" form="{{ $budgetForm }}"
+                                           class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
+                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                                    /
+                                    <input type="number" min="50" max="200" name="ai_budget_hard_cap_pct" value="{{ $a['hard_cap_pct'] }}" form="{{ $budgetForm }}"
+                                           class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
+                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                                </td>
+                                <td class="px-4 py-3">
+                                    <label class="inline-flex items-center gap-1 text-xs" style="color:var(--text-secondary);">
+                                        <input type="checkbox" name="ai_budget_overage_allowed" value="1" form="{{ $budgetForm }}" {{ $a['overage_allowed'] ? 'checked' : '' }}
+                                               style="accent-color:var(--brand-button,#0ea5e9);"> allow
+                                    </label>
+                                </td>
+                                <td class="px-4 py-3 text-right"><button type="submit" form="{{ $budgetForm }}" class="corex-btn-primary text-xs">Save</button></td>
                             @else
                                 <td class="px-4 py-3"><a href="{{ $agencyLink }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a></td>
                                 <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['budget_zar'], 2) }}</td>

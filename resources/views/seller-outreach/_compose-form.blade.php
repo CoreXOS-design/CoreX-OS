@@ -31,8 +31,8 @@
             <label class="block text-xs font-semibold" style="color: var(--text-secondary);">
                 Address this pitch is about
             </label>
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold"
-                  style="background: rgba(245,158,11,0.16); color: #b45309;"
+            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold"
+                  style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color: var(--ds-amber, #b45309);"
                   title="This contact has a captured property address but no linked property. The pitch references the address and area demand only — it does not claim buyers matching a specific property.">
                 Address only — no property linked
             </span>
@@ -59,7 +59,7 @@
             Property this pitch is about
         </label>
         <select @change="onPickerChange($event.target.value)"
-                class="w-full px-3 py-2 text-sm rounded"
+                class="w-full px-3 py-2 text-sm rounded-md"
                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             @foreach($linkedProperties as $p)
                 @php
@@ -78,7 +78,7 @@
         </select>
 
         @if($selectedBadge)
-            <div class="mt-2 inline-flex items-center gap-2 px-2 py-1 rounded text-xs font-semibold"
+            <div class="mt-2 inline-flex items-center gap-2 px-2 py-1 rounded-md text-xs font-semibold"
                  data-prospect-status-badge="{{ $selectedStatus['status'] }}"
                  style="background: {{ $selectedBadge['bg'] }}; color: {{ $selectedBadge['fg'] }};">
                 <span>{{ $selectedBadge['label'] }}</span>
@@ -100,14 +100,14 @@
     <div data-tour="oc-channel" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
         <button type="button" @click="switchChannel('whatsapp')"
                 class="px-4 py-2 text-sm font-semibold"
-                style="background: {{ $channel === 'whatsapp' ? '#00d4aa' : 'var(--surface)' }};
-                       color: {{ $channel === 'whatsapp' ? '#003a2f' : 'var(--text-secondary)' }};">
+                style="background: {{ $channel === 'whatsapp' ? 'var(--brand-button, #0ea5e9)' : 'var(--surface)' }};
+                       color: {{ $channel === 'whatsapp' ? '#ffffff' : 'var(--text-secondary)' }};">
             WhatsApp
         </button>
         <button type="button" @click="switchChannel('email')"
                 class="px-4 py-2 text-sm font-semibold"
-                style="background: {{ $channel === 'email' ? '#00d4aa' : 'var(--surface)' }};
-                       color: {{ $channel === 'email' ? '#003a2f' : 'var(--text-secondary)' }};">
+                style="background: {{ $channel === 'email' ? 'var(--brand-button, #0ea5e9)' : 'var(--surface)' }};
+                       color: {{ $channel === 'email' ? '#ffffff' : 'var(--text-secondary)' }};">
             Email
         </button>
     </div>
@@ -119,7 +119,7 @@
             Template
         </label>
         <select @change="switchTemplate($event.target.value)"
-                class="w-full px-3 py-2 text-sm rounded"
+                class="w-full px-3 py-2 text-sm rounded-md"
                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             @foreach($availableTemplates as $t)
                 <option value="{{ $t->id }}" @selected($context && $context->template && (int) $context->template->id === (int) $t->id)>
@@ -161,7 +161,7 @@
             Subject
         </label>
         <input type="text" x-model="subject"
-               class="w-full px-3 py-2 text-sm rounded"
+               class="w-full px-3 py-2 text-sm rounded-md"
                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
     </div>
     @endif
@@ -177,7 +177,7 @@
             </span>
         </div>
         <textarea x-model="body" rows="14" data-tour="oc-body"
-                  class="w-full px-3 py-2 text-sm rounded"
+                  class="w-full px-3 py-2 text-sm rounded-md"
                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, monospace;"></textarea>
     </div>
 
@@ -190,7 +190,7 @@
         <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Preview — what the recipient sees
         </div>
-        <div class="w-full px-3 py-2 text-sm rounded whitespace-pre-wrap"
+        <div class="w-full px-3 py-2 text-sm rounded-md whitespace-pre-wrap"
              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
              x-text="previewBody()"></div>
     </div>
@@ -225,9 +225,9 @@
     <div class="flex items-center gap-3 pt-2">
         <button type="button" data-tour="oc-send" @click="submit()"
                 :disabled="sending || {{ $context->isSendable() ? 'false' : 'true' }}"
-                class="px-6 py-2.5 text-sm font-semibold rounded"
-                style="background: {{ $context->isSendable() ? '#00d4aa' : 'var(--surface-2)' }};
-                       color: {{ $context->isSendable() ? '#003a2f' : 'var(--text-muted)' }};
+                class="px-6 py-2.5 text-sm font-semibold rounded-md"
+                style="background: {{ $context->isSendable() ? 'var(--brand-button, #0ea5e9)' : 'var(--surface-2)' }};
+                       color: {{ $context->isSendable() ? '#ffffff' : 'var(--text-muted)' }};
                        {{ $context->isSendable() ? '' : 'cursor: not-allowed;' }}">
             <span x-show="!sending">
                 {{ $channel === 'whatsapp' ? 'Open WhatsApp & record send' : 'Open Email & record send' }}
@@ -245,8 +245,8 @@
          gated by the send-window. The send-now button above is window-disabled. --}}
     <div class="pt-3 mt-3" data-tour="oc-queue" style="border-top: 1px solid var(--border);">
         <button type="button" @click="addToQueue()" :disabled="queuing"
-                class="px-5 py-2 text-sm font-semibold rounded"
-                style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">
+                class="px-5 py-2 text-sm font-semibold rounded-md"
+                style="background: var(--surface); border: 1px solid var(--brand-button, #0ea5e9); color: var(--text-primary);">
             <span x-show="!queuing">Add to queue</span>
             <span x-show="queuing" x-cloak>Adding…</span>
         </button>

@@ -340,7 +340,7 @@ class Phase2WebsiteApiTest extends TestCase
             ->assertJsonPath('data.pet_friendly', true)
             // Half bathroom (guest toilet) is a first-class scalar in the feed,
             // distinct from full `baths` — the site renders `baths + ½`.
-            ->assertJsonPath('data.baths', 1.0)
+            ->assertJsonPath('data.baths', 1)
             ->assertJsonPath('data.half_baths', 1)
             // Suburb-level location only — street/complex/unit/floor are NEVER
             // syndicated (see test_listing_never_exposes_street_address_or_coordinates).

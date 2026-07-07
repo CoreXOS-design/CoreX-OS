@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -35,10 +36,10 @@
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+             style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
-            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
             <div class="flex-1">{{ session('success') }}</div>
         </div>
     @endif
@@ -49,15 +50,15 @@
             @php
                 $stages = [
                     ['label' => 'Awaiting Client',        'count' => $counts['draft'],          'color' => 'var(--text-muted)'],
-                    ['label' => 'Awaiting Agent Review',  'count' => $counts['submitted'],      'color' => 'var(--brand-icon)'],
+                    ['label' => 'Awaiting Agent Review',  'count' => $counts['submitted'],      'color' => 'var(--brand-icon, #0ea5e9)'],
                     /* Single source of truth: every stage counter reads the SAME
                        $counts array the tabs use (same query + scoping), so the
                        top counter and the tab always agree. Was $coQueueCount,
                        which is 0 for non-CO viewers and scoped differently for
                        a CO — making "Awaiting CO Approval" show 0 vs the tab's
                        real agent_approved count. */
-                    ['label' => 'Awaiting CO Approval',   'count' => $counts['agent_approved'], 'color' => 'var(--ds-amber)'],
-                    ['label' => 'Complete',               'count' => $counts['approved'],       'color' => 'var(--ds-green)'],
+                    ['label' => 'Awaiting CO Approval',   'count' => $counts['agent_approved'], 'color' => 'var(--ds-amber, #f59e0b)'],
+                    ['label' => 'Complete',               'count' => $counts['approved'],       'color' => 'var(--ds-green, #059669)'],
                 ];
             @endphp
             @foreach($stages as $i => $stage)
@@ -75,17 +76,17 @@
     {{-- CO Queue summary alert --}}
     @if($isCO && ($coQueueStats['count'] ?? 0) > 0)
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);
                     color: var(--text-primary);">
-            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-amber);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-amber, #f59e0b);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
             <div class="flex-1">
                 <strong>{{ number_format($coQueueStats['count']) }} submission{{ $coQueueStats['count'] !== 1 ? 's' : '' }} awaiting your approval.</strong>
                 @if($coQueueStats['oldest_days'] > 0)
                     <span style="color: var(--text-secondary);">Oldest: {{ number_format($coQueueStats['oldest_days']) }} day{{ $coQueueStats['oldest_days'] !== 1 ? 's' : '' }}.</span>
                 @endif
             </div>
-            <a href="{{ route('compliance.fica.index', ['tab' => 'co_queue']) }}" class="text-xs font-semibold whitespace-nowrap" style="color: var(--ds-amber);">View CO Queue →</a>
+            <a href="{{ route('compliance.fica.index', ['tab' => 'co_queue']) }}" class="text-xs font-semibold whitespace-nowrap" style="color: var(--ds-amber, #f59e0b);">View CO Queue →</a>
         </div>
     @endif
 
@@ -112,7 +113,7 @@
             <a href="{{ route('compliance.fica.index', ['tab' => $t['key']]) }}"
                class="px-4 py-2 transition-colors"
                style="{{ $active
-                    ? 'color: var(--brand-icon); border-bottom: 2px solid var(--brand-icon); font-weight:600;'
+                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
                     : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
                 {{ $t['label'] }}
                 <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
@@ -242,26 +243,26 @@
                                             class="inline-flex items-center justify-center w-6 h-6 transition"
                                             style="color: var(--text-muted);">
                                         <svg class="fica-link-icon w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
-                                        <svg class="fica-check-icon w-3.5 h-3.5" style="display:none; color: var(--ds-green);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                                        <svg class="fica-check-icon w-3.5 h-3.5" style="display:none; color: var(--ds-green, #059669);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                                     </button>
                                     @endif
 
-                                    <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">View</a>
+                                    <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">View</a>
 
                                     @if($sub->status === 'draft' && $sub->intake_type !== 'wet_ink')
                                         <form method="POST" action="{{ route('compliance.fica.resend', $sub) }}" class="inline">@csrf
-                                            <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Resend</button>
+                                            <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Resend</button>
                                         </form>
                                         <form method="POST" action="{{ route('compliance.fica.cancel', $sub) }}" class="inline"
                                               onsubmit="return confirm('Cancel this FICA request? The client link will be voided.')">@csrf
-                                            <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Cancel</button>
+                                            <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">Cancel</button>
                                         </form>
                                     @elseif($sub->status === 'submitted' && $isMySubmission)
-                                        <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Verify</a>
+                                        <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Verify</a>
                                     @elseif($sub->status === 'agent_approved' && $canCoReview)
-                                        <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber);">Review &amp; Approve</a>
+                                        <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Review &amp; Approve</a>
                                     @elseif($sub->status === 'corrections_requested' && $isMySubmission)
-                                        <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber);">Fix</a>
+                                        <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Fix</a>
                                     @endif
 
                                     @if($sub->status === 'approved')

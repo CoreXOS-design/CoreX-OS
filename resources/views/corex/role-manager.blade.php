@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -12,7 +13,7 @@
 </style>
 <div id="rm-root" x-data="roleManager()">
 
-    <div x-cloak class="px-4 lg:px-6 space-y-5 pb-6">
+    <div x-cloak class="w-full space-y-5 pb-6">
 
         {{-- Page header --}}
         <div class="rounded-md px-6 py-5 flex items-center justify-between" style="background:var(--brand-default,#0b2a4a);">
@@ -117,10 +118,10 @@
                 </div>
 
                 {{-- Two-column layout: Feature tabs (left) + Permission detail (right) --}}
-                <div class="flex gap-4 items-start">
+                <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start">
 
                     {{-- LEFT: Vertical feature tabs --}}
-                    <div class="w-52 flex-shrink-0 rounded-md overflow-y-auto sticky top-4" style="background:var(--surface); border:1px solid var(--border); max-height:calc(100vh - 8rem);">
+                    <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4" style="background:var(--surface); border:1px solid var(--border); max-height:calc(100vh - 8rem);">
                         <div class="px-2 pt-2 pb-2 sticky top-0 z-10" style="background:var(--surface); border-bottom:1px solid var(--border);">
                             <input type="text" x-model="featureSearch" placeholder="Search features…"
                                    class="w-full text-xs rounded-md px-2 py-1.5"
@@ -155,7 +156,7 @@
                     </div>
 
                     {{-- RIGHT: Permission detail for selected feature --}}
-                    <div class="flex-1 min-w-0 overflow-y-auto sticky top-4" style="max-height:calc(100vh - 8rem);">
+                    <div class="flex-1 min-w-0">
                         @if($permissions->isEmpty())
                             <div class="rounded-md px-5 py-12 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
                                 No permissions defined. Run: <code class="font-mono px-1 rounded-md" style="background:var(--surface-2);">php artisan corex:sync-permissions --seed-defaults</code>
@@ -420,7 +421,7 @@
             <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                     <h3 class="font-semibold text-sm" style="color:var(--text-primary);">User Roles</h3>
-                    <span class="text-xs" style="color:var(--text-muted);">{{ $users->count() }} users</span>
+                    <span class="text-xs" style="color:var(--text-muted);">{{ number_format($users->count()) }} users</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full text-sm">
@@ -452,7 +453,7 @@
                                     <td class="py-2.5 px-4 text-xs" style="color:var(--text-secondary);">{{ $agencyName }}</td>
                                     <td class="py-2.5 px-4 text-xs" style="color:var(--text-secondary);">{{ $branchName }}</td>
                                     <td class="py-2.5 px-4">
-                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white user-role-badge"
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white whitespace-nowrap user-role-badge"
                                               data-user-id="{{ $u->id }}"
                                               style="background:{{ $badgeBg }};">
                                             {{ $roleLabel }}
@@ -501,7 +502,7 @@
                 <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                     <div>
                         <h3 class="font-semibold text-sm" style="color:var(--text-primary);">Roles</h3>
-                        <p class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $roles->count() }} roles defined</p>
+                        <p class="text-xs mt-0.5" style="color:var(--text-muted);">{{ number_format($roles->count()) }} roles defined</p>
                     </div>
                     <button type="button" @click="openAddRole()"
                             class="corex-btn-primary px-3 py-1.5 text-xs font-semibold">
@@ -512,7 +513,7 @@
                     @foreach($roles as $role)
                     <div class="px-5 py-4 flex items-center gap-4 transition-all duration-300" style="border-bottom:1px solid var(--border);"
                          onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold text-white min-w-[100px] justify-center"
+                        <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold text-white whitespace-nowrap min-w-[100px] justify-center"
                               style="background:{{ $role->color }};">
                             {{ $role->label }}
                         </span>
@@ -532,7 +533,7 @@
                             @endif
                         </div>
                         <div class="text-center px-3">
-                            <div class="text-lg font-bold" style="color:var(--brand-icon,#0ea5e9);">{{ $role->users_count }}</div>
+                            <div class="text-lg font-bold" style="color:var(--brand-icon,#0ea5e9);">{{ number_format($role->users_count) }}</div>
                             <div class="text-[10px] uppercase tracking-wider" style="color:var(--text-muted);">Users</div>
                         </div>
                         <div class="flex items-center gap-2">
@@ -774,11 +775,11 @@
                                        :disabled="copySource === '{{ $role->name }}'"
                                        class="w-4 h-4 rounded-md cursor-pointer"
                                        style="accent-color:var(--brand-button,#0ea5e9);">
-                                <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white"
+                                <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white whitespace-nowrap"
                                       style="background:{{ $role->color }};">
                                     {{ $role->label }}
                                 </span>
-                                <span class="text-xs" style="color:var(--text-muted);">{{ $role->users_count }} user(s)</span>
+                                <span class="text-xs" style="color:var(--text-muted);">{{ number_format($role->users_count) }} user(s)</span>
                             </label>
                             @endif
                         @endforeach

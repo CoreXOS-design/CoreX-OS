@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6" x-data="{ showVerified: false, showRejected: false }">
+<div class="w-full space-y-6" x-data="{ showVerified: false, showRejected: false }">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comp-verification-intro">
@@ -34,16 +35,90 @@
         </div>
         <button type="button" @click="showVerified = !showVerified"
                 class="rounded-md p-4 text-left transition-colors"
-                style="background: var(--surface); border: 1px solid var(--border); cursor: pointer;">
+                :style="showVerified
+                    ? 'background: var(--surface-2); border: 1px solid var(--border-hover); cursor: pointer;'
+                    : 'background: var(--surface); border: 1px solid var(--border); cursor: pointer;'">
             <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-green);">{{ number_format($recentlyVerified->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Verified (7 days)</div>
         </button>
         <button type="button" @click="showRejected = !showRejected"
                 class="rounded-md p-4 text-left transition-colors"
-                style="background: var(--surface); border: 1px solid var(--border); cursor: pointer;">
+                :style="showRejected
+                    ? 'background: var(--surface-2); border: 1px solid var(--border-hover); cursor: pointer;'
+                    : 'background: var(--surface); border: 1px solid var(--border); cursor: pointer;'">
             <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-crimson);">{{ number_format($recentlyRejected->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Rejected (7 days)</div>
         </button>
+    </div>
+
+    {{-- Recently verified (collapsible — opens directly under the Verified stat) --}}
+    <div x-show="showVerified" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Verified (7 days)</h3>
+            <button type="button" @click="showVerified = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
+        </div>
+        @if($recentlyVerified->isEmpty())
+            <div class="py-8 px-6 text-center text-sm" style="color: var(--text-muted);">No documents verified in the last 7 days.</div>
+        @else
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm ds-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Verified By</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Verified At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($recentlyVerified as $doc)
+                        <tr>
+                            <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
+                            <td class="px-4 py-3"><span class="ds-badge ds-badge-success">{{ \App\Models\UserDocument::$documentTypeLabels[$doc->document_type] ?? ucfirst(str_replace('_', ' ', $doc->document_type)) }}</span></td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->verifier->name ?? '—' }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->verified_at?->format('d M Y H:i') }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </div>
+
+    {{-- Recently rejected (collapsible — opens directly under the Rejected stat) --}}
+    <div x-show="showRejected" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Rejected (7 days)</h3>
+            <button type="button" @click="showRejected = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
+        </div>
+        @if($recentlyRejected->isEmpty())
+            <div class="py-8 px-6 text-center text-sm" style="color: var(--text-muted);">No documents rejected in the last 7 days.</div>
+        @else
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm ds-table">
+                    <thead>
+                        <tr>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Rejected By</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Reason</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($recentlyRejected as $doc)
+                        <tr>
+                            <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
+                            <td class="px-4 py-3"><span class="ds-badge ds-badge-danger">{{ \App\Models\UserDocument::$documentTypeLabels[$doc->document_type] ?? ucfirst(str_replace('_', ' ', $doc->document_type)) }}</span></td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->rejecter->name ?? '—' }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-primary); max-width: 200px;">{{ Str::limit($doc->rejected_reason, 60) }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->rejected_at?->format('d M Y H:i') }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </div>
 
     {{-- Pending --}}
@@ -65,7 +140,7 @@
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
-                        <tr style="background: var(--surface-2);">
+                        <tr>
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
@@ -77,9 +152,7 @@
                     </thead>
                     <tbody>
                         @foreach($pending as $doc)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr>
                             <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->user->branch->name ?? '—' }}</td>
                             <td class="px-4 py-3">
@@ -108,76 +181,6 @@
                             <td class="px-4 py-3 text-right">
                                 <a href="{{ route('compliance.verification.show', $doc) }}" class="corex-btn-primary px-3 py-1 text-xs">Review</a>
                             </td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-        @endif
-    </div>
-
-    {{-- Recently verified (collapsible) --}}
-    <div x-show="showVerified" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Verified (7 days)</h3>
-            <button type="button" @click="showVerified = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
-        </div>
-        @if($recentlyVerified->isEmpty())
-            <div class="py-8 px-6 text-center text-sm" style="color: var(--text-muted);">No documents verified in the last 7 days.</div>
-        @else
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm ds-table">
-                    <thead>
-                        <tr style="background: var(--surface-2);">
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Verified By</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Verified At</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($recentlyVerified as $doc)
-                        <tr style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
-                            <td class="px-4 py-3"><span class="ds-badge ds-badge-success">{{ \App\Models\UserDocument::$documentTypeLabels[$doc->document_type] ?? $doc->document_type }}</span></td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->verifier->name ?? '—' }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->verified_at?->format('d M Y H:i') }}</td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-        @endif
-    </div>
-
-    {{-- Recently rejected (collapsible) --}}
-    <div x-show="showRejected" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Rejected (7 days)</h3>
-            <button type="button" @click="showRejected = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
-        </div>
-        @if($recentlyRejected->isEmpty())
-            <div class="py-8 px-6 text-center text-sm" style="color: var(--text-muted);">No documents rejected in the last 7 days.</div>
-        @else
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm ds-table">
-                    <thead>
-                        <tr style="background: var(--surface-2);">
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Document</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Rejected By</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Reason</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($recentlyRejected as $doc)
-                        <tr style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
-                            <td class="px-4 py-3"><span class="ds-badge ds-badge-danger">{{ \App\Models\UserDocument::$documentTypeLabels[$doc->document_type] ?? $doc->document_type }}</span></td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->rejecter->name ?? '—' }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-primary); max-width: 200px;">{{ Str::limit($doc->rejected_reason, 60) }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->rejected_at?->format('d M Y H:i') }}</td>
                         </tr>
                         @endforeach
                     </tbody>
