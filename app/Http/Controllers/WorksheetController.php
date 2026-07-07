@@ -302,6 +302,9 @@ class WorksheetController extends Controller
 
             [
 
+                // targets.agency_id is NOT NULL; raw updateOrInsert gets no
+                // BelongsToAgency stamp. Stamp from the target's own agent (AT-203).
+                'agency_id' => $user->agency_id,
                 'branch_id' => $user->branch_id,
 
                 'listings_target' => $listingsTarget,
@@ -1296,6 +1299,8 @@ catch (\Throwable $e) {
         \Illuminate\Support\Facades\DB::table('targets')->updateOrInsert(
             ['period' => (string)$worksheet->period, 'user_id' => (int)$userId],
             [
+                // targets.agency_id is NOT NULL; stamp from the target's agent (AT-203).
+                'agency_id' => $user->agency_id,
                 'branch_id' => $user->branch_id,
                 'listings_target' => $listingsTarget,
                 'deals_target' => $dealsTarget,

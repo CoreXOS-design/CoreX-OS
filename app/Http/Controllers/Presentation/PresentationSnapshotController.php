@@ -55,6 +55,11 @@ class PresentationSnapshotController extends Controller
                     ->getBuyerDemandForProperty($presentation->listing_id, $agencyId);
 
                 \Illuminate\Support\Facades\DB::table('property_presentation_snapshots')->insert([
+                    // Raw insert bypasses BelongsToAgency and this column is NOT
+                    // NULL — stamp the agency resolved above (presentation's
+                    // agency = Property pillar, authed-agency fallback). Without
+                    // it the snapshot silently failed to persist (try/caught).
+                    'agency_id' => $agencyId,
                     'property_id' => $presentation->listing_id,
                     'presentation_id' => $presentation->id,
                     'generated_at' => now(),

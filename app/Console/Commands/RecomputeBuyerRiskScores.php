@@ -28,6 +28,10 @@ class RecomputeBuyerRiskScores extends Command
             $result = $service->getLostRiskScore($buyer->id);
             DB::table('buyer_lost_risk_scores')->insert([
                 'contact_id' => $buyer->id,
+                // Console command — no Auth::user(); raw insert bypasses
+                // BelongsToAgency. Stamp from the buyer contact (Contact pillar);
+                // buyer_lost_risk_scores.agency_id is NOT NULL.
+                'agency_id' => $buyer->agency_id,
                 'score' => $result['score'],
                 'factors_breakdown' => json_encode($result['factors']),
                 'computed_at' => now(),
