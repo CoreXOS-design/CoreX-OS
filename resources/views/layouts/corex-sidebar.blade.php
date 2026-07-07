@@ -106,7 +106,8 @@
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.tv-messages*',
+        'admin.tv-messages*', 'admin.activity-mappings.*',
+        'corex.admin.deal-link-review.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*',
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -118,7 +119,12 @@
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
         $activeGroup = 'rentals';
-    } elseif (request()->routeIs('compliance.*')) {
+    } elseif (request()->routeIs('compliance.*')
+        && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*')) {
+        // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
+        // Messages, Archive Mailboxes) live in the COMMUNICATIONS group, not
+        // Compliance. Exclude them here so they fall through to the communication
+        // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
     } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
@@ -160,7 +166,11 @@
         'corex.presentations.*',
         'commercial-evaluations.*',
         'command-center.buyers.*',   // AT-76 — Buyer Pipeline lives in Real Estate
-        'corex.viewing-packs.*'      // AT-107 — Viewing Packs live in Real Estate
+        'corex.viewing-packs.*',     // AT-107 — Viewing Packs live in Real Estate
+        'seller-outreach.*',         // Seller Outreach composer / entry redirects live in Real Estate
+        'corex.outreach-canvassing.*', // Part 4 — Outreach & Canvassing board lives in Real Estate
+        'corex.outreach-summary.*',  // AT-91 — WhatsApp Outreach Summary lives in Real Estate
+        'corex.outreach-queue.*'     // AT-117/AT-120 — Outreach Queue lives in Real Estate
     )) {
         $activeGroup = 'real-estate';
     } elseif (request()->routeIs('payroll.leave.*')) {
@@ -169,7 +179,7 @@
         $activeGroup = 'payroll';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
-    } elseif (request()->routeIs('deals-v2.*')) {
+    } elseif (request()->routeIs('deals-v2.*') || request()->routeIs('admin.settings.deal-distribution-rules.*')) {
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
         $activeGroup = 'integration';
@@ -182,7 +192,13 @@
     } elseif (request()->routeIs(
         'communications.wa-devices.*',
         'communications.triage.*',
-        'my-portal.comm-capture.*'
+        'communications.capture.*',
+        'my-portal.comm-capture.*',
+        'compliance.comm-archive.*',
+        'compliance.comm-flags.*',
+        'compliance.comm-mailboxes.*',
+        'corex.comms-access.inbox',
+        'settings.email-setup.*'
     )) {
         $activeGroup = 'communication';
     }
@@ -554,7 +570,7 @@
 
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
-                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Contacts</a>
+                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') && !request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Contacts</a>
                 @endif
                 @endpermission
 
@@ -578,7 +594,7 @@
 
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
 
@@ -832,10 +848,10 @@
                 @permission('view_daily_activity')
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
-                @permission('view_listings')
+                @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
                 @endpermission
-                @permission('view_dashboard')
+                @permission('view_performance')
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
@@ -865,7 +881,7 @@
                        style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
                         <span>RCR · FIC 2026</span>
                         @if($rcrOpenCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? '#dc2626' : '#0ea5e9' }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline < 0 ? 'var(--ds-crimson, #c41e3a)' : ($rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? 'var(--ds-amber, #f59e0b)' : 'var(--brand-icon, #0ea5e9)') }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
                                 {{ $rcrNextDeadline !== null ? ($rcrNextDeadline < 0 ? 'OVERDUE' : $rcrNextDeadline . 'd') : '!' }}
                             </span>
                         @endif
@@ -898,11 +914,11 @@
                 @endif
 
                 <div class="corex-nav-sublabel">Setup</div>
-                @permission('edit_worksheet')
+                @permission('access_worksheet_market')
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
                 @permission('manage_targets')
-                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Daily Activity Targets</a>
+                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
                 @permission('manage_tv_messages')
@@ -939,8 +955,13 @@
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @permission('manage_targets')
+                {{-- De-dupe: the Setup section above already renders these two links for
+                     users with view_branch_stats. Only render them here for company-admins
+                     who do NOT see the Setup section, so each destination appears once. --}}
+                @unless(auth()->user()?->hasPermission('view_branch_stats'))
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
+                @endunless
                 @endpermission
                 @permission('manage_activity_mappings')
                 <a href="{{ route('admin.activity-mappings.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.activity-mappings.*') ? 'active' : '' }}">Activity Scoring</a>
@@ -997,7 +1018,7 @@
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
                 <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
                 @if(app(\App\Services\CandidatePractitionerService::class)->canAuthorise(auth()->user()))
-                <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
+                <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
                 @endif
                 @endpermission
                 @permission('access_docuperfect')
@@ -1108,7 +1129,7 @@
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting
                     @if($wbPendingCount > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber) 15%, transparent); color:var(--ds-amber);">{{ $wbPendingCount }}</span>
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($wbPendingCount) }}</span>
                     @endif
                 </a>
                 @endpermission
@@ -1120,12 +1141,9 @@
                 @permission('outreach.compose')
                 <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Send Standalone Info Pack</a>
                 @endpermission
-                {{-- AT-161 — Message Archive / Flagged Messages / Archive Mailboxes moved
-                     to the Communications menu. A read-only cross-link to the archive
-                     stays here (Elize's muscle memory); its home is Communications. --}}
-                @permission('access_communication_archive')
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}" style="font-size:0.75rem; color:var(--text-muted);">Message Archive &rarr;</a>
-                @endpermission
+                {{-- AT-161 — Message Archive / Flagged Messages / Archive Mailboxes live
+                     in the Communications menu (their home). The former muscle-memory
+                     cross-link was removed so the archive highlights in one place only. --}}
             </div>
         </div>
         @endpermission
@@ -1389,17 +1407,19 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company Settings --}}
+        @permission('manage_performance_settings')
         <a href="{{ route('admin.company-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
             </svg>
             <span>Company Settings</span>
         </a>
+        @endpermission
 
         {{-- Knowledge Base --}}
         @permission('access_knowledge_base')
@@ -1527,7 +1547,7 @@
 
                 @if($user && $user->hasAnyPermission(['deals_v2.create', 'deals_v2.capture_own']))
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.create'))
-                <a href="{{ route('deals-v2.create') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.create') ? 'active' : '' }}">New Deal</a>
+                <a href="{{ route('deals-v2.create') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.create') || request()->routeIs('deals-v2.create-wizard') ? 'active' : '' }}">New Deal</a>
                 @endif
                 @endif
 
@@ -1634,7 +1654,7 @@
         @permission('view_backups')
         <a href="{{ route('admin.backups.index') }}" class="corex-nav-item {{ request()->routeIs('admin.backups.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Z" />
             </svg>
             <span>Backups</span>
         </a>
@@ -1676,7 +1696,7 @@
         <a href="{{ route('command-center.feedback-reports') }}" class="corex-nav-item {{ request()->routeIs('command-center.feedback-reports*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
             <span>Feedback Reports</span>
-            @if($feedbackCount > 0)<span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420;color:#ef4444;">{{ $feedbackCount }}</span>@endif
+            @if($feedbackCount > 0)<span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent);color:var(--ds-amber, #f59e0b);">{{ number_format($feedbackCount) }}</span>@endif
         </a>
 
         {{-- Importer (slide-panel group: P24 Importer + Property Review) --}}

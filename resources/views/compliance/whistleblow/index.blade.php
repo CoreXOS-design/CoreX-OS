@@ -24,9 +24,10 @@
     </div>
 
     @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm font-medium"
-         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
-        {{ session('success') }}
+    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary);">
+        <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color: var(--ds-green, #059669);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        <div class="flex-1 font-medium">{{ session('success') }}</div>
     </div>
     @endif
 
@@ -47,6 +48,9 @@
         @if(request('status') || request('tier'))
         <a href="{{ route('compliance.whistleblow.index') }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">Clear</a>
         @endif
+        <span class="ml-auto text-xs font-medium" style="color: var(--text-muted);">
+            Showing {{ number_format($complaints->count()) }} of {{ number_format($complaints->total()) }}
+        </span>
     </form>
 
     {{-- Table --}}
@@ -83,7 +87,7 @@
                         <td class="px-4 py-3" style="color: var(--text-primary);">{{ Str::limit($c->subjects_summary, 30) }}</td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ Str::limit($c->property_address, 30) }}</td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $c->reporter?->name ?? '—' }}</td>
-                        <td class="px-4 py-3"><span class="ds-badge {{ $statusBadges[$c->status] ?? 'ds-badge-default' }}">{{ str_replace('_', ' ', $c->status) }}</span></td>
+                        <td class="px-4 py-3"><span class="ds-badge {{ $statusBadges[$c->status] ?? 'ds-badge-default' }}">{{ $c->status === 'acknowledged_by_ppra' ? 'Acknowledged' : str_replace('_', ' ', $c->status) }}</span></td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($days) }}d</td>
                         <td class="px-4 py-3 text-right">
                             <a href="{{ route('compliance.whistleblow.show', $c) }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">

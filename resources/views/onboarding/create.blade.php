@@ -1,16 +1,18 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-    {{-- Page header --}}
-    <div style="background:var(--brand-default, #0b2a4a); border-radius:6px; padding:20px 24px;">
-        <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">New Agent Application</h2>
-        <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">Start the onboarding process for a new agent.</div>
+    {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <h1 class="text-xl font-bold text-white leading-tight">New Agent Application</h1>
+        <p class="text-sm text-white/60">Start the onboarding process for a new agent.</p>
     </div>
 
     @if($errors->any())
-        <div class="rounded-md border px-4 py-3 text-sm" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
             <ul class="list-disc list-inside space-y-1">
                 @foreach($errors->all() as $error)
                     <li>{{ $error }}</li>
@@ -23,7 +25,7 @@
         @csrf
 
         {{-- Section 1: Personal Details --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Personal Details</h3>
             </div>
@@ -64,7 +66,7 @@
         </div>
 
         {{-- Section 2: Professional --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Professional</h3>
             </div>
@@ -96,7 +98,7 @@
         </div>
 
         {{-- Section 3: PPRA --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">PPRA & FFC</h3>
             </div>
@@ -125,7 +127,7 @@
         </div>
 
         {{-- Section 4: Motivation --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Motivation</h3>
             </div>
@@ -137,7 +139,7 @@
         </div>
 
         {{-- Section 5: Referral --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Referral</h3>
             </div>

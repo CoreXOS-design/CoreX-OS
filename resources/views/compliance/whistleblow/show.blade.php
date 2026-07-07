@@ -1,15 +1,19 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 @php
-    $tierLabels = ['tier_1' => 'Tier 1 — Paperwork Breach', 'tier_2' => 'Tier 2 — No FFC Displayed', 'tier_3' => 'Tier 3 — Unregistered Practitioner'];
+    $tierDesc   = ['tier_1' => 'Paperwork Breach', 'tier_2' => 'No FFC Displayed', 'tier_3' => 'Unregistered Practitioner'];
     $tierBadges = ['tier_1' => 'ds-badge-warning', 'tier_2' => 'ds-badge-info', 'tier_3' => 'ds-badge-danger'];
     $statusBadges = [
-        'draft' => 'ds-badge-muted', 'pending_approval' => 'ds-badge-warning',
+        'draft' => 'ds-badge-default', 'pending_approval' => 'ds-badge-warning',
         'changes_requested' => 'ds-badge-info', 'rejected' => 'ds-badge-danger',
         'approved' => 'ds-badge-success', 'sent' => 'ds-badge-success',
-        'acknowledged_by_ppra' => 'ds-badge-brand', 'closed' => 'ds-badge-muted',
+        'acknowledged_by_ppra' => 'ds-badge-info', 'closed' => 'ds-badge-default',
     ];
+    $statusText = $complaint->status === 'acknowledged_by_ppra'
+        ? 'Acknowledged'
+        : str_replace('_', ' ', ucfirst($complaint->status));
 @endphp
 <div class="w-full space-y-4" x-data="{ showAudit: false, rejectOpen: false, changesOpen: false }">
 
@@ -22,7 +26,7 @@
     </div>
 
     @if(session('success'))
-    <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green) 10%, transparent); color:var(--ds-green);">
+    <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669);">
         {{ session('success') }}
     </div>
     @endif
@@ -31,9 +35,10 @@
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <div class="flex items-center gap-3 flex-wrap">
             <span class="font-mono text-lg font-bold" style="color:var(--text-primary);">HFC-WB-{{ $complaint->id }}</span>
-            <span class="ds-badge {{ $tierBadges[$complaint->tier] ?? '' }}">{{ $tierLabels[$complaint->tier] ?? $complaint->tier }}</span>
-            <span class="ds-badge {{ $statusBadges[$complaint->status] ?? '' }}">{{ str_replace('_', ' ', ucfirst($complaint->status)) }}</span>
-            <span class="text-xs" style="color:var(--text-muted);">{{ $complaint->created_at->diffInDays(now()) }} days open</span>
+            <span class="ds-badge {{ $tierBadges[$complaint->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $complaint->tier) }}</span>
+            <span class="text-sm font-medium" style="color:var(--text-secondary);">{{ $tierDesc[$complaint->tier] ?? $complaint->tier }}</span>
+            <span class="ds-badge {{ $statusBadges[$complaint->status] ?? 'ds-badge-default' }}">{{ $statusText }}</span>
+            <span class="text-xs" style="color:var(--text-muted);">{{ (int) $complaint->created_at->diffInDays(now()) }} days open</span>
         </div>
     </div>
 
@@ -52,7 +57,7 @@
             @if($subj->practitioner_name)
             <div class="text-xs" style="color:var(--text-secondary);">Practitioner: {{ $subj->practitioner_name }}</div>
             @endif
-            <a href="{{ $subj->portal_url }}" target="_blank" class="text-xs no-underline" style="color:var(--brand-default);">{{ Str::limit($subj->portal_url, 60) }}</a>
+            <a href="{{ $subj->portal_url }}" target="_blank" class="text-xs no-underline" style="color:var(--brand-icon, #0ea5e9);">{{ Str::limit($subj->portal_url, 60) }}</a>
             <span class="text-xs ml-2" style="color:var(--text-muted);">{{ strtoupper($subj->portal_source) }}</span>
         </div>
         @endforeach
@@ -66,10 +71,10 @@
 
     {{-- Tier 1: Seller statement --}}
     @if($complaint->tier === 'tier_1' && $complaint->seller_statement)
-    <div class="rounded-md p-5" style="background:color-mix(in srgb, var(--ds-amber) 5%, var(--surface)); border:1px solid var(--border);">
+    <div class="rounded-md p-5" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 5%, var(--surface)); border:1px solid var(--border);">
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Seller Statement</h3>
         @if($complaint->seller_consents_to_named_complaint)
-        <p class="text-xs mb-2" style="color:var(--ds-green);">Seller consents to being named</p>
+        <p class="text-xs mb-2" style="color:var(--ds-green, #059669);">Seller consents to being named</p>
         @endif
         <p class="text-sm italic" style="color:var(--text-primary);">"{{ $complaint->seller_statement }}"</p>
     </div>
@@ -80,7 +85,7 @@
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Evidence ({{ $complaint->evidence->count() }})</h3>
         @forelse($complaint->evidence as $ev)
         <div class="flex items-center gap-3 py-2 {{ !$loop->last ? 'border-b' : '' }}" style="border-color:var(--border);">
-            <span class="ds-badge ds-badge-muted text-[0.625rem]">{{ str_replace('_', ' ', $ev->evidence_type) }}</span>
+            <span class="ds-badge ds-badge-default text-[0.625rem]">{{ str_replace('_', ' ', $ev->evidence_type) }}</span>
             <span class="text-sm" style="color:var(--text-primary);">{{ $ev->description ?? $ev->original_filename ?? 'Evidence' }}</span>
             @if($ev->original_filename)
             <span class="text-xs" style="color:var(--text-muted);">{{ $ev->original_filename }}</span>
@@ -134,12 +139,12 @@
             <div class="py-3 {{ !$loop->last ? 'border-b' : '' }}" style="border-color:var(--border);">
                 <div class="flex items-center gap-2 flex-wrap">
                     @if($elog->status === 'sent')
-                    <span class="text-xs font-bold" style="color:var(--ds-green);">Sent</span>
+                    <span class="text-xs font-bold" style="color:var(--ds-green, #059669);">Sent</span>
                     @else
-                    <span class="text-xs font-bold" style="color:var(--ds-red);">Failed</span>
+                    <span class="text-xs font-bold" style="color:var(--ds-crimson, #c41e3a);">Failed</span>
                     @endif
                     <span class="text-xs" style="color:var(--text-muted);">{{ $elog->sent_at->format('d M Y, H:i') }}</span>
-                    <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default); background:color-mix(in srgb, var(--brand-default) 8%, transparent);">
+                    <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default, #0b2a4a); background:color-mix(in srgb, var(--brand-default, #0b2a4a) 8%, transparent);">
                         {{ $elog->status === 'sent' ? 'View email' : 'View error' }}
                     </button>
                 </div>
@@ -151,7 +156,7 @@
                 </div>
                 <div class="text-xs" style="color:var(--text-muted);">{{ Str::limit($elog->subject, 80) }}</div>
                 @if($elog->status === 'failed' && $elog->error_message)
-                <div class="text-xs mt-1 rounded p-2" style="color:var(--ds-red); background:color-mix(in srgb, var(--ds-red) 6%, transparent);">{{ $elog->error_message }}</div>
+                <div class="text-xs mt-1 rounded p-2" style="color:var(--ds-crimson, #c41e3a); background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 6%, transparent);">{{ $elog->error_message }}</div>
                 @endif
 
                 {{-- Inline email viewer --}}
@@ -194,9 +199,9 @@
             @foreach($sellerEmails as $se)
             <div class="flex items-center gap-2 text-xs py-1">
                 @if($se->status === 'sent')
-                <span style="color:var(--ds-green);">Sent</span>
+                <span style="color:var(--ds-green, #059669);">Sent</span>
                 @else
-                <span style="color:var(--ds-red);">Failed</span>
+                <span style="color:var(--ds-crimson, #c41e3a);">Failed</span>
                 @endif
                 <span style="color:var(--text-primary);">{{ implode(', ', $se->recipients_to ?? []) }}</span>
                 <span class="ml-auto" style="color:var(--text-muted);">{{ $se->sent_at->format('d M H:i') }}</span>
@@ -211,7 +216,7 @@
             <div class="flex items-center gap-2 flex-wrap">
                 <code class="text-xs flex-1 truncate" style="color:var(--text-primary);">{{ url('/info/' . $whatsappLink->token) }}</code>
                 <button type="button" @click="navigator.clipboard.writeText('{{ url('/info/' . $whatsappLink->token) }}'); linkCopied = true; setTimeout(() => linkCopied = false, 2000)"
-                        class="text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default); background:color-mix(in srgb, var(--brand-default) 8%, transparent);">
+                        class="text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default, #0b2a4a); background:color-mix(in srgb, var(--brand-default, #0b2a4a) 8%, transparent);">
                     <span x-text="linkCopied ? 'Copied!' : 'Copy link'"></span>
                 </button>
                 <span class="text-xs" style="color:var(--text-muted);">{{ $whatsappLink->accessed_count }} view{{ $whatsappLink->accessed_count !== 1 ? 's' : '' }}</span>
@@ -226,16 +231,16 @@
     <div class="rounded-md p-5 flex items-center gap-3 flex-wrap" style="background:var(--surface); border:1px solid var(--border);">
         <form method="POST" action="{{ route('compliance.whistleblow.approve', $complaint) }}" onsubmit="return confirm('Send this complaint to PPRA now?')">
             @csrf
-            <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--ds-green);">
-                Approve & Send to PPRA
+            <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-all" style="background:var(--ds-green, #059669);">
+                Approve &amp; Send to PPRA
             </button>
         </form>
 
-        <button type="button" @click="changesOpen = true" class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-raised); border:1px solid var(--border); color:var(--text-primary);">
+        <button type="button" @click="changesOpen = true" class="corex-btn-outline text-sm">
             Request Changes
         </button>
 
-        <button type="button" @click="rejectOpen = true" class="px-4 py-2 rounded-md text-sm font-semibold" style="color:var(--ds-red); background:color-mix(in srgb, var(--ds-red) 10%, transparent);">
+        <button type="button" @click="rejectOpen = true" class="px-4 py-2 rounded-md text-sm font-semibold transition-all" style="color:var(--ds-crimson, #c41e3a); background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);">
             Reject
         </button>
     </div>
@@ -248,10 +253,10 @@
             <h3 class="text-base font-bold mb-3" style="color:var(--text-primary);">Reject Complaint</h3>
             <form method="POST" action="{{ route('compliance.whistleblow.reject', $complaint) }}">
                 @csrf
-                <textarea name="reason" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..."></textarea>
+                <textarea name="reason" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface, #ffffff); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..."></textarea>
                 <div class="flex justify-end gap-3">
                     <button type="button" @click="rejectOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
-                    <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--ds-red);">Reject</button>
+                    <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--ds-crimson, #c41e3a);">Reject</button>
                 </div>
             </form>
         </div>
@@ -266,10 +271,10 @@
             <h3 class="text-base font-bold mb-3" style="color:var(--text-primary);">Request Changes</h3>
             <form method="POST" action="{{ route('compliance.whistleblow.request-changes', $complaint) }}">
                 @csrf
-                <textarea name="notes" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What needs to be changed..."></textarea>
+                <textarea name="notes" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface, #ffffff); border:1px solid var(--border); color:var(--text-primary);" placeholder="What needs to be changed..."></textarea>
                 <div class="flex justify-end gap-3">
                     <button type="button" @click="changesOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
-                    <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-default);">Send Back</button>
+                    <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-all" style="background:var(--brand-default, #0b2a4a);">Send Back</button>
                 </div>
             </form>
         </div>

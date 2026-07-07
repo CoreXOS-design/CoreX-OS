@@ -12,13 +12,22 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Dev Settings</h1>
                 <p class="text-sm text-white/60">System-wide developer overrides. Use with care — these affect production behaviour.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('admin.dev-settings.demo-sidebar') }}" class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                    Demo sidebar
+                </a>
+            </div>
         </div>
     </div>
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+             style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
             <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green, #059669);">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -128,9 +137,10 @@
         </div>
     </form>
 
-    {{-- Demo sidebar curation lives on its own page, linked here directly
-         under the demo-mode toggle. See .ai/specs/demo-sidebar-curation.md --}}
-    <div class="rounded-md p-6 flex items-start justify-between gap-6"
+    {{-- Demo sidebar curation lives on its own page. Primary entry is the
+         "Demo sidebar" action in the page header; this card gives context.
+         See .ai/specs/demo-sidebar-curation.md --}}
+    <div class="rounded-md p-6 flex flex-col md:flex-row md:items-start md:justify-between gap-4"
          style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex-1">
             <h2 class="font-semibold" style="color: var(--text-primary);">Demo sidebar</h2>
@@ -140,7 +150,7 @@
             </p>
         </div>
         <a href="{{ route('admin.dev-settings.demo-sidebar') }}"
-           class="corex-btn-primary whitespace-nowrap self-center">Demo sidebar settings →</a>
+           class="corex-btn-primary whitespace-nowrap self-start md:self-center">Demo sidebar settings →</a>
     </div>
 
 </div>

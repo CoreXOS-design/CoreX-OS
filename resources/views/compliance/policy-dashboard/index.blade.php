@@ -1,20 +1,23 @@
-@extends('layouts.corex-app')
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
+
     <nav class="text-xs" style="color: var(--text-muted);">
-        <a href="{{ route('compliance.policy.index') }}" style="color: var(--brand-icon);">Policies</a>
+        <a href="{{ route('compliance.policy.index') }}" style="color: var(--brand-icon, #0ea5e9);">Policies</a>
         <span class="mx-1">/</span>
         <span>Register</span>
     </nav>
 
+    {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Policy Register</h1>
                 <p class="text-sm text-white/60">Monitor staff acknowledgement of agency policies.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 @if($selectedPolicy)
                 <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" target="_blank" class="corex-btn-outline">Export Report</a>
                 @endif
@@ -43,55 +46,40 @@
     </div>
 
     @if(!$selectedPolicy)
-    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
-        <strong>No active policies.</strong> Create one under <a href="{{ route('compliance.policy.index') }}" style="color: var(--brand-icon);">Policies</a> first.
+    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color: var(--text-primary);">
+        <strong>No active policies.</strong> Create one under <a href="{{ route('compliance.policy.index') }}" style="color: var(--brand-icon, #0ea5e9);">Policies</a> first.
     </div>
     @else
-    <div class="space-y-6">
+    <div class="space-y-5">
         @if($activeVersion)
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent); color: var(--text-primary);">
             <div class="flex-1">
                 <strong>{{ $selectedPolicy->name }} v{{ $activeVersion->version_number }}</strong>
                 <span style="color: var(--text-secondary);">— approved {{ $activeVersion->approved_at?->format('d M Y') ?? 'pending' }} | Next review: {{ $activeVersion->next_review_due?->format('d M Y') ?? 'not set' }}</span>
             </div>
         </div>
         @else
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color: var(--text-primary);">
             <strong>No active version for {{ $selectedPolicy->name }}.</strong> Create and approve one first.
         </div>
         @endif
 
-        @php
-            $metrics = [
-                ['label' => 'Active Staff',    'value' => $totalStaff,         'tone' => 'default'],
-                ['label' => 'Acknowledged',    'value' => $validCount,         'tone' => 'success'],
-                ['label' => 'In Progress',     'value' => $inProgressCount,    'tone' => 'warning'],
-                ['label' => 'Expiring (30d)',  'value' => $expiringSoonCount,  'tone' => 'warning'],
-                ['label' => 'Not Started',     'value' => $neverStartedCount,  'tone' => 'info'],
-            ];
-            $toneColor = [
-                'default' => 'var(--text-primary)',
-                'success' => 'var(--ds-green)',
-                'warning' => 'var(--ds-amber)',
-                'info'    => 'var(--brand-icon)',
-            ];
-        @endphp
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            @foreach($metrics as $m)
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="text-[1.625rem] font-semibold leading-tight" style="color: {{ $toneColor[$m['tone']] }};">{{ number_format($m['value']) }}</div>
-                <div class="text-xs font-medium mt-1" style="color: var(--text-secondary);">{{ $m['label'] }}</div>
-            </div>
-            @endforeach
+        {{-- Summary KPIs --}}
+        <div class="corex-kpi-grid">
+            <x-corex-kpi-card title="Active Staff" :value="number_format($totalStaff)" />
+            <x-corex-kpi-card title="Acknowledged" :value="number_format($validCount)" />
+            <x-corex-kpi-card title="In Progress" :value="number_format($inProgressCount)" />
+            <x-corex-kpi-card title="Expiring (30d)" :value="number_format($expiringSoonCount)" />
+            <x-corex-kpi-card title="Not Started" :value="number_format($neverStartedCount)" />
         </div>
 
         @if($totalStaff > 0)
         @php
             $completion = (int) round(($validCount / $totalStaff) * 100);
-            if ($completion >= 80) { $completionBar = 'ds-bar-green'; $completionColor = 'var(--ds-green)'; }
-            elseif ($completion >= 40) { $completionBar = 'ds-bar-amber'; $completionColor = 'var(--ds-amber)'; }
-            else { $completionBar = 'ds-bar-navy'; $completionColor = 'var(--brand-icon)'; }
+            if ($completion >= 80) { $completionBar = 'ds-bar-green'; $completionColor = 'var(--ds-green, #059669)'; }
+            elseif ($completion >= 40) { $completionBar = 'ds-bar-amber'; $completionColor = 'var(--ds-amber, #f59e0b)'; }
+            else { $completionBar = 'ds-bar-navy'; $completionColor = 'var(--brand-icon, #0ea5e9)'; }
         @endphp
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between mb-2">
@@ -127,7 +115,7 @@
                 </div>
                 <button type="submit" class="corex-btn-primary">Apply</button>
                 @if($search || $filterStatus)
-                <a href="{{ route('compliance.policy.dashboard.index', ['policy' => $selectedKey]) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Clear</a>
+                <a href="{{ route('compliance.policy.dashboard.index', ['policy' => $selectedKey]) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Clear</a>
                 @endif
             </form>
             <div class="text-xs mt-3" style="color: var(--text-muted);">Showing {{ number_format(count($staffData)) }} of {{ number_format($totalStaff) }} staff</div>
@@ -149,10 +137,9 @@
                     </thead>
                     <tbody>
                         @forelse($staffData as $s)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                        <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $s['user']->name }}</td>
-                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $s['user']->role }}</td>
+                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $s['user']->role ?? '—')) }}</td>
                             <td class="px-4 py-3">
                                 @if($s['status'] === 'valid')
                                     <span class="ds-badge ds-badge-success">Valid</span>
@@ -161,7 +148,7 @@
                                 @elseif($s['status'] === 'expired')
                                     <span class="ds-badge ds-badge-warning">Expired</span>
                                 @elseif($s['status'] === 'not_started')
-                                    <span class="ds-badge ds-badge-warning">Not Started</span>
+                                    <span class="ds-badge ds-badge-info">Not Started</span>
                                 @else
                                     <span class="ds-badge ds-badge-default">N/A</span>
                                 @endif
@@ -174,7 +161,7 @@
                                     @csrf
                                     <input type="hidden" name="user_id" value="{{ $s['user']->id }}">
                                     <input type="hidden" name="policy_key" value="{{ $selectedKey }}">
-                                    <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Remind</button>
+                                    <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Remind</button>
                                 </form>
                                 @endif
                             </td>

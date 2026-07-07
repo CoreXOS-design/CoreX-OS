@@ -24,7 +24,7 @@
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search employee…"
                        class="list-header-filter w-full" style="padding-left: 2.25rem;">
             </div>
-            <select name="branch" class="list-header-filter">
+            <select name="branch" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All Branches</option>
                 @foreach($branches as $b)
                     <option value="{{ $b->id }}" {{ ($branchFilter ?? '') == $b->id ? 'selected' : '' }}>{{ $b->name }}</option>

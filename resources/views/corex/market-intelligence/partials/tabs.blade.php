@@ -37,17 +37,19 @@
 @endphp
 <nav class="mic-tabs"
      style="display: flex; align-items: center; justify-content: space-between;
-            border-bottom: 1px solid var(--border); margin-bottom: 16px; padding: 0 4px;">
-    <div style="display: flex; gap: 2px;">
+            border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: 16px; padding: 0 4px;">
+    {{-- Horizontal scroll on narrow screens so the tab row never overflows the
+         page width (§6 responsive rules) — the branch has 5–7 tabs. --}}
+    <div style="display: flex; gap: 2px; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: thin;">
         @foreach($tabs as $tab)
             @php
                 $isActive = $activeKey === $tab['key'];
                 $baseStyle = 'padding: 10px 16px; text-decoration: none; font-size: 0.875rem; font-weight: 500;
-                              border-bottom: 2px solid transparent; color: var(--text-muted);
+                              white-space: nowrap; border-bottom: 2px solid transparent; color: var(--text-muted, #9ca3af);
                               border-top-left-radius: 4px; border-top-right-radius: 4px;';
                 $activeStyle = 'padding: 10px 16px; text-decoration: none; font-size: 0.875rem; font-weight: 600;
-                                border-bottom: 2px solid var(--brand-button); color: var(--brand-button);
-                                background: color-mix(in srgb, var(--brand-button) 8%, transparent);
+                                white-space: nowrap; border-bottom: 2px solid var(--brand-button, #0ea5e9); color: var(--brand-button, #0ea5e9);
+                                background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, transparent);
                                 border-top-left-radius: 4px; border-top-right-radius: 4px;';
             @endphp
             <a href="{{ route($tab['route']) }}"

@@ -49,7 +49,7 @@
                      @click="canGoToStep(i+1) && goToStep(i+1)">
                     <div class="h-1.5 rounded-full transition-all duration-300"
                          :style="(i+1) < currentStep ? 'background: var(--ds-green);' : ((i+1) === currentStep ? 'background: #ffffff;' : 'background: rgba(255,255,255,0.2);')"></div>
-                    <span class="text-[10px] leading-tight"
+                    <span class="text-[0.6875rem] leading-tight"
                           :class="(i+1) <= currentStep ? 'text-white/70' : 'text-white/30'"
                           x-text="label"></span>
                 </div>
@@ -118,7 +118,7 @@
                                     <button @click="deleteDraft(d.id, di)"
                                             class="text-xs font-semibold transition" style="color: var(--ds-crimson);">Delete Draft</button>
                                     <a :href="'/docuperfect/esign/' + d.id + '/step/' + d.current_step"
-                                       class="text-xs font-semibold transition" style="color: var(--brand-icon);">Continue &rarr;</a>
+                                       class="text-xs font-semibold transition" style="color: var(--brand-icon, #0ea5e9);">Continue &rarr;</a>
                                 </div>
                             </div>
                         </template>
@@ -131,17 +131,17 @@
                 <div class="flex items-center gap-2 mb-3">
                     <button @click="categoryFilter = 'all'"
                             class="px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-300"
-                            :style="categoryFilter === 'all' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
+                            :style="categoryFilter === 'all' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
                         All
                     </button>
                     <button @click="categoryFilter = 'sales'"
                             class="px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-300"
-                            :style="categoryFilter === 'sales' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
+                            :style="categoryFilter === 'sales' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
                         Sales
                     </button>
                     <button @click="categoryFilter = 'rentals'"
                             class="px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-300"
-                            :style="categoryFilter === 'rentals' ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
+                            :style="categoryFilter === 'rentals' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'">
                         Rentals
                     </button>
                 </div>
@@ -169,7 +169,7 @@
                                 <button @click="selectTemplate(t)"
                                         class="w-full text-left p-3 rounded-md transition-all duration-300"
                                         :style="selectedTemplateId === t.id
-                                            ? 'background: color-mix(in srgb, var(--brand-button) 10%, transparent); border: 1px solid var(--brand-button);'
+                                            ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
                                             : 'background: var(--surface); border: 1px solid var(--border);'">
                                     <div class="font-medium text-sm flex items-center flex-wrap gap-1" style="color: var(--text-primary);">
                                         <span x-text="t.name"></span>
@@ -197,14 +197,14 @@
                 <template x-if="allWebPacks.length > 0">
                     <div class="mt-6">
                         <div class="px-3 py-2 rounded-md mb-3" style="background: var(--surface-2);">
-                            <h4 class="text-xs font-semibold uppercase tracking-wide" style="color: var(--brand-icon);">Web Packs</h4>
+                            <h4 class="text-xs font-semibold uppercase tracking-wide" style="color: var(--brand-icon, #0ea5e9);">Web Packs</h4>
                         </div>
                         <div class="space-y-2">
                             <template x-for="p in allWebPacks" :key="'pack-' + p.id">
                                 <button @click="selectPack(p)"
                                         class="w-full text-left p-3 rounded-md transition-all duration-300"
                                         :style="selectedPackId === p.id
-                                            ? 'background: color-mix(in srgb, var(--brand-button) 10%, transparent); border: 1px solid var(--brand-button);'
+                                            ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
                                             : 'background: var(--surface); border: 1px solid var(--border);'">
                                     <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
                                         <span x-text="p.name"></span>
@@ -214,7 +214,7 @@
                                     <div x-show="p.items.length > 0" class="mt-1.5 space-y-0.5">
                                         <template x-for="item in p.items" :key="'pi-' + item.id">
                                             <div class="text-xs flex items-center gap-1" style="color: var(--text-muted);">
-                                                <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--brand-icon);"></span>
+                                                <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--brand-icon, #0ea5e9);"></span>
                                                 <span x-text="item.template?.name || 'Unknown template'"></span>
                                             </div>
                                         </template>
@@ -238,7 +238,7 @@
                                         <button @click="selectPdfPack(p)"
                                                 class="w-full text-left p-3 rounded-md transition-all duration-300"
                                                 :style="selectedPdfPackId === p.id
-                                                    ? 'background: color-mix(in srgb, var(--brand-button) 10%, transparent); border: 1px solid var(--brand-button);'
+                                                    ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
                                                     : 'background: var(--surface); border: 1px solid var(--border);'">
                                             <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
                                                 <span x-text="p.name"></span>
@@ -337,7 +337,7 @@
                                             <span x-show="result.rental_amount" x-text="'R ' + Number(result.rental_amount).toLocaleString() + '/mo'"></span>
                                             <span x-show="result.agent" x-text="'· ' + result.agent"></span>
                                         </div>
-                                        <div x-show="result.lessor_name" class="text-xs mt-0.5" style="color: var(--brand-icon);" x-text="ownerPartyLabel + ': ' + result.lessor_name"></div>
+                                        <div x-show="result.lessor_name" class="text-xs mt-0.5" style="color: var(--brand-icon, #0ea5e9);" x-text="ownerPartyLabel + ': ' + result.lessor_name"></div>
                                     </div>
                                     <span class="ds-badge ds-badge-default ml-2 flex-shrink-0"
                                           x-text="result.source === 'properties' ? 'Property' : 'Rental'"></span>
@@ -404,11 +404,11 @@
                 <div class="space-y-3">
                     <template x-for="(r, ri) in recipients" :key="ri">
                         <div class="p-4 rounded-md transition-colors"
-                             :style="r.readonly ? 'background: color-mix(in srgb, var(--brand-icon) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);' : (r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' : 'background: var(--surface); border: 1px solid var(--border);')">
+                             :style="r.readonly ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);' : (r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' : 'background: var(--surface); border: 1px solid var(--border);')">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-2">
                                     <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                                          :style="r.readonly ? 'background: var(--brand-button);' : (r._contact_id ? 'background: var(--ds-green);' : 'background: var(--surface-2); color: var(--text-secondary);')"
+                                          :style="r.readonly ? 'background: var(--brand-button, #0ea5e9);' : (r._contact_id ? 'background: var(--ds-green);' : 'background: var(--surface-2); color: var(--text-secondary);')"
                                           x-text="ri + 1"></span>
                                     <span class="text-sm font-semibold" style="color: var(--text-primary);" x-text="r.readonly ? 'Agent (You)' : 'Recipient ' + (ri+1)"></span>
                                     <span x-show="r._contact_id" class="ds-badge ds-badge-success">Linked</span>
@@ -503,7 +503,7 @@
                                                     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
                                                         <span x-show="contact.email" x-text="contact.email"></span>
                                                         <span x-show="contact.phone" x-text="contact.phone"></span>
-                                                        <span x-show="contact.contact_type" style="color: var(--brand-icon);" x-text="contact.contact_type"></span>
+                                                        <span x-show="contact.contact_type" style="color: var(--brand-icon, #0ea5e9);" x-text="contact.contact_type"></span>
                                                     </div>
                                                 </button>
                                             </template>
@@ -584,7 +584,7 @@
 
                 {{-- Context indicator --}}
                 <div class="mb-4 px-3 py-2 rounded-md text-xs font-medium flex items-center gap-2"
-                     style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+                     style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent); color: var(--text-primary);">
                     <span x-text="isSalesContext ? 'Sales Document' : 'Rental Document'"></span>
                 </div>
 
@@ -620,7 +620,7 @@
                                         <template x-for="opt in [{m:1,l:'1 Mo'},{m:3,l:'3 Mo'},{m:6,l:'6 Mo'},{m:9,l:'9 Mo'}]" :key="opt.m">
                                             <button type="button" @click="quickFillExpiry(opt.m)"
                                                     class="px-2.5 py-1 rounded-full text-xs font-medium transition"
-                                                    :style="details.mandate_expiry === calcExpiryDate(opt.m) ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                    :style="details.mandate_expiry === calcExpiryDate(opt.m) ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                     x-text="opt.l"></button>
                                         </template>
                                     </div>
@@ -662,7 +662,7 @@
                                         <button type="button"
                                                 @click="details._duration = opt.value; calculateLeaseEnd()"
                                                 class="px-3 py-1.5 rounded-md text-xs font-medium transition"
-                                                :style="details._duration === opt.value ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                :style="details._duration === opt.value ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                 x-text="opt.label"></button>
                                     </template>
                                 </div>
@@ -789,7 +789,7 @@
                                         <button type="button"
                                                 @click="setFieldValue(f.id, opt); highlightField(f.id)"
                                                 class="px-3 py-1.5 rounded-md text-xs font-medium transition"
-                                                :style="fieldValues[f.id] === opt ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                :style="fieldValues[f.id] === opt ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                 x-text="opt"></button>
                                     </template>
                                 </div>
@@ -802,7 +802,7 @@
                                     <input type="checkbox"
                                            :checked="fieldValues[f.id] === 'strikethrough'"
                                            @change="setFieldValue(f.id, $event.target.checked ? 'strikethrough' : '')"
-                                           class="rounded" style="accent-color: var(--brand-button);">
+                                           class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
                                     <span class="text-sm" style="color: var(--text-primary);">Apply strikethrough</span>
                                 </label>
                             </template>
@@ -821,7 +821,7 @@
                             {{-- Field group display (read-only, collapsed group members) --}}
                             <template x-if="fieldInputType(f) === 'field_group_display'">
                                 <div class="rounded-md px-3 py-2 text-sm"
-                                     :style="(f.value || fieldValues[f.id]) ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);'">
+                                     :style="(f.value || fieldValues[f.id]) ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent); color: var(--text-primary);'">
                                     <span x-text="f.value || fieldValues[f.id] || 'Pending — will auto-fill from recipient data'"
                                           :style="(f.value || fieldValues[f.id]) ? 'font-weight: 500;' : 'color: var(--text-muted); font-style: italic;'"></span>
                                 </div>
@@ -832,7 +832,7 @@
 
                 {{-- Additional Clauses --}}
                 <div class="mt-6 mb-4 p-3 rounded-md"
-                     style="background: color-mix(in srgb, var(--brand-icon) 6%, transparent); border: 1px dashed color-mix(in srgb, var(--brand-icon) 40%, transparent);">
+                     style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px dashed color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);">
                     <div class="flex items-center justify-between">
                         <div>
                             <span class="text-sm font-semibold" style="color: var(--text-primary);">Other Conditions / Additional Clauses</span>
@@ -867,9 +867,9 @@
                         <div class="space-y-2">
                             <template x-for="mode in effectiveDeliveryModes" :key="mode">
                                 <label class="flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all"
-                                       :style="deliveryMode === mode ? 'background: color-mix(in srgb, var(--brand-button) 10%, transparent); border: 1px solid var(--brand-button);' : 'background: var(--surface); border: 1px solid var(--border);'">
+                                       :style="deliveryMode === mode ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); border: 1px solid var(--border);'">
                                     <input type="radio" name="delivery_mode" :value="mode" x-model="deliveryMode"
-                                           class="mt-0.5" style="accent-color: var(--brand-button);">
+                                           class="mt-0.5" style="accent-color: var(--brand-button, #0ea5e9);">
                                     <div>
                                         <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="deliveryModeLabel(mode)"></div>
                                         <div class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="deliveryModeDescription(mode)"></div>
@@ -964,13 +964,13 @@
                                             <input type="checkbox"
                                                    x-model="r.skipEmail"
                                                    @change="if (r.skipEmail) signingActions[ri] = 'sign_later'"
-                                                   class="rounded" style="accent-color: var(--brand-button);">
+                                                   class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
                                             <span class="text-xs" style="color: var(--text-secondary);">Exclude from email &mdash; will sign in person or via primary recipient</span>
                                         </label>
                                         <label class="flex items-center gap-2 mt-2 text-sm">
                                             <input type="checkbox"
                                                    x-model="r.fica_required"
-                                                   class="rounded" style="accent-color: var(--brand-button);">
+                                                   class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
                                             <span class="text-xs" style="color: var(--text-secondary);">FICA verification required before signing</span>
                                         </label>
                                     </div>
@@ -1099,7 +1099,7 @@
             {{-- Pack summary / slot selection --}}
             <div x-show="isPackFlow && packPreview" class="p-6" x-cloak>
                 <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="font-semibold mb-2 text-base" style="color: var(--brand-icon);">
+                    <div class="font-semibold mb-2 text-base" style="color: var(--brand-icon, #0ea5e9);">
                         <span x-text="selectedPackName"></span>
                     </div>
 
@@ -1144,7 +1144,7 @@
                                                                    :name="'slot-' + slot.group"
                                                                    :value="tmpl.id"
                                                                    x-model.number="slotSelections[slot.group]"
-                                                                   class="w-3.5 h-3.5" style="accent-color: var(--brand-button);">
+                                                                   class="w-3.5 h-3.5" style="accent-color: var(--brand-button, #0ea5e9);">
                                                             <span x-text="tmpl.name"></span>
                                                         </label>
                                                     </template>
@@ -1158,7 +1158,7 @@
                                                 <input type="checkbox"
                                                        :value="slot.templates[0].id"
                                                        x-model.number="optionalSelections"
-                                                       class="w-3.5 h-3.5 rounded" style="accent-color: var(--brand-button);">
+                                                       class="w-3.5 h-3.5 rounded" style="accent-color: var(--brand-button, #0ea5e9);">
                                                 <span x-text="slot.templates[0].name"></span>
                                                 <span class="text-xs" style="color: var(--text-muted);">Optional</span>
                                             </label>

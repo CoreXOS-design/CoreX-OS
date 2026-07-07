@@ -9,7 +9,7 @@
     .clause-cancel-link:hover { color: var(--text-primary); }
     .clause-input:focus { border-color: var(--brand-button) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent); outline: none; }
 </style>
-<div class="w-full space-y-5">
+<div class="w-full space-y-5" x-data="{ showAdd: {{ $errors->any() ? 'true' : 'false' }} }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -20,7 +20,7 @@
             </div>
             @if($canEdit)
             <div class="flex items-center gap-2 flex-wrap">
-                <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
+                <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -30,6 +30,53 @@
             @endif
         </div>
     </div>
+
+    {{-- Add Clause --}}
+    @if($canEdit)
+    <div x-show="showAdd" x-cloak x-transition class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+        <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Add Clause</h3>
+        <form method="POST" action="{{ route('docuperfect.clauses.store') }}" class="space-y-4">
+            @csrf
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
+                    <input name="name" required
+                           class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                           placeholder="e.g. Subject to Viewing">
+                </div>
+                <div class="flex items-center gap-4 mt-5">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
+                        <input type="hidden" name="is_global" value="0">
+                        <input type="checkbox" name="is_global" value="1" class="rounded-md" style="border-color: var(--border);"> Global (all branches)
+                    </label>
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>
+                <textarea name="text" required rows="4"
+                          class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                          placeholder="Enter the full clause wording..."></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch Access (if not global)</label>
+                <div class="flex flex-wrap gap-3">
+                    @foreach($branches as $branch)
+                    <label class="flex items-center gap-1 text-sm" style="color: var(--text-secondary);">
+                        <input type="checkbox" name="branch_ids[]" value="{{ $branch->id }}" class="rounded-md" style="border-color: var(--border);">
+                        {{ $branch->name }}
+                    </label>
+                    @endforeach
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button class="corex-btn-primary text-sm">Add Clause</button>
+                <button type="button" @click="showAdd = false" class="text-sm clause-cancel-link" style="color: var(--text-muted);">Cancel</button>
+            </div>
+        </form>
+    </div>
+    @endif
 
     {{-- Filter bar --}}
     <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
@@ -77,50 +124,6 @@
         </div>
     @endif
 
-    {{-- Add Clause --}}
-    @if($canEdit)
-    <div id="addClauseSection" class="hidden rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-        <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Add Clause</h3>
-        <form method="POST" action="{{ route('docuperfect.clauses.store') }}" class="space-y-4">
-            @csrf
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
-                    <input name="name" required
-                           class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                           placeholder="e.g. Subject to Viewing">
-                </div>
-                <div class="flex items-center gap-4 mt-5">
-                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
-                        <input type="hidden" name="is_global" value="0">
-                        <input type="checkbox" name="is_global" value="1" class="rounded-md" style="border-color: var(--border);"> Global (all branches)
-                    </label>
-                </div>
-            </div>
-            <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>
-                <textarea name="text" required rows="4"
-                          class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
-                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                          placeholder="Enter the full clause wording..."></textarea>
-            </div>
-            <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch Access (if not global)</label>
-                <div class="flex flex-wrap gap-3">
-                    @foreach($branches as $branch)
-                    <label class="flex items-center gap-1 text-sm" style="color: var(--text-secondary);">
-                        <input type="checkbox" name="branch_ids[]" value="{{ $branch->id }}" class="rounded-md" style="border-color: var(--border);">
-                        {{ $branch->name }}
-                    </label>
-                    @endforeach
-                </div>
-            </div>
-            <button class="corex-btn-primary text-sm">Add Clause</button>
-        </form>
-    </div>
-    @endif
-
     {{-- Clause List --}}
     @if($clauses->isEmpty())
         <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
@@ -136,7 +139,7 @@
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No clauses yet</h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first clause to start building the library.</p>
                 @if($canEdit)
-                    <button type="button" onclick="document.getElementById('addClauseSection').classList.remove('hidden')" class="corex-btn-primary text-sm">+ New Clause</button>
+                    <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">+ New Clause</button>
                 @endif
             @endif
         </div>
@@ -148,14 +151,15 @@
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                             <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $clause->name }}</div>
-                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                            <div class="text-xs mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1" style="color: var(--text-muted);">
                                 @if($clause->is_global)
                                     <span class="ds-badge ds-badge-success">Global</span>
                                 @else
-                                    {{ $clause->branches->pluck('name')->join(', ') ?: 'No branches assigned' }}
+                                    <span class="ds-badge ds-badge-info">Branch</span>
+                                    <span>{{ $clause->branches->pluck('name')->join(', ') ?: 'No branches assigned' }}</span>
                                 @endif
                                 @if($clause->owner)
-                                    &middot; by {{ $clause->owner->name }}
+                                    <span>&middot; by {{ $clause->owner->name }}</span>
                                 @endif
                             </div>
                         </div>

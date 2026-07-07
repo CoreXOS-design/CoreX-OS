@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -56,9 +57,7 @@
                 </thead>
                 <tbody>
                     @forelse($versions as $v)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr class="transition-colors" style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">v{{ $v->version_number }}</td>
                             <td class="px-4 py-3">
                                 @if($v->status === 'active')

@@ -1,28 +1,28 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto space-y-4">
+<div class="w-full space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-4 space-y-3" style="background:var(--brand-default, #0b2a4a);"
+    <div class="rounded-md px-6 py-5 space-y-3" style="background:var(--brand-default, #0b2a4a);"
          x-data="p24SyncWidget({
              refreshUrl: '{{ route('admin.importer.p24-locations.refresh') }}',
              statusUrl:  '{{ route('admin.importer.p24-locations.status') }}',
              csrf:       '{{ csrf_token() }}',
          })" x-init="init()">
-        <div class="flex items-start justify-between gap-4">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white tracking-tight">P24 Locations</h2>
-                <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
-                    The Property24 location tree cached locally — browse Region → Town → Suburb.
-                </div>
+                <h1 class="text-xl font-bold text-white leading-tight">P24 Locations</h1>
+                <p class="text-sm text-white/60">The Property24 location tree cached locally — browse Region → Town → Suburb.</p>
             </div>
-            <button type="button" @click="start()"
-                    :disabled="running"
-                    class="px-4 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed hover:opacity-90"
-                    style="background:var(--brand-button, #0ea5e9);">
-                <span x-text="running ? 'Sync in progress…' : 'Refresh from Property24'"></span>
-            </button>
+            <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" @click="start()"
+                        :disabled="running"
+                        class="corex-btn-primary text-sm disabled:opacity-60 disabled:cursor-not-allowed">
+                    <span x-text="running ? 'Sync in progress…' : 'Refresh from Property24'"></span>
+                </button>
+            </div>
         </div>
 
         {{-- Progress bar (visible while running or just-completed) --}}
@@ -31,9 +31,9 @@
                 <span x-text="statusLabel"></span>
                 <span x-text="percent + '%'"></span>
             </div>
-            <div class="h-2 rounded-md overflow-hidden" style="background:rgba(255,255,255,0.1);">
+            <div class="h-2 rounded overflow-hidden" style="background:rgba(255,255,255,0.1);">
                 <div class="h-full transition-all duration-300"
-                     :style="'width: ' + percent + '%; background: ' + (failed ? '#f87171' : (running ? 'var(--brand-button, #0ea5e9)' : '#34d399'))"></div>
+                     :style="'width: ' + percent + '%; background: ' + (failed ? 'var(--ds-crimson, #c41e3a)' : (running ? 'var(--brand-button, #0ea5e9)' : 'var(--ds-green, #059669)'))"></div>
             </div>
             <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px]" style="color:rgba(255,255,255,0.7);">
                 <span>Provinces <span class="font-semibold text-white" x-text="(progress.provinces_done||0) + '/' + (progress.provinces_total||'?')"></span></span>
@@ -46,7 +46,7 @@
                 <span x-text="progress.error || ''"></span>
             </div>
             <div x-show="stuck" x-cloak class="text-xs mt-1" style="color:#fde68a;">
-                <span class="font-semibold">Heads up:</span> sync hasn't advanced in 30+ seconds. Check <code style="background:rgba(255,255,255,0.1);padding:1px 4px;border-radius:3px;">storage/logs/p24-sync.log</code> on the server for errors.
+                <span class="font-semibold">Heads up:</span> sync hasn't advanced in 30+ seconds. Check <code style="background:rgba(255,255,255,0.1);padding:1px 4px;border-radius:4px;">storage/logs/p24-sync.log</code> on the server for errors.
             </div>
             <div x-show="!running && !failed && finishedAt" x-cloak class="text-xs mt-1" style="color:#a7f3d0;">
                 Sync complete. Reload the page to see updated counts.
@@ -63,19 +63,19 @@
 
     @if(session('success'))
         <div class="rounded-md border px-4 py-3 text-sm transition-all duration-300"
-             style="background:color-mix(in srgb, #34d399 14%, var(--surface, #ffffff)); border-color:color-mix(in srgb, #34d399 35%, var(--border, rgba(0,0,0,0.07))); color:#065f46;">
+             style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border-color:color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--text-primary, #111827);">
             {{ session('success') }}
         </div>
     @endif
     @if(session('error'))
         <div class="rounded-md border px-4 py-3 text-sm transition-all duration-300"
-             style="background:color-mix(in srgb, #f87171 14%, var(--surface, #ffffff)); border-color:color-mix(in srgb, #f87171 35%, var(--border, rgba(0,0,0,0.07))); color:#991b1b;">
+             style="background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent); border-color:color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent); color:var(--text-primary, #111827);">
             {{ session('error') }}
         </div>
     @endif
 
     {{-- Stats + last sync --}}
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         @foreach([
             ['Provinces',     number_format($totals['provinces'])],
             ['Cities / Towns', number_format($totals['cities'])],
@@ -84,13 +84,13 @@
             <div class="rounded-md border p-4 transition-all duration-300"
                  style="background:var(--surface, #ffffff); border-color:var(--border, rgba(0,0,0,0.07));">
                 <div class="text-[11px] uppercase tracking-wider font-semibold" style="color:var(--text-secondary, #64748b);">{{ $label }}</div>
-                <div class="text-2xl font-bold mt-1" style="color:var(--brand-default, #0b2a4a);">{{ $value }}</div>
+                <div class="text-2xl font-bold mt-1" style="color:var(--text-primary, #111827);">{{ $value }}</div>
             </div>
         @endforeach
         <div class="rounded-md border p-4 transition-all duration-300"
              style="background:var(--surface, #ffffff); border-color:var(--border, rgba(0,0,0,0.07));">
             <div class="text-[11px] uppercase tracking-wider font-semibold" style="color:var(--text-secondary, #64748b);">Last Synced</div>
-            <div class="text-sm font-bold mt-1" style="color:var(--brand-default, #0b2a4a);">
+            <div class="text-sm font-bold mt-1" style="color:var(--text-primary, #111827);">
                 {{ $lastSyncedAt ? $lastSyncedAt->diffForHumans() : 'never' }}
             </div>
             @if($lastSyncedAt)
@@ -101,7 +101,7 @@
 
     @if($lastSyncError)
         <div class="rounded-md border px-4 py-3 text-xs transition-all duration-300"
-             style="background:color-mix(in srgb, #f59e0b 12%, var(--surface, #ffffff)); border-color:color-mix(in srgb, #f59e0b 40%, var(--border, rgba(0,0,0,0.07))); color:#92400e;">
+             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border-color:color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color:var(--text-primary, #111827);">
             <span class="font-semibold">Last sync error:</span>
             <span class="break-all">{{ \Illuminate\Support\Str::limit($lastSyncError, 500) }}</span>
         </div>
@@ -157,7 +157,7 @@
                                 <ul class="space-y-0.5">
                                     <template x-for="s in suburbs" :key="s.id">
                                         <li class="text-[11px] flex items-center gap-2" style="color:var(--text-secondary, #64748b);">
-                                            <span class="w-1 h-1 rounded-md" style="background:var(--brand-icon, #0ea5e9);"></span>
+                                            <span class="w-1 h-1 rounded-full" style="background:var(--brand-icon, #0ea5e9);"></span>
                                             <span x-text="s.name"></span>
                                             <span class="font-mono" style="color:var(--text-muted, #9ca3af);">#<span x-text="s.p24_id"></span></span>
                                         </li>

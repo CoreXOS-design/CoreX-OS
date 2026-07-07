@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+<div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <a href="{{ url()->previous() }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
             ← Back
@@ -60,7 +61,6 @@
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
          branches on contact_id. --}}
-    <style>[x-cloak]{display:none!important;}</style>
     <form method="POST"
           x-data="{
               mode: 'create',
@@ -94,8 +94,11 @@
                 <h2 class="text-base font-semibold" style="color: var(--text-primary);">Seller contact</h2>
                 {{-- Mode toggle: pick a known owner, or capture a new one. --}}
                 <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    {{-- Base `style` matches the initial mode ('create') so the toggle renders
+                         correctly before Alpine hydrates; `:style` takes over reactively. --}}
                     <button type="button" @click="mode = 'search'"
                             class="px-3 py-1.5 text-xs font-semibold border-0"
+                            style="background: var(--surface-2); color: var(--text-secondary); cursor:pointer;"
                             :style="mode === 'search'
                                 ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
@@ -103,6 +106,7 @@
                     </button>
                     <button type="button" @click="mode = 'create'; selected = null"
                             class="px-3 py-1.5 text-xs font-semibold border-0"
+                            style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;"
                             :style="mode === 'create'
                                 ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
@@ -115,7 +119,7 @@
             <div x-show="mode === 'search'" x-cloak class="space-y-2">
                 {{-- Chosen contact — its id is what the controller links. --}}
                 <template x-if="selected">
-                    <div class="flex items-center justify-between gap-3 rounded p-3"
+                    <div class="flex items-center justify-between gap-3 rounded-md p-3"
                          style="background: var(--surface-2); border:1px solid var(--border);">
                         <div class="min-w-0">
                             <div class="text-sm font-semibold truncate" style="color: var(--text-primary);" x-text="label(selected)"></div>
@@ -123,7 +127,7 @@
                                 <span x-text="selected.phone || ''"></span><span x-show="selected.phone && selected.email"> · </span><span x-text="selected.email || ''"></span>
                             </div>
                         </div>
-                        <button type="button" @click="selected = null" class="text-xs shrink-0" style="color: var(--ds-crimson); background:none; border:0; cursor:pointer;">Change</button>
+                        <button type="button" @click="selected = null" class="text-xs font-semibold shrink-0" style="color: var(--brand-icon, #0ea5e9); background:none; border:0; cursor:pointer;">Change</button>
                         <input type="hidden" name="contact_id" :value="selected.id">
                     </div>
                 </template>
@@ -133,13 +137,13 @@
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Search your contacts</label>
                     <input type="text" x-model="q" @input.debounce.300ms="search()"
                            placeholder="Name, phone or email…" autocomplete="off"
-                           class="w-full px-3 py-2 text-sm rounded"
+                           class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <div class="mt-1 text-xs" style="color: var(--text-muted);" x-show="loading">Searching…</div>
                     <div class="mt-1 text-xs" style="color: var(--text-muted);" x-show="!loading && q.trim().length >= 2 && results.length === 0">
                         No matches — switch to “Create new”.
                     </div>
-                    <div class="mt-2 rounded overflow-hidden" style="border:1px solid var(--border);" x-show="results.length > 0">
+                    <div class="mt-2 rounded-md overflow-hidden" style="border:1px solid var(--border);" x-show="results.length > 0">
                         <template x-for="c in results" :key="c.id">
                             <button type="button" @click="choose(c)"
                                     class="w-full text-left px-3 py-2 text-sm block"
@@ -160,13 +164,13 @@
                         First name <span style="color: var(--ds-crimson);">*</span>
                     </label>
                     <input type="text" name="first_name" value="{{ old('first_name') }}" :required="mode === 'create'" maxlength="100"
-                           class="w-full px-3 py-2 text-sm rounded"
+                           class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Last name</label>
                     <input type="text" name="last_name" value="{{ old('last_name') }}" maxlength="100"
-                           class="w-full px-3 py-2 text-sm rounded"
+                           class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
             </div>
@@ -175,13 +179,13 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Phone</label>
                     <input type="tel" name="phone" value="{{ old('phone') }}" maxlength="30" placeholder="082 123 4567"
-                           class="w-full px-3 py-2 text-sm rounded"
+                           class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Email</label>
                     <input type="email" name="email" value="{{ old('email') }}" maxlength="255"
-                           class="w-full px-3 py-2 text-sm rounded"
+                           class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
             </div>
@@ -192,7 +196,7 @@
                 <input type="text" name="id_number" value="{{ old('id_number') }}"
                        inputmode="numeric" maxlength="13" pattern="\d{13}"
                        placeholder="e.g. 7610025020081" title="13 digits — empty is fine"
-                       class="w-full px-3 py-2 text-sm rounded"
+                       class="w-full px-3 py-2 text-sm rounded-md"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p class="text-[11px] mt-1" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
             </div>
@@ -206,11 +210,12 @@
         <div class="flex items-center gap-2 flex-wrap mt-4">
             <button type="submit"
                     :disabled="mode === 'search' && !selected"
-                    class="px-6 py-2.5 text-sm font-semibold rounded border-0"
+                    class="px-6 py-2.5 text-sm font-semibold rounded-md border-0"
+                    style="background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;"
                     :style="(mode === 'search' && !selected)
-                        ? 'background:#9ca3af; color:#fff; cursor:not-allowed;'
-                        : 'background:#00d4aa; color:#003a2f; cursor:pointer;'">
-                <span x-text="mode === 'search' ? 'Link &amp; continue →' : 'Create / link &amp; continue →'"></span>
+                        ? 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'
+                        : 'background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;'">
+                <span x-text="mode === 'search' ? 'Link & continue →' : 'Create / link & continue →'"></span>
             </button>
             <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
         </div>

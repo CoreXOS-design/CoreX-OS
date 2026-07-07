@@ -1,23 +1,38 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="w-full space-y-5"
      x-data="webPackForm()"
 >
     {{-- Header --}}
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">
-                {{ isset($webPack) ? 'Edit Web Pack — ' . $webPack->name : 'Create Web Pack' }}
-            </h2>
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">
+                    {{ isset($webPack) ? 'Edit Web Pack' : 'Create Web Pack' }}
+                </h1>
+                <p class="text-sm text-white/60">
+                    {{ isset($webPack) ? $webPack->name : 'Group web templates into a reusable pack.' }}
+                </p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Back</a>
+            </div>
         </div>
-        <a href="{{ route('docuperfect.web-packs.index') }}" class="text-sm text-white/70 hover:text-white">Back</a>
     </div>
 
     {{-- Errors --}}
     @if($errors->any())
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
-            {{ $errors->first() }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color: var(--ds-crimson);">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1">{{ $errors->first() }}</div>
         </div>
     @endif
 
@@ -33,67 +48,71 @@
         @endif
 
         {{-- Name & Description --}}
-        <div class="ds-status-card p-4 space-y-4">
+        <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div>
-                <label class="ds-label">Pack Name <span class="text-red-400">*</span></label>
-                <input type="text" name="name" value="{{ old('name', $webPack->name ?? '') }}"
-                       class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                <label for="wp-name" class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Pack Name <span class="text-red-500">*</span></label>
+                <input id="wp-name" type="text" name="name" value="{{ old('name', $webPack->name ?? '') }}"
+                       class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); outline: none;"
                        required>
             </div>
             <div>
-                <label class="ds-label">Description</label>
-                <textarea name="description" rows="2"
-                          class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{{ old('description', $webPack->description ?? '') }}</textarea>
+                <label for="wp-description" class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Description</label>
+                <textarea id="wp-description" name="description" rows="2"
+                          class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); outline: none;">{{ old('description', $webPack->description ?? '') }}</textarea>
             </div>
         </div>
 
         {{-- Template Selection --}}
-        <div class="ds-status-card p-4 space-y-4">
+        <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between">
-                <label class="ds-label mb-0">Select Web Templates <span class="text-red-400">*</span></label>
-                <span class="text-xs text-slate-400" x-text="selectedItems.length + ' selected'"></span>
+                <label class="block text-xs font-semibold" style="color: var(--text-muted);">Select Web Templates <span class="text-red-500">*</span></label>
+                <span class="text-xs" style="color: var(--text-muted);" x-text="selectedItems.length + ' selected'"></span>
             </div>
 
             {{-- Available templates --}}
-            <div class="border border-slate-200 rounded-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
+            <div class="rounded-md max-h-60 overflow-y-auto" style="border: 1px solid var(--border);">
                 @forelse($templates as $template)
-                <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer text-sm">
+                <label class="flex items-center gap-3 px-3 py-2 cursor-pointer text-sm transition-colors"
+                       style="{{ !$loop->first ? 'border-top: 1px solid var(--border);' : '' }}"
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
                     <input type="checkbox"
                            value="{{ $template->id }}"
-                           class="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                           class="rounded"
+                           style="accent-color: var(--brand-button, #0ea5e9);"
                            :checked="selectedItems.some(i => i.id === {{ $template->id }})"
                            @change="toggleTemplate({{ $template->id }}, '{{ addslashes($template->name) }}')">
-                    <span class="text-slate-700">{{ $template->name }}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-semibold">Web</span>
+                    <span class="flex-1" style="color: var(--text-primary);">{{ $template->name }}</span>
+                    <span class="ds-badge ds-badge-info">Web</span>
                 </label>
                 @empty
-                <div class="px-3 py-4 text-sm text-slate-400 text-center">No web templates available.</div>
+                <div class="px-3 py-6 text-sm text-center" style="color: var(--text-muted);">No web templates available.</div>
                 @endforelse
             </div>
         </div>
 
         {{-- Selected order with slot configuration --}}
-        <div class="ds-status-card p-4 space-y-3" x-show="selectedItems.length > 0" x-cloak>
-            <label class="ds-label">Template Order & Slot Configuration</label>
-            <div class="text-xs text-slate-400 mb-2">Configure each template's slot type. Selectable items in the same group are alternatives — the agent picks one.</div>
+        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-show="selectedItems.length > 0" x-cloak>
+            <label class="block text-xs font-semibold" style="color: var(--text-muted);">Template Order &amp; Slot Configuration</label>
+            <div class="text-xs mb-2" style="color: var(--text-muted);">Configure each template's slot type. Selectable items in the same group are alternatives — the agent picks one.</div>
 
             <template x-for="(item, index) in selectedItems" :key="item.id">
-                <div class="bg-white border rounded-lg px-3 py-2.5 transition-all"
-                     :class="{
-                         'border-blue-300 border-l-4 border-l-blue-500': item.slot_type === 'selectable' && item.slot_group === 1,
-                         'border-amber-300 border-l-4 border-l-amber-500': item.slot_type === 'selectable' && item.slot_group === 2,
-                         'border-green-300 border-l-4 border-l-green-500': item.slot_type === 'selectable' && item.slot_group === 3,
-                         'border-slate-200': item.slot_type !== 'selectable',
-                     }">
-                    <div class="flex items-center gap-3">
+                <div class="rounded-md border px-3 py-2.5 transition-all"
+                     style="background: var(--surface); border-color: var(--border); border-left-width: 4px;"
+                     :style="item.slot_type === 'selectable'
+                         ? { borderLeftColor: item.slot_group === 1 ? 'var(--brand-button, #0ea5e9)' : (item.slot_group === 2 ? 'var(--ds-amber, #f59e0b)' : 'var(--ds-green, #059669)') }
+                         : { borderLeftColor: 'var(--border)' }">
+                    <div class="flex items-center gap-3 flex-wrap">
                         {{-- Sort number --}}
-                        <span class="text-xs text-slate-400 w-6 text-center" x-text="index + 1"></span>
+                        <span class="text-xs w-6 text-center flex-shrink-0" style="color: var(--text-muted);" x-text="index + 1"></span>
 
                         {{-- Template name --}}
-                        <span class="flex-1 text-sm font-medium text-slate-700" x-text="item.name"></span>
+                        <span class="flex-1 min-w-0 text-sm font-medium truncate" style="color: var(--text-primary);" x-text="item.name"></span>
 
                         {{-- Slot type --}}
-                        <select class="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                        <select class="text-xs rounded-md px-2 py-1 flex-shrink-0"
+                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                 x-model="item.slot_type"
                                 @change="onSlotTypeChange(item)">
                             <option value="required">Required (always included)</option>
@@ -103,9 +122,10 @@
 
                         {{-- Slot group (for selectable) --}}
                         <template x-if="item.slot_type === 'selectable'">
-                            <div class="flex items-center gap-1">
-                                <label class="text-[10px] text-gray-500">Group:</label>
-                                <select class="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                            <div class="flex items-center gap-1 flex-shrink-0">
+                                <label class="text-[0.6875rem]" style="color: var(--text-muted);">Group:</label>
+                                <select class="text-xs rounded-md px-2 py-1"
+                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                         x-model.number="item.slot_group">
                                     <option value="1">A</option>
                                     <option value="2">B</option>
@@ -116,22 +136,27 @@
 
                         {{-- Move Up/Down --}}
                         <button type="button" @click="moveUp(index)"
-                                class="text-xs text-blue-500 hover:text-blue-700 disabled:text-slate-300"
+                                class="text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                style="color: var(--brand-icon, #0ea5e9);"
                                 :disabled="index === 0">&#9650;</button>
                         <button type="button" @click="moveDown(index)"
-                                class="text-xs text-blue-500 hover:text-blue-700 disabled:text-slate-300"
+                                class="text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                style="color: var(--brand-icon, #0ea5e9);"
                                 :disabled="index === selectedItems.length - 1">&#9660;</button>
 
                         {{-- Remove --}}
                         <button type="button" @click="removeTemplate(item.id)"
-                                class="text-xs text-red-400 hover:text-red-600">&times;</button>
+                                class="text-sm leading-none transition-colors flex-shrink-0"
+                                style="color: var(--ds-crimson, #c41e3a);"
+                                title="Remove template">&times;</button>
                     </div>
 
                     {{-- Slot label (for selectable) --}}
                     <template x-if="item.slot_type === 'selectable'">
                         <div class="mt-2 pl-9">
                             <input type="text" placeholder="Slot label (e.g. 'Authority Type')..."
-                                   class="text-xs border border-gray-300 rounded px-2 py-1 bg-white w-64"
+                                   class="text-xs rounded-md px-2 py-1 w-64 max-w-full transition-all duration-300"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); outline: none;"
                                    x-model="item.slot_label">
                         </div>
                     </template>
@@ -140,20 +165,16 @@
 
             {{-- Group summary --}}
             <template x-if="hasSelectableGroups">
-                <div class="mt-3 p-3 bg-slate-50 rounded-lg">
-                    <span class="text-[10px] font-semibold text-slate-500 uppercase">Selectable Groups</span>
+                <div class="mt-3 p-3 rounded-md" style="background: var(--surface-2);">
+                    <span class="text-[0.6875rem] font-semibold uppercase" style="color: var(--text-muted);">Selectable Groups</span>
                     <div class="mt-1 space-y-1">
                         <template x-for="g in selectableGroupSummary" :key="g.group">
-                            <div class="text-xs text-slate-600 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full"
-                                      :class="{
-                                          'bg-blue-500': g.group === 1,
-                                          'bg-amber-500': g.group === 2,
-                                          'bg-green-500': g.group === 3,
-                                      }"></span>
+                            <div class="text-xs flex items-center gap-2" style="color: var(--text-secondary);">
+                                <span class="w-2 h-2 rounded-full flex-shrink-0"
+                                      :style="{ background: g.group === 1 ? 'var(--brand-button, #0ea5e9)' : (g.group === 2 ? 'var(--ds-amber, #f59e0b)' : 'var(--ds-green, #059669)') }"></span>
                                 <span>Group <span x-text="['','A','B','C'][g.group]"></span>:</span>
                                 <span x-text="g.names.join(' OR ')"></span>
-                                <span class="text-slate-400" x-text="'(' + g.label + ')'"></span>
+                                <span style="color: var(--text-muted);" x-text="'(' + g.label + ')'"></span>
                             </div>
                         </template>
                     </div>
@@ -173,11 +194,11 @@
 
         {{-- Submit --}}
         <div class="flex items-center gap-3">
-            <button type="submit" class="corex-btn-primary text-sm px-6 py-2"
+            <button type="submit" class="corex-btn-primary text-sm px-6 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     :disabled="selectedItems.length === 0">
                 {{ isset($webPack) ? 'Update Web Pack' : 'Create Web Pack' }}
             </button>
-            <a href="{{ route('docuperfect.web-packs.index') }}" class="text-sm text-slate-500 hover:text-slate-700">Cancel</a>
+            <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-btn-outline text-sm">Cancel</a>
         </div>
     </form>
 </div>

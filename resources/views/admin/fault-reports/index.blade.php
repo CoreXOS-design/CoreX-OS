@@ -1,5 +1,8 @@
-<x-app-layout>
-    <div class="max-w-7xl mx-auto p-4 lg:p-6 space-y-6" x-data="faultReports()">
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex')
+
+@section('corex-content')
+<div class="w-full space-y-5" x-data="faultReports()">
         {{-- Page header (Pattern A — branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -320,4 +323,4 @@
         };
     }
     </script>
-</x-app-layout>
+@endsection

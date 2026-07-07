@@ -107,15 +107,15 @@
                 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);" data-tour="comp-seller-info-tier">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Which Issue?</h3>
                     <div class="space-y-2">
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_1' ? 'background:color-mix(in srgb, var(--brand-default) 6%, transparent); border:1px solid var(--brand-default)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_1' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_1" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">No mandate / FICA / MDF signed</span><br><span class="text-xs" style="color:var(--text-muted);">Covers mandate, FICA verification, MDF, court cases, risks</span></span>
                         </label>
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_2' ? 'background:color-mix(in srgb, var(--brand-default) 6%, transparent); border:1px solid var(--brand-default)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_2' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_2" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Agent has no FFC displayed</span><br><span class="text-xs" style="color:var(--text-muted);">Focuses on how to verify an agent's credentials</span></span>
                         </label>
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_3' ? 'background:color-mix(in srgb, var(--brand-default) 6%, transparent); border:1px solid var(--brand-default)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_3' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_3" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Agent appears unregistered</span><br><span class="text-xs" style="color:var(--text-muted);">Serious advisory tone — may be operating illegally</span></span>
                         </label>
@@ -197,7 +197,7 @@
             <button type="submit" :disabled="sending || enabledRecipients.length === 0" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                 <span x-text="sending ? 'Sending...' : ('Send to ' + enabledRecipients.length + ' recipient' + (enabledRecipients.length !== 1 ? 's' : ''))"></span>
             </button>
-            <button type="button" @click="copyWhatsappLink()" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-colors" style="background:#25D366;">
+            <button type="button" @click="copyWhatsappLink()" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-colors" style="background:var(--whatsapp-green, #25D366);">
                 <span x-text="linkCopied ? 'Link Copied!' : 'Copy WhatsApp Link'"></span>
             </button>
         </div>
@@ -212,7 +212,7 @@
                 <h3 class="text-lg font-semibold" style="color:var(--text-primary);">Email Preview</h3>
                 <button type="button" @click="previewing = false" class="corex-btn-outline text-xs">Close</button>
             </div>
-            <iframe :srcdoc="previewHtml" sandbox class="w-full" style="height:70vh; border:none; background:#fff;"></iframe>
+            <iframe :srcdoc="previewHtml" sandbox class="w-full" style="height:70vh; border:none; background:var(--email-canvas, #fff);"></iframe>
         </div>
     </div>
     </template>

@@ -20,7 +20,7 @@
         'match_score' => data_get($mp, 'match_score'),
     ])->filter(fn ($p) => $p['id'] !== null)->values();
 @endphp
-<div class="space-y-4"
+<div class="w-full space-y-5"
      x-data="{
         activeTab: '{{ $tab }}',
         wishlistDrawerOpen: false,
@@ -101,7 +101,7 @@
                         <span class="ds-badge {{ $stateBadgeVariant }}">{{ ucfirst($buyer->buyer_state ?? 'New') }}</span>
                         @unless($buyer->hasCountableWishlist())
                             <span class="ds-badge ds-badge-warning"
-                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
                         @endunless
                         <span class="text-xs text-white/60">Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</span>
                         <span class="text-xs text-white/60">· Last activity {{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</span>
@@ -109,25 +109,23 @@
                     </div>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <button type="button" @click="showViewingPicker = true" class="corex-btn-primary">Schedule Viewing</button>
                 {{-- AT-XX Viewing Pack — entry point. Creates a draft pack for this buyer and opens its workspace. --}}
                 <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline">
                     @csrf
                     <input type="hidden" name="contact_id" value="{{ $buyer->id }}">
-                    <button type="submit" class="corex-btn-primary">Build Viewing Pack</button>
+                    <button type="submit" class="corex-btn-outline corex-btn-on-brand">Build Viewing Pack</button>
                 </form>
-                <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline no-underline">Contact Record</a>
+                <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline corex-btn-on-brand no-underline">Contact Record</a>
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
-                        class="corex-btn-outline"
-                        style="border-color: color-mix(in srgb, var(--ds-crimson, #c41e3a) 40%, transparent); color: var(--ds-crimson, #c41e3a);">
+                        class="corex-btn-outline corex-btn-on-brand">
                     Mark Lost
                 </button>
                 @else
                 <button type="button" x-data x-on:click="$refs.reengageModal.showModal()"
-                        class="corex-btn-outline"
-                        style="border-color: color-mix(in srgb, var(--ds-green, #059669) 40%, transparent); color: var(--ds-green, #059669);">
+                        class="corex-btn-outline corex-btn-on-brand">
                     Re-engage Buyer
                 </button>
                 @endif
