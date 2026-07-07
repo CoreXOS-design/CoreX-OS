@@ -172,6 +172,16 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24StatsJob())
     ->withoutOverlapping()
     ->name('p24-stats-pull');
 
+// Private Property per-listing engagement snapshot (ListingPerformanceStats →
+// property_portal_metrics, portal='pp'). Runs 04:30 — after the P24 stats pull so
+// the two never contend. DORMANT by default: only agencies with pp_stats_pull_enabled
+// are snapshotted (gate in PpStatsService). PP gives no backfill, so the series
+// accumulates from switch-on. Failure-contained; never touches the P24 pull. AT-201.
+Schedule::job(new \App\Jobs\PrivateProperty\PullPpStatsJob())
+    ->dailyAt('04:30')
+    ->withoutOverlapping()
+    ->name('pp-stats-pull');
+
 // ── Command Center ──
 
 // Process calendar/task reminders — runs EVERY MINUTE (AT-178). Per-minute ticks

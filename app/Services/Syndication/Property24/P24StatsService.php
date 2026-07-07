@@ -122,7 +122,16 @@ class P24StatsService
         // ATTEMPT time (stamped below for every poll, data or not) — rather than the
         // metric row's synced_at — guarantees rotation advances even for listings P24
         // returns no views for, which would otherwise sort first forever.
+        // ACTIVE STOCK ONLY (Johan's scope ruling): on-market listings that are
+        // actively syndicated to P24. scopeOnMarket() is the codebase's single
+        // source of truth (status NOT IN OFF_MARKET_STATUSES) — this drops the
+        // ~4,300 withdrawn/expired/sold listings that carried a stale 'active'
+        // syndication flag but accrue no new views. A property leaving active stock
+        // simply stops being polled (its history stays, frozen); one entering starts
+        // that night. At this scale (~190 listings) the whole set is covered every
+        // night — the cap below is now just a safety ceiling, not a rotation cursor.
         $query = Property::withoutGlobalScopes()
+            ->onMarket()
             ->whereNotNull('p24_ref')
             ->where('p24_ref', '!=', '')
             ->whereRaw('LOWER(p24_syndication_status) = ?', ['active'])

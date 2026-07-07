@@ -240,6 +240,25 @@ class PrivatePropertySoapClient
     }
 
     /**
+     * Pull per-listing engagement STATS for one date.
+     * WSDL: ListingPerformanceStats { ArrayOfString PropertyRefs, dateTime Date, SecurityToken Token }
+     *   → ArrayOfListingPerformanceStatsOnDate (Date, Messages, TelLeads, Views,
+     *     Alerts, PropertyRef).
+     *
+     * $propertyRefs is optional — pass a batch of PP refs to scope the response.
+     * Read-only reporting call; a SOAP fault returns the client's {error:true}
+     * envelope so PpStatsService skips cleanly. AT-201.
+     */
+    public function listingPerformanceStats(array $propertyRefs, string $date): array
+    {
+        return $this->call('ListingPerformanceStats', [
+            'PropertyRefs' => ['string' => array_values($propertyRefs)],
+            'Date'         => $date,
+            'Token'        => $this->buildToken(),
+        ]);
+    }
+
+    /**
      * Get PP reference number by listing.
      * WSDL: GetReferenceNumberByListing { guid BranchId, string UniqueListingID, ListingType listingType, SecurityToken Token }
      */
