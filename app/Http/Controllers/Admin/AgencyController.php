@@ -221,6 +221,7 @@ class AgencyController extends Controller
             'p24_http_read_timeout' => 'nullable|integer|min:30|max:600',
             'pp_enabled'       => 'nullable|boolean',
             'pp_lead_pull_enabled' => 'nullable|boolean',
+            'pp_stats_pull_enabled' => 'nullable|boolean',
             'pp_username'      => 'nullable|string|max:191',
             'pp_password'      => 'nullable|string|max:191',
             'pp_branch_guid'   => 'nullable|string|max:64',
@@ -246,6 +247,7 @@ class AgencyController extends Controller
         $data['ai_image_recognition_enabled']  = $aiEnabled;
         $data['pp_enabled']      = (bool) ($data['pp_enabled'] ?? false);
         $data['pp_lead_pull_enabled'] = (bool) ($data['pp_lead_pull_enabled'] ?? false);
+        $data['pp_stats_pull_enabled'] = (bool) ($data['pp_stats_pull_enabled'] ?? false);
         $data['pp_sandbox']      = (bool) ($data['pp_sandbox'] ?? false);
 
         // Don't overwrite stored password with empty string when user leaves the
