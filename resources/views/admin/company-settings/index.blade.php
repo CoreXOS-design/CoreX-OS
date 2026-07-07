@@ -111,7 +111,7 @@
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 2023116041">
-                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">The agency's per-entity registration with the Property Practitioners Regulatory Authority (separate from individual practitioner FFCs).</p>
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">The agency's per-entity registration with the Property Practitioners Regulatory Authority (separate from individual practitioner FFCs).</p>
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FFC No</label>
@@ -158,7 +158,7 @@
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 079 495 5994 or info@hfcoastal.co.za">
-                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">The contact shown to sellers in outreach messages via the <code>{agency_contact}</code> merge field — the number or address you want them to reply to or call.</p>
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">The contact shown to sellers in outreach messages via the <code>{agency_contact}</code> merge field — the number or address you want them to reply to or call.</p>
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Secondary Cell Number</label>
@@ -243,7 +243,7 @@
                                   class="w-full rounded-md px-3 py-2 text-sm"
                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                   placeholder="# Privacy Policy&#10;&#10;Effective date: …">{{ old('privacy_policy_markdown', $agency->privacy_policy_markdown) }}</textarea>
-                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">Markdown supported. Will be rendered on a public page accessible to anyone with the link.</p>
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">Markdown supported. Will be rendered on a public page accessible to anyone with the link.</p>
                     </div>
 
                     @php
@@ -276,7 +276,7 @@
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. https://coastalcrest.example/popi-policy">
-                        <p class="text-[10px] mt-1" style="color:var(--text-muted);">If you host your privacy policy externally and prefer to use that URL instead of CoreX's internal hosting, paste the full URL here. CoreX's internal published version takes precedence when both are set.</p>
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">If you host your privacy policy externally and prefer to use that URL instead of CoreX's internal hosting, paste the full URL here. CoreX's internal published version takes precedence when both are set.</p>
                     </div>
                 </div>
 
@@ -876,7 +876,7 @@
                     <textarea name="website_address" rows="2" maxlength="500"
                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                               placeholder="e.g. 12 Marina Drive, Seabreeze Bay, 4275">{{ old('website_address', $agency->website_address) }}</textarea>
-                    <p class="text-[10px] mt-1" style="color:var(--text-muted);">Leave blank to use the company address from the Company tab.</p>
+                    <p class="text-[11px] mt-1" style="color:var(--text-muted);">Leave blank to use the company address from the Company tab.</p>
                 </div>
 
                 {{-- Open hours — a repeatable list of day-range / hours rows the
@@ -889,7 +889,7 @@
                 @endphp
                 <div x-data="{ hours: {{ \Illuminate\Support\Js::from($openHoursInitial) }} }">
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Open hours</label>
-                    <p class="text-[10px] mb-2" style="color:var(--text-muted);">Add a row per day range (e.g. weekdays, Saturday, public holidays). Leave the list empty to hide opening hours on the website.</p>
+                    <p class="text-[11px] mb-2" style="color:var(--text-muted);">Add a row per day range (e.g. weekdays, Saturday, public holidays). Leave the list empty to hide opening hours on the website.</p>
 
                     <div class="space-y-2">
                         <template x-for="(row, i) in hours" :key="i">
@@ -1100,7 +1100,7 @@
                                         <span class="text-xs" style="color:var(--ds-amber, #f59e0b);">{{ str_repeat('★', (int) $t->rating) }}</span>
                                     @endif
                                     @if($t->published)
-                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
+                                        <span class="text-[11px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">On website</span>
                                     @endif
                                 </div>
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-show="!open">{{ \Illuminate\Support\Str::limit($t->body, 110) }}</div>

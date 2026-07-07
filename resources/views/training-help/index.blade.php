@@ -46,19 +46,20 @@
     {{-- Filters --}}
     <div class="flex flex-wrap gap-2" data-tour="train-help-filters">
         @php $filters = [
-            'all' => 'All',
-            'for-me' => 'For Me',
-            'admin' => 'Admin',
-            'branch_manager' => 'BM',
-            'agent' => 'Agent',
-            'compliance_officer' => 'CO',
-            'super_admin' => 'Owner',
+            'all'                => ['label' => 'All',    'title' => 'Show every training guide'],
+            'for-me'             => ['label' => 'For Me', 'title' => 'Guides written for your role'],
+            'admin'              => ['label' => 'Admin',  'title' => 'Guides for Administrators'],
+            'branch_manager'     => ['label' => 'Branch Manager', 'title' => 'Guides for Branch Managers'],
+            'agent'              => ['label' => 'Agent',  'title' => 'Guides for Agents'],
+            'compliance_officer' => ['label' => 'Compliance Officer', 'title' => 'Guides for Compliance Officers'],
+            'super_admin'        => ['label' => 'Owner',  'title' => 'Guides for Agency Owners'],
         ]; @endphp
-        @foreach($filters as $key => $label)
+        @foreach($filters as $key => $meta)
             <a href="{{ route('training-help.index', ['filter' => $key]) }}"
-               class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+               title="{{ $meta['title'] }}"
+               class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap"
                style="{{ $filter === $key ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);' }}">
-                {{ $label }}
+                {{ $meta['label'] }}
             </a>
         @endforeach
     </div>

@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -9,7 +10,10 @@
 
 <style>
   /* ELLIE_CHATGPT_UI_2026 — design-system aligned */
-  .ellie-app { height: calc(100vh - 180px); min-height: 400px; display: flex; flex-direction: column; }
+  /* Fill the available page height via flexbox rather than a fixed viewport
+     calc — the outer app shell (corex-app) is a definite-height flex column,
+     so the pane adapts automatically to the env banner and any breakpoint. */
+  .ellie-app { min-height: 400px; height: 78vh; display: flex; flex-direction: column; }
   .ellie-row { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 320px 1fr; gap: 1rem; overflow: hidden; }
 
   .ellie-pane { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
@@ -46,15 +50,23 @@
 
   .ellie-empty { padding: 1.25rem; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; }
 
-  @media (max-width: 980px) {
-    .ellie-row { grid-template-columns: 1fr; }
+  /* Desktop (lg+): the wrapper is full-height (lg:h-full), so let the app
+     fill the space left by the branded header instead of a fixed vh. */
+  @media (min-width: 1024px) {
+    .ellie-app { flex: 1 1 auto; height: auto; min-height: 0; }
+  }
+
+  /* Below lg: sidebar/list stacks above the chat and the page scrolls. */
+  @media (max-width: 1023px) {
+    .ellie-row { grid-template-columns: 1fr; overflow: visible; }
+    .ellie-row > .ellie-pane:first-child { max-height: 300px; }
   }
 </style>
 
-<div class="space-y-4">
+<div class="w-full flex flex-col gap-5 lg:h-full">
 
   {{-- Page header (Pattern A — branded) --}}
-  <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+  <div class="rounded-md px-6 py-5 flex-shrink-0" style="background: var(--brand-default, #0b2a4a);">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div class="flex items-center gap-3">
         <img src="/images/ellie-32-circle.png" alt="Ellie" class="w-9 h-9 rounded-full">
@@ -63,7 +75,7 @@
           <p class="text-sm text-white/60">Logged in as {{ auth()->user()->name }}</p>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         @include('layouts.partials.tour-header-launcher')
         @if($archived)
           <a href="/ellie" class="corex-btn-outline">Hide Archived</a>

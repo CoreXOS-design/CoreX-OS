@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -16,7 +17,7 @@
         cancelEdit() {
             this.editingId = null;
         }
-    }" class="space-y-6">
+    }" class="w-full space-y-5">
 
         {{-- Page header (Pattern A — branded) --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -29,7 +30,7 @@
                     <button type="button"
                             @click="adding = !adding; editingId = null"
                             class="corex-btn-primary"
-                            x-text="adding ? 'Cancel' : '+ Add Month'"></button>
+                            x-text="adding ? 'Cancel' : '+ Add Month'">+ Add Month</button>
                 </div>
             </div>
         </div>
@@ -110,9 +111,7 @@
                         @forelse($records as $record)
                             {{-- Display row --}}
                             <tr x-show="editingId !== {{ $record->id }}"
-                                class="transition-colors"
-                                style="border-top: 1px solid var(--border);"
-                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                                style="border-top: 1px solid var(--border);">
                                 <td class="px-4 py-3" style="color: var(--text-primary);">{{ $record->interest_date->format('d M Y') }}</td>
                                 <td class="px-4 py-3 text-right font-mono" style="color: var(--text-primary);">R {{ number_format($record->total_invested_funds, 2) }}</td>
                                 <td class="px-4 py-3 text-right font-mono" style="color: var(--text-primary);">R {{ number_format($record->interest_earned, 2) }}</td>
@@ -183,7 +182,8 @@
                                         </svg>
                                     </div>
                                     <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No trust interest records yet</h3>
-                                    <p class="text-sm" style="color: var(--text-muted);">Add the first month to start the register.</p>
+                                    <p class="text-sm mb-4" style="color: var(--text-muted);">Add the first month to start the register.</p>
+                                    <button type="button" @click="adding = true; editingId = null" class="corex-btn-primary">+ Add Month</button>
                                 </td>
                             </tr>
                         @endforelse
