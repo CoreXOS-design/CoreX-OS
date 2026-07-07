@@ -1677,79 +1677,12 @@ class MarketIntelligenceController extends Controller
         ?int $viewerId,
         SuggestedActionThresholds $thresholds,
     ) {
-        if (!$preset) {
-            return $query;
-        }
-
-        $strongMin = (int) $thresholds->high_value_strong_min;
-
-        switch ($preset) {
-            case 'pitch_now_high':
-                return $query->whereDoesntHave('activeClaim')
-                    ->whereIn('id', DB::table('prospecting_buyer_matches')
-                        ->where('agency_id', $agencyId)
-                        ->whereNull('dismissed_at')
-                        ->where('score', '>=', 80)
-                        ->groupBy('prospecting_listing_id')
-                        ->havingRaw('COUNT(*) >= ?', [$strongMin])
-                        ->select('prospecting_listing_id'));
-
-            case 'pitch_now':
-                return $query->whereDoesntHave('activeClaim')
-                    ->whereIn('id', DB::table('prospecting_buyer_matches')
-                        ->where('agency_id', $agencyId)
-                        ->whereNull('dismissed_at')
-                        ->where('score', '>=', 80)
-                        ->groupBy('prospecting_listing_id')
-                        ->havingRaw('COUNT(*) >= 1 AND COUNT(*) < ?', [$strongMin])
-                        ->select('prospecting_listing_id'));
-
-            case 'log_outcomes':
-                if ($viewerId === null) return $query->whereRaw('1 = 0');
-                $stale = now()->subDays($thresholds->outcome_stale_days);
-                $overdue = now()->subDays($thresholds->outcome_overdue_days);
-                return $query->whereIn('matched_property_id', DB::table('seller_outreach_sends')
-                    ->where('agency_id', $agencyId)
-                    ->where('agent_id', $viewerId)
-                    ->whereNull('deleted_at')
-                    ->where(function ($q) {
-                        $q->whereNull('outcome')->orWhere('outcome', 'sent');
-                    })
-                    ->whereBetween('sent_at', [$stale, $overdue])
-                    ->select('property_id'));
-
-            case 'my_claims':
-                if ($viewerId === null) return $query->whereRaw('1 = 0');
-                return $query->whereHas('activeClaim', fn ($q) => $q->where('user_id', $viewerId));
-
-            case 'expiring':
-                if ($viewerId === null) return $query->whereRaw('1 = 0');
-                // hours_left < expiry_warning_hours means the claim's
-                // last_updated_at + 48h is less than now + warning hours,
-                // i.e. last_updated_at is older than (now - (48 - warning)).
-                $hoursOlderThan = 48 - (int) $thresholds->expiry_warning_hours;
-                return $query->whereHas('activeClaim', function ($q) use ($viewerId, $hoursOlderThan) {
-                    $q->where('user_id', $viewerId)
-                      ->whereNull('feedback_at')
-                      ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan));
-                });
-
-            case 'new_today':
-                // Listings first seen within the agency's configured lookback
-                // window (suggested_action_thresholds.new_listing_lookback_days,
-                // default 1 day ≈ today). Window is a rolling N-day cutoff;
-                // agencies can widen via settings. max(1, ...) guards against
-                // a 0 value rendering an empty page if an admin saves blank.
-                $lookbackDays = max(1, (int) $thresholds->new_listing_lookback_days);
-                return $query->where('first_seen_at', '>=', now()->subDays($lookbackDays));
-        }
-
-        // Unknown preset: log + return unfiltered. See method doc-block above.
-        \Illuminate\Support\Facades\Log::warning(
-            'MarketIntelligenceController::applyActionPreset received unknown preset',
-            ['preset' => $preset, 'agency_id' => $agencyId, 'viewer_id' => $viewerId],
-        );
-        return $query;
+        // Single source of truth (F.2): the preset logic lives in
+        // ProspectingActionPresetService so the Work-tab list and the "This Week"
+        // hero tiles count from ONE implementation — a tile can never advertise a
+        // number that its link doesn't land on (2026-07-07 fix).
+        return app(\App\Services\Prospecting\ProspectingActionPresetService::class)
+            ->applyPreset($query, $preset, $agencyId, $viewerId, $thresholds);
     }
 
     /**
