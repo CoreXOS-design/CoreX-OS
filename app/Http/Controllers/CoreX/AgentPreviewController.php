@@ -113,9 +113,12 @@ class AgentPreviewController extends Controller
         $listings = Property::query()
             ->where('agent_id', $user->id)
             ->whereIn('status', ['active', 'pending', 'under_offer', 'sold'])
+            // Active stock first, then under-offer, then sold. The view reveals
+            // these 20 at a time (client-side) under All/Active/Sold/Exclusive
+            // filter tabs, so lift the cap to cover heavy agents.
             ->orderByRaw("FIELD(status, 'active', 'pending', 'under_offer', 'sold')")
             ->latest('published_at')
-            ->limit(60)
+            ->limit(120)
             ->get();
 
         $testimonials = ContactTestimonial::query()
