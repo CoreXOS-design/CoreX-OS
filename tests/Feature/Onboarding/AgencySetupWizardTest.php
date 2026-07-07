@@ -305,4 +305,48 @@ class AgencySetupWizardTest extends TestCase
 
         Event::assertNotDispatched(AgencyCreated::class);
     }
+
+    // ── Backfill for pre-existing agencies ───────────────────────────────────
+
+    public function test_backfill_creates_records_for_existing_live_agencies_only(): void
+    {
+        Mail::fake();
+        $live  = $this->agency('Established Realty');
+        $admin = $this->admin($live);
+        $demo  = Agency::create(['name' => 'Demo Co', 'slug' => 'demo-co', 'is_demo' => true]);
+
+        $this->artisan('agency:backfill-onboarding-setups')->assertSuccessful();
+
+        // Live agency gets a record linked to its admin; demo does not.
+        $setup = AgencyOnboardingSetup::withoutGlobalScopes()->where('agency_id', $live->id)->first();
+        $this->assertNotNull($setup);
+        $this->assertSame($admin->id, $setup->admin_user_id);
+        $this->assertSame(0, AgencyOnboardingSetup::withoutGlobalScopes()->where('agency_id', $demo->id)->count());
+
+        // No email on the default (deploy) path — existing agencies aren't blasted.
+        Mail::assertNothingSent();
+    }
+
+    public function test_backfill_is_idempotent(): void
+    {
+        Mail::fake();
+        $live = $this->agency('Established Realty');
+        $this->admin($live);
+
+        $this->artisan('agency:backfill-onboarding-setups')->assertSuccessful();
+        $this->artisan('agency:backfill-onboarding-setups')->assertSuccessful();
+
+        $this->assertSame(1, AgencyOnboardingSetup::withoutGlobalScopes()->where('agency_id', $live->id)->count());
+    }
+
+    public function test_backfill_emails_only_with_flag(): void
+    {
+        Mail::fake();
+        $live = $this->agency('Established Realty');
+        $this->admin($live);
+
+        $this->artisan('agency:backfill-onboarding-setups', ['--email' => true])->assertSuccessful();
+
+        Mail::assertSent(AgencyOnboardingSetupMail::class, 1);
+    }
 }

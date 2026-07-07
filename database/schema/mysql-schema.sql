@@ -13023,3 +13023,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (950,'2026_07_23_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (951,'2026_07_23_000004_add_compiled_serving_to_docuperfect_templates',162);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (952,'2026_07_24_000001_dr2_twin_backfill_relax_and_marker',162);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (953,'2026_07_07_000001_create_agency_onboarding_setups_table',163);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (954,'2026_07_07_000002_backfill_agency_onboarding_setups',164);

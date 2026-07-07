@@ -184,9 +184,16 @@ Helper methods mirrored from P24: `generateToken()`, `generateSlug()`, `urlKey()
 `isActive()`, `statusLabel()`, `publicUrl()` (→ `url('/agency-setup/'.$this->urlKey())`),
 plus `progressPercent()` (= `count(completed_steps) / TOTAL_STEPS * 100`).
 
-**Backfill:** none required — new table. No GLOBAL reference rows, so nothing to carry in
-`deploy:sync-reference-data`. New migration ⇒ `php artisan schema:dump` + commit snapshot
-(#12a).
+**Backfill (existing agencies):** agencies created BEFORE this feature never fired
+`AgencyCreated`, so they have no setup record — they'd be invisible on the owner tracking
+board and their admins would never see the nudge. A **data migration**
+(`2026_07_07_000002_backfill_agency_onboarding_setups`) delegates to an idempotent command
+`agency:backfill-onboarding-setups` that creates a record for every existing **live**
+(non-demo) agency lacking one, linking each to its Admin. It runs on deploy via
+`migrate --force` (so the backfill travels to every environment — BUILD_STANDARD §8) and is
+safe to re-run. **No email by default** (existing agencies are already operating — a blast
+would be wrong; `--email` sends deliberately). New migration ⇒ `php artisan schema:dump` +
+commit snapshot (#12a).
 
 ### 4.2 No changes to existing settings tables
 The wizard writes to the **existing** backing stores only (§6). No new settings columns.
@@ -396,6 +403,8 @@ Real-world data (real SA agency name/address, real commission %) per BUILD_STAND
 
 **Create**
 - `database/migrations/xxxx_create_agency_onboarding_setups_table.php`
+- `database/migrations/xxxx_backfill_agency_onboarding_setups.php` (runs the backfill on deploy)
+- `app/Console/Commands/BackfillAgencyOnboardingSetups.php` (idempotent existing-agency backfill)
 - `app/Models/AgencyOnboardingSetup.php`
 - `app/Events/AgencyCreated.php`
 - `app/Listeners/Onboarding/CreateAgencySetupPortal.php`
