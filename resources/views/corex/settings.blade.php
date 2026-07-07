@@ -15,6 +15,33 @@
         </div>
     </div>
 
+    {{-- Agency setup nudge — shown to admins whose guided setup is incomplete.
+         Reuses the wizard the emailed link drops into. Spec: agency-onboarding-setup.md §7 --}}
+    @if(auth()->user()?->hasPermission('agency_setup.run'))
+        @php $agencySetup = \App\Models\AgencyOnboardingSetup::orderByDesc('id')->first(); @endphp
+        @if($agencySetup && !$agencySetup->isComplete())
+            <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                 style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent);">
+                <div class="text-sm" style="color: var(--text-primary);">
+                    <span class="font-semibold">Finish setting up your agency</span>
+                    <span style="color: var(--text-muted);">— {{ $agencySetup->progressPercent() }}% complete. We'll walk you through the key settings in plain English.</span>
+                </div>
+                <a href="{{ route('corex.agency-setup.index') }}"
+                   class="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-semibold no-underline whitespace-nowrap"
+                   style="background: var(--brand-button,#0ea5e9); color:#fff;">
+                    Continue setup →
+                </a>
+            </div>
+        @elseif($agencySetup)
+            <div class="text-right">
+                <a href="{{ route('corex.agency-setup.index') }}"
+                   class="text-sm font-medium no-underline" style="color: var(--brand-icon,#0ea5e9);">
+                    Re-open setup guide
+                </a>
+            </div>
+        @endif
+    @endif
+
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
@@ -56,6 +83,9 @@
                 'label' => 'Agency',
                 'items' => array_values(array_filter([
                     ['key'=>'agency',                'label'=>'Agency Settings',       'type'=>'section', 'keywords'=>'company branding logo signature'],
+                    ($u && $u->hasPermission('agency_setup.run'))
+                        ? ['key'=>'agency-setup', 'label'=>'Setup Guide', 'type'=>'link', 'href'=>route('corex.agency-setup.index'), 'keywords'=>'onboarding wizard guided introduction getting started']
+                        : null,
                     ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
                     ($u && $u->hasPermission('agency.manage_access_authorization'))
                         ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
