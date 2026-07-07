@@ -574,15 +574,26 @@ default → default_view stays month).
 
 ## 17.1 The incident (root cause)
 Kym Pollard (and, it turned out, **all 22 HFC agents**) reported empty calendars. No data was
-lost — every event was present. At **05:10 on 2026-07-07** all **48** of agency 1's
-`calendar_event_class_settings` rows were toggled `is_active = 0` in a one-second batch (a
-manual/console operation — there is no scheduler job at that time and no bulk UI route; the
-settings page toggles one class at a time). Agency 1 is the ONLY agency with agency-specific
-override rows; every other agency uses the (still-active) globals — which is why only HFC was
-hit. `CalendarThresholdResolver::resolveForEvent()` returned **null** for an inactive class, and
-`CalendarController::applyFilters()` + `CalendarTileService` **drop every null-colour event** →
-the whole book vanished from every HFC calendar. `forAgencyAndClass()` returns the agency row
-when one exists (even inactive), so the dead overrides shadowed the healthy globals.
+lost — every event was present. **Cause (identified 2026-07-07): the AT-197 Part A "turn-off".**
+A developer/agent session deliberately turned OFF all 49 event classes for agency 1 (HFC) via the
+settings screen's own mechanism — an agency-1 override row per class (`updateOrCreate` on
+`agency_id`+`event_class`, a faithful copy of the global with `is_active=false`; 48 rows, the
+duplicate `manual` collapses). It was a documented, planned operation "for the midweek setup
+session" with a captured restoration baseline (`.ai/audits/2026-07-06-event-classes-snapshot.md`).
+The two timestamps (rows created 18:19 on 07-06, updated 05:10 on 07-07) are its two passes — the
+first pass 500'd on a JSON-cast bug (copied `getAttributes()` raw strings into array-cast columns)
+and was re-run from the model's cast accessors; that re-run is the 05:10 stamp. Agency 1 is the
+ONLY agency with override rows; every other agency uses the (still-active) globals — which is why
+only HFC was hit.
+
+**Why a documented "turn-off" blanked every calendar — the impact-statement gap.** AT-197's own
+impact statement assumed an inactive class would leave events *"materialised but inert"* (still
+visible, no RAG/notifications) and that *"agents keep working the calendar normally."* The real
+code did NOT behave that way: `CalendarThresholdResolver::resolveForEvent()` returned **null** for
+an inactive class, and `CalendarController::applyFilters()` + `CalendarTileService` **drop every
+null-colour event** → the whole book vanished. `forAgencyAndClass()` returns the agency row when
+one exists (even inactive), so the dead overrides shadowed the healthy globals. The fix below
+makes reality match the impact statement: inactive = inert-but-visible, never erased.
 
 ## 17.2 The rule
 A class-config *state* must NEVER erase an event already on the calendar. Deactivating a class
@@ -605,13 +616,17 @@ all (an inactive override would always be overridden by the active global). Neut
 correct expression of the intent — deactivation is non-destructive, not non-existent.
 
 ## 17.4 Data remediation (live)
-Agency 1's 48 override rows were reactivated to restore RAG immediately. Because 47/48 were
-byte-identical copies of the globals (only `manual` differed, in notification routing) they carry
-no real customization and are a maintenance trap (they shadow future global threshold/visibility
-changes). They are reset to the global default via the sanctioned `resetEventClass` semantics
+Agency 1's 48 override rows were reactivated to restore RAG immediately, then reset to the global
+default (the audit's own prescribed restore: delete the agency-1 overrides → inherit globals).
+They are faithful copies of the globals — carry no real customization and are a maintenance trap
+(they shadow future global threshold/visibility changes). The one apparent `manual` "difference"
+was a false positive: `[]` (empty array) vs `{}` (empty object) in the notification columns — a
+`json_encode` artifact, not a customization. Reset via the sanctioned `resetEventClass` semantics
 (hard delete of the thin override layer — these config rows are not SoftDeletes-protected
-records), backed up to `storage/` first. The `manual` row's notification diff is preserved in the
-backup for re-apply if it was intentional. After removal HFC tracks the active globals.
+records), backed up to `storage/app/hfc-class-settings-backup-2026-07-07.json` first. After
+removal HFC tracks the active globals. NOTE: the turn-off was AT-197's deliberate setup-session
+prep; if that setup still needs HFC's classes quieted it can now be re-done safely (§17.2 keeps
+events visible) — coordinate with the AT-197 owner before re-applying.
 
 ## 17.5 Tests
 `tests/Feature/CommandCenter/InactiveClassStillRendersTest.php`: active class → RAG; inactive
