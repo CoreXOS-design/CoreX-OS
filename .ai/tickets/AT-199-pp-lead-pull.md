@@ -1,7 +1,8 @@
-# AT-192 — Private Property buyer-lead pull (P24-parity intake)
+# AT-199 — Private Property buyer-lead pull (P24-parity intake)
 
-> ⚠️ Ticket number **AT-192 is tentative** — AT-197/AT-198 are already in flight, so 192 may collide with an archived ticket. Johan to confirm/reassign.
+> Jira: https://corexos.atlassian.net/browse/AT-199 (project AT · Task · To Do).
 > Status: **BUILT · staging-verified (our-side) · DORMANT · not on live.** Date: 2026-07-07. Branch: `AT-pp-leads`.
+> (Was tentatively AT-192; that number is taken by the Elize branch-attribution work — renumbered to the real Jira issue AT-199.)
 
 ## What
 Pull Private Property buyer enquiries into `portal_leads`, exactly parallel to the P24 lead pull — the clean API path from `.ai/audits/pp-lead-capture-parity-2026-07-06.md`. Uses the already-wired PP SOAP client's new `ListingLeadDetailsFeed` operation. Dormant behind a per-agency toggle (default OFF); activation is a one-click admin setting with an inherent kill-switch.
