@@ -1128,10 +1128,19 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     --ds-amber:   #f59e0b;
     --ds-orange:  #ea580c;
     --ds-green:   #059669;
+    --ds-red:     #dc2626;
+    --ds-blue:    #2563eb;
+    --ds-emerald: #10b981;
+    --ds-teal:    #14b8a6;
+    --ds-purple:  #7c3aed;
     --ds-label:   #64748b;
     --ds-value:   #0f172a;
     --ds-border:  #e2e8f0;
     --ds-track:   #e2e8f0;
+    /* Text aliases — resolve to the theme-aware value/label tokens so they
+       stay correct in both light (:root) and dark (html.dark) contexts. */
+    --ds-text:       var(--ds-value);
+    --ds-text-muted: var(--ds-label);
 }
 
 /* Section Headers */
@@ -1351,6 +1360,7 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 .ds-badge-paid       { background: var(--ds-green); color: #fff; }
 .ds-badge-notpaid    { background: var(--ds-amber); color: #fff; }
 .ds-badge-loss       { background: var(--ds-crimson); color: #fff; }
+.ds-badge-muted      { background: #e5e7eb; color: #6b7280; }
 
 /* Money card accents (colored left border, white bg) */
 .ds-money-pending   { border-left-color: var(--ds-amber); }
@@ -2528,6 +2538,7 @@ html.dark .corex-icon-moon { display: none; }
 
 /* Badge defaults (light gray bg → dark surface in dark mode) */
 html.dark .ds-badge-default { background: var(--surface-2); color: var(--text-secondary); }
+html.dark .ds-badge-muted { background: var(--surface-2); color: var(--text-secondary); }
 html.dark .corex-badge-blue { background: rgba(79,124,255,0.15); color: #7fa8ff; }
 
 /* Inputs & selects inside hfc-card and agency-tracker-sidebar */

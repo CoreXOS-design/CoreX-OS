@@ -62,11 +62,15 @@ class PpFeatureAttributesTest extends TestCase
         $this->assertSame('Yes', $attrs['Garden'] ?? null);
         $this->assertSame('Yes', $attrs['Patio'] ?? null);
 
-        // Room counts from spaces.
+        // Room counts from spaces (PP Appendix A integer-typed attributes).
         $this->assertSame('1', $attrs['Lounges'] ?? null);
         $this->assertSame('1', $attrs['DiningAreas'] ?? null);
-        $this->assertSame('1', $attrs['Kitchen'] ?? null);
         $this->assertSame('1', $attrs['Parking'] ?? null);
+
+        // Kitchen is a PRESENCE flag in PP Appendix A (boolean "Yes"), not an
+        // integer count — verified against the 2026-07-05 live read-back. A
+        // single Kitchen space surfaces as the Yes flag, not the count 1.
+        $this->assertSame('Yes', $attrs['Kitchen'] ?? null);
 
         // Structural attributes still present (no regression).
         $this->assertSame('3', $attrs['Bedrooms'] ?? null);
