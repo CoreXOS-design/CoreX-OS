@@ -28,11 +28,7 @@
     </div>
 
     {{-- Report navigation tabs --}}
-    <div class="flex gap-1" style="border-bottom:1px solid var(--border);">
-        <a href="{{ route('payroll.leave.reports.register') }}" class="px-3 py-1.5 text-xs font-semibold" style="border-bottom:2px solid var(--brand-icon, #0ea5e9); color:var(--brand-icon, #0ea5e9);">Register</a>
-        <a href="{{ route('payroll.leave.reports.branch-summary') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary);">Branch Summary</a>
-        <a href="{{ route('payroll.leave.reports.audit-log') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary);">Audit Log</a>
-    </div>
+    @include('payroll.leave.reports._tabs')
 
     {{-- Filter bar --}}
     <form method="GET" action="{{ route('payroll.leave.reports.register') }}"

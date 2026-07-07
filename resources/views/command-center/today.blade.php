@@ -2,7 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="space-y-6">
+<div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="w-full space-y-6">
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" data-tour="cc-today-header" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -15,7 +15,7 @@
                 <span class="text-xs hidden md:inline text-white/60" x-text="lastRefresh"></span>
                 <button type="button" @click="refresh()" :disabled="refreshing"
                         data-tour="cc-today-refresh"
-                        class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                        class="corex-btn-outline corex-btn-on-brand disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         title="Refresh">
                     <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
@@ -67,7 +67,7 @@
             </div>
 
             {{-- Card grid: capped at 4 cols, responsive --}}
-            <div class="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {{-- AT-164 Gate 3 — unified <x-tile> shell (shared with the Calendar Deck).
                      Replaces the bespoke inline card markup; same data, richer contract
                      (independent scroll, RAG accent, per-row new-tab, collapse). --}}

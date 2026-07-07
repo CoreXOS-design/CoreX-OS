@@ -34,15 +34,13 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-            </div>
-            @if($active)
-            <div class="flex items-center gap-2 flex-wrap">
+                @if($active)
                 <a href="{{ route('corex.compliance.rcr.show', $active->id) }}" class="corex-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
                     Continue active return
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                 </a>
+                @endif
             </div>
-            @endif
         </div>
     </div>
 

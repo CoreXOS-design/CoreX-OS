@@ -1,5 +1,5 @@
 {{-- HELP_WIDGET — Combined Ellie + Feedback panel, triggered from sidebar icon --}}
-<div x-data="helpWidget()" @keydown.escape.window="open = false" id="help-widget-root">
+<div x-data="helpWidget()" id="help-widget-root">
 
     {{-- Header icon button — rendered via x-teleport into #help-widget-slot --}}
     <template x-teleport="#help-widget-slot">
@@ -14,18 +14,19 @@
         </button>
     </template>
 
-    {{-- Panel (teleported to body for z-index safety) --}}
+    {{-- Floating panel (teleported to body for z-index safety). No full-screen
+         backdrop — the rest of the page stays fully interactive while Ellie is
+         open, and clicking elsewhere no longer closes it. It closes only via
+         the × button (or when CoreX itself is closed). --}}
     <template x-teleport="body">
-        <div x-show="open" x-cloak class="fixed inset-0 z-[9998]" @click.self="open = false">
             {{-- Panel container — anchored top-left, beside sidebar --}}
-            <div x-show="open"
+            <div x-show="open" x-cloak
                  x-transition:enter="transition ease-out duration-200"
                  x-transition:enter-start="opacity-0 -translate-x-2"
                  x-transition:enter-end="opacity-100 translate-x-0"
                  x-transition:leave="transition ease-in duration-150"
                  x-transition:leave-start="opacity-100 translate-x-0"
                  x-transition:leave-end="opacity-0 -translate-x-2"
-                 @click.stop
                  class="help-panel fixed flex flex-col shadow-2xl rounded-lg overflow-hidden"
                  style="top:8px; left:16px; width:420px; max-width:calc(100vw - 24px); height:640px; max-height:calc(100vh - 24px); background:var(--surface); border:1px solid var(--border); z-index:9999;">
 
@@ -70,7 +71,7 @@
                         {{-- Chat history --}}
                         <template x-for="(msg, idx) in ellieMessages" :key="idx">
                             <div class="flex" :class="msg.who === 'me' ? 'justify-end' : 'justify-start'">
-                                <div class="max-w-[85%] px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-wrap"
+                                <div class="max-w-[85%] px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-line"
                                      :style="msg.who === 'me'
                                          ? 'background:var(--brand-button);color:#fff;'
                                          : 'background:var(--surface);border:1px solid var(--border);color:var(--text-primary);'"
@@ -199,7 +200,6 @@
                     </div>
                 </div>
             </div>
-        </div>
     </template>
 </div>
 
@@ -207,6 +207,8 @@
 function helpWidget() {
     const CONVO_KEY = 'ELLIE_CONVO_ID';
     const TAB_KEY = 'help_widget_tab';
+    const OPEN_KEY = 'help_widget_open';
+    const MSGS_KEY = 'help_widget_ellie_msgs';
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
     return {
@@ -231,7 +233,30 @@ function helpWidget() {
         _feedbackTimer: null,
 
         init() {
+            // Restore panel state + Ellie history across page navigation.
+            // Scenario: an agent asks Ellie for steps, then clicks through to
+            // another page to follow them — the panel must stay open with the
+            // steps still visible instead of resetting closed on every reload.
+            try {
+                // Open state lives in sessionStorage: it survives page reloads
+                // (so navigating keeps Ellie open) but clears when CoreX is
+                // closed. Chat history lives in localStorage so the steps
+                // persist for the user to follow across pages.
+                this.open = sessionStorage.getItem(OPEN_KEY) === '1';
+                const saved = JSON.parse(localStorage.getItem(MSGS_KEY) || '[]');
+                if (Array.isArray(saved)) this.ellieMessages = saved;
+            } catch (_) {}
             this.$watch('tab', (val) => localStorage.setItem(TAB_KEY, val));
+            // Persist open/closed so it stays open across navigation until the
+            // user closes it with the × button (or closes CoreX).
+            this.$watch('open', (val) => sessionStorage.setItem(OPEN_KEY, val ? '1' : '0'));
+            if (this.open && this.tab === 'ellie') {
+                this.$nextTick(() => this.scrollEllie());
+            }
+        },
+
+        _saveEllieMessages() {
+            try { localStorage.setItem(MSGS_KEY, JSON.stringify(this.ellieMessages.slice(-50))); } catch (_) {}
         },
 
         toggle() {
@@ -254,6 +279,7 @@ function helpWidget() {
             if (!msg || this.ellieBusy) return;
 
             this.ellieMessages.push({ who: 'me', text: msg });
+            this._saveEllieMessages();
             this.ellieInput = '';
             this.ellieBusy = true;
             this.ellieTyping = true;
@@ -305,6 +331,7 @@ function helpWidget() {
                 this.ellieMessages.push({ who: 'ellie', text: 'Sorry — I hit an error. Try again or send feedback.' });
             } finally {
                 this.ellieBusy = false;
+                this._saveEllieMessages();
                 this.scrollEllie();
             }
         },

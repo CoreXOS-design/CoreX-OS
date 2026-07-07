@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5" x-data="{ showNew: false }">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" data-tour="docs-filing-register-header" style="background: var(--brand-default, #0b2a4a);">
@@ -14,6 +15,12 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
+                @permission('filing.create')
+                <button type="button" @click="showNew = !showNew" class="corex-btn-primary text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                    New Filing
+                </button>
+                @endpermission
             </div>
         </div>
     </div>
@@ -100,16 +107,11 @@
         </div>
     </div>
 
-    {{-- Add new filing --}}
+    {{-- Add new filing (opened from the header "New Filing" button) --}}
     @permission('filing.create')
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ open: false }">
-        <button type="button" @click="open = !open" class="flex items-center gap-2 text-sm font-semibold" style="color: var(--brand-icon);">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            New Filing
-            <svg class="w-3 h-3 transition-transform" :class="open && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-        </button>
-
-        <form method="POST" action="{{ route('filing-register.store') }}" x-show="open" x-cloak x-transition class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div x-show="showNew" x-cloak x-transition class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">New Filing</h2>
+        <form method="POST" action="{{ route('filing-register.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4">
             @csrf
             <div>
                 <label for="new_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch <span class="text-red-500">*</span></label>
@@ -175,8 +177,9 @@
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
-            <div class="md:col-span-3">
+            <div class="md:col-span-3 flex items-center gap-2">
                 <button type="submit" tabindex="10" class="corex-btn-primary">Save Filing</button>
+                <button type="button" @click="showNew = false" class="corex-btn-outline">Cancel</button>
             </div>
         </form>
     </div>
@@ -200,137 +203,121 @@
                 </thead>
                 <tbody>
                     @forelse($filings as $filing)
+                    {{-- One row: display cells (x-show="!editing") + a single full-width edit cell (x-show="editing").
+                         Cells are server-rendered so they never pop/shift on Alpine hydration. --}}
                     <tr x-data="{ editing: false }" style="border-top: 1px solid var(--border);">
-                        {{-- Display row --}}
-                        <template x-if="!editing">
-                            <td class="px-4 py-3 font-mono text-xs whitespace-nowrap">{{ $filing->full_reference }}</td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3">
-                                @if($filing->document_type === 'OA')
-                                    <span class="ds-badge ds-badge-info">OA</span>
-                                @elseif($filing->document_type === 'EA')
-                                    <span class="ds-badge ds-badge-info">EA</span>
-                                @else
-                                    <span class="ds-badge ds-badge-default">Other</span>
-                                @endif
-                            </td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3">{{ $filing->property_address }}</td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $filing->seller_name ?? '—' }}</td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3">{{ $filing->agent->name ?? '—' }}</td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3 whitespace-nowrap">
-                                {{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '—' }}
-                            </td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3">
-                                @if($showArchived)
-                                    <span class="ds-badge ds-badge-warning">Archived</span>
-                                @elseif($filing->status === 'active')
-                                    <span class="ds-badge ds-badge-success">Active</span>
-                                @elseif($filing->status === 'expiring')
-                                    <span class="ds-badge ds-badge-warning">Expiring</span>
-                                @else
-                                    <span class="ds-badge ds-badge-warning">Expired</span>
-                                @endif
-                            </td>
-                        </template>
-                        <template x-if="!editing">
-                            <td class="px-4 py-3 text-right whitespace-nowrap">
-                                @if($showArchived)
-                                    <form method="POST" action="{{ route('filing-register.restore', $filing->id) }}" class="inline">
-                                        @csrf
-                                        <button type="submit" class="text-xs font-semibold" style="color: var(--ds-green);">Restore</button>
-                                    </form>
-                                @else
-                                    @permission('filing.edit')
-                                    <button @click="editing = true" class="text-xs font-semibold mr-3" style="color: var(--brand-icon);">Edit</button>
-                                    @endpermission
-                                    @permission('filing.archive')
-                                    <form method="POST" action="{{ route('filing-register.destroy', $filing->id) }}" class="inline" onsubmit="return confirm('Delete this filing entry?')">
-                                        @csrf @method('DELETE')
-                                        <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
-                                    </form>
-                                    @endpermission
-                                @endif
-                            </td>
-                        </template>
-
-                        {{-- Inline edit row --}}
-                        <template x-if="editing">
-                            <td colspan="8" class="px-4 py-3">
-                                <form method="POST" action="{{ route('filing-register.update', $filing->id) }}" class="flex flex-wrap items-end gap-3">
-                                    @csrf @method('PUT')
-                                    <input type="hidden" name="branch_id" value="{{ $filing->branch_id }}">
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
-                                        <select name="agent_id" class="rounded-md px-2 py-1 text-xs"
-                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                            @foreach($agents as $ag)
-                                            <option value="{{ $ag->id }}" {{ $filing->agent_id == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
-                                            @endforeach
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Type</label>
-                                        <select name="document_type" class="rounded-md px-2 py-1 text-xs"
-                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                            <option value="OA" {{ $filing->document_type === 'OA' ? 'selected' : '' }}>OA</option>
-                                            <option value="EA" {{ $filing->document_type === 'EA' ? 'selected' : '' }}>EA</option>
-                                            <option value="Other" {{ $filing->document_type === 'Other' ? 'selected' : '' }}>Other</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">File Ref</label>
-                                        <input type="text" name="file_reference" value="{{ $filing->file_reference }}"
-                                               class="rounded-md px-2 py-1 text-xs w-20"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Seq #</label>
-                                        <input type="text" name="sequence_number" value="{{ $filing->sequence_number }}"
-                                               class="rounded-md px-2 py-1 text-xs w-16"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Address</label>
-                                        <input type="text" name="property_address" value="{{ $filing->property_address }}"
-                                               class="rounded-md px-2 py-1 text-xs w-40"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
-                                        <input type="text" name="seller_name" value="{{ $filing->seller_name }}"
-                                               class="rounded-md px-2 py-1 text-xs w-28"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Expiry</label>
-                                        <input type="date" name="expiry_date" value="{{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '' }}"
-                                               class="rounded-md px-2 py-1 text-xs"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
-                                        <input type="text" name="notes" value="{{ $filing->notes }}"
-                                               class="rounded-md px-2 py-1 text-xs w-28"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    </div>
-                                    <div class="flex gap-2">
-                                        <button type="submit" class="corex-btn-primary">Save</button>
-                                        <button type="button" @click="editing = false" class="corex-btn-outline">Cancel</button>
-                                    </div>
+                        {{-- Display cells --}}
+                        <td x-show="!editing" class="px-4 py-3 font-mono text-xs whitespace-nowrap">{{ $filing->full_reference }}</td>
+                        <td x-show="!editing" class="px-4 py-3">
+                            @if($filing->document_type === 'OA')
+                                <span class="ds-badge ds-badge-info">OA</span>
+                            @elseif($filing->document_type === 'EA')
+                                <span class="ds-badge ds-badge-info">EA</span>
+                            @else
+                                <span class="ds-badge ds-badge-default">Other</span>
+                            @endif
+                        </td>
+                        <td x-show="!editing" class="px-4 py-3">{{ $filing->property_address }}</td>
+                        <td x-show="!editing" class="px-4 py-3" style="color: var(--text-secondary);">{{ $filing->seller_name ?? '—' }}</td>
+                        <td x-show="!editing" class="px-4 py-3">{{ $filing->agent->name ?? '—' }}</td>
+                        <td x-show="!editing" class="px-4 py-3 whitespace-nowrap">
+                            {{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '—' }}
+                        </td>
+                        <td x-show="!editing" class="px-4 py-3">
+                            @if($showArchived)
+                                <span class="ds-badge ds-badge-warning">Archived</span>
+                            @elseif($filing->status === 'active')
+                                <span class="ds-badge ds-badge-success">Active</span>
+                            @elseif($filing->status === 'expiring')
+                                <span class="ds-badge ds-badge-warning">Expiring</span>
+                            @else
+                                <span class="ds-badge ds-badge-warning">Expired</span>
+                            @endif
+                        </td>
+                        <td x-show="!editing" class="px-4 py-3 text-right whitespace-nowrap">
+                            @if($showArchived)
+                                <form method="POST" action="{{ route('filing-register.restore', $filing->id) }}" class="inline">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-semibold" style="color: var(--ds-green);">Restore</button>
                                 </form>
-                            </td>
-                        </template>
+                            @else
+                                @permission('filing.edit')
+                                <button @click="editing = true" class="text-xs font-semibold mr-3" style="color: var(--brand-icon);">Edit</button>
+                                @endpermission
+                                @permission('filing.archive')
+                                <form method="POST" action="{{ route('filing-register.destroy', $filing->id) }}" class="inline" onsubmit="return confirm('Delete this filing entry?')">
+                                    @csrf @method('DELETE')
+                                    <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
+                                </form>
+                                @endpermission
+                            @endif
+                        </td>
+
+                        {{-- Inline edit cell (hidden until Edit is clicked) --}}
+                        <td x-show="editing" x-cloak colspan="8" class="px-4 py-3">
+                            <form method="POST" action="{{ route('filing-register.update', $filing->id) }}" class="flex flex-wrap items-end gap-3">
+                                @csrf @method('PUT')
+                                <input type="hidden" name="branch_id" value="{{ $filing->branch_id }}">
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
+                                    <select name="agent_id" class="rounded-md px-2 py-1 text-xs"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        @foreach($agents as $ag)
+                                        <option value="{{ $ag->id }}" {{ $filing->agent_id == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Type</label>
+                                    <select name="document_type" class="rounded-md px-2 py-1 text-xs"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="OA" {{ $filing->document_type === 'OA' ? 'selected' : '' }}>OA</option>
+                                        <option value="EA" {{ $filing->document_type === 'EA' ? 'selected' : '' }}>EA</option>
+                                        <option value="Other" {{ $filing->document_type === 'Other' ? 'selected' : '' }}>Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">File Ref</label>
+                                    <input type="text" name="file_reference" value="{{ $filing->file_reference }}"
+                                           class="rounded-md px-2 py-1 text-xs w-20"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Seq #</label>
+                                    <input type="text" name="sequence_number" value="{{ $filing->sequence_number }}"
+                                           class="rounded-md px-2 py-1 text-xs w-16"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Address</label>
+                                    <input type="text" name="property_address" value="{{ $filing->property_address }}"
+                                           class="rounded-md px-2 py-1 text-xs w-40"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
+                                    <input type="text" name="seller_name" value="{{ $filing->seller_name }}"
+                                           class="rounded-md px-2 py-1 text-xs w-28"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Expiry</label>
+                                    <input type="date" name="expiry_date" value="{{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '' }}"
+                                           class="rounded-md px-2 py-1 text-xs"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
+                                    <input type="text" name="notes" value="{{ $filing->notes }}"
+                                           class="rounded-md px-2 py-1 text-xs w-28"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <div class="flex gap-2">
+                                    <button type="submit" class="corex-btn-primary">Save</button>
+                                    <button type="button" @click="editing = false" class="corex-btn-outline">Cancel</button>
+                                </div>
+                            </form>
+                        </td>
                     </tr>
                     @empty
                     <tr>

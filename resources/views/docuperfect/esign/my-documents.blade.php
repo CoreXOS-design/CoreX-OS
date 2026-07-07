@@ -67,8 +67,13 @@
     @endif
 
     @if(!($showOnlyAuthorisation ?? false))
-    {{-- Status summary tiles --}}
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4" data-tour="dp-esign-my-docs-tiles">
+    {{-- Status summary tiles. The number of visible tiles is dynamic (the two
+         amber attention tiles are conditional), so the column count must follow
+         the tile count — a fixed 5-col grid left an empty gap on the right and
+         wrapped raggedly. auto-fit stretches the visible tiles to fill the full
+         width evenly at every breakpoint (2-up on mobile). --}}
+    <div class="grid gap-4" data-tour="dp-esign-my-docs-tiles"
+         style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">
         @if(($counts['needs_authorisation'] ?? 0) > 0)
         <a href="#section-needs-authorisation" onclick="event.preventDefault(); scrollToSection('section-needs-authorisation')"
            class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"

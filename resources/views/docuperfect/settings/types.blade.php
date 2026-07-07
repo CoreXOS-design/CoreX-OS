@@ -91,6 +91,7 @@
 
         <div>
             @forelse($types as $type)
+                @php $tplCount = $type->templates()->count(); @endphp
                 <div class="p-4" style="border-top: 1px solid var(--border);">
                     <form method="POST" action="{{ route('docuperfect.settings.types.update', $type->id) }}" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         @csrf
@@ -115,18 +116,18 @@
                         </div>
 
                         <div class="md:col-span-2 flex items-end">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ number_format($type->templates()->count()) }} template{{ $type->templates()->count() !== 1 ? 's' : '' }}</span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ number_format($tplCount) }} template{{ $tplCount !== 1 ? 's' : '' }}</span>
                         </div>
                     </form>
 
                     <form method="POST" action="{{ route('docuperfect.settings.types.destroy', $type->id) }}"
-                          onsubmit="return confirm('Delete this document type? This cannot be undone.');"
+                          onsubmit="return confirm('Archive this document type? An admin can restore it later.');"
                           class="mt-2">
                         @csrf
                         @method('DELETE')
-                        <button class="text-xs font-semibold transition-colors"
+                        <button class="text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 style="color: var(--ds-crimson, #c41e3a);"
-                                {{ $type->templates()->count() > 0 ? 'disabled title=Cannot delete — templates assigned' : '' }}>
+                                @if($tplCount > 0) disabled title="Cannot delete — templates assigned" @endif>
                             Delete
                         </button>
                     </form>

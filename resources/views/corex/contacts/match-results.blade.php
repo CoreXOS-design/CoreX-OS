@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -13,7 +14,7 @@
     $totalViews = array_sum($match->property_view_counts ?? []);
     $hiddenCount = count($match->hidden_property_ids ?? []);
 @endphp
-<div class="space-y-6"
+<div class="w-full space-y-6"
      x-data="{
          showWaModal: false,
          noteOpen: null,
@@ -335,7 +336,7 @@
                             {{ $score }}% · {{ $scoreLabel }}
                         </span>
                         @endif
-                        <span class="ds-badge {{ $statusVariant }}">{{ ucfirst($property->status) }}</span>
+                        <span class="ds-badge {{ $statusVariant }}">{{ ucfirst(str_replace('_', ' ', (string) $property->status)) }}</span>
                         @if($isHidden)
                         @php $hiddenReason = $match->hiddenReasonFor($property->id); @endphp
                         <span class="ds-badge ds-badge-warning" @if($hiddenReason) title="Reason: {{ $hiddenReason }}" @endif>Hidden</span>
@@ -493,8 +494,7 @@
                  sending from the queue is gated by the send-window. --}}
             <div class="px-6 pb-4 mt-2 pt-3" style="border-top: 1px solid var(--border);">
                 <button type="button" @click="addToQueue()" :disabled="queuing"
-                        class="px-4 py-2 text-sm font-semibold rounded-sm"
-                        style="background: var(--surface); border: 1px solid #00d4aa; color: var(--text-primary);">
+                        class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed">
                     <span x-show="!queuing">Add to queue</span>
                     <span x-show="queuing" x-cloak>Adding…</span>
                 </button>
@@ -504,7 +504,7 @@
             <div class="px-6 pb-5 flex items-center justify-end gap-3">
                 <button type="button" @click="showWaModal = false" class="corex-btn-outline">Cancel</button>
                 <template x-if="!outreachAllowed">
-                    <span class="text-xs" style="color:var(--ds-crimson,#dc2626);" x-text="outreachWindowMessage"></span>
+                    <span class="text-xs" style="color:var(--ds-crimson,#c41e3a);" x-text="outreachWindowMessage"></span>
                 </template>
                 <button type="button" @click="sendWhatsApp()" class="corex-btn-primary" :disabled="!outreachAllowed" :class="{ 'opacity-60 cursor-not-allowed': !outreachAllowed }" style="background: #25d366; box-shadow: none;">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -530,8 +530,8 @@
             <div class="flex items-center justify-between px-6 py-4" style="border-bottom: 1px solid var(--border);">
                 <div class="flex items-center gap-3">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                         style="background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--warning, #f59e0b)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+                         style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--ds-amber, #f59e0b)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
                     </div>
                     <div>
                         <div class="text-lg font-semibold" style="color: var(--text-primary);">Hide property</div>

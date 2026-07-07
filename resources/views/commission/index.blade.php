@@ -11,6 +11,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Commission Management</h1>
                 <p class="text-sm text-white/60">View, confirm, and manage all commission entries.</p>
             </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+            </div>
         </div>
     </div>
 

@@ -1,8 +1,8 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — branded header, rounded-md cards, tokens via var(--token, #fallback). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 — branded header (Pattern A), rounded-md cards, full-width layout (w-full), tokens via var(--token, #fallback). --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="portal-comm-capture-intro">
@@ -17,7 +17,13 @@
     </div>
 
     @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 30%, transparent); color: var(--text-primary, #1f2937);">{{ session('success') }}</div>
+    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary, #1f2937);">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: var(--ds-green, #059669);">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
+        <div class="flex-1">{{ session('success') }}</div>
+    </div>
     @endif
 
     <div class="rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);" data-tour="portal-comm-capture-mailbox">

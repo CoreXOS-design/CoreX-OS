@@ -53,7 +53,7 @@
                 <tbody>
                     @foreach($agentData as $agent)
                     @php
-                        $dotTokens = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)'];
+                        $dotTokens = ['green' => 'var(--ds-green, #059669)', 'amber' => 'var(--ds-amber, #f59e0b)', 'red' => 'var(--ds-crimson, #c41e3a)'];
                         $badgeVariant = ['green' => 'ds-badge-success', 'amber' => 'ds-badge-warning', 'red' => 'ds-badge-danger'];
                         $badgeLabels = ['green' => 'Compliant', 'amber' => 'At Risk', 'red' => 'Non-Compliant'];
                     @endphp
@@ -94,11 +94,11 @@
     {{-- Requires attention alert --}}
     @if(!empty($expiringSoon))
     <div class="rounded-md px-4 py-3"
-         style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
-                border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);
+         style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);
                 color: var(--text-primary);">
         <div class="flex items-start gap-3 mb-3">
-            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-amber, #f59e0b);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
             <strong class="text-sm font-semibold">Requires Attention</strong>

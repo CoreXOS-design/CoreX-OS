@@ -23,7 +23,7 @@
             <div class="flex items-center gap-2 flex-wrap">
                 <form method="POST" action="{{ route('deals-v2.pipeline.load-defaults') }}" class="inline">
                     @csrf
-                    <button type="submit" class="corex-btn-secondary inline-flex items-center gap-2"
+                    <button type="submit" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-2"
                             title="Add the standard Bond / Cash / Sale-of-2nd templates for your agency (idempotent — never overwrites your own templates).">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
@@ -103,7 +103,7 @@
                     @csrf
                     <button type="submit" class="corex-btn-primary">Load standard templates</button>
                 </form>
-                <a href="{{ route('deals-v2.pipeline.create') }}" class="corex-btn-secondary">+ New Template</a>
+                <a href="{{ route('deals-v2.pipeline.create') }}" class="corex-btn-outline">+ New Template</a>
             </div>
             <p class="text-xs mt-3" style="color: var(--text-muted);">Adds Standard Bond Sale (15 steps), Cash Sale (9), and Sale of Second Property (16).</p>
         </div>

@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -72,9 +73,7 @@
                     </thead>
                     <tbody>
                         @foreach($evaluations as $eval)
-                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
-                            onmouseover="this.style.background='var(--surface-2)'"
-                            onmouseout="this.style.background=''">
+                        <tr class="transition-colors">
                             <td class="px-4 py-3">
                                 <a href="{{ route('commercial-evaluations.show', $eval) }}" class="font-medium" style="color: var(--brand-icon);">
                                     {{ $eval->property_name }}

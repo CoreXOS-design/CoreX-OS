@@ -3,8 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5"
-     x-data="fieldGroupManager()"
-     x-cloak>
+     x-data="fieldGroupManager()">
 
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -13,9 +12,9 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Field Groups</h1>
                 <p class="text-sm text-white/60">Create reusable groups of named fields for quick placement in templates.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline">Named Fields</a>
-                <a href="{{ route('docuperfect.templates.index') }}" class="corex-btn-outline">Templates</a>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline corex-btn-on-brand">Named Fields</a>
+                <a href="{{ route('docuperfect.templates.index') }}" class="corex-btn-outline corex-btn-on-brand">Templates</a>
             </div>
         </div>
     </div>
@@ -25,7 +24,10 @@
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
                     color: var(--text-primary);">
-            {{ session('status') }}
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
 
@@ -34,7 +36,10 @@
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
                     color: var(--text-primary);">
-            {{ $errors->first() }}
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
+            </svg>
+            <div class="flex-1">{{ $errors->first() }}</div>
         </div>
     @endif
 
@@ -45,7 +50,7 @@
             <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                     <div class="text-sm font-semibold" style="color: var(--text-primary);">Existing Groups</div>
-                    <div class="text-xs" style="color: var(--text-muted);" x-text="groups.length + ' total'"></div>
+                    <div class="text-xs" style="color: var(--text-muted);" x-text="groups.length + ' total'">{{ $groupsData->count() }} total</div>
                 </div>
 
                 <div>
@@ -79,7 +84,7 @@
                         </div>
                     </template>
 
-                    <div x-show="groups.length === 0" class="py-12 px-6 text-center" style="border-top: 1px solid var(--border);">
+                    <div x-show="groups.length === 0" x-cloak class="py-12 px-6 text-center" style="border-top: 1px solid var(--border);">
                         <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                              style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -96,7 +101,7 @@
         {{-- RIGHT: Create/Edit form --}}
         <div class="lg:col-span-7">
             <div class="rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editingId ? 'Edit Group' : 'Create Group'"></h2>
+                <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editingId ? 'Edit Group' : 'Create Group'">Create Group</h2>
 
                 {{-- Group Name --}}
                 <div>
@@ -113,16 +118,18 @@
                     <div class="flex gap-2">
                         <button type="button" @click="form.layout = 'vertical'"
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                                style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
                                 :style="form.layout === 'vertical'
                                     ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
-                                    : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
+                                    : ''">
                             Vertical
                         </button>
                         <button type="button" @click="form.layout = 'horizontal'"
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                                style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
                                 :style="form.layout === 'horizontal'
                                     ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
-                                    : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
+                                    : ''">
                             Horizontal
                         </button>
                     </div>
@@ -158,7 +165,7 @@
                 {{-- Selected fields (sortable list) --}}
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
-                        Group Fields <span style="color: var(--text-muted);" x-text="'(' + form.fields.length + ')'"></span>
+                        Group Fields <span style="color: var(--text-muted);" x-text="'(' + form.fields.length + ')'">(0)</span>
                     </label>
                     <div class="space-y-1.5 min-h-[40px]" x-ref="sortableList">
                         <template x-for="(field, index) in form.fields" :key="index">

@@ -169,10 +169,10 @@
                             <div class="mt-1 font-semibold font-mono text-[1.625rem]" style="color: var(--ds-green);">R {{ number_format($result['total_interest'], 2) }}</div>
                         </div>
                         <div class="rounded-md p-4"
-                             style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent);
-                                    border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
-                            <div class="text-xs uppercase tracking-wider" style="color: var(--brand-icon);">Grand Total</div>
-                            <div class="mt-1 font-semibold font-mono text-[1.625rem]" style="color: var(--brand-icon);">R {{ number_format($result['grand_total'], 2) }}</div>
+                             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);
+                                    border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);">
+                            <div class="text-xs uppercase tracking-wider" style="color: var(--brand-icon, #0ea5e9);">Grand Total</div>
+                            <div class="mt-1 font-semibold font-mono text-[1.625rem]" style="color: var(--brand-icon, #0ea5e9);">R {{ number_format($result['grand_total'], 2) }}</div>
                         </div>
                     </div>
                 </div>

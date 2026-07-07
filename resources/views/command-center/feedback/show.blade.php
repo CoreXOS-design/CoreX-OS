@@ -8,17 +8,23 @@
     </div>
 
     @if(session('success'))
-        <div class="px-4 py-3 rounded-lg text-sm font-medium" style="background:rgba(16,185,129,0.1);color:#10b981;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                    color:var(--text-primary);">{{ session('success') }}</div>
     @endif
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {{-- Main content --}}
         <div class="lg:col-span-2 space-y-4">
             <div class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+                @php
+                    $severityBadge = ['critical' => 'ds-badge-danger', 'major' => 'ds-badge-warning', 'minor' => 'ds-badge-default'];
+                @endphp
                 <div class="flex items-center gap-2 mb-3">
-                    <span class="text-xs px-2 py-0.5 rounded font-medium" style="background:var(--surface-2);color:var(--text-primary);">{{ $report->type }}</span>
+                    <span class="ds-badge ds-badge-default">{{ ucfirst($report->type) }}</span>
                     @if($report->severity)
-                        <span class="text-xs px-2 py-0.5 rounded font-medium" style="color:{{ $report->severity === 'critical' ? '#ef4444' : ($report->severity === 'major' ? '#f59e0b' : '#10b981') }};">{{ $report->severity }}</span>
+                        <span class="ds-badge {{ $severityBadge[$report->severity] ?? 'ds-badge-default' }}">{{ ucfirst($report->severity) }}</span>
                     @endif
                 </div>
                 <h2 class="text-lg font-semibold mb-2" style="color:var(--text-primary);">{{ $report->title }}</h2>
@@ -67,13 +73,13 @@
                 <h3 class="text-xs font-semibold mb-3" style="color:var(--text-muted);">Status</h3>
                 <form method="POST" action="{{ route('command-center.feedback-reports.update-status', $report->id) }}" class="space-y-2">
                     @csrf
-                    <select name="status" class="w-full rounded px-2 py-1.5 text-xs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">
+                    <select name="status" class="w-full rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">
                         @foreach(['new','reviewing','in_progress','fixed','wont_fix','duplicate','deferred'] as $s)
                             <option value="{{ $s }}" {{ $report->status === $s ? 'selected' : '' }}>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
                         @endforeach
                     </select>
-                    <textarea name="resolution_notes" placeholder="Resolution notes..." rows="2" class="w-full rounded px-2 py-1.5 text-xs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">{{ $report->resolution_notes }}</textarea>
-                    <button type="submit" class="text-xs font-medium px-3 py-1 rounded text-white" style="background:var(--brand-button);">Update</button>
+                    <textarea name="resolution_notes" placeholder="Resolution notes..." rows="2" class="w-full rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">{{ $report->resolution_notes }}</textarea>
+                    <button type="submit" class="corex-btn-primary corex-btn-xs">Update</button>
                 </form>
             </div>
         </div>

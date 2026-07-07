@@ -5,38 +5,38 @@
     <div>
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">Email address *</label>
         <input type="email" name="email_address" required value="{{ old('email_address', $mbx->email_address ?? '') }}"
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         @error('email_address') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div>
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">Username *</label>
         <input type="text" name="username" required autocomplete="off" value="{{ old('username', $mbx->username ?? '') }}"
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         @error('username') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div>
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">IMAP host *</label>
         <input type="text" name="imap_host" required placeholder="imap.example.com" value="{{ old('imap_host', $mbx->imap_host ?? '') }}"
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         @error('imap_host') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div>
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">Port *</label>
         <input type="number" name="imap_port" required min="1" max="65535" value="{{ old('imap_port', $mbx->imap_port ?? 993) }}"
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         @error('imap_port') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div class="md:col-span-2">
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">Password {{ $isEdit ? '(leave blank to keep current)' : '*' }}</label>
         <input type="password" name="password" autocomplete="new-password" {{ $isEdit ? '' : 'required' }}
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         <p class="text-xs mt-1" style="color: var(--text-muted, #6b7280);">Stored encrypted at rest. Never displayed back — use Reveal (logged) to retrieve it.</p>
         @error('password') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div>
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary, #1f2937);">Poll interval (minutes) *</label>
         <input type="number" name="poll_interval_minutes" required min="1" max="1440" value="{{ old('poll_interval_minutes', $mbx->poll_interval_minutes ?? 15) }}"
-               class="w-full px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); border-radius: 6px; background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
+               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border, #e5e7eb); background: var(--surface, #fff); color: var(--text-primary, #1f2937);">
         @error('poll_interval_minutes') <p class="text-xs mt-1" style="color: var(--ds-crimson, #dc2626);">{{ $message }}</p> @enderror
     </div>
     <div class="flex flex-col justify-end gap-1.5">

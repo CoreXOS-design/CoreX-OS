@@ -1804,11 +1804,17 @@ class PropertyController extends Controller
         $authUser = auth()->user();
 
         $agentChoice  = $request->query('agent', 'listing');
-        $displayAgent = ($agentChoice === 'me' && $authUser)
-            ? $authUser
-            : ($property->agent ?? $authUser);
 
-        return view('corex.properties.live-preview', compact('property', 'displayAgent', 'agentChoice'));
+        // `agent=none` (used by the Core Match client-facing page) hides the listing
+        // agent's identity/contact entirely — the client already has their own agent,
+        // so we never surface the listing agent to them.
+        $showAgent = $agentChoice !== 'none';
+
+        $displayAgent = $showAgent
+            ? (($agentChoice === 'me' && $authUser) ? $authUser : ($property->agent ?? $authUser))
+            : null;
+
+        return view('corex.properties.live-preview', compact('property', 'displayAgent', 'agentChoice', 'showAgent'));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

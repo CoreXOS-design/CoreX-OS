@@ -8,11 +8,8 @@
     <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">Finance Definitions</h1>
-                <p class="text-sm text-white/60">
-                    All formula definitions registered in the Finance Engine.
-                    <span class="font-medium text-white/80">{{ number_format($computedCount) }}</span> computed values stored.
-                </p>
+                <h1 class="text-xl font-bold text-white leading-tight">Finance Definitions</h1>
+                <p class="text-sm text-white/60">All formula definitions registered in the Finance Engine.</p>
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
@@ -44,6 +41,13 @@
                 </form>
             </div>
         </div>
+    </div>
+
+    {{-- KPI tiles --}}
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total definitions" :value="number_format($definitions->count())" />
+        <x-corex-kpi-card title="Active definitions" :value="number_format($definitions->where('status', 'active')->count())" />
+        <x-corex-kpi-card title="Computed values stored" :value="number_format($computedCount)" />
     </div>
 
     {{-- Definitions Table --}}

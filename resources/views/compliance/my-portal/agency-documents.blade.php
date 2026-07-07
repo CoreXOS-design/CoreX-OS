@@ -1,8 +1,8 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-@extends('layouts.corex-app')
+@extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -40,7 +40,7 @@
         </div>
     @else
         @php
-            $colourMap = ['teal' => 'var(--brand-icon,#0ea5e9)', 'amber' => 'var(--ds-amber,#f59e0b)', 'red' => 'var(--ds-crimson,#c41e3a)', 'slate' => 'var(--text-muted,#94a3b8)'];
+            $colourMap = ['teal' => 'var(--brand-icon,#0ea5e9)', 'amber' => 'var(--ds-amber,#f59e0b)', 'red' => 'var(--ds-crimson,#c41e3a)', 'slate' => 'var(--text-muted,#9ca3af)'];
         @endphp
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="portal-agency-docs-grid">
@@ -81,7 +81,7 @@
                         </a>
                         <div class="text-xs space-y-1" style="color:var(--text-secondary);">
                             <div style="color:var(--text-muted);">Updated {{ $prov->created_at->format('d M Y') }}</div>
-                            <span class="inline-block px-1.5 py-0.5 rounded-md font-semibold whitespace-nowrap" style="background:{{ $doc->scope === 'branch' ? 'color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)' : 'var(--surface-2)' }}; color:{{ $doc->scope === 'branch' ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted,#94a3b8)' }};">
+                            <span class="inline-block px-1.5 py-0.5 rounded-md font-semibold whitespace-nowrap" style="background:{{ $doc->scope === 'branch' ? 'color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)' : 'var(--surface-2)' }}; color:{{ $doc->scope === 'branch' ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted,#9ca3af)' }};">
                                 {{ $doc->scope === 'branch' ? ($branchName ?? 'Branch') : 'Company' }}
                             </span>
                         </div>

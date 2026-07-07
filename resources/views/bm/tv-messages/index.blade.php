@@ -75,7 +75,7 @@
                        placeholder="Motivational message, announcement, etc.">
 
                 <div class="mt-3">
-                    <div class="text-[11px] uppercase tracking-wider mb-2" style="color: var(--text-muted);">Insert values</div>
+                    <div class="text-[0.6875rem] uppercase tracking-wider mb-2" style="color: var(--text-muted);">Insert values</div>
                     <div class="flex flex-wrap gap-1.5">
                         @php
                             $__tvPh = [
@@ -104,16 +104,16 @@
                     <select id="tv-display-area" name="display_area"
                             class="w-full rounded-md text-sm px-3 py-2 transition-all duration-300"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                        <option value="both" selected>Hero + Ticker</option>
-                        <option value="hero">Hero only</option>
-                        <option value="ticker">Ticker only</option>
+                        <option value="both" style="background: var(--surface); color: var(--text-primary);" selected>Hero + Ticker</option>
+                        <option value="hero" style="background: var(--surface); color: var(--text-primary);">Hero only</option>
+                        <option value="ticker" style="background: var(--surface); color: var(--text-primary);">Ticker only</option>
                     </select>
                 </div>
 
                 <div class="md:col-span-2 flex items-center gap-2">
                     <input type="hidden" name="is_enabled" value="0">
                     <input id="tv-is-enabled" type="checkbox" name="is_enabled" value="1" checked
-                           class="rounded-md" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                           class="rounded" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
                     <label for="tv-is-enabled" class="text-sm cursor-pointer" style="color: var(--text-secondary);">Enabled</label>
                 </div>
 
@@ -153,9 +153,9 @@
                             <select id="tv-show-{{ $m->id }}" name="display_area"
                                     class="w-full rounded-md text-sm px-3 py-2 transition-all duration-300"
                                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                                <option value="both" {{ (($m->display_area ?? 'both') === 'both') ? 'selected' : '' }}>Hero + Ticker</option>
-                                <option value="hero" {{ (($m->display_area ?? 'both') === 'hero') ? 'selected' : '' }}>Hero only</option>
-                                <option value="ticker" {{ (($m->display_area ?? 'both') === 'ticker') ? 'selected' : '' }}>Ticker only</option>
+                                <option value="both" style="background: var(--surface); color: var(--text-primary);" {{ (($m->display_area ?? 'both') === 'both') ? 'selected' : '' }}>Hero + Ticker</option>
+                                <option value="hero" style="background: var(--surface); color: var(--text-primary);" {{ (($m->display_area ?? 'both') === 'hero') ? 'selected' : '' }}>Hero only</option>
+                                <option value="ticker" style="background: var(--surface); color: var(--text-primary);" {{ (($m->display_area ?? 'both') === 'ticker') ? 'selected' : '' }}>Ticker only</option>
                             </select>
                         </div>
 
@@ -165,7 +165,7 @@
                                    name="is_enabled"
                                    value="1"
                                    {{ $m->is_enabled ? 'checked' : '' }}
-                                   class="rounded-md" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                                   class="rounded" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
                             <label for="tv-on-{{ $m->id }}" class="text-sm cursor-pointer" style="color: var(--text-secondary);">On</label>
                         </div>
 

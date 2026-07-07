@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="space-y-6">
+<div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-comm-archive-intro">
@@ -9,7 +10,9 @@
                 <p class="text-sm text-white/60">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('compliance.comm-mailboxes.index') }}" data-tour="comp-comm-archive-mailboxes" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Mailboxes</a>
+                <a href="{{ route('compliance.comm-mailboxes.index') }}" data-tour="comp-comm-archive-mailboxes"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);">Mailboxes</a>
                 @include('layouts.partials.tour-header-launcher')
             </div>
         </div>
@@ -28,8 +31,13 @@
             @if($contact)<input type="hidden" name="contact" value="{{ $contact->id }}">@endif
             <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-                <input type="text" name="search" value="{{ $search }}" placeholder="Subject, sender or preview…"
-                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <div class="relative">
+                    <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/>
+                    </svg>
+                    <input type="text" name="search" value="{{ $search }}" placeholder="Subject, sender or preview…"
+                           class="w-full rounded-md pl-9 pr-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Channel</label>
@@ -62,7 +70,7 @@
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Channel</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Dir</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Direction</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">From</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Subject / preview</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"></th>

@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -14,13 +15,6 @@
             <div class="flex items-center gap-2 flex-wrap">
             @include('layouts.partials.tour-header-launcher')
             @if(auth()->user()->effectiveRole() === 'super_admin')
-            <form method="POST" action="{{ route('corex.contacts.destroy-all') }}"
-                  onsubmit="return confirm('DELETE ALL CONTACTS? This permanently purges every contact in this agency — including already-archived (soft-deleted) ones — and all their related records. This cannot be undone. Are you sure?');">
-                @csrf @method('DELETE')
-                <button type="submit" class="corex-btn-outline text-sm" style="color:var(--ds-crimson,#c41e3a); border-color:color-mix(in srgb, var(--ds-crimson,#c41e3a) 35%, transparent);">
-                    Delete All
-                </button>
-            </form>
             <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
@@ -385,10 +379,12 @@
             </div>
             @endif
 
-            {{-- Agent picker (admin/BM only) --}}
+            {{-- Agent picker (admin/BM only) — centered modal (matches the Properties
+                 page). A fixed, centered dialog never mis-anchors or clips when the
+                 filter bar wraps, unlike an absolutely-positioned dropdown. --}}
             @if($canPickAgent)
-            <div class="relative" @click.outside="agentPicker = false">
-                <button type="button" @click="agentPicker = !agentPicker"
+            <div class="inline-flex items-center gap-1">
+                <button type="button" @click="agentPicker = true"
                         class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
                         style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -401,54 +397,64 @@
                 </button>
 
                 @if($selectedAgent)
-                <a href="{{ route('corex.contacts.index', ['search' => request('search'), 'type' => request('type'), 'agent_id' => '']) }}"
-                   @click.prevent="pickAgent('')"
-                   class="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300"
-                   style="color:var(--text-muted);" title="Clear agent filter">&times;</a>
+                <button type="button" @click="pickAgent('')"
+                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
+                   style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
                 @endif
+            </div>
 
-                {{-- Picker dropdown --}}
-                <div x-show="agentPicker"
-                     x-transition:enter="transition ease-out duration-150"
-                     x-transition:enter-start="opacity-0 translate-y-1"
-                     x-transition:enter-end="opacity-100 translate-y-0"
-                     x-transition:leave="transition ease-in duration-100"
-                     x-transition:leave-start="opacity-100 translate-y-0"
-                     x-transition:leave-end="opacity-0 translate-y-1"
-                     class="absolute top-full mt-1.5 left-0 z-50 w-72 rounded-md overflow-hidden"
-                     style="background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,0.12);"
-                     x-cloak>
+            {{-- Picker modal --}}
+            <div x-show="agentPicker" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 style="background:rgba(0,0,0,0.5);"
+                 @click.self="agentPicker = false"
+                 @keydown.escape.window="agentPicker = false"
+                 x-transition.opacity>
+                <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;
+                     background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
 
-                    <div class="p-3" style="border-bottom:1px solid var(--border);">
+                    <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                        <button type="button" @click="agentPicker = false"
+                                class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
                         <div class="relative">
                             <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
                             </svg>
                             <input type="text" x-model="agentSearch" placeholder="Search agents..."
                                    class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none transition-all duration-300"
-                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);"
-                                   @keydown.escape="agentPicker = false">
+                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
                         </div>
                     </div>
 
-                    <div style="max-height:260px;overflow-y:auto;">
-                        <a href="{{ route('corex.contacts.index', ['search' => request('search'), 'type' => request('type'), 'agent_id' => '']) }}"
-                           @click.prevent="pickAgent('')"
-                           class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300"
+                    <div class="flex-1" style="overflow-y:auto;">
+                        <button type="button" @click="pickAgent('')"
+                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
                            style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold" style="background:var(--surface-2);color:var(--text-secondary);">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0" style="background:var(--surface-2);color:var(--text-secondary);">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
                             </span>
                             All agents
-                        </a>
+                            <template x-if="!{{ $filterAgentId ? $filterAgentId : 0 }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            </template>
+                        </button>
 
                         <template x-for="agent in filtered" :key="agent.id">
-                            <a :href="`{{ route('corex.contacts.index') }}?agent_id=${agent.id}&search={{ urlencode(request('search','')) }}&type={{ urlencode(request('type','')) }}`"
-                               @click.prevent="pickAgent(agent.id)"
-                               class="flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300"
+                            <button type="button" @click="pickAgent(agent.id)"
+                               class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
                                :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
-                               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? `this.style.background='var(--surface-2)'` : `this.style.background=''`)">
                                 <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
                                       style="background:var(--brand-default,#0b2a4a);color:#fff;"
                                       x-text="agent.name.charAt(0).toUpperCase()">
@@ -462,7 +468,7 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                                     </svg>
                                 </template>
-                            </a>
+                            </button>
                         </template>
 
                         <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
@@ -492,7 +498,7 @@
                 <span class="ml-2 text-xs font-normal" style="color:var(--text-muted);">— {{ $selectedAgent->name }}</span>
                 @endif
             </div>
-            <div class="text-xs" style="color:var(--text-muted);">{{ $contacts->total() }} total</div>
+            <div class="text-xs" style="color:var(--text-muted);">{{ number_format($contacts->total()) }} total</div>
         </div>
 
         @forelse($contacts as $contact)

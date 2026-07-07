@@ -1,18 +1,19 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6" x-data="rmcpEditor()">
     <x-page-header title="Edit RMCP v{{ $version->version_number }} Draft" :back-route="route('compliance.rmcp.show', $version)" back-label="View" :flush="true">
         <x-slot:actions>
-            <span class="text-xs" style="color:#64748b;" x-show="saving">Saving...</span>
-            <span class="text-xs" style="color:var(--brand-icon);" x-show="saved" x-cloak>Saved</span>
+            <span class="text-xs" style="color: var(--text-muted);" x-show="saving">Saving...</span>
+            <span class="text-xs" style="color: var(--brand-icon);" x-show="saved" x-cloak>Saved</span>
         </x-slot:actions>
     </x-page-header>
 
     <div class="p-4 lg:p-6">
         {{-- Unsaved changes warning --}}
         <template x-if="hasUnsaved">
-            <div class="mb-4 px-4 py-2 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid rgba(234,179,8,0.3); border-radius:6px; color:#ca8a04;">
+            <div class="mb-4 px-4 py-2 text-sm font-semibold rounded-md" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color: var(--text-primary);">
                 You have unsaved changes.
             </div>
         </template>
@@ -20,11 +21,12 @@
         <div class="flex gap-6">
             {{-- Left: TOC --}}
             <div class="hidden lg:block flex-shrink-0" style="width:200px;">
-                <div class="sticky top-16">
-                    <h3 class="text-xs font-semibold uppercase mb-2" style="color:#64748b; letter-spacing:0.05em;">Sections</h3>
+                <div class="sticky top-4">
+                    <h3 class="text-xs font-semibold uppercase mb-2" style="color: var(--text-muted); letter-spacing:0.05em;">Sections</h3>
                     <nav class="space-y-0.5" style="max-height:calc(100vh - 120px); overflow-y:auto;">
                         @foreach($version->sections as $section)
-                        <a href="#edit-section-{{ $section->id }}" class="block text-xs py-1 px-2 hover:bg-slate-50 transition" style="color:#64748b; border-radius:6px;">
+                        <a href="#edit-section-{{ $section->id }}" class="block text-xs py-1 px-2 rounded-md transition" style="color: var(--text-secondary);"
+                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                             {{ $section->section_number }}
                         </a>
                         @endforeach
@@ -35,29 +37,28 @@
             {{-- Main: Section editors --}}
             <div class="flex-1 min-w-0 space-y-4">
                 @foreach($version->sections as $section)
-                <div id="edit-section-{{ $section->id }}" class="bg-white border p-4" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                <div id="edit-section-{{ $section->id }}" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-center justify-between mb-3">
-                        <span class="text-xs font-semibold uppercase" style="color:#94a3b8;">{{ $section->section_type }} {{ $section->section_number }}</span>
+                        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">{{ $section->section_type }} {{ $section->section_number }}</span>
                         <button type="button"
                                 @click="saveSection({{ $section->id }}, $refs['title_{{ $section->id }}'].value, $refs['body_{{ $section->id }}'].value)"
-                                class="text-xs font-semibold px-3 py-1.5 transition"
-                                style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;">
+                                class="corex-btn-primary text-xs">
                             Save Section
                         </button>
                     </div>
                     <div class="mb-3">
-                        <label class="block text-xs font-semibold mb-1" style="color:#64748b;">Title</label>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Title</label>
                         <input type="text" x-ref="title_{{ $section->id }}"
                                value="{{ $section->title }}"
                                @input="markUnsaved()"
-                               class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:#64748b;">Body (HTML)</label>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">Body (HTML)</label>
                         <textarea x-ref="body_{{ $section->id }}"
                                   @input="markUnsaved()"
                                   rows="10"
-                                  class="w-full px-3 py-2 text-sm border font-mono" style="border-color:var(--border, #e5e7eb); border-radius:6px; line-height:1.6;">{{ $section->body_html }}</textarea>
+                                  class="w-full rounded-md px-3 py-2 text-sm font-mono" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); line-height:1.6;">{{ $section->body_html }}</textarea>
                     </div>
                 </div>
                 @endforeach
@@ -65,14 +66,14 @@
 
             {{-- Right: Variables reference --}}
             <div class="hidden xl:block flex-shrink-0" style="width:240px;">
-                <div class="sticky top-16">
-                    <h3 class="text-xs font-semibold uppercase mb-2" style="color:#64748b; letter-spacing:0.05em;">Available Variables</h3>
+                <div class="sticky top-4">
+                    <h3 class="text-xs font-semibold uppercase mb-2" style="color: var(--text-muted); letter-spacing:0.05em;">Available Variables</h3>
                     <div class="space-y-1" style="max-height:calc(100vh - 120px); overflow-y:auto;">
                         @foreach($variableKeys as $key)
                         {{-- Split mustache delimiters ('{'.'{' / '}'.'}') so no literal }} sits inside these echos — a literal }} closes Blade's {{ }} echo early and emits invalid PHP (AT-182 compile class). --}}
-                        <div class="text-xs p-1.5 bg-slate-50" style="border-radius:6px; cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{' . '{' . $key . '}' . '}' }}')">
-                            <code class="font-mono" style="color:#0d9488;">{{ '{' . '{' . $key . '}' . '}' }}</code>
-                            <div class="mt-0.5 truncate" style="color:#94a3b8;">{{ $variables[$key] ?? '(empty)' }}</div>
+                        <div class="text-xs p-1.5 rounded-md" style="background: var(--surface-2); cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{' . '{' . $key . '}' . '}' }}')">
+                            <code class="font-mono" style="color: var(--brand-icon);">{{ '{' . '{' . $key . '}' . '}' }}</code>
+                            <div class="mt-0.5 truncate" style="color: var(--text-muted);">{{ $variables[$key] ?? '(empty)' }}</div>
                         </div>
                         @endforeach
                     </div>

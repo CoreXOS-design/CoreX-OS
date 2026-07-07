@@ -100,47 +100,47 @@
             @if($h['in_stock'])
                 <a href="{{ route('seller-outreach.entry.from-property', $h['matched_property_id']) }}"
                    style="{{ $actionPrimary }}">
-                    💬 Pitch
+                    Pitch
                 </a>
             @else
                 <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id]) }}"
                    style="{{ $actionPrimary }}">
-                    💬 Pitch
+                    Pitch
                 </a>
             @endif
         @endif
 
         @if($telHref)
-            <a href="{{ $telHref }}" style="{{ $actionSecondary }}" title="Call {{ $rawPhone }}">📞 Call</a>
+            <a href="{{ $telHref }}" style="{{ $actionSecondary }}" title="Call {{ $rawPhone }}">Call</a>
             @if($outreachWindow['allowed'] ?? true)
-                <a href="{{ $waHref }}" target="_blank" rel="noopener" style="{{ $actionSecondary }}" title="Open WhatsApp">💬 WhatsApp</a>
+                <a href="{{ $waHref }}" target="_blank" rel="noopener" style="{{ $actionSecondary }}" title="Open WhatsApp">WhatsApp</a>
             @else
                 {{-- AT-117 §4a — outside the outreach send-window. --}}
-                <span style="{{ $actionSecondary }} opacity:0.55; cursor:not-allowed;" title="{{ $outreachWindow['message'] ?? '' }}">💬 Closed</span>
+                <span style="{{ $actionSecondary }} opacity:0.55; cursor:not-allowed;" title="{{ $outreachWindow['message'] ?? '' }}">WhatsApp closed</span>
             @endif
         @else
-            <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">📞 Call</span>
-            <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">💬 WhatsApp</span>
+            <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">Call</span>
+            <span style="{{ $actionDisabled }}" title="No linked contact — pitch first">WhatsApp</span>
         @endif
 
         @if($claim)
             @if($claimedByMe)
                 <form method="POST" action="{{ route('market-intelligence.release', $listing->id) }}" style="display: inline; margin: 0;">
                     @csrf
-                    <button type="submit" style="{{ $actionSecondary }}">↩ Release claim</button>
+                    <button type="submit" style="{{ $actionSecondary }}">Release claim</button>
                 </form>
             @elseif($isManager)
                 <button type="button"
                         onclick="document.getElementById('mi-release-modal-trigger').click()"
                         style="{{ $actionSecondary }}"
                         title="Release a colleague's claim (manager-only)">
-                    ↩ Release (BM)
+                    Release (BM)
                 </button>
             @endif
         @else
             <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}" style="display: inline; margin: 0;">
                 @csrf
-                <button type="submit" style="{{ $actionSecondary }}">🔒 Claim</button>
+                <button type="submit" style="{{ $actionSecondary }}">Claim</button>
             </form>
         @endif
 
@@ -149,14 +149,14 @@
         <button type="button"
                 @click="noteOpen = true"
                 style="{{ $actionSecondary }}">
-            ✎ Add note
+            Add note
         </button>
         @endif
 
         @if($h['tracked_property_id'])
             <a href="{{ route('corex.tracked-properties.show', $h['tracked_property_id']) }}"
                style="{{ $actionSecondary }}">
-                View TP →
+                View property intel →
             </a>
         @endif
 
@@ -165,7 +165,7 @@
                   onsubmit="return confirm('Promote this Tracked Property to agency stock?');"
                   style="display: inline; margin: 0;">
                 @csrf
-                <button type="submit" style="{{ $actionSecondary }}">⬆ Promote</button>
+                <button type="submit" style="{{ $actionSecondary }}">Promote</button>
             </form>
         @endif
 

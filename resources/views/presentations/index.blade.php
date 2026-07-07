@@ -9,13 +9,13 @@
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-list-intro">
-                <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Presentations</h1>
-                <p class="text-sm" style="color: rgba(255,255,255,0.6);">Seller presentations, evaluations and pricing analysis.</p>
+                <h1 class="text-xl font-bold text-white leading-tight">Presentations</h1>
+                <p class="text-sm text-white/60">Seller presentations, evaluations and pricing analysis.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
-                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-sm">P24 Suburbs</a>
+                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">P24 Suburbs</a>
                 @endif
                 {{-- AT-27 Phase A / AT-17 — standalone "New Presentation" nav link removed:
                      presentations are property-first (create the property, then Generate from it).

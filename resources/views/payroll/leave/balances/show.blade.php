@@ -1,39 +1,47 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
-    <x-page-header title="{{ $employee->user->name }} â€” Leave Balances" :back-route="route('payroll.leave.balances.index')" back-label="Balances" :flush="true">
+    <x-page-header title="{{ $employee->user->name }} — Leave Balances" :back-route="route('payroll.leave.balances.index')" back-label="Balances" :flush="true">
         <x-slot:actions>
             <form method="POST" action="{{ route('payroll.leave.balances.recalculate', $employee) }}" class="inline">
                 @csrf
-                <button type="submit" class="px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;" onclick="return confirm('Recalculate all balances from transaction ledger?')">Recalculate</button>
+                <button type="submit" class="corex-btn-outline text-sm" onclick="return confirm('Recalculate all balances from transaction ledger?')">Recalculate</button>
             </form>
         </x-slot:actions>
     </x-page-header>
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
+            <div class="mb-4 rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                <div class="flex-1">{{ session('success') }}</div>
+            </div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
             {{-- Left: Employee summary --}}
             <div class="lg:w-1/3 space-y-4">
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                    <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employee</h4>
-                    <p class="text-sm font-semibold" style="color:var(--text-primary, #0f172a);">{{ $employee->user->name }}</p>
-                    <p class="text-xs" style="color:var(--text-secondary, #6b7280);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->name ?? '-' }}</p>
-                    <p class="text-xs mt-1" style="color:var(--text-secondary, #6b7280);">Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
-                    <p class="text-xs" style="color:var(--text-secondary, #6b7280);">Pattern: {{ $employee->working_days_per_week ?? 5 }}-day week</p>
+                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                    <h4 class="text-xs font-bold uppercase mb-2" style="color: var(--text-secondary); letter-spacing: 0.05em;">Employee</h4>
+                    <p class="text-sm font-semibold" style="color: var(--text-primary);">{{ $employee->user->name }}</p>
+                    <p class="text-xs" style="color: var(--text-secondary);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->name ?? '—' }}</p>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
+                    <p class="text-xs" style="color: var(--text-secondary);">Pattern: {{ $employee->working_days_per_week ?? 5 }}-day week</p>
                 </div>
 
                 @if($takeOn)
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                    <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Take-On Status</h4>
+                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                    <h4 class="text-xs font-bold uppercase mb-2" style="color: var(--text-secondary); letter-spacing: 0.05em;">Take-On Status</h4>
                     @if($takeOn->isComplete())
-                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Completed {{ $takeOn->completed_at->format('d M Y') }}</span>
+                        <span class="ds-badge ds-badge-success">Completed</span>
+                        <p class="text-xs mt-1.5" style="color: var(--text-muted);">{{ $takeOn->completed_at->format('d M Y') }}</p>
                     @else
-                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:6px;">In Progress ({{ $takeOn->progressPercentage() }}%)</span>
+                        <span class="ds-badge ds-badge-warning">In Progress · {{ number_format($takeOn->progressPercentage()) }}%</span>
                     @endif
                 </div>
                 @endif
@@ -42,16 +50,18 @@
             {{-- Right: Balances per type --}}
             <div class="lg:w-2/3" x-data="{ activeType: {{ $leaveTypes->first()?->id ?? 0 }} }">
                 {{-- Type tabs --}}
-                <div class="flex flex-wrap gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
+                <div class="flex flex-wrap gap-1 mb-4" style="border-bottom: 1px solid var(--border);">
                     @foreach($leaveTypes as $type)
-                        <button @click="activeType = {{ $type->id }}" class="px-3 py-1.5 text-xs font-semibold transition" :style="activeType === {{ $type->id }} ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">{{ $type->label }}</button>
+                        <button @click="activeType = {{ $type->id }}" class="px-3 py-1.5 text-xs font-semibold transition-all duration-300"
+                                :style="activeType === {{ $type->id }} ? 'border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
+                                style="background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;">{{ $type->label }}</button>
                     @endforeach
                 </div>
 
                 @foreach($leaveTypes as $type)
                 @php $bal = $balances[$type->id] ?? []; @endphp
                 <div x-show="activeType === {{ $type->id }}" x-cloak>
-                    {{-- Balance card --}}
+                    {{-- Balance summary tiles --}}
                     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
                         @foreach([
                             'Entitlement' => $bal['entitlement_days'] ?? '0',
@@ -61,71 +71,78 @@
                             'Pending' => $bal['pending_days'] ?? '0',
                             'Available' => $bal['available_days'] ?? '0',
                         ] as $lbl => $val)
-                            <div class="p-2 text-center" style="background:{{ $lbl === 'Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl === 'Available' ? 'color-mix(in srgb, var(--brand-icon) 15%, transparent)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
-                                <p class="text-[9px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
-                                <p class="text-sm font-bold" style="color:{{ $lbl === 'Available' ? '#00d4aa' : 'var(--text-primary, #0f172a)' }};">{{ number_format((float)$val, 2) }}</p>
+                            <div class="rounded-md p-2 text-center"
+                                 style="background: {{ $lbl === 'Available' ? 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent)' : 'var(--surface-2)' }};
+                                        border: 1px solid {{ $lbl === 'Available' ? 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent)' : 'var(--border)' }};">
+                                <p class="text-[10px] font-semibold uppercase" style="color: var(--text-secondary);">{{ $lbl }}</p>
+                                <p class="text-sm font-bold" style="color: {{ $lbl === 'Available' ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-primary)' }};">{{ number_format((float)$val, 2) }}</p>
                             </div>
                         @endforeach
                     </div>
 
-                    <p class="text-[10px] mb-3" style="color:var(--text-secondary, #94a3b8);">
-                        Cycle: {{ isset($bal['cycle_start_date']) ? $bal['cycle_start_date']->format('d M Y') : '-' }} â€” {{ isset($bal['cycle_end_date']) ? $bal['cycle_end_date']->format('d M Y') : '-' }}
+                    <p class="text-[11px] mb-3" style="color: var(--text-muted);">
+                        Cycle: {{ isset($bal['cycle_start_date']) ? $bal['cycle_start_date']->format('d M Y') : '—' }} — {{ isset($bal['cycle_end_date']) ? $bal['cycle_end_date']->format('d M Y') : '—' }}
                     </p>
 
                     {{-- Transaction history --}}
-                    <h5 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Transaction History</h5>
+                    <h5 class="text-xs font-bold uppercase mb-2" style="color: var(--text-secondary); letter-spacing: 0.05em;">Transaction History</h5>
                     @if(isset($transactions[$type->id]) && $transactions[$type->id]->count() > 0)
-                        <table class="w-full text-sm mb-3" style="border-collapse:collapse;">
-                            <thead>
-                                <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
-                                    <th class="text-left px-2 py-1.5 text-[10px] font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Date</th>
-                                    <th class="text-left px-2 py-1.5 text-[10px] font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Type</th>
-                                    <th class="text-right px-2 py-1.5 text-[10px] font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Days</th>
-                                    <th class="text-left px-2 py-1.5 text-[10px] font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Description</th>
-                                    <th class="text-left px-2 py-1.5 text-[10px] font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">By</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($transactions[$type->id] as $txn)
-                                <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
-                                    <td class="px-2 py-1.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $txn->effective_date?->format('d M Y') }}</td>
-                                    <td class="px-2 py-1.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ ucfirst(str_replace('_', ' ', $txn->transaction_type)) }}</td>
-                                    <td class="px-2 py-1.5 text-right text-xs font-semibold" style="color:{{ (float)$txn->days_delta >= 0 ? '#00d4aa' : '#ef4444' }};">{{ $txn->days_delta > 0 ? '+' : '' }}{{ number_format((float)$txn->days_delta, 2) }}</td>
-                                    <td class="px-2 py-1.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ \Illuminate\Support\Str::limit($txn->description, 50) }}</td>
-                                    <td class="px-2 py-1.5 text-xs" style="color:var(--text-secondary, #94a3b8);">{{ $txn->createdBy->name ?? 'System' }}</td>
-                                </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                        <div class="rounded-md overflow-hidden mb-3" style="background: var(--surface); border: 1px solid var(--border);">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full text-sm ds-table">
+                                    <thead>
+                                        <tr style="background: var(--surface-2);">
+                                            <th class="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Date</th>
+                                            <th class="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Type</th>
+                                            <th class="text-right px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Days</th>
+                                            <th class="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Description</th>
+                                            <th class="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">By</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($transactions[$type->id] as $txn)
+                                        <tr>
+                                            <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">{{ $txn->effective_date?->format('d M Y') }}</td>
+                                            <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">{{ ucfirst(str_replace('_', ' ', $txn->transaction_type)) }}</td>
+                                            <td class="px-3 py-2 text-right text-xs font-semibold" style="color: {{ (float)$txn->days_delta >= 0 ? 'var(--ds-green)' : 'var(--text-primary)' }};">{{ $txn->days_delta > 0 ? '+' : '' }}{{ number_format((float)$txn->days_delta, 2) }}</td>
+                                            <td class="px-3 py-2 text-xs" style="color: var(--text-primary);">{{ \Illuminate\Support\Str::limit($txn->description, 50) }}</td>
+                                            <td class="px-3 py-2 text-xs" style="color: var(--text-muted);">{{ $txn->createdBy->name ?? 'System' }}</td>
+                                        </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                         {{ $transactions[$type->id]->links() }}
                     @else
-                        <p class="text-xs py-4" style="color:var(--text-secondary, #94a3b8);">No transactions in this cycle.</p>
+                        <p class="text-xs py-4" style="color: var(--text-muted);">No transactions in this cycle.</p>
                     @endif
 
                     {{-- Manual adjust form --}}
                     @permission('adjust_leave_balances')
                     <div x-data="{ showAdjust: false }" class="mt-3">
-                        <button @click="showAdjust = !showAdjust" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">Manual Adjustment</button>
-                        <form method="POST" action="{{ route('payroll.leave.balances.adjust', $employee) }}" x-show="showAdjust" x-cloak class="mt-2 p-3 space-y-3" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                        <button @click="showAdjust = !showAdjust" class="text-xs font-semibold" style="color: var(--brand-icon); background: none; border: none; cursor: pointer;">Manual Adjustment</button>
+                        <form method="POST" action="{{ route('payroll.leave.balances.adjust', $employee) }}" x-show="showAdjust" x-cloak class="mt-2 rounded-md p-3 space-y-3"
+                              style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent);">
                             @csrf
                             <input type="hidden" name="leave_type_id" value="{{ $type->id }}">
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 <div>
-                                    <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Days (+ or -)</label>
-                                    <input type="number" name="days_delta" step="0.5" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Days (+ or -)</label>
+                                    <input type="number" name="days_delta" step="0.5" required class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
-                                    <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective Date</label>
-                                    <input type="date" name="effective_date" value="{{ date('Y-m-d') }}" class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                    <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Effective Date</label>
+                                    <input type="date" name="effective_date" value="{{ date('Y-m-d') }}" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div class="sm:col-span-3">
-                                    <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Reason (min 10 chars)</label>
-                                    <textarea name="reason" required minlength="10" rows="2" class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);" placeholder="Explain why this adjustment is necessary..."></textarea>
+                                    <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Reason (min 10 chars)</label>
+                                    <textarea name="reason" required minlength="10" rows="2" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Explain why this adjustment is necessary…"></textarea>
                                 </div>
                             </div>
                             <div class="flex gap-2">
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save Adjustment</button>
-                                <button type="button" @click="showAdjust = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
+                                <button type="submit" class="corex-btn-primary text-xs">Save Adjustment</button>
+                                <button type="button" @click="showAdjust = false" class="corex-btn-outline text-xs">Cancel</button>
                             </div>
                         </form>
                     </div>

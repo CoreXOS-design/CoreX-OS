@@ -3,26 +3,25 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto space-y-4">
+<div class="w-full space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-4 space-y-3" style="background:var(--brand-default, #0b2a4a);"
+    <div class="rounded-md px-6 py-5 space-y-3" style="background:var(--brand-default, #0b2a4a);"
          x-data="ppSyncWidget({
              refreshUrl: '{{ route('admin.importer.pp-locations.refresh') }}',
              statusUrl:  '{{ route('admin.importer.pp-locations.status') }}',
              csrf:       '{{ csrf_token() }}',
          })" x-init="init()">
-        <div class="flex items-start justify-between gap-4">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white tracking-tight">Private Property Locations</h2>
-                <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
+                <h1 class="text-xl font-bold text-white leading-tight">Private Property Locations</h1>
+                <p class="text-sm text-white/60">
                     PP's geography hierarchy cached locally. Used to resolve suburb IDs at submission time — listings are validated against this list before being sent to PP.
-                </div>
+                </p>
             </div>
             <button type="button" @click="start()"
                     :disabled="running"
-                    class="px-4 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed hover:opacity-90"
-                    style="background:var(--brand-button, #0ea5e9);">
+                    class="corex-btn-primary text-sm disabled:opacity-60 disabled:cursor-not-allowed">
                 <span x-text="running ? 'Sync in progress…' : 'Refresh from Private Property'"></span>
             </button>
         </div>
@@ -54,40 +53,29 @@
     </div>
 
     @if(session('success'))
-        <div class="rounded-md border px-4 py-3 text-sm transition-all duration-300"
-             style="background:color-mix(in srgb, #34d399 14%, var(--surface, #ffffff)); border-color:color-mix(in srgb, #34d399 35%, var(--border, rgba(0,0,0,0.07))); color:#065f46;">
+        <div class="rounded-md px-4 py-3 text-sm transition-all duration-300"
+             style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--text-primary, #111827);">
             {{ session('success') }}
         </div>
     @endif
 
     {{-- Counts + last sync --}}
-    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        @foreach([
-            ['Provinces', number_format($totals['provinces'])],
-            ['Cities',    number_format($totals['cities'])],
-            ['Suburbs',   number_format($totals['suburbs'])],
-        ] as [$label, $value])
-            <div class="rounded-md border p-4 transition-all duration-300"
-                 style="background:var(--surface, #ffffff); border-color:var(--border, rgba(0,0,0,0.07));">
-                <div class="text-[11px] uppercase tracking-wider font-semibold" style="color:var(--text-secondary, #64748b);">{{ $label }}</div>
-                <div class="text-2xl font-bold mt-1" style="color:var(--brand-default, #0b2a4a);">{{ $value }}</div>
-            </div>
-        @endforeach
-        <div class="rounded-md border p-4 transition-all duration-300"
-             style="background:var(--surface, #ffffff); border-color:var(--border, rgba(0,0,0,0.07));">
-            <div class="text-[11px] uppercase tracking-wider font-semibold" style="color:var(--text-secondary, #64748b);">Last Synced</div>
-            <div class="text-sm font-bold mt-1" style="color:var(--brand-default, #0b2a4a);">
-                {{ $lastSyncedAt ? $lastSyncedAt->diffForHumans() : 'never' }}
-            </div>
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Provinces" :value="number_format($totals['provinces'])" />
+        <x-corex-kpi-card title="Cities" :value="number_format($totals['cities'])" />
+        <x-corex-kpi-card title="Suburbs" :value="number_format($totals['suburbs'])" />
+        <div class="corex-kpi-card">
+            <p class="corex-kpi-title">Last Synced</p>
+            <p class="corex-kpi-value" style="font-size:1.125rem;">{{ $lastSyncedAt ? $lastSyncedAt->diffForHumans() : 'never' }}</p>
             @if($lastSyncedAt)
-                <div class="text-[10px] mt-0.5" style="color:var(--text-muted, #9ca3af);">{{ $lastSyncedAt->format('Y-m-d H:i') }}</div>
+                <p class="text-xs mt-0.5" style="color:var(--text-muted, #9ca3af);">{{ $lastSyncedAt->format('Y-m-d H:i') }}</p>
             @endif
         </div>
     </div>
 
     @if($lastSyncError)
-        <div class="rounded-md border px-4 py-3 text-xs transition-all duration-300"
-             style="background:color-mix(in srgb, #f59e0b 12%, var(--surface, #ffffff)); border-color:color-mix(in srgb, #f59e0b 40%, var(--border, rgba(0,0,0,0.07))); color:#92400e;">
+        <div class="rounded-md px-4 py-3 text-xs transition-all duration-300"
+             style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color:var(--text-primary, #111827);">
             <span class="font-semibold">Last sync error:</span>
             <span class="break-all">{{ \Illuminate\Support\Str::limit($lastSyncError, 500) }}</span>
         </div>

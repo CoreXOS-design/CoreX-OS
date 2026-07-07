@@ -27,7 +27,7 @@
     {{-- Flash + validation messages (most success/error feedback is also surfaced
          by the global toast system; these page-level alerts are the fallback). --}}
     @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
@@ -36,7 +36,7 @@
     @endif
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
@@ -45,7 +45,7 @@
     @endif
 
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
                     color: var(--text-primary);">

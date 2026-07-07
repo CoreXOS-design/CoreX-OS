@@ -40,11 +40,20 @@ class ImpersonateController extends Controller
             'user_agent'     => request()->userAgent(),
         ]);
 
+        // Capture the admin's current agency-switcher context BEFORE Auth::login
+        // fires the Login event, whose listener wipes session('active_agency_id').
+        // Stashing it here lets stop() drop the owner back into the same agency
+        // instead of forcing them through the agency-select interstitial again.
+        $returnAgencyId = session('active_agency_id');
+
         Auth::login($user);
 
         // Regenerate session id after login, then persist impersonator id in the NEW session
         session()->regenerate();
         session(['impersonator_id' => (int)$admin->id]);
+        if ($returnAgencyId !== null && $returnAgencyId !== '') {
+            session(['impersonation_return_agency_id' => (int) $returnAgencyId]);
+        }
         session()->save();
 
         return redirect()->route('corex.dashboard')->with('status', 'Now impersonating ' . ($user->name ?? 'user'));
@@ -59,6 +68,11 @@ class ImpersonateController extends Controller
         }
 
         $targetUserId = Auth::id();
+
+        // The agency the admin was viewing before they switched user (stashed
+        // in start()). Restored below so returning to their own account keeps
+        // them in that agency rather than re-prompting for agency selection.
+        $returnAgencyId = session('impersonation_return_agency_id');
 
         // Bypass the AgencyScope global scope when loading the impersonator.
         // While Auth::user() is still the impersonated (non-owner) user, the
@@ -84,7 +98,14 @@ class ImpersonateController extends Controller
         ]);
 
         session()->regenerate();
-        session()->forget(['impersonator_id', 'view_as_role', 'view_as_branch_id']);
+        session()->forget(['impersonator_id', 'view_as_role', 'view_as_branch_id', 'impersonation_return_agency_id']);
+
+        // Restore the pre-impersonation agency context. The Auth::login($admin)
+        // above fired the Login event, which forgets active_agency_id — so this
+        // must run AFTER it (and after regenerate, which preserves data).
+        if ($returnAgencyId !== null && $returnAgencyId !== '') {
+            session(['active_agency_id' => (int) $returnAgencyId]);
+        }
         session()->save();
 
         return redirect()->route('corex.dashboard')->with('status', 'Returned to admin account');
