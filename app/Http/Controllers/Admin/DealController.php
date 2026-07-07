@@ -267,6 +267,11 @@ public function index(Request $request)
                 }
                 return $resp;
             });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Field-level validation (incl. the AT-192 b "choose a branch" gate)
+            // must reach the user as a clean per-field error, not be wrapped into
+            // a generic "Failed to save deal" — let Laravel render it normally.
+            throw $e;
         } catch (\Throwable $e) {
             \Log::error('Deal store() failed', [
                 'error' => $e->getMessage(),
@@ -374,6 +379,19 @@ $financialLocked = ($deal->exists && $this->isLocked($deal));
         // Branch-scope users are forced to their branch (UI may still submit something else)
         if ($user && $scope === 'branch') {
             $data['branch_id'] = $user->effectiveBranchId();
+        }
+
+        // (AT-192 b) No deal may ever be stored without a branch. Branch-scope
+        // users are auto-stamped above; for every other capturer (admin / owner —
+        // including a NULL-home-branch multi-branch manager whose form has no
+        // pre-filled default) the branch comes ONLY from the dropdown. Never allow
+        // the silent null that would leave the deal — and its commission split
+        // lines, which inherit deals.branch_id — unattributed to any branch.
+        // Server-side gate (not just the UI); normal branch agents never reach it.
+        if ($scope !== 'branch' && empty($data['branch_id'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'branch_id' => 'Please choose the branch this deal belongs to. Your account has no home branch, so the branch cannot be filled in automatically.',
+            ]);
         }
 
         // For new deals, if statuses are blank, default them
