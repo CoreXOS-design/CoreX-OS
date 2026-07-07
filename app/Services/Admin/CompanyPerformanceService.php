@@ -69,12 +69,36 @@ return [
         $end   = (clone $start)->endOfMonth();
 
 
+                  // (AT-192 c) Historical commission of ARCHIVED agents must still
+                  // count. The branch TEAM column is grouped by an agent's HOME
+                  // branch, so an agent archived mid-book (e.g. the consolidated
+                  // "Elize Southbroom" login retired 2026-06-25) still owns every
+                  // commission line they earned while active — that money belongs
+                  // to their home branch for the period it was earned. Filtering on
+                  // is_active=1 silently dropped R248k of real Southbroom take-home
+                  // the moment that account was archived. So the grid keeps every
+                  // active split-counting agent PLUS any now-inactive split-counting
+                  // agent who has a non-declined deal dated in THIS period. Inactive
+                  // agents with no production this period stay out.
+                  $periodParticipantIds = DB::table('deal_user')
+                      ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+                      ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+                      ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
+                      ->distinct()
+                      ->pluck('deal_user.user_id')
+                      ->all();
+
                   $agents = DB::table('users')
               ->whereIn('role', ['agent','branch_manager','admin'])
-              ->where('is_active', 1)
               ->where('counts_for_branch_split', 1)
               ->whereNotNull('branch_id')
-              ->select('id','name','email','branch_id')
+              ->where(function ($q) use ($periodParticipantIds) {
+                  $q->where('is_active', 1);
+                  if (!empty($periodParticipantIds)) {
+                      $q->orWhereIn('id', $periodParticipantIds);
+                  }
+              })
+              ->select('id','name','email','branch_id','is_active')
               ->orderBy('name')
               ->get();
 
@@ -136,6 +160,10 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
                 'email' => $a->email,
                 'branch_id' => $a->branch_id,
                 'branch_name' => $a->branch_id ? ($branches[$a->branch_id]->name ?? '—') : '—',
+                // (AT-192 c) surfaced so team listings can badge an archived member
+                // whose historical production still counts toward the branch total.
+                'is_active' => (int) ($a->is_active ?? 1),
+                'is_archived' => !((int) ($a->is_active ?? 1)),
 
                 'targets' => [
                     'deals' => (int)($t->deals_target ?? 0),
