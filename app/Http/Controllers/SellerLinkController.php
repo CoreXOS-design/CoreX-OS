@@ -22,17 +22,29 @@ class SellerLinkController extends Controller
             return response()->view('seller-link.revoked', [], 410);
         }
 
-        // Record access
-        $link->increment('access_count');
-        $link->update(['last_accessed_at' => now()]);
-        DB::table('property_seller_link_accesses')->insert([
-            'link_id' => $link->id,
-            'accessed_at' => now(),
-            'ip_address' => request()->ip(),
-            'user_agent' => substr(request()->userAgent() ?? '', 0, 500),
-        ]);
-
         $property = $link->property;
+
+        // Record access. This is a PUBLIC page — a failure to log the visit must
+        // never 500 the seller out of their own report. Stamp agency_id from the
+        // link's pillar (property_seller_link_accesses.agency_id is NOT NULL and
+        // this is a raw insert, so BelongsToAgency's auto-stamp does not apply).
+        try {
+            $accessAgencyId = $link->agency_id ?: ($property?->agency_id);
+            $link->increment('access_count');
+            $link->update(['last_accessed_at' => now()]);
+            if ($accessAgencyId) {
+                DB::table('property_seller_link_accesses')->insert([
+                    'link_id' => $link->id,
+                    'agency_id' => $accessAgencyId,
+                    'accessed_at' => now(),
+                    'ip_address' => request()->ip(),
+                    'user_agent' => substr(request()->userAgent() ?? '', 0, 500),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $contact = $link->contact;
         $agency = Agency::withoutGlobalScopes()->find($property->agency_id);
         $intel = app(PropertyIntelligenceService::class);

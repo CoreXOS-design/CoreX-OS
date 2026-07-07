@@ -1386,11 +1386,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
             $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
+            // buyer_portal_links.agency_id is NOT NULL and this is a raw insert
+            // (no BelongsToAgency auto-stamp) — derive it from the contact pillar.
+            $agencyId = \App\Models\Contact::withoutGlobalScopes()->whereKey($request->contact_id)->value('agency_id');
             // Revoke existing active links
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
             $token = bin2hex(random_bytes(32));
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
-                'contact_id' => $request->contact_id, 'token' => $token,
+                'contact_id' => $request->contact_id, 'agency_id' => $agencyId, 'token' => $token,
                 'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
                 'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
