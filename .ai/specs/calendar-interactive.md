@@ -566,3 +566,54 @@ with no deliberate view choice) leaves `default_view` and saved `scroll_mode` in
 sent arrangement fields still persist. The client-side "only send a deliberately chosen view"
 behaviour belongs in the `proof-explicit-save.js` headless harness (event-click → day → Save
 default → default_view stays month).
+
+# 17. Inactive class must NEVER erase existing events (colour resolver hardening) — 2026-07-07
+
+> **Status:** AS-BUILT, HFC2402 (2026-07-07). Triggered by a production incident (below).
+> Amends the `CalendarThresholdResolver` contract. Ships to main + Staging + live.
+
+## 17.1 The incident (root cause)
+Kym Pollard (and, it turned out, **all 22 HFC agents**) reported empty calendars. No data was
+lost — every event was present. At **05:10 on 2026-07-07** all **48** of agency 1's
+`calendar_event_class_settings` rows were toggled `is_active = 0` in a one-second batch (a
+manual/console operation — there is no scheduler job at that time and no bulk UI route; the
+settings page toggles one class at a time). Agency 1 is the ONLY agency with agency-specific
+override rows; every other agency uses the (still-active) globals — which is why only HFC was
+hit. `CalendarThresholdResolver::resolveForEvent()` returned **null** for an inactive class, and
+`CalendarController::applyFilters()` + `CalendarTileService` **drop every null-colour event** →
+the whole book vanished from every HFC calendar. `forAgencyAndClass()` returns the agency row
+when one exists (even inactive), so the dead overrides shadowed the healthy globals.
+
+## 17.2 The rule
+A class-config *state* must NEVER erase an event already on the calendar. Deactivating a class
+stops **new-event generation, RAG urgency, and notifications** — it does **not** hide events
+already scheduled. So a missing or inactive class config now resolves to **`neutral`** (visible,
+no RAG urgency), never `null`. The ONLY `null` case is an event with no `event_date` to place on
+the grid. Worst case is now "no colour", never "no calendar".
+
+Implementation (`CalendarThresholdResolver`): both `resolve()` and `resolveForEvent()` return
+`'neutral'` where they previously returned `null` for `!$config || !$config->is_active`. `'neutral'`
+was already a first-class resolved colour (the "beyond green threshold" case), so the entire
+render/tile/reconcile stack already handles it — no downstream change. `ReconcileCalendarEvents`
+already treats `neutral` transitions correctly; event owners always pass `canSee` via the creator
+rule, so their own events render regardless of colour.
+
+## 17.3 What was deliberately NOT done
+A blanket "fall back to the active global when the agency override is inactive" in
+`forAgencyAndClass()` was rejected: it would delete an agency's ability to deactivate a class at
+all (an inactive override would always be overridden by the active global). Neutral-render is the
+correct expression of the intent — deactivation is non-destructive, not non-existent.
+
+## 17.4 Data remediation (live)
+Agency 1's 48 override rows were reactivated to restore RAG immediately. Because 47/48 were
+byte-identical copies of the globals (only `manual` differed, in notification routing) they carry
+no real customization and are a maintenance trap (they shadow future global threshold/visibility
+changes). They are reset to the global default via the sanctioned `resetEventClass` semantics
+(hard delete of the thin override layer — these config rows are not SoftDeletes-protected
+records), backed up to `storage/` first. The `manual` row's notification diff is preserved in the
+backup for re-apply if it was intentional. After removal HFC tracks the active globals.
+
+## 17.5 Tests
+`tests/Feature/CommandCenter/InactiveClassStillRendersTest.php`: active class → RAG; inactive
+class → neutral (not null); the incident shape (inactive agency override shadowing an active
+global) → neutral; `resolve()` direct inactive → neutral, and null ONLY when there is no date.
