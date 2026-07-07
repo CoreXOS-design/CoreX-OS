@@ -7,6 +7,7 @@ namespace Tests\Feature\Stats;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertyPortalMetric;
+use App\Models\User;
 use App\Services\PrivateProperty\PpStatsService;
 use App\Services\PrivateProperty\PrivatePropertySoapClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,6 +25,7 @@ final class PpStatsServiceTest extends TestCase
     use RefreshDatabase;
 
     private Agency $agency;
+    private User $agent;
 
     protected function setUp(): void
     {
@@ -34,6 +36,7 @@ final class PpStatsServiceTest extends TestCase
             'pp_username' => 'u', 'pp_password' => 'p',
             'pp_branch_guid' => '6f0a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c',
         ]);
+        $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent']);
     }
 
     protected function tearDown(): void
@@ -45,7 +48,7 @@ final class PpStatsServiceTest extends TestCase
     private function prop(string $ref, string $status): Property
     {
         return Property::forceCreate([
-            'agency_id' => $this->agency->id, 'pp_ref' => $ref,
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'pp_ref' => $ref,
             'pp_syndication_status' => 'active', 'status' => $status, 'title' => "P {$ref}",
         ]);
     }
