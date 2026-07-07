@@ -9,7 +9,7 @@
     $alarm    = $st['alarm'] ?? true;
     $stateLbl = $st['present'] ? ($alarm ? 'Needs attention' : 'Healthy') : 'No data yet';
     // Health colour token
-    $accent   = $alarm ? 'var(--ds-red, #dc2626)' : 'var(--ds-green, #16a34a)';
+    $accent   = $alarm ? 'var(--ds-crimson, #c41e3a)' : 'var(--ds-green, #059669)';
     // Next scheduled nightly run (cron 03:30 SAST)
     $now      = \Carbon\Carbon::now();
     $nextRun  = $now->copy()->setTime(3, 30, 0);
@@ -38,19 +38,19 @@
 
     {{-- Flash: reveal error / threshold saved --}}
     @if(session('backup_threshold_saved'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color: var(--ds-green, #16a34a); border: 1px solid color-mix(in srgb, var(--ds-green, #16a34a) 30%, transparent);">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color: var(--ds-green, #059669); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);">
             {{ session('backup_threshold_saved') }}
         </div>
     @endif
     @if(session('backup_reveal_error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-red, #dc2626) 12%, transparent); color: var(--ds-red, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-red, #dc2626) 30%, transparent);">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);">
             {{ session('backup_reveal_error') }}
         </div>
     @endif
 
     {{-- Degraded banner when no status file is present/readable --}}
     @unless($st['present'])
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); color: var(--ds-amber, #d97706); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
             No backup status is available yet. The nightly job has not written <code class="font-mono">/var/lib/corex-backup/status.json</code>,
             or it is not readable by the app. The page below shows what it can; nothing here is a failure of this screen.
         </div>
@@ -71,7 +71,7 @@
             <div class="{{ $cell }}"><span class="{{ $lbl }}" style="{{ $lblStyle }}">Last run state</span><span class="{{ $val }}">{{ $st['state'] }}</span></div>
             <div class="{{ $cell }}"><span class="{{ $lbl }}" style="{{ $lblStyle }}">Last successful backup</span><span class="{{ $val }}">{{ $st['last_success_human'] ?? '—' }}{{ $st['hours_since_success'] !== null ? " ({$st['hours_since_success']}h ago)" : '' }}</span></div>
             <div class="{{ $cell }}"><span class="{{ $lbl }}" style="{{ $lblStyle }}">Stale alarm</span>
-                <span class="{{ $val }}" style="color: {{ $st['stale'] ? 'var(--ds-red, #dc2626)' : 'var(--ds-green, #16a34a)' }};">
+                <span class="{{ $val }}" style="color: {{ $st['stale'] ? 'var(--ds-crimson, #c41e3a)' : 'var(--ds-green, #059669)' }};">
                     {{ $st['stale'] ? 'STALE — over threshold' : 'OK — within threshold' }} ({{ $st['threshold_hours'] }}h)
                 </span>
             </div>
@@ -96,8 +96,8 @@
             <div class="flex flex-col gap-1">
                 <label for="stale_alarm_hours" class="text-xs uppercase tracking-wide" style="color: var(--text-muted, #64748b);">Alarm if no successful backup within (hours)</label>
                 <input type="number" id="stale_alarm_hours" name="stale_alarm_hours" min="1" max="720" value="{{ old('stale_alarm_hours', $threshold) }}"
-                       class="w-40 rounded-md px-3 py-2" style="background: var(--input-bg, #fff); border: 1px solid var(--border); color: var(--text);">
-                @error('stale_alarm_hours')<span style="color: var(--ds-red, #dc2626);" class="text-xs">{{ $message }}</span>@enderror
+                       class="w-40 rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                @error('stale_alarm_hours')<span style="color: var(--ds-crimson, #c41e3a);" class="text-xs">{{ $message }}</span>@enderror
             </div>
             <button type="submit" class="corex-btn-outline">Save threshold</button>
             <span class="text-xs" style="color: var(--text-muted, #64748b);">The nightly health check (09:15) alerts when the repo goes stale past this.</span>
@@ -131,7 +131,7 @@
                             <td class="text-xs" style="color: var(--text-muted, #64748b);">{{ count($snap['paths']) }} paths</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="text-center py-4" style="color: var(--text-muted, #64748b);">No snapshot list available (snapshots.json missing or empty).</td></tr>
+                        <tr><td colspan="5" class="text-center py-8 text-sm" style="color: var(--text-muted, #64748b);">No snapshot list available (snapshots.json missing or empty).</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -161,7 +161,7 @@
                         @php $ok = ($run['state'] ?? '') === 'OK'; @endphp
                         <tr>
                             <td>{{ $run['ts'] ?? '—' }}</td>
-                            <td><span class="font-semibold" style="color: {{ $ok ? 'var(--ds-green, #16a34a)' : 'var(--ds-red, #dc2626)' }};">{{ $run['state'] ?? '?' }}</span></td>
+                            <td><span class="font-semibold" style="color: {{ $ok ? 'var(--ds-green, #059669)' : 'var(--ds-crimson, #c41e3a)' }};">{{ $run['state'] ?? '?' }}</span></td>
                             <td>{{ isset($run['duration_s']) ? gmdate('i:s', (int) $run['duration_s']) : '—' }}</td>
                             <td>{{ $run['files'] ?? '—' }}</td>
                             <td>{{ $run['added'] ?: '—' }}</td>
@@ -169,7 +169,7 @@
                             <td class="font-mono">{{ $run['snapshot'] ?: '—' }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="text-center py-4" style="color: var(--text-muted, #64748b);">No run history yet (runs.jsonl empty).</td></tr>
+                        <tr><td colspan="7" class="text-center py-8 text-sm" style="color: var(--text-muted, #64748b);">No run history yet (runs.jsonl empty).</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -180,17 +180,17 @@
     @if($canReveal)
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--ds-amber, #d97706);">Backup encryption password</h2>
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--ds-amber, #f59e0b);">Backup encryption password</h2>
         </div>
         <div class="p-4 space-y-3 text-sm">
-            <div class="rounded-md px-4 py-3" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); color: var(--ds-amber, #d97706); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 28%, transparent);">
+            <div class="rounded-md px-4 py-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 28%, transparent);">
                 <strong>This copy dies with the server.</strong> The repo password lives in one root-only file on this box.
                 If the box is lost, the off-box backup is unrecoverable without this password. Keep an OFFLINE copy in a
                 password manager — that is the disaster copy. Every reveal below is recorded in the audit log.
             </div>
 
             @if(session('revealed_backup_password'))
-                <div class="rounded-md px-4 py-3" style="background: var(--surface-alt, #f8fafc); border: 1px dashed var(--border);">
+                <div class="rounded-md px-4 py-3" style="background: var(--surface-2); border: 1px dashed var(--border);">
                     Password (shown once — this reveal is logged):
                     <code class="font-mono font-semibold ml-1">{{ session('revealed_backup_password') }}</code>
                 </div>
@@ -199,7 +199,7 @@
             <form method="POST" action="{{ route('admin.backups.reveal') }}"
                   onsubmit="return confirm('Reveal the backup encryption password? Every reveal is recorded in the audit log.');">
                 @csrf
-                <button type="submit" class="corex-btn-outline" style="border-color: var(--ds-amber, #d97706); color: var(--ds-amber, #d97706);">
+                <button type="submit" class="corex-btn-outline" style="border-color: var(--ds-amber, #f59e0b); color: var(--ds-amber, #f59e0b);">
                     Reveal backup password
                 </button>
             </form>

@@ -179,7 +179,7 @@
         $activeGroup = 'payroll';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
-    } elseif (request()->routeIs('deals-v2.*')) {
+    } elseif (request()->routeIs('deals-v2.*') || request()->routeIs('admin.settings.deal-distribution-rules.*')) {
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
         $activeGroup = 'integration';
@@ -1544,7 +1544,7 @@
 
                 @permission('deals_v2.create')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.create'))
-                <a href="{{ route('deals-v2.create') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.create') ? 'active' : '' }}">New Deal</a>
+                <a href="{{ route('deals-v2.create') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.create') || request()->routeIs('deals-v2.create-wizard') ? 'active' : '' }}">New Deal</a>
                 @endif
                 @endpermission
 
@@ -1651,7 +1651,7 @@
         @permission('view_backups')
         <a href="{{ route('admin.backups.index') }}" class="corex-nav-item {{ request()->routeIs('admin.backups.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Z" />
             </svg>
             <span>Backups</span>
         </a>
