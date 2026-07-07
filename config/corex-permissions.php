@@ -559,6 +559,9 @@ return [
         ['key' => 'view_backups',                    'label' => 'View Backups (status, health, history)', 'section' => 'admin',   'type' => 'access',  'module' => 'backups',          'sort_order' => 1],
         ['key' => 'reveal_backup_password',          'label' => 'Reveal Backup Encryption Password (audited, principal only)', 'section' => 'admin', 'type' => 'action', 'module' => 'backups', 'sort_order' => 2],
 
+        // ── Server Health Monitor (System Developer) — read-only live vitals ──
+        ['key' => 'view_server_health',              'label' => 'View Server Health Monitor (live vitals)', 'section' => 'admin', 'type' => 'access', 'module' => 'monitoring', 'sort_order' => 1],
+
         // ── Misfiled Documents register (AT-167) ──
         ['key' => 'access_misfiled_documents',       'label' => 'Access Misfiled Documents Register', 'section' => 'admin', 'type' => 'access', 'module' => 'filing', 'sort_order' => 5],
         ['key' => 'misfiled_documents.refile',       'label' => 'Refile Misfiled Documents',          'section' => 'admin', 'type' => 'action', 'module' => 'filing', 'sort_order' => 6],
