@@ -67,7 +67,9 @@ class BackfillP24Stats extends Command
         $grand = ['listings' => 0, 'upserted' => 0, 'skipped' => 0, 'errors' => 0];
         foreach ($agencies as $agency) {
             $this->info("Agency {$agency->id} ({$agency->name}) — backfilling {$days}d…");
-            $res = $service->pullForAgency($agency, $days);
+            // null = UNCAPPED — a backfill must sweep the whole active book, not the
+            // nightly per-run cap (AT-200).
+            $res = $service->pullForAgency($agency, $days, null);
             foreach ($grand as $k => $_) {
                 $grand[$k] += (int) ($res[$k] ?? 0);
             }

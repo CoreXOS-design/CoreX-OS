@@ -323,7 +323,14 @@ class PropertyIntelligenceService
                 'title' => $p->title,
                 'price' => $p->price,
                 'suburb' => $p->suburb,
-                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
+                // Days on market = days since the listing went ON market. Prefer
+                // listed_date (the real listing date); published_at is only set when
+                // a property is pushed to the HFC website, so it is null for portal-
+                // only listings and wrongly rendered "—" (AT-200). Fall back through
+                // syndication-activation → created_at so a listed property always
+                // shows a figure.
+                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
+                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
             ]);
     }
 
@@ -685,7 +692,8 @@ class PropertyIntelligenceService
             'seller_fica_complete' => $ficaComplete,
             'seller_count' => $sellers->count(),
             'published' => (bool) $property->published_at,
-            'days_on_market' => $property->published_at ? (int) $property->published_at->diffInDays(now()) : null,
+            'days_on_market' => ($dom = $property->listed_date ?? $property->p24_activated_at ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at)
+                ? \App\Support\HumanDiff::daysBetween($dom) : null,
         ];
     }
 }

@@ -20,7 +20,9 @@ class PullP24StatsJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1;
-    public int $timeout = 600;
+    // Stale-first sweep polls up to NIGHTLY_MAX_LISTINGS (1500) with a 20s fail-fast
+    // per call; 1h ceiling covers a bad-handshake night without ever hanging (AT-200).
+    public int $timeout = 3600;
 
     public function handle(P24StatsService $service): void
     {
