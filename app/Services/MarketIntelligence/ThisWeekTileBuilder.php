@@ -12,9 +12,7 @@ use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\MarketIntelligence\DTOs\TileDTO;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 /**
@@ -50,6 +48,8 @@ final class ThisWeekTileBuilder
     public function __construct(
         private readonly OpportunityPocketService $pockets,
         private readonly AnthropicGateway $gateway,
+        private readonly \App\Services\Prospecting\ProspectingConfigurationService $config,
+        private readonly \App\Services\Prospecting\ProspectingActionPresetService $presets,
     ) {}
 
     /**
@@ -118,22 +118,18 @@ final class ThisWeekTileBuilder
     private function matchesFacts(User $agent, int $agencyId): ?array
     {
         try {
-            $n = (int) DB::table('prospecting_listings as pl')
-                ->join('prospecting_buyer_matches as pbm', function ($j) {
-                    $j->on('pbm.prospecting_listing_id', '=', 'pl.id')
-                      ->whereNull('pbm.dismissed_at')
-                      ->where('pbm.score', '>=', 80);
-                })
-                ->where('pl.agency_id', $agencyId)
-                ->where('pl.is_active', true)
-                ->whereNull('pl.matched_property_id')
-                ->whereNull('pl.deleted_at')
-                ->distinct()
-                ->count('pl.id');
+            // Count from the SAME query the "Pitch now" link lands on
+            // (pitch_now_high preset) so the tile number equals the list shown.
+            $thresholds = $this->config->getSuggestedActionThresholds($agencyId);
+            $n = $this->presets->countForPreset($agencyId, $agent->id, 'pitch_now_high', $thresholds);
             if ($n === 0) return null;
             return [
                 'count'      => $n,
-                'action_url' => route('market-intelligence.work', ['action_preset' => 'pitch_now_high']),
+                // Relative URL: host-agnostic so it works whichever domain the
+                // agent is on (corex.hfcoastal.co.za or corexos.co.za), and so
+                // the nightly warm job — which runs with no request host — never
+                // bakes an absolute cross-domain link that logs the user out.
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'pitch_now_high'], false),
             ];
         } catch (Throwable $e) {
             Log::warning('ThisWeekTileBuilder::matchesFacts failed', ['error' => $e->getMessage()]);
@@ -148,19 +144,14 @@ final class ThisWeekTileBuilder
     private function expiringFacts(User $agent, int $agencyId): ?array
     {
         try {
-            $cutoff = Carbon::now()->subHours(24);
-            $q = DB::table('prospecting_claims')
-                ->where('agency_id', $agencyId)
-                ->where('user_id', $agent->id);
-            if (Schema::hasColumn('prospecting_claims', 'released_at'))        $q->whereNull('released_at');
-            if (Schema::hasColumn('prospecting_claims', 'feedback_logged_at')) $q->whereNull('feedback_logged_at');
-            if (Schema::hasColumn('prospecting_claims', 'claimed_at'))         $q->where('claimed_at', '<=', $cutoff);
-
-            $n = (int) $q->count();
+            // Count from the SAME query the "Log feedback" link lands on
+            // (expiring preset) so the tile number equals the list shown.
+            $thresholds = $this->config->getSuggestedActionThresholds($agencyId);
+            $n = $this->presets->countForPreset($agencyId, $agent->id, 'expiring', $thresholds);
             if ($n === 0) return null;
             return [
                 'count'      => $n,
-                'action_url' => route('market-intelligence.work', ['action_preset' => 'expiring']),
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'expiring'], false),
             ];
         } catch (Throwable $e) {
             Log::warning('ThisWeekTileBuilder::expiringFacts failed', ['error' => $e->getMessage()]);
@@ -181,15 +172,26 @@ final class ThisWeekTileBuilder
 
             $suburb = (string) ($top['suburb'] ?? '');
             $beds   = (int) ($top['bedrooms'] ?? 0);
+            if ($suburb === '') return null;
+
+            // The "View pocket" link filters the list to suburb + bedrooms — i.e.
+            // it shows the SUPPLY (listings to work), not the demand. Headline the
+            // supply so the tile number equals what clicking shows; carry demand
+            // as context for the sentence. If there's no supply to view, don't
+            // advertise a pocket that lands on an empty list.
+            $supply = $this->presets->countForSuburbBedrooms($agencyId, $suburb, $beds);
+            if ($supply === 0) return null;
+
             return [
-                'count'         => (int) ($top['demand'] ?? 0),
+                'count'         => $supply,
                 'suburb'        => $suburb,
                 'bedrooms'      => $beds,
-                'listing_count' => (int) ($top['supply'] ?? 0),
+                'demand'        => (int) ($top['demand'] ?? 0),
+                'listing_count' => $supply,
                 'action_url'    => route('market-intelligence.work', [
                     'suburb'         => $suburb,
                     'bedrooms_exact' => $beds,
-                ]),
+                ], false),
             ];
         } catch (Throwable $e) {
             Log::warning('ThisWeekTileBuilder::pocketFacts failed', ['error' => $e->getMessage()]);
@@ -204,16 +206,17 @@ final class ThisWeekTileBuilder
     private function newListingsFacts(User $agent, int $agencyId): ?array
     {
         try {
-            $sinceFriday = Carbon::now()->previous(Carbon::FRIDAY)->startOfDay();
-            $n = (int) DB::table('tracked_properties')
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->where('first_seen_at', '>=', $sinceFriday)
-                ->count();
+            // Count from the SAME query the "See new" link lands on (new_today
+            // preset on prospecting_listings within the agency's lookback window).
+            // The old count read tracked_properties "since Friday" — a different
+            // table AND a different window — so the tile promised N and the link
+            // showed a different (often zero) number. That was the 2026-07-07 bug.
+            $thresholds = $this->config->getSuggestedActionThresholds($agencyId);
+            $n = $this->presets->countForPreset($agencyId, $agent->id, 'new_today', $thresholds);
             if ($n === 0) return null;
             return [
                 'count'      => $n,
-                'action_url' => route('market-intelligence.work', ['action_preset' => 'new_today']),
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'new_today'], false),
             ];
         } catch (Throwable $e) {
             Log::warning('ThisWeekTileBuilder::newListingsFacts failed', ['error' => $e->getMessage()]);
@@ -289,6 +292,9 @@ final class ThisWeekTileBuilder
         - No "Dear" or formal greetings — direct.
         - Don't use words like "huge", "massive", "incredible" — be factual.
         - For "pocket" tiles, name the suburb and bedroom count from the facts.
+          The headline number is `count` (listings to work); you MAY mention
+          `demand` (waiting buyers) as context, but the sentence's primary
+          number must be `count` so it matches what the agent lands on.
         - Anti-overpricing: never imply the agent should quote a high price.
 
         Return STRICT JSON only. No markdown. No preamble. Object keyed by tile
@@ -313,15 +319,15 @@ final class ThisWeekTileBuilder
             'matches' => $n . ' ' . ($n === 1 ? 'property matches' : 'properties match') . ' your buyers right now.',
             'expiring' => $n . ' of your ' . ($n === 1 ? 'claim expires' : 'claims expire') . ' in the next 24 hours.',
             'pocket' => sprintf(
-                '%s · %d-bed: %d %s chasing %d %s.',
+                '%s · %d-bed: %d %s to work for %d waiting %s.',
                 $facts['suburb'] ?? '—',
                 $facts['bedrooms'] ?? 0,
                 $n,
-                $n === 1 ? 'buyer' : 'buyers',
-                $facts['listing_count'] ?? 0,
-                ($facts['listing_count'] ?? 0) === 1 ? 'listing' : 'listings',
+                $n === 1 ? 'listing' : 'listings',
+                $facts['demand'] ?? 0,
+                ($facts['demand'] ?? 0) === 1 ? 'buyer' : 'buyers',
             ),
-            'new_listings' => $n . ' new ' . ($n === 1 ? 'listing' : 'listings') . ' in your area since Friday.',
+            'new_listings' => $n . ' new ' . ($n === 1 ? 'listing' : 'listings') . ' in your area to get ahead of.',
             default => $n . ' items need your attention.',
         };
     }
