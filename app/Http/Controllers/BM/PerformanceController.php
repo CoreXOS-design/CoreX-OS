@@ -350,6 +350,10 @@ class PerformanceController extends Controller
         DB::table('targets')->updateOrInsert(
             ['period' => $period, 'user_id' => $targetUserId],
             [
+                // targets.agency_id is NOT NULL; raw updateOrInsert gets no
+                // BelongsToAgency stamp. Stamp from the branch manager's agency
+                // (same tenant as the managed branch's targets) — AT-203.
+                'agency_id'       => $bm->agency_id,
                 'branch_id'       => $branchId,
                 'listings_target' => $listingsTarget,
                 'deals_target'    => $dealsTarget,
@@ -412,6 +416,8 @@ class PerformanceController extends Controller
             DB::table('targets')->updateOrInsert(
                 ['period' => $period, 'user_id' => $targetUserId],
                 [
+                    // targets.agency_id NOT NULL — stamp from the BM's agency (AT-203).
+                    'agency_id'       => $bm->agency_id,
                     'branch_id'       => $branchId,
                     'listings_target' => (int)($prev->listings_target ?? 0),
                     'deals_target'    => (int)($prev->deals_target ?? 0),
@@ -462,6 +468,8 @@ class PerformanceController extends Controller
         DB::table('targets')->updateOrInsert(
             ['period' => $period, 'user_id' => $targetUserId],
             [
+                // targets.agency_id NOT NULL — stamp from the BM's agency (AT-203).
+                'agency_id'    => $bm->agency_id,
                 'branch_id'    => $branchId,
                 'value_target' => $valueTarget,
                 'updated_by'   => (int)$bm->id,

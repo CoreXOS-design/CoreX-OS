@@ -91,9 +91,17 @@ class SharedMatchController extends Controller
 
         $match = $this->resolveMatch($token);
 
+        // Public shared-match link — no Auth::user(), so stamp agency_id from
+        // the match (Contact pillar); ContactMatchFeedback.agency_id is NOT NULL
+        // and BelongsToAgency cannot infer it here. In values so it is set on the
+        // create leg of updateOrCreate.
         ContactMatchFeedback::updateOrCreate(
             ['contact_match_id' => $match->id, 'property_id' => $property],
-            ['reaction' => $data['reaction'], 'note' => $data['note'] ?? null],
+            [
+                'agency_id' => $match->agency_id,
+                'reaction'  => $data['reaction'],
+                'note'      => $data['note'] ?? null,
+            ],
         );
 
         $match->update(['last_engaged_at' => now()]);

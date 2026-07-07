@@ -943,6 +943,10 @@ class TargetController extends Controller
                         ->updateOrInsert(
                             ['branch_id' => $branchId, 'key' => $key],
                             [
+                                // branch_activity_columns.agency_id is NOT NULL; raw
+                                // updateOrInsert gets no BelongsToAgency stamp. Derive
+                                // from the branch being written — its tenant (AT-203).
+                                'agency_id' => \App\Models\Branch::withoutGlobalScopes()->whereKey($branchId)->value('agency_id'),
                                 'is_enabled' => $enabled,
                                 'sort_order' => $order,
                                 'points_weight' => $weight,
