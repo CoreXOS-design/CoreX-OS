@@ -2319,6 +2319,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->post('/reveal', [\App\Http\Controllers\Admin\BackupController::class, 'reveal'])->name('reveal');
     });
 
+    // Server Health Monitor (System Developer) — read-only live vitals page + a
+    // cheap JSON snapshot the page polls (~10s). The data endpoint lives under
+    // /api/v1/* so it appears in the Admin → API catalog (Non-Negotiable #7).
+    Route::middleware('permission:view_server_health')->group(function () {
+        Route::get('/admin/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'index'])->name('admin.system-health.index');
+        Route::get('/api/v1/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'data'])->name('api.v1.system-health');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
