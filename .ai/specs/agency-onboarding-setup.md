@@ -116,6 +116,26 @@ segment, so there is no collision there either.)
 
 The token stays valid so the Admin can **resume across sessions** until they finish.
 
+### 3.3a Everything is INLINE — the Admin never leaves the wizard
+
+**Hard rule (AT-57 follow-up):** no step deep-links out to the settings page. Every setting
+the step configures is rendered and saved *inside* the wizard. Two rendering modes:
+
+- **Data-driven controls** (`config.controls`) for simple scalar/toggle/select settings.
+- **Inline partials** (`config.partial`, rendered inside the wizard's own `<form>`) for rich
+  settings whose form is complex — commission (splits, caps, fees, mentor, revenue-share pool
+  + 7-tier table), notifications (reminder + channel toggles), compliance (whistleblow routing).
+  The partial's fields carry the exact input names the canonical saver expects, so it posts
+  through the wizard save → the same `SettingsController`/`CommissionSettingsController` method.
+- **Auxiliary collection editors** (`config.aux_partial`, rendered OUTSIDE the main form so its
+  add/remove sub-forms aren't nested) for list-type settings — property types/statuses/mandate
+  types/condition levels, and contact sources. These post to wizard sub-routes
+  (`corex.agency-setup.collection.add|remove`) that delegate to the canonical
+  `storePropertySettingItem`/`destroyPropertySettingItem` / `ContactSourceController` CRUD and
+  redirect back to the step. Contact **types** are system-managed (locked) and shown read-only.
+
+Regression-guarded by `test_no_step_deep_links_out_of_the_wizard` (iterates all 9 steps).
+
 ### 3.4 Trigger: `App\Events\AgencyCreated` domain event (Non-negotiable #9)
 - New agency + Admin are created atomically in
   `app\Http\Controllers\Admin\AgencyController@store()` inside a `DB::transaction`

@@ -2123,6 +2123,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'save'])->name('corex.agency-setup.step.save');
         Route::post('/agency-setup/step/{step}/skip', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'skip'])->name('corex.agency-setup.step.skip');
         Route::post('/agency-setup/finish', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'finish'])->name('corex.agency-setup.finish');
+        // Inline list editors (property types/statuses/mandate/condition, contact sources)
+        Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
+        Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
     });
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');

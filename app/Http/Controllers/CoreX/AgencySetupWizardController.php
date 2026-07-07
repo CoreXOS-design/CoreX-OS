@@ -46,7 +46,7 @@ class AgencySetupWizardController extends Controller
         $agency = $this->agency();
         $config = config("agency-onboarding-copy.$step");
 
-        return view('agency-setup.wizard', [
+        return view('agency-setup.wizard', array_merge([
             'setup'    => $setup,
             'agency'   => $agency,
             'stepKey'  => $step,
@@ -54,7 +54,59 @@ class AgencySetupWizardController extends Controller
             'values'   => $this->currentValues($config, $agency),
             'progress' => $this->progress($setup, $step),
             'nav'      => $this->nav($step),
-        ]);
+        ], $this->stepData($step, $agency)));
+    }
+
+    /**
+     * Extra view data for steps whose inline partial needs live models
+     * (commission settings, dashboard reminders, etc.). These are read from the
+     * SAME stores the settings page reads, so the wizard shows current values.
+     */
+    /**
+     * Inline collection editors (add/remove lists that render OUTSIDE the main
+     * form, since they need their own sub-forms). Each maps to the canonical
+     * CRUD so the wizard never rebuilds a parallel store. property_* → the
+     * SettingsController property-setting-item CRUD; contact_source →
+     * ContactSourceController.
+     */
+    private const COLLECTIONS = [
+        'property_type'   => ['step' => 'properties', 'group' => 'property_type',   'label' => 'Property types',   'placeholder' => 'e.g. Freehold House'],
+        'property_status' => ['step' => 'properties', 'group' => 'property_status', 'label' => 'Listing statuses', 'placeholder' => 'e.g. Under Offer'],
+        'mandate_type'    => ['step' => 'properties', 'group' => 'mandate_type',    'label' => 'Mandate types',    'placeholder' => 'e.g. Sole Mandate'],
+        'condition_level' => ['step' => 'properties', 'group' => 'condition_level', 'label' => 'Condition levels', 'placeholder' => 'e.g. Renovated'],
+        'contact_source'  => ['step' => 'contacts',   'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
+    ];
+
+    private function stepData(string $step, Agency $agency): array
+    {
+        return match ($step) {
+            'commission' => [
+                'commission' => \App\Models\CommissionSetting::forAgency($agency->id),
+            ],
+            'properties' => [
+                'propertyGroups' => collect(['property_type', 'property_status', 'mandate_type', 'condition_level'])
+                    ->mapWithKeys(fn ($g) => [$g => \App\Models\PropertySettingItem::group($g)->orderBy('sort_order')->orderBy('name')->get()])
+                    ->all(),
+            ],
+            'contacts' => [
+                'contactTypes'   => \App\Models\ContactType::orderBy('sort_order')->orderBy('name')->get(),
+                'contactSources' => \App\Models\ContactSource::orderBy('sort_order')->orderBy('name')->get(),
+            ],
+            'notifications' => [
+                'dashboard' => \App\Models\CommandCenter\AgencyDashboardSetting::firstOrNew(['agency_id' => $agency->id]),
+            ],
+            'compliance' => [
+                'whistleblow' => [
+                    'officer_email' => $agency->whistleblow_compliance_officer_email ?? null,
+                    'approver_ids'  => (array) ($agency->whistleblow_approver_user_ids ?? []),
+                ],
+                'agencyMembers' => \App\Models\User::withoutGlobalScopes()
+                    ->where('agency_id', $agency->id)
+                    ->whereIn('role', ['admin', 'branch_manager', 'agent'])
+                    ->orderBy('name')->get(['id', 'name', 'email']),
+            ],
+            default => [],
+        };
     }
 
     /** POST /corex/agency-setup/step/{step} — save via canonical paths, advance. */
@@ -96,6 +148,57 @@ class AgencySetupWizardController extends Controller
         // A skipped step still advances the pointer, but is NOT marked complete
         // (so progress % honestly reflects what was configured).
         return $this->advance($setup, $step, null, skipped: true);
+    }
+
+    /** POST /corex/agency-setup/collection/{collection} — add a list item inline. */
+    public function addCollectionItem(Request $request, string $collection)
+    {
+        $def = self::COLLECTIONS[$collection] ?? abort(404);
+        $this->resolveOrCreateSetup(); // ensure agency context + setup exist
+
+        try {
+            if (isset($def['group'])) {
+                $request->merge(['group' => $def['group']]);
+                app(\App\Http\Controllers\CoreX\SettingsController::class)->storePropertySettingItem($request);
+            } elseif ($collection === 'contact_source') {
+                app(\App\Http\Controllers\CoreX\ContactSourceController::class)->store($request);
+            }
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (HttpException $e) {
+            if ($e->getStatusCode() !== 403) {
+                throw $e;
+            }
+        }
+
+        return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
+            ->with('success', 'Added.');
+    }
+
+    /** DELETE /corex/agency-setup/collection/{collection}/{id} — remove a list item. */
+    public function removeCollectionItem(string $collection, int $id)
+    {
+        $def = self::COLLECTIONS[$collection] ?? abort(404);
+        $this->resolveOrCreateSetup();
+
+        try {
+            if (isset($def['group'])) {
+                // Route-model binding is bypassed here, but AgencyScope still
+                // applies to the lookup so a cross-tenant id 404s.
+                $item = \App\Models\PropertySettingItem::findOrFail($id);
+                app(\App\Http\Controllers\CoreX\SettingsController::class)->destroyPropertySettingItem($item);
+            } elseif ($collection === 'contact_source') {
+                $src = \App\Models\ContactSource::findOrFail($id);
+                app(\App\Http\Controllers\CoreX\ContactSourceController::class)->destroy($src);
+            }
+        } catch (HttpException $e) {
+            if (!in_array($e->getStatusCode(), [403, 404], true)) {
+                throw $e;
+            }
+        }
+
+        return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
+            ->with('success', 'Removed.');
     }
 
     /** POST /corex/agency-setup/finish — mark complete, exit to dashboard. */

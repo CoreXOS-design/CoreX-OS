@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -75,12 +76,10 @@ return [
         'title' => 'Commission & revenue share',
         'intro' => 'This is the engine room. Your commission split, annual cap, fees and '
             . 'revenue-share tiers drive every payout calculation and the Agency Tracker. '
-            . 'It ships with sensible defaults — review them carefully, then open the full '
-            . 'editor to set your exact splits and tier table.',
-        'mode' => 'guide',
-        'links' => [
-            ['label' => 'Open Commission & Revenue Share editor', 'route' => 'corex.settings', 'params' => ['s' => 'commission'],
-             'explain' => 'Set agent split %, annual cap, deal fees, the revenue-share pool and the sliding tier table.'],
+            . 'It ships with sensible defaults — review and adjust them right here.',
+        'partial' => 'agency-setup.steps.commission',
+        'savers' => [
+            ['controller' => CommissionSettingsController::class, 'method' => 'update'],
         ],
     ],
 
@@ -106,10 +105,7 @@ return [
              'label' => 'Syndicate to Private Property', 'explain' => 'Push your listings to Private Property (requires PP credentials on the agency).',
              'affects' => 'Where your listings publish.'],
         ],
-        'links' => [
-            ['label' => 'Manage property types, statuses & mandate types', 'route' => 'corex.settings', 'params' => ['s' => 'feature-properties'],
-             'explain' => 'Configure the dropdown lists CoreX uses for property type, listing status, mandate type and condition.'],
-        ],
+        'aux_partial' => 'agency-setup.steps.properties-collections',
     ],
 
     'presentations' => [
@@ -183,42 +179,27 @@ return [
              'label' => 'Contacts per page', 'explain' => 'How many contacts show per page in the Contacts list.',
              'affects' => 'The Contacts list view.'],
         ],
-        'links' => [
-            ['label' => 'Manage contact types, sources & tags', 'route' => 'corex.settings', 'params' => ['s' => 'feature-contacts'],
-             'explain' => 'Configure the categories, lead sources and tags you file contacts under.'],
-        ],
+        'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],
 
     'compliance' => [
         'title' => 'Compliance',
         'intro' => 'South African property practice runs on FICA, POPIA and the PPRA. CoreX tracks '
-            . 'it all — but it needs to know who your compliance officers are and where '
-            . 'whistleblower reports should go.',
-        'mode' => 'guide',
-        'links' => [
-            ['label' => 'Appoint FICA / MLRO & Information officers', 'route' => 'corex.settings', 'params' => ['s' => 'whistleblow-settings'],
-             'explain' => 'Record who holds your FICA (Money Laundering Reporting Officer) and POPIA Information Officer appointments.'],
-            ['label' => 'Set compliance reporting routing', 'route' => 'corex.settings', 'params' => ['s' => 'whistleblow-settings'],
-             'explain' => 'Choose who receives whistleblower / compliance complaints and the escalation tiers.'],
+            . 'it all — set your compliance officer and where whistleblower reports are routed.',
+        'partial' => 'agency-setup.steps.compliance',
+        'savers' => [
+            ['controller' => SettingsController::class, 'method' => 'saveWhistleblowSettings'],
         ],
     ],
 
     'notifications' => [
         'title' => 'Notifications & dashboard',
         'intro' => 'CoreX nudges your team about overdue tasks, expiring leases, FICA gaps and more. '
-            . 'Decide whether reminder settings are controlled per-agent or agency-wide.',
+            . 'Decide whether reminders are controlled per-agent or agency-wide, and which fire.',
+        'partial' => 'agency-setup.steps.notifications',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateDashboardMode'],
-        ],
-        'controls' => [
-            ['key' => 'dashboard_settings_mode', 'source' => 'agency', 'type' => 'select', 'default' => 'user',
-             'options' => ['user' => 'Each agent controls their own reminders', 'agency' => 'The agency controls reminders for everyone'],
-             'label' => 'Reminder control', 'explain' => 'Whether reminder preferences are set per-agent or centrally by the agency.',
-             'affects' => 'Who can change reminder timing and channels.'],
-        ],
-        'links' => [
-            ['label' => 'Fine-tune notification channels & reminders', 'route' => 'corex.settings', 'params' => ['s' => 'notifications'],
-             'explain' => 'Turn individual reminder types on/off and choose in-app, email or push delivery.'],
+            ['controller' => SettingsController::class, 'method' => 'updateAgencyDashboardSettings'],
         ],
     ],
 

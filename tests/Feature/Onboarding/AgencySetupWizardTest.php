@@ -195,6 +195,111 @@ class AgencySetupWizardTest extends TestCase
         $this->assertSame('Hi, a new listing matches your search.', PerformanceSetting::get('matches_wa_message'));
     }
 
+    public function test_commission_step_renders_and_writes_inline(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        // Renders the real inline form (no deep-link / new tab).
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'commission']))
+            ->assertOk()
+            ->assertSee('Commission split')
+            ->assertDontSee('Open Commission');
+
+        $payload = [
+            'commission_split_agent' => 70, 'annual_cap' => 1000000,
+            'post_cap_transaction_fee' => 500, 'post_cap_fee_cap' => 5000, 'post_cap_reduced_fee' => 250,
+            'monthly_platform_fee' => 1000, 'risk_management_fee' => 100, 'risk_management_cap' => 2000,
+            'mentor_extra_split' => 10, 'mentor_transactions' => 5,
+            'revenue_share_enabled' => 1, 'revenue_share_pool_percent' => 5,
+            'tier_1_percent' => 5, 'tier_2_percent' => 4, 'tier_3_percent' => 3, 'tier_4_percent' => 2,
+            'tier_5_percent' => 1, 'tier_6_percent' => 1, 'tier_7_percent' => 1,
+            'tier_4_flqa_requirement' => 1, 'tier_5_flqa_requirement' => 2,
+            'tier_6_flqa_requirement' => 3, 'tier_7_flqa_requirement' => 4,
+        ];
+
+        $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $payload)
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+
+        $c = \App\Models\CommissionSetting::forAgency($agency->id)->refresh();
+        $this->assertSame(70, (int) $c->commission_split_agent);
+        $this->assertSame(30, (int) $c->commission_split_agency);
+        $this->assertSame(5, (int) $c->revenue_share_pool_percent);
+    }
+
+    public function test_no_step_deep_links_out_of_the_wizard(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        // Every step renders inline — no "Open ... editor" deep-links anywhere.
+        foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
+            $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
+                ->assertOk()
+                ->assertDontSee('Open Commission')
+                ->assertDontSee('Manage property types')
+                ->assertDontSee('Manage contact types');
+        }
+    }
+
+    public function test_notifications_step_writes_inline(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'notifications']))->assertOk();
+
+        $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'notifications']), [
+            'dashboard_settings_mode' => 'agency',
+            'idle_alerts_enabled'     => '1',
+            'notify_email'            => '1',
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'access']));
+
+        $agency->refresh();
+        $this->assertSame('agency', $agency->dashboard_settings_mode);
+        $this->assertDatabaseHas('agency_dashboard_settings', [
+            'agency_id' => $agency->id, 'idle_alerts_enabled' => 1, 'notify_email' => 1,
+        ]);
+    }
+
+    public function test_compliance_step_writes_inline(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'compliance']), [
+            'whistleblow_compliance_officer_email' => 'compliance@coastal.co.za',
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'notifications']));
+
+        $agency->refresh();
+        $this->assertSame('compliance@coastal.co.za', $agency->whistleblow_compliance_officer_email);
+    }
+
+    public function test_inline_collection_add_and_remove(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        // Add a property type through the wizard's inline editor (canonical CRUD).
+        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'property_type']), [
+            'name' => 'Beachfront Villa',
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+
+        $item = \App\Models\PropertySettingItem::where('group', 'property_type')->where('name', 'Beachfront Villa')->first();
+        $this->assertNotNull($item);
+
+        // Remove it inline.
+        $this->actingAs($admin)->delete(route('corex.agency-setup.collection.remove', ['collection' => 'property_type', 'id' => $item->id]))
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+
+        $this->assertNull(\App\Models\PropertySettingItem::where('id', $item->id)->first());
+    }
+
     public function test_validation_error_keeps_user_on_step(): void
     {
         $agency = $this->agency();

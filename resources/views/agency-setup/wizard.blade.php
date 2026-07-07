@@ -33,7 +33,13 @@
               class="px-6 py-5 space-y-6">
             @csrf
 
-            {{-- Live controls --}}
+            {{-- Rich inline partial (complex steps render their real settings form
+                 here, inside the wizard form, posting to the same canonical saver). --}}
+            @if (!empty($config['partial']))
+                @include($config['partial'])
+            @endif
+
+            {{-- Live controls (data-driven simple settings) --}}
             @foreach (($config['controls'] ?? []) as $control)
                 @php
                     $key = $control['key'];
@@ -143,5 +149,13 @@
             </div>
         </form>
     </div>
+
+    {{-- Auxiliary inline editors (collections with their own add/remove sub-forms,
+         kept OUTSIDE the main form so forms are never nested). --}}
+    @if (!empty($config['aux_partial']))
+        <div class="rounded-lg overflow-hidden mt-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+            @include($config['aux_partial'])
+        </div>
+    @endif
 </div>
 @endsection
