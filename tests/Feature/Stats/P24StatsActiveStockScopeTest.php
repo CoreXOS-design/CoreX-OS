@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Stats;
 
+use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertyPortalMetric;
+use App\Models\User;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use App\Services\Syndication\Property24\P24StatsService;
 use App\Services\Syndication\Property24\Property24ApiClient;
@@ -23,6 +25,18 @@ final class P24StatsActiveStockScopeTest extends TestCase
 {
     use RefreshDatabase;
 
+    private int $agentId;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal']); // id may be 1
+        $this->agentId = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent'])->id;
+        $this->agencyId = $agency->id;
+    }
+
+    private int $agencyId;
+
     protected function tearDown(): void
     {
         Mockery::close();
@@ -32,7 +46,8 @@ final class P24StatsActiveStockScopeTest extends TestCase
     private function prop(string $ref, string $status): Property
     {
         return Property::forceCreate([
-            'agency_id' => 1, 'p24_ref' => $ref, 'p24_listing_number' => $ref,
+            'agency_id' => $this->agencyId, 'agent_id' => $this->agentId,
+            'p24_ref' => $ref, 'p24_listing_number' => $ref,
             'p24_syndication_status' => 'active', 'status' => $status, 'title' => "P {$ref}",
         ]);
     }
