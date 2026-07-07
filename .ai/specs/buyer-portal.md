@@ -1,8 +1,52 @@
 # Buyer Portal — "Your Property Matches" (public, token-gated)
 
 > AT-204 · lane cc2 · redesign of the public buyer-matches page.
-> Status: BUILT — QA1-first. Awaiting Johan phone QA.
+> **Status: CLOSED — SUPERSEDED / RESOLVED-BY-ANDRE (Johan's ruling 2026-07-07).**
 > Pillars: **Contact** (buyer) · **Property** (matches) · **Agent** (who to call).
+
+---
+
+## 0. CLOSE-OUT (2026-07-07) — resolution & what happened
+
+**Johan's ruling:** *"Andre sorted out the seller and buyer links. So that can be
+marked as done."* Andre's resolution is THE resolution.
+
+**What actually happened (factual, no judgment):** Andre took this cc2 branch
+(`AT-204-buyer-portal-redesign`), **merged it into QA2** (`13f8440d`), then applied
+a restyle/integration **`fix` (`8ec6a591`)** that reworked the buyer-portal cards +
+`show` + both shared partials (`public/shared/_agent-card`, `_company-footer`) AND
+the seller pages (`seller-link/live.blade.php`, `shared/match.blade.php`,
+`corex/properties/live-preview.blade.php`) into his design language, then merged
+QA2 → Staging → **main** (`8b3a523e`). Johan added a test/regression cleanup
+(`3c9b50d5`). So this redesign **shipped to live, restyled by Andre** — `fe496ca0`
+(the cc2 feat commit) is an ancestor of `origin/main`. The cc2 QA1 version does
+**not** proceed to Staging/live as-is; Andre's restyled version is canonical.
+
+**respond() truth:** `origin/main`'s `BuyerPortalController::respond()` is the cc2
+version (Andre's `8ec6a591` did **not** touch the controller) — `agency_id` stamped
+once from `link.agency_id`, `updateOrInsert` once, activity-log once; **no
+double-application**. Byte-identical to cc3 AT-203's live fix (`0793284d`), which
+already deployed the stamp to live and **live-verified respond OK**. The live
+respond path works with Andre's code.
+
+**Doctrine check (neutral):** Andre's shipped `_agent-card.blade.php` KEPT the
+elements Johan asked for — agent photo, tap-to-call, WhatsApp (`wa.me`), email,
+**PPRA/FFC** line — plus the company footer. No doctrine conflict to flag.
+
+**Branch disposition:** `AT-204-buyer-portal-redesign` is **PARKED** — pushed,
+documented here, **not merged by cc2, never deleted**. Still valuable if a redesign
+round returns: (a) the shared `public/shared/*` component contract (§4); (b) the
+**match-% honesty** design + `ContactMatch::presentBrief/matchBasisText/matchBasisLabels`
+(these methods are on `main`, in use); (c) the **11-test** suite
+`tests/Feature/BuyerPortal/BuyerPortalRedesignTest.php`; (d) the mobile-first
+public-page pattern + headless 390px/desktop proof harness.
+
+**QA1:** re-pointed to the **live lineage** (Andre's shipped versions of the 4
+restyled buyer-portal view files, `035bd8d3`) so the bench matches live and nobody
+QAs the superseded cc2 version. Controller / `ContactMatch` / `revoked.blade` were
+already identical. **AT-203 data fixes on QA1 are untouched.** Note: the SELLER
+pages on QA1 (`seller-link/live`, `shared/match`) were also restyled by Andre on
+main and were NOT re-aligned here (out of cc2's lane — cc1/Andre's call).
 
 ---
 
