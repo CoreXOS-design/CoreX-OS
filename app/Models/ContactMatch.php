@@ -370,6 +370,177 @@ class ContactMatch extends Model
     }
 
     /**
+     * Buyer-facing labels for the match-% BASIS (AT-204 honesty layer).
+     *
+     * The canonical MatchingService only scores the criteria a buyer actually
+     * gave (score = 100 when every specified criterion is met). A budget-only
+     * wishlist therefore reads "100%" on everything — mathematically right but
+     * it looks fake with no context. These labels let the display layer state
+     * WHAT the % is based on ("matches your budget") without ever touching the
+     * engine. Short, plain-English (STANDARDS F.8), ordered as the buyer reads.
+     *
+     * @return string[]
+     */
+    public function matchBasisLabels(): array
+    {
+        $map = [
+            'price_band'    => 'budget',
+            'area'          => 'area',
+            'beds'          => 'bedrooms',
+            'baths'         => 'bathrooms',
+            'garages'       => 'parking',
+            'property_type' => 'property type',
+            'category'      => 'property type',
+            'size'          => 'size',
+            'must_have'     => 'must-haves',
+            'nice_to_have'  => 'preferences',
+            'deal_breakers' => 'deal-breakers',
+        ];
+        $out = [];
+        foreach ($this->presentCriteriaGroups() as $g) {
+            $label = $map[$g] ?? null;
+            if ($label && !in_array($label, $out, true)) {
+                $out[] = $label;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Human sentence describing what a buyer's match % is based on, e.g.
+     * "your budget", "your budget & area", "your budget, area & 2 more".
+     * Returns '' when the buyer has given no criteria at all.
+     */
+    public function matchBasisText(): string
+    {
+        $labels = $this->matchBasisLabels();
+        if (empty($labels)) {
+            return '';
+        }
+        if (count($labels) === 1) {
+            return 'your ' . $labels[0];
+        }
+        if (count($labels) === 2) {
+            return 'your ' . $labels[0] . ' & ' . $labels[1];
+        }
+        $head = array_slice($labels, 0, 2);
+        $rest = count($labels) - 2;
+        return 'your ' . implode(', ', $head) . ' & ' . $rest . ' more';
+    }
+
+    /**
+     * The buyer's FULL honest brief — every criterion they've actually given,
+     * as ordered ['label' => …, 'value' => …] rows for the preferences summary
+     * (AT-204). Reads only canonical columns via the existing accessors; never
+     * invents a criterion the buyer didn't set. Safe on a bare/partial wishlist.
+     *
+     * @return array<int,array{label:string,value:string}>
+     */
+    public function presentBrief(): array
+    {
+        $rows = [];
+        $push = function (string $label, ?string $value) use (&$rows) {
+            $value = $value !== null ? trim($value) : '';
+            if ($value !== '' && $value !== '—') {
+                $rows[] = ['label' => $label, 'value' => $value];
+            }
+        };
+
+        foreach ($this->presentCriteriaGroups() as $g) {
+            switch ($g) {
+                case 'price_band':
+                    $push('Budget', $this->priceRangeLabel());
+                    break;
+                case 'area':
+                    $areas = $this->suburbList();
+                    $push('Areas', !empty($areas)
+                        ? implode(', ', $areas)
+                        : trim(count($this->p24SuburbIdList()) . ' selected area(s)'));
+                    break;
+                case 'beds':
+                    $push('Bedrooms', $this->presentMinMax($this->beds_min, $this->bedrooms_max));
+                    break;
+                case 'baths':
+                    $push('Bathrooms', $this->baths_min ? $this->baths_min . '+' : null);
+                    break;
+                case 'garages':
+                    $min = $this->garages_min ?: $this->parking_min;
+                    $push('Parking', $min ? $min . '+' : null);
+                    break;
+                case 'property_type':
+                    $types = array_map(
+                        fn ($t) => ucwords(str_replace('_', ' ', (string) $t)),
+                        $this->propertyTypeList()
+                    );
+                    $push('Property type', implode(', ', array_filter($types)));
+                    break;
+                case 'category':
+                    $push('Category', ucwords(str_replace('_', ' ', (string) $this->category)));
+                    break;
+                case 'size':
+                    $floor = $this->presentSize($this->floor_size_min, $this->floor_size_max);
+                    $erf   = $this->presentSize($this->erf_size_min, $this->erf_size_max);
+                    $push('Floor size', $floor ? $floor . ' m²' : null);
+                    $push('Erf size', $erf ? $erf . ' m²' : null);
+                    break;
+                case 'must_have':
+                    $push('Must have', $this->presentFeatureList($this->must_have_features));
+                    break;
+                case 'nice_to_have':
+                    $push('Nice to have', $this->presentFeatureList($this->nice_to_have_features));
+                    break;
+                case 'deal_breakers':
+                    $push('Avoid', $this->presentFeatureList($this->deal_breakers));
+                    break;
+            }
+        }
+        return $rows;
+    }
+
+    /** "3+" / "2–4" / "Up to 4" from a min/max pair. */
+    private function presentMinMax(?int $min, ?int $max): ?string
+    {
+        if ($min && $max) {
+            return $min === $max ? (string) $min : $min . '–' . $max;
+        }
+        if ($min) {
+            return $min . '+';
+        }
+        if ($max) {
+            return 'Up to ' . $max;
+        }
+        return null;
+    }
+
+    /** "80–120" / "80+" / "Up to 120" for a size range (no unit). */
+    private function presentSize(?int $min, ?int $max): ?string
+    {
+        if ($min && $max) {
+            return number_format($min) . '–' . number_format($max);
+        }
+        if ($min) {
+            return number_format($min) . '+';
+        }
+        if ($max) {
+            return 'Up to ' . number_format($max);
+        }
+        return null;
+    }
+
+    /** Humanise a features JSON array into a comma list. */
+    private function presentFeatureList($features): ?string
+    {
+        if (!is_array($features) || empty($features)) {
+            return null;
+        }
+        $clean = array_filter(array_map(
+            fn ($f) => ucwords(str_replace(['_', '-'], ' ', trim((string) $f))),
+            $features
+        ));
+        return !empty($clean) ? implode(', ', $clean) : null;
+    }
+
+    /**
      * Authoritative (PHP) countability test, honouring the agency setting.
      * Default bar (['any']) → countable iff ≥1 criteria group present.
      * A specific bar (e.g. ['area','price_band']) → all listed groups required.
