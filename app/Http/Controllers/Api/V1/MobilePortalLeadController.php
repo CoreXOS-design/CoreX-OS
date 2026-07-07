@@ -32,7 +32,7 @@ class MobilePortalLeadController extends Controller
     {
         $data = $request->validate([
             'date'     => 'sometimes|date_format:Y-m-d',
-            'portal'   => 'sometimes|in:p24,pp',
+            'portal'   => 'sometimes|in:p24,pp,website',
             'page'     => 'sometimes|integer|min:1',
             'per_page' => 'sometimes|integer|min:1|max:100',
         ]);

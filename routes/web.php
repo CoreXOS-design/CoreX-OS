@@ -1386,11 +1386,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
             $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
+            // buyer_portal_links.agency_id is NOT NULL and this is a raw insert
+            // (no BelongsToAgency auto-stamp) — derive it from the contact pillar.
+            $agencyId = \App\Models\Contact::withoutGlobalScopes()->whereKey($request->contact_id)->value('agency_id');
             // Revoke existing active links
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
             $token = bin2hex(random_bytes(32));
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
-                'contact_id' => $request->contact_id, 'token' => $token,
+                'contact_id' => $request->contact_id, 'agency_id' => $agencyId, 'token' => $token,
                 'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
                 'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
@@ -1847,6 +1850,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
         Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
         Route::post('/embargo-retention', [\App\Http\Controllers\Communications\WaDeviceController::class, 'updateEmbargoRetention'])->name('embargo-retention'); // AT-168
+        Route::post('/transcription-language', [\App\Http\Controllers\Communications\WaDeviceController::class, 'updateTranscriptionLanguage'])->name('transcription-language'); // AT-194
         Route::delete('/{waDevice}', [\App\Http\Controllers\Communications\WaDeviceController::class, 'destroy'])->name('destroy');
     });
 
@@ -2318,6 +2322,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->post('/reveal', [\App\Http\Controllers\Admin\BackupController::class, 'reveal'])->name('reveal');
     });
 
+    // Server Health Monitor (System Developer) — read-only live vitals page + a
+    // cheap JSON snapshot the page polls (~10s). The data endpoint lives under
+    // /api/v1/* so it appears in the Admin → API catalog (Non-Negotiable #7).
+    Route::middleware('permission:view_server_health')->group(function () {
+        Route::get('/admin/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'index'])->name('admin.system-health.index');
+        Route::get('/api/v1/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'data'])->name('api.v1.system-health');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
@@ -2524,6 +2536,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/wizard/{property}/step',          [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'saveStep'])->name('wizard.step');
         Route::post('/wizard/{property}/finalize',      [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'finalize'])->name('wizard.finalize');
         Route::delete('/wizard/{property}',             [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'discardDraft'])->name('wizard.discard');
+        // Same-origin image proxy for the Ad Manager (html2canvas needs same-origin
+        // images). MUST be declared before the /{property} catch-all so "ad-media"
+        // isn't matched as a property slug. See PropertyController@adMedia.
+        Route::get('/ad-media',                [\App\Http\Controllers\CoreX\PropertyController::class, 'adMedia'])->name('ad-media');
         Route::get('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'show'])->name('show');
         // Phase 3g — JSON detail card for the Map module.
         Route::get('/{property}/map-card',     [\App\Http\Controllers\Map\MapController::class, 'propertyCard'])->name('map-card');

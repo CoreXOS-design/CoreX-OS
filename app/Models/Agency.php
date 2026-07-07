@@ -122,6 +122,9 @@ class Agency extends Model
         'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
         'wa_self_link_enabled', // AT-156 — agents may self-link WhatsApp capture (default on)
         'wa_session_prefix', // AT-156 — WAHA session-name prefix (null => agency{id})
+        'wa_transcription_enabled', // AT-163 — voice-note transcription on/off
+        'wa_transcription_time', // AT-163 — nightly transcription run time (HH:MM local)
+        'wa_transcription_language', // AT-194 — whisper language hint (null => 'auto')
 
         'viewing_pack_redaction_dpi', // AT-107 Step 5b — redaction render DPI (null = default 150)
         'viewing_pack_default_duration_minutes', // AT-107 Step 8 — default viewing duration (null = 60)
@@ -181,6 +184,8 @@ class Agency extends Model
         'p24_max_photos',
         'p24_http_read_timeout',
         'pp_enabled',
+        'pp_lead_pull_enabled',
+        'pp_stats_pull_enabled',
         'pp_username',
         'pp_password',
         'pp_branch_guid',
@@ -340,6 +345,8 @@ class Agency extends Model
         'p24_http_read_timeout' => 'integer',
         'p24_locations_synced_at' => 'datetime',
         'pp_enabled' => 'boolean',
+        'pp_lead_pull_enabled' => 'boolean',
+        'pp_stats_pull_enabled' => 'boolean',
         'pp_sandbox' => 'boolean',
         'pp_password' => 'encrypted',
         'pp_webhook_secret' => 'encrypted',
@@ -935,5 +942,32 @@ class Agency extends Model
             'maintenance_mode'       => false,
             'maintenance_started_at' => null,
         ])->save();
+    }
+
+    /**
+     * AT-194 — whisper language options for voice-note transcription. 'auto' =
+     * per-note language detection (the historical default, best for unknown/mixed
+     * agencies); the rest pin a single language, which anchors the model and skips
+     * the detection pass. SA-relevant set; extend as agencies need. Keyed value =>
+     * human label for the settings UI.
+     */
+    public const TRANSCRIPTION_LANGUAGES = [
+        'auto' => 'Auto-detect (per note)',
+        'af'   => 'Afrikaans',
+        'en'   => 'English',
+        'zu'   => 'Zulu',
+        'xh'   => 'Xhosa',
+        'nl'   => 'Dutch',
+    ];
+
+    /**
+     * The whisper language hint for this agency's voice-note transcription, always a
+     * valid key (unknown/null => 'auto'). Fed to the worker as `-l <lang>`.
+     */
+    public function transcriptionLanguage(): string
+    {
+        $lang = (string) ($this->wa_transcription_language ?? '');
+
+        return array_key_exists($lang, self::TRANSCRIPTION_LANGUAGES) ? $lang : 'auto';
     }
 }

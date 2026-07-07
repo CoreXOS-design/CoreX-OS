@@ -42,6 +42,7 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_BRANCHES_READ   = 'branches:read';
     public const SCOPE_TESTIMONIALS_READ = 'testimonials:read';
     public const SCOPE_ARTICLES_READ     = 'articles:read';
+    public const SCOPE_LEADS_WRITE       = 'leads:write';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
     public const SCOPES = [
@@ -51,6 +52,7 @@ class AgencyApiKey extends Model implements Authenticatable
         self::SCOPE_BRANCHES_READ      => 'Read branches (offices) & their agents',
         self::SCOPE_TESTIMONIALS_READ  => 'Read published testimonials',
         self::SCOPE_ARTICLES_READ      => 'Read published agent articles',
+        self::SCOPE_LEADS_WRITE        => 'Submit website leads (enquiries)',
         self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
     ];
 

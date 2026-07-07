@@ -2712,8 +2712,17 @@ window.CoreXCal = {
             body.deck_layout     = Array.isArray(this.deck.layout) ? this.deck.layout.slice() : [];
         }
         if (this.layers) { body.layers = Array.isArray(this.layers.active) ? this.layers.active.slice() : []; }
-        body.scroll_mode = @json($scrollMode ?? 'continuous');
-        body.view        = @json($currentView ?? 'month');
+        // AT-164 view-trap fix (2026-07-07): the landing VIEW and SCROLL mode are promoted to
+        // the saved default ONLY when the user DELIBERATELY chose them this session — i.e.
+        // clicked the view switcher / Stream·Pages toggle, the ONLY writers of the transient
+        // `view` / `scroll_mode` keys (toolbar links above). A view reached by an event-click
+        // or a ?view= deep-link never writes the transient, so it is navigation — not a saved
+        // preference — and is OMITTED here, leaving default_view untouched. Root cause of five
+        // agents silently locked into Day view: save() previously grabbed the server-rendered
+        // $currentView, promoting a forced day view on every arrangement save.
+        const _t = this.get();
+        if (_t && typeof _t.scroll_mode === 'string') { body.scroll_mode = _t.scroll_mode; }
+        if (_t && typeof _t.view === 'string')        { body.view        = _t.view; }
         try {
             const r = await fetch(this.saveUrl, {
                 method: 'POST',

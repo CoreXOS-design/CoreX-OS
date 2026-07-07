@@ -37,7 +37,7 @@ class TranscriptionService
      *
      * @return array{status:string,lang?:string,error?:string}
      */
-    public function transcribe(Communication $comm, ?string $modelOverride = null): array
+    public function transcribe(Communication $comm, ?string $modelOverride = null, ?string $languageOverride = null): array
     {
         if (! (bool) config('communications.transcription.enabled', true)) {
             return ['status' => 'disabled'];
@@ -60,11 +60,14 @@ class TranscriptionService
         $threads = (string) (int) config('communications.transcription.threads', 8);
         $binary  = (string) config('communications.transcription.binary', '/opt/corex-transcribe/transcribe.sh');
         $timeout = (int) config('communications.transcription.timeout_seconds', 900);
+        // AT-194 — per-agency whisper language hint (null/unknown => 'auto'). Fed to the
+        // worker as `-l <lang>`; 'auto' preserves the historical per-note auto-detect.
+        $language = $languageOverride ?: $this->resolveLanguage($comm);
 
         $comm->forceFill(['transcript_status' => 'processing'])->save();
 
         try {
-            $process = new Process([$binary, $audioPath, $model, $threads]);
+            $process = new Process([$binary, $audioPath, $model, $threads, $language]);
             $process->setTimeout($timeout);
             $process->run();
 
@@ -97,6 +100,17 @@ class TranscriptionService
             Log::warning('AT-163 transcription error', ['communication_id' => $comm->id, 'error' => $e->getMessage()]);
             return $this->markFailed($comm, Str::limit($e->getMessage(), 200, ''));
         }
+    }
+
+    /**
+     * AT-194 — the whisper language hint for this note, from its agency setting.
+     * Unknown agency / null value => 'auto' (historical per-note auto-detect).
+     */
+    private function resolveLanguage(Communication $comm): string
+    {
+        $agency = $comm->agency_id ? \App\Models\Agency::find($comm->agency_id) : null;
+
+        return $agency ? $agency->transcriptionLanguage() : 'auto';
     }
 
     /**

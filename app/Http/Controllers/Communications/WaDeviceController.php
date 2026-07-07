@@ -33,7 +33,36 @@ class WaDeviceController extends Controller
             'canManageBackfill' => Auth::user()->hasPermission('manage_communication_mailboxes') || Auth::user()->isOwnerRole(),
             // AT-168 Part B — pending-consent embargo retention window (days).
             'embargoRetentionDays' => $agency ? (int) ($agency->wa_embargo_retention_days ?: 30) : 30,
+            // AT-194 — per-agency voice-note transcription language hint.
+            'transcriptionLanguage'  => $agency ? $agency->transcriptionLanguage() : 'auto',
+            'transcriptionLanguages' => \App\Models\Agency::TRANSCRIPTION_LANGUAGES,
         ]);
+    }
+
+    /**
+     * AT-194 — set the agency's voice-note transcription LANGUAGE hint (admin/owner
+     * only). 'auto' = per-note auto-detect (default); a pinned language anchors whisper
+     * and skips the detection pass. Agency-configurable per doctrine.
+     */
+    public function updateTranscriptionLanguage(Request $request)
+    {
+        $user = $request->user();
+        if (! $user->hasPermission('manage_communication_mailboxes') && ! $user->isOwnerRole()) {
+            abort(403, 'Only an administrator can change the transcription language.');
+        }
+
+        $data = $request->validate([
+            'language' => ['required', 'string', \Illuminate\Validation\Rule::in(array_keys(\App\Models\Agency::TRANSCRIPTION_LANGUAGES))],
+        ]);
+
+        $agency = \App\Models\Agency::find($user->effectiveAgencyId());
+        if ($agency) {
+            $agency->update(['wa_transcription_language' => $data['language']]);
+        }
+
+        $label = \App\Models\Agency::TRANSCRIPTION_LANGUAGES[$data['language']] ?? $data['language'];
+
+        return back()->with('success', "Voice-note transcription language set to {$label} for this agency.");
     }
 
     /**

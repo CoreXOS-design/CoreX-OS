@@ -115,6 +115,22 @@
                     <input type="date" name="offer_date" x-model="offerDate" required class="w-full rounded-md text-sm px-3 py-2 focus:outline-none"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
+                {{-- (AT-192 d) Branch is normally resolved from the capturer's
+                     effective branch. A capturer with NO home branch (e.g. a
+                     multi-branch-manager admin acting in "all branches") must
+                     pick one explicitly — no silent fallback to Branch::first(). --}}
+                @if(empty(auth()->user()?->effectiveBranchId()))
+                <div>
+                    <label class="block text-xs mb-1" style="color: var(--text-muted);">Branch</label>
+                    <select name="branch_id" required class="w-full rounded-md text-sm px-3 py-2 focus:outline-none"
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="">— Select branch —</option>
+                        @foreach($branches as $b)
+                            <option value="{{ $b->id }}" {{ (string) old('branch_id') === (string) $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
             </div>
         </div>
 

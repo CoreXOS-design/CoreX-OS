@@ -582,6 +582,11 @@
                                            href="{{ route('bm.agent.performance', ['userId' => $row['user_id'], 'period' => $r['period']]) }}">
                                             {{ $row['name'] }}
                                         </a>
+                                        @if(!empty($row['is_archived']))
+                                            <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold align-middle"
+                                                  style="background: var(--surface-muted, #f1f5f9); color: var(--text-muted, #64748b);"
+                                                  title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
+                                        @endif
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                         Per-day needed: {{ number_format((float)($row['progress']['points_per_day_needed'] ?? 0), 1) }}

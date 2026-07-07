@@ -56,9 +56,9 @@ class PropertyIntelligenceService
     {
         $since = now()->subDays($rangeDays)->format('Y-m-d');
 
-        $agg = \App\Models\PropertyPortalMetric::withoutGlobalScopes()
+        $aggFor = fn (string $portal) => \App\Models\PropertyPortalMetric::withoutGlobalScopes()
             ->where('property_id', $propertyId)
-            ->where('portal', \App\Models\PropertyPortalMetric::PORTAL_P24)
+            ->where('portal', $portal)
             ->where('metric_date', '>=', $since)
             ->selectRaw('COALESCE(SUM(view_count),0) AS views')
             ->selectRaw('COALESCE(SUM(alert_count),0) AS favourites')
@@ -66,9 +66,15 @@ class PropertyIntelligenceService
             ->selectRaw('COUNT(*) AS day_rows')
             ->first();
 
+        $agg   = $aggFor(\App\Models\PropertyPortalMetric::PORTAL_P24);
+        $ppAgg = $aggFor(\App\Models\PropertyPortalMetric::PORTAL_PP);
+
         $views      = (int) ($agg->views ?? 0);
         $favourites = (int) ($agg->favourites ?? 0);
         $enquiries  = (int) ($agg->enquiries ?? 0);
+        $ppViews    = (int) ($ppAgg->views ?? 0);
+        $ppEnq      = (int) ($ppAgg->enquiries ?? 0);
+        $ppHasData  = (int) ($ppAgg->day_rows ?? 0) > 0;
 
         return [
             'views' => $views,
@@ -77,8 +83,11 @@ class PropertyIntelligenceService
             'enquiries' => $enquiries,
             'total' => $views + $favourites + $enquiries,
             'range_days' => $rangeDays,
-            'pp_supported' => false,
-            'has_data' => (int) ($agg->day_rows ?? 0) > 0,
+            // PP stats now flow (AT-201) — supported once the snapshot has landed a day.
+            'pp_supported' => $ppHasData,
+            'pp_views' => $ppViews,
+            'pp_enquiries' => $ppEnq,
+            'has_data' => (int) ($agg->day_rows ?? 0) > 0 || $ppHasData,
         ];
     }
 
@@ -97,29 +106,38 @@ class PropertyIntelligenceService
         $start = now()->startOfDay()->subDays($days);
         $end   = now()->startOfDay();
 
-        $rows = \App\Models\PropertyPortalMetric::withoutGlobalScopes()
+        $fetch = fn (string $portal) => \App\Models\PropertyPortalMetric::withoutGlobalScopes()
             ->where('property_id', $propertyId)
-            ->where('portal', \App\Models\PropertyPortalMetric::PORTAL_P24)
+            ->where('portal', $portal)
             ->where('metric_date', '>=', $start->format('Y-m-d'))
             ->orderBy('metric_date')
             ->get(['metric_date', 'view_count', 'total_leads'])
             ->keyBy(fn ($r) => $r->metric_date->format('Y-m-d'));
 
+        $rows   = $fetch(\App\Models\PropertyPortalMetric::PORTAL_P24);
+        // Private Property engagement now accumulates from the day pp_stats_pull is
+        // switched on (no historical backfill) — plotted as its own series (AT-201).
+        $ppRows = $fetch(\App\Models\PropertyPortalMetric::PORTAL_PP);
+
         $series = [];
         for ($d = $start->copy(); $d < $end; $d->addDay()) {
             $key = $d->format('Y-m-d');
-            $row = $rows->get($key);
+            $row   = $rows->get($key);
+            $ppRow = $ppRows->get($key);
             $series[] = [
-                'date'  => $key,
-                'views' => (int) ($row->view_count ?? 0),
-                'leads' => (int) ($row->total_leads ?? 0),
+                'date'     => $key,
+                'views'    => (int) ($row->view_count ?? 0),
+                'leads'    => (int) ($row->total_leads ?? 0),
+                'pp_views' => (int) ($ppRow->view_count ?? 0),
+                'pp_leads' => (int) ($ppRow->total_leads ?? 0),
             ];
         }
 
         return [
-            'series'   => $series,
-            'has_data' => $rows->isNotEmpty(),
-            'max_days' => $days,
+            'series'      => $series,
+            'has_data'    => $rows->isNotEmpty(),
+            'pp_has_data' => $ppRows->isNotEmpty(),
+            'max_days'    => $days,
         ];
     }
 
@@ -323,7 +341,14 @@ class PropertyIntelligenceService
                 'title' => $p->title,
                 'price' => $p->price,
                 'suburb' => $p->suburb,
-                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
+                // Days on market = days since the listing went ON market. Prefer
+                // listed_date (the real listing date); published_at is only set when
+                // a property is pushed to the HFC website, so it is null for portal-
+                // only listings and wrongly rendered "—" (AT-200). Fall back through
+                // syndication-activation → created_at so a listed property always
+                // shows a figure.
+                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
+                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
             ]);
     }
 
@@ -685,7 +710,8 @@ class PropertyIntelligenceService
             'seller_fica_complete' => $ficaComplete,
             'seller_count' => $sellers->count(),
             'published' => (bool) $property->published_at,
-            'days_on_market' => $property->published_at ? (int) $property->published_at->diffInDays(now()) : null,
+            'days_on_market' => ($dom = $property->listed_date ?? $property->p24_activated_at ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at)
+                ? \App\Support\HumanDiff::daysBetween($dom) : null,
         ];
     }
 }

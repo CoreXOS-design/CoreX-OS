@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertyPortalMetric;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -28,6 +29,24 @@ class P24StatsService
 
     /** Default pace between P24 calls to avoid tripping connection throttling (µs). */
     private const INTER_CALL_PAUSE_US = 250000;
+
+    /**
+     * Fail-fast read timeout (seconds) for the nightly sweep. A working stats call
+     * answers in ~1-2s; the default 120s only ever fires on a flaky handshake, and
+     * one 120s stall per bad listing was burning the whole nightly budget so the
+     * sweep never reached most of the book (AT-200). 20s fails fast yet tolerates a
+     * slow-but-alive response.
+     */
+    private const STATS_READ_TIMEOUT = 20;
+
+    /**
+     * Max listings a single nightly run will poll. The active book is thousands of
+     * listings — far more than one nightly window can (or should) hit P24 for. We
+     * poll the STALEST-first (never-synced ahead of oldest-synced) up to this cap,
+     * so newly-listed properties are covered immediately and the whole book cycles
+     * over successive nights. A backfill passes null to lift the cap.
+     */
+    private const NIGHTLY_MAX_LISTINGS = 1500;
 
     /** One connection retry per chunk (P24 handshake is intermittently flaky). */
     private const CHUNK_RETRIES = 1;
@@ -55,7 +74,7 @@ class P24StatsService
      * Pull statistics for every agency that has P24 credentials configured.
      * Returns counts per agency for the calling job to log.
      */
-    public function pullForAllAgencies(int $lookbackDays = 10): array
+    public function pullForAllAgencies(int $lookbackDays = 10, ?int $maxListings = self::NIGHTLY_MAX_LISTINGS): array
     {
         $results = [];
 
@@ -66,12 +85,12 @@ class P24StatsService
 
         if ($agencies->isEmpty()) {
             // Single-tenant / default-credential fallback — pull once with no agency override.
-            $results['default'] = $this->pullForAgency(null, $lookbackDays);
+            $results['default'] = $this->pullForAgency(null, $lookbackDays, $maxListings);
             return $results;
         }
 
         foreach ($agencies as $agency) {
-            $results[$agency->id] = $this->pullForAgency($agency, $lookbackDays);
+            $results[$agency->id] = $this->pullForAgency($agency, $lookbackDays, $maxListings);
         }
 
         return $results;
@@ -81,9 +100,12 @@ class P24StatsService
      * Pull statistics for one agency (or default credentials when $agency is null),
      * across every live-syndicated Property that carries a numeric P24 listing number.
      */
-    public function pullForAgency(?Agency $agency, int $lookbackDays = 10): array
+    public function pullForAgency(?Agency $agency, int $lookbackDays = 10, ?int $maxListings = self::NIGHTLY_MAX_LISTINGS): array
     {
         $api = $agency ? new Property24ApiClient($agency) : $this->api;
+
+        // Fail fast on P24's flaky handshake so one stall can't eat the whole run.
+        $api->setReadTimeout(self::STATS_READ_TIMEOUT);
 
         // endDate is EXCLUSIVE and P24 publishes next-day, so [today - lookback, today)
         // captures the last $lookbackDays of finalised daily stats (through yesterday).
@@ -92,58 +114,94 @@ class P24StatsService
 
         // Only currently-active syndications get polled — a sold/withdrawn/errored
         // listing accrues no new views and must not burn a P24 call each night.
+        //
+        // STALE-FIRST (AT-200): order by p24_stats_synced_at — the per-listing "last
+        // ATTEMPTED" cursor — NULLs (never attempted) first, then oldest. This is the
+        // fix for the starvation bug: the old id-ascending sweep exhausted its budget
+        // in the low-id range every night and never reached most listings. Keying on
+        // ATTEMPT time (stamped below for every poll, data or not) — rather than the
+        // metric row's synced_at — guarantees rotation advances even for listings P24
+        // returns no views for, which would otherwise sort first forever.
+        // ACTIVE STOCK ONLY (Johan's scope ruling): on-market listings that are
+        // actively syndicated to P24. scopeOnMarket() is the codebase's single
+        // source of truth (status NOT IN OFF_MARKET_STATUSES) — this drops the
+        // ~4,300 withdrawn/expired/sold listings that carried a stale 'active'
+        // syndication flag but accrue no new views. A property leaving active stock
+        // simply stops being polled (its history stays, frozen); one entering starts
+        // that night. At this scale (~190 listings) the whole set is covered every
+        // night — the cap below is now just a safety ceiling, not a rotation cursor.
         $query = Property::withoutGlobalScopes()
+            ->onMarket()
             ->whereNotNull('p24_ref')
             ->where('p24_ref', '!=', '')
-            ->whereRaw('LOWER(p24_syndication_status) = ?', ['active']);
+            ->whereRaw('LOWER(p24_syndication_status) = ?', ['active'])
+            ->when($agency, fn ($q) => $q->where('agency_id', $agency->id))
+            ->orderByRaw('p24_stats_synced_at IS NOT NULL, p24_stats_synced_at ASC');
 
-        if ($agency) {
-            $query->where('agency_id', $agency->id);
+        $totalActive = (clone $query)->toBase()->getCountForPagination();
+        if ($maxListings !== null) {
+            $query->limit($maxListings);
         }
+        $properties = $query->get();
 
         $listings = 0;
         $upserted = 0;
         $skipped  = 0;
         $errors   = 0;
 
-        $query->chunkById(200, function ($properties) use ($api, $chunks, &$listings, &$upserted, &$skipped, &$errors) {
-            foreach ($properties as $property) {
-                $listingNumber = $this->resolveListingNumber($property);
-                if ($listingNumber === null) {
-                    $skipped++;
+        foreach ($properties as $property) {
+            $listingNumber = $this->resolveListingNumber($property);
+            if ($listingNumber === null) {
+                $skipped++;
+                $this->stampAttempt($property->id);
+                continue;
+            }
+
+            $listings++;
+
+            foreach ($chunks as [$startDate, $endDate]) {
+                $response = $this->fetchChunk($api, $listingNumber, $startDate, $endDate, $property->id);
+
+                if (! ($response['success'] ?? false)) {
+                    $errors++;
+                    Log::channel('property24')->warning('P24 stats pull failed for listing', [
+                        'property_id'    => $property->id,
+                        'listing_number' => $listingNumber,
+                        'window'         => "{$startDate}..{$endDate}",
+                        'message'        => $response['message'] ?? null,
+                        'status'         => $response['status_code'] ?? null,
+                    ]);
                     continue;
                 }
 
-                $listings++;
-
-                foreach ($chunks as [$startDate, $endDate]) {
-                    $response = $this->fetchChunk($api, $listingNumber, $startDate, $endDate, $property->id);
-
-                    if (! ($response['success'] ?? false)) {
-                        $errors++;
-                        Log::channel('property24')->warning('P24 stats pull failed for listing', [
-                            'property_id'    => $property->id,
-                            'listing_number' => $listingNumber,
-                            'window'         => "{$startDate}..{$endDate}",
-                            'message'        => $response['message'] ?? null,
-                            'status'         => $response['status_code'] ?? null,
-                        ]);
-                        continue;
-                    }
-
-                    $rows = $this->extractRows($response['data'] ?? []);
-                    foreach ($rows as $row) {
-                        if ($this->upsertRow($property, $listingNumber, $row)) {
-                            $upserted++;
-                        } else {
-                            $skipped++;
-                        }
+                $rows = $this->extractRows($response['data'] ?? []);
+                foreach ($rows as $row) {
+                    if ($this->upsertRow($property, $listingNumber, $row)) {
+                        $upserted++;
+                    } else {
+                        $skipped++;
                     }
                 }
             }
-        });
 
-        return compact('listings', 'upserted', 'skipped', 'errors');
+            // Advance the rotation cursor for EVERY attempt — including listings P24
+            // returned no rows for — so the stale-first order keeps moving through the
+            // whole book instead of re-polling the same empty head every night.
+            $this->stampAttempt($property->id);
+        }
+
+        // No silent truncation — say what the cap deferred to the next night.
+        $deferred = $maxListings !== null ? max(0, $totalActive - $properties->count()) : 0;
+        if ($deferred > 0) {
+            Log::channel('property24')->info('P24 stats sweep capped', [
+                'agency_id'      => $agency?->id,
+                'active_total'   => $totalActive,
+                'polled'         => $properties->count(),
+                'deferred_next'  => $deferred,
+            ]);
+        }
+
+        return compact('listings', 'upserted', 'skipped', 'errors') + ['active_total' => $totalActive, 'deferred' => $deferred];
     }
 
     /**
@@ -159,6 +217,7 @@ class P24StatsService
 
         $agency = $property->agency_id ? Agency::find($property->agency_id) : null;
         $api = $agency ? new Property24ApiClient($agency) : $this->api;
+        $api->setReadTimeout(self::STATS_READ_TIMEOUT);
 
         $upserted = 0;
         $skipped  = 0;
@@ -238,6 +297,15 @@ class P24StatsService
      * used as a fallback. Must be purely numeric — the statistics endpoint takes an
      * integer listingNumber.
      */
+    /**
+     * Advance the per-listing rotation cursor. Raw update — no model events, no
+     * updated_at churn — the column exists solely to order the stale-first sweep.
+     */
+    private function stampAttempt(int $propertyId): void
+    {
+        DB::table('properties')->where('id', $propertyId)->update(['p24_stats_synced_at' => now()]);
+    }
+
     private function resolveListingNumber(Property $property): ?int
     {
         foreach ([$property->p24_ref, $property->p24_listing_number] as $candidate) {

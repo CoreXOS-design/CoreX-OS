@@ -5,6 +5,7 @@ namespace App\Services\Communications;
 use App\Models\Communications\AgentCaptureConsent;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use Illuminate\Database\UniqueConstraintViolationException;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
@@ -41,12 +42,17 @@ class AgentCaptureConsentService
             return $row;
         }
 
-        return AgentCaptureConsent::create([
-            'agency_id'     => $agencyId,
-            'agent_user_id' => $agentUserId,
-            'contact_id'    => $contactId,
-            'status'        => AgentCaptureConsent::STATUS_PENDING,
-        ]);
+        try {
+            return AgentCaptureConsent::create([
+                'agency_id'     => $agencyId,
+                'agent_user_id' => $agentUserId,
+                'contact_id'    => $contactId,
+                'status'        => AgentCaptureConsent::STATUS_PENDING,
+            ]);
+        } catch (UniqueConstraintViolationException $e) {
+            // AT-149 — concurrent delivery already created the pairing; re-fetch.
+            return $this->refetchPairing($agencyId, $agentUserId, $contactId);
+        }
     }
 
     /**
@@ -83,14 +89,31 @@ class AgentCaptureConsentService
             return $row;
         }
 
-        return AgentCaptureConsent::create([
-            'agency_id'          => $agencyId,
-            'agent_user_id'      => $agentUserId,
-            'contact_id'         => $contactId,
-            'status'             => AgentCaptureConsent::STATUS_OPTED_IN,
-            'decided_at'         => now(),
-            'decided_by_user_id' => $agentUserId,
-        ]);
+        try {
+            return AgentCaptureConsent::create([
+                'agency_id'          => $agencyId,
+                'agent_user_id'      => $agentUserId,
+                'contact_id'         => $contactId,
+                'status'             => AgentCaptureConsent::STATUS_OPTED_IN,
+                'decided_at'         => now(),
+                'decided_by_user_id' => $agentUserId,
+            ]);
+        } catch (UniqueConstraintViolationException $e) {
+            // AT-149 — a racing self-link created the pairing first; re-fetch the
+            // winner's row (it set the correct opted_in status).
+            return $this->refetchPairing($agencyId, $agentUserId, $contactId);
+        }
+    }
+
+    /** Re-fetch a consent pairing after a concurrent-create unique collision. */
+    private function refetchPairing(int $agencyId, int $agentUserId, int $contactId): AgentCaptureConsent
+    {
+        return AgentCaptureConsent::withoutGlobalScope(AgencyScope::class)
+            ->withTrashed()
+            ->where('agency_id', $agencyId)
+            ->where('agent_user_id', $agentUserId)
+            ->where('contact_id', $contactId)
+            ->firstOrFail();
     }
 
     /** THE GATE — bodies flow only when the agent opted IN to this contact. */

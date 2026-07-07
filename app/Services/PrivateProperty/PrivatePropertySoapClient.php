@@ -219,6 +219,46 @@ class PrivatePropertySoapClient
     }
 
     /**
+     * Pull buyer-enquiry LEADS for the branch since $startDate.
+     * WSDL: ListingLeadDetailsFeed { dateTime StartDate, SecurityToken Token }
+     *   → ArrayOfListingLeadDetail (LeadId, Date, BranchId, UniqueListingId,
+     *     PPRef, FromEmail, FromName, FromContactNumber, ToEmail, Message,
+     *     PropertyRefs).
+     *
+     * Read-only reporting call — the P24-parity intake channel. Returns the
+     * decoded SOAP array (or the client's {error:true,...} envelope on fault;
+     * PpLeadService treats that as a clean skip so the scheduler never breaks).
+     */
+    public function listingLeadDetailsFeed(?string $startDate = null): array
+    {
+        return $this->call('ListingLeadDetailsFeed', [
+            // PP expects a .NET dateTime; unqualified local time matches the
+            // format the feed/status calls already send successfully.
+            'StartDate' => $startDate ?? now()->subDays(7)->format('Y-m-d\TH:i:s'),
+            'Token'     => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Pull per-listing engagement STATS for one date.
+     * WSDL: ListingPerformanceStats { ArrayOfString PropertyRefs, dateTime Date, SecurityToken Token }
+     *   → ArrayOfListingPerformanceStatsOnDate (Date, Messages, TelLeads, Views,
+     *     Alerts, PropertyRef).
+     *
+     * $propertyRefs is optional — pass a batch of PP refs to scope the response.
+     * Read-only reporting call; a SOAP fault returns the client's {error:true}
+     * envelope so PpStatsService skips cleanly. AT-201.
+     */
+    public function listingPerformanceStats(array $propertyRefs, string $date): array
+    {
+        return $this->call('ListingPerformanceStats', [
+            'PropertyRefs' => ['string' => array_values($propertyRefs)],
+            'Date'         => $date,
+            'Token'        => $this->buildToken(),
+        ]);
+    }
+
+    /**
      * Get PP reference number by listing.
      * WSDL: GetReferenceNumberByListing { guid BranchId, string UniqueListingID, ListingType listingType, SecurityToken Token }
      */

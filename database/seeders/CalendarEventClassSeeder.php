@@ -7,6 +7,63 @@ use Illuminate\Database\Seeder;
 
 class CalendarEventClassSeeder extends Seeder
 {
+    /**
+     * AT-197 — plain-language, agency-agnostic descriptions shown on the event-class
+     * settings screen. Format: what it is · what triggers it (the emitting feature) ·
+     * who it routes to · one concrete example. Sourced from the code truth of each
+     * emitter (the Calendar Feed sources + the manual-create + leave paths), not guessed.
+     */
+    public const CLASS_DESCRIPTIONS = [
+        'mandate_expiry'              => "The countdown to a listing mandate lapsing. Fires when a stock property's expiry date enters the show window and it's still on the market. Routes to the listing agent, escalating to the BM then admin as it reddens. e.g. Sole mandate expiring in 14 days on 12 Beach Rd → agent + BM.",
+        'lease_expiry'                => "A tenant's lease reaching its end date. Fires from a signed lease record (or an active rental, or a property carrying a lease-end date with no record). Routes to the managing agent, then BM/admin. e.g. Lease ends in 30 days at 4 Marine Dr → agent + BM.",
+        'ffc_expiry'                  => "An agent's Fidelity Fund Certificate running out — they cannot legally transact without it. Fires from the agent's FFC expiry date. Routes agent → BM + compliance officer → admin. e.g. FFC expires in 14 days — J. Smith → agent + compliance officer + BM.",
+        'pi_insurance_expiry'        => "Professional Indemnity cover lapsing. Fires from the agent's PI-insurance expiry date. Routes agent → compliance officer → admin. e.g. PI insurance expires in 30 days — J. Smith → agent + compliance officer.",
+        'tax_clearance_expiry'       => "An agent's SARS tax-clearance validity ending. Fires from the agent's tax-clearance expiry date. Routes agent → compliance officer → admin. e.g. Tax clearance expires in 14 days — J. Smith → agent + compliance officer.",
+        'deal_step_deadline'         => "A due date on a live deal-pipeline step (bond, transfer, compliance). Fires from a deal step's due date on active steps. Routes to the deal's agent → BM → admin. e.g. 'Bond approval' due in 3 days — 12 Beach Rd → agent + BM.",
+        'deal_registration_target'   => "The expected deeds-registration date for a live deal. Fires from the deal's expected-registration date. Routes agent → BM → admin. e.g. Registration expected in 5 days — 12 Beach Rd → agent + BM.",
+        'fica_renewal_due'           => "A contact's approved FICA verification approaching its PPRA expiry. Fires from an approved FICA submission's expiry date. Routes agent → compliance officer → admin. e.g. FICA renewal due in 30 days — A. Buyer → agent + compliance officer.",
+        'payroll_run'                => "A scheduled pay date for a payroll run still being processed. Fires from a payroll run's pay date. Routes payroll → admin. e.g. Payroll run pay date in 3 days → payroll + admin.",
+        'sars_emp201'                => "The monthly PAYE/UIF/SDL declaration to SARS, due the 7th. Computed monthly (a few months ahead). Routes payroll → admin. e.g. EMP201 due 7 Oct → payroll + admin.",
+        'sars_emp501'                => "The biannual employer reconciliation to SARS (31 May / 31 Oct). Computed. Routes payroll → admin + accountant. e.g. EMP501 reconciliation due 31 May → payroll + admin + accountant.",
+        'rmcp_review_due'            => "The agency's Risk Management & Compliance Programme reaching its scheduled review. Fires from the RMCP's next-review date. Routes compliance officer → admin. e.g. RMCP review due in 30 days → compliance officer + admin.",
+        'screening_due'              => "A staff member's periodic background screening coming due. Fires from an employee screening's next-due date. Routes compliance officer → HR → admin. e.g. Background screening due in 30 days — R. Clerk → compliance officer + HR.",
+        'ppra_trust_audit'           => "The annual PPRA trust-account audit report (30 June). Computed each year. Routes admin only. e.g. PPRA trust audit report due 30 Jun → admin.",
+        'training_expiry'            => "A CPD / training certification lapsing. Fires from a training completion's expiry date. Routes agent → BM → compliance officer. e.g. Training expires in 14 days — J. Smith → agent + BM.",
+        'compliance_provision_expiry'=> "An agency-level regulatory provision reaching the end of its validity. Fires from the provision's effective-until date. Routes compliance officer → admin. e.g. Compliance provision expires in 30 days → compliance officer + admin.",
+        'compliance_override_expiry' => "A temporary waiver on a user's compliance requirement expiring (the requirement re-activates). Fires from the override's expiry date. Routes compliance officer → admin. e.g. Compliance override expires in 7 days — J. Smith → compliance officer.",
+        'agent_document_expiry'      => "A general agent document (ID copy, certificate, etc.) reaching renewal. Fires from a user document's expiry date, honouring the document type's renewal window. Routes agent → compliance officer → admin. e.g. ID copy expires in 30 days — J. Smith → agent + compliance officer.",
+        'property_showday'           => "A scheduled show day / open house. Fires from a property show-day's start date. Routes agent → BM. e.g. Show day tomorrow — 12 Beach Rd → agent + BM.",
+        'signature_expiry'           => "An e-sign signing link approaching its expiry while still unsigned. Fires from a signature request's token-expiry (waiting/viewed). Routes agent → BM. e.g. Signature link expires in 2 days — A. Buyer → agent.",
+        'sales_doc_expiry'           => "A sent sales-document link nearing its token expiry. Fires from a sales-document recipient's token-expiry (status sent). Routes agent → BM. e.g. Sales document expires in 2 days — A. Buyer → agent.",
+        'portal_listing_expiry'      => "A Property24 / Private Property portal listing about to expire and drop off the market. Fires from the listing's portal expiry date. Routes agent → BM. e.g. Portal listing expires in 5 days — 12 Beach Rd → agent + BM.",
+        'rent_escalation'            => "A scheduled rent-escalation effective date approaching (bill the new amount). Fires from a rent-version's effective-from date within the next month. Routes agent → BM. e.g. Rent escalation effective in 7 days — 4 Marine Dr → agent + BM.",
+        'rent_due'                   => "The monthly rent-due marker (1st of the month) for each active rental. Computed, rolls forward nightly. Routes agent → BM. e.g. Rent due 1 Aug — 4 Marine Dr → agent.",
+        'commercial_lease_expiry'    => "A commercial tenancy unit's lease ending (higher revenue impact than residential). Fires from a commercial unit's lease-end date. Routes agent → BM → admin. e.g. Commercial lease expires in 30 days — Unit 3, Main St → agent + BM.",
+        'leave_cycle_end'            => "An employee's leave-accrual cycle ending (a use-or-lose warning). Fires from a leave entitlement's cycle-end date. Routes agent → BM. e.g. Leave cycle ends in 14 days — R. Clerk → agent + BM.",
+        'employee_termination'       => "A staff member's last working day (triggers final payroll, access revocation, equipment return). Fires from an employee's termination date. Routes HR → payroll + admin → BM. e.g. Last working day in 7 days — R. Clerk → HR + payroll.",
+        'tax_year_end'               => "The SA tax year end (28 Feb) that triggers IRP5 / EMP501 / annual recon. Computed. Routes payroll → admin + accountant. e.g. Tax year end 28 Feb → payroll + admin + accountant.",
+        'uif_declaration'            => "The monthly UIF declaration to Employment & Labour, due the 7th. Computed. Routes payroll → admin. e.g. UIF declaration due 7 Oct → payroll.",
+        'sdl_submission'             => "The monthly Skills Development Levy submission, due the 7th. Computed. Routes payroll → admin. e.g. SDL submission due 7 Oct → payroll.",
+        'irp5_deadline'              => "The deadline to issue IRP5 certificates (around 31 May). Computed. Routes payroll → admin + accountant. e.g. IRP5 issue deadline 31 May → payroll + admin.",
+        'employment_anniversary'     => "A staff work anniversary (a retention milestone). Computed annually from the employment date, skipping the first year. Routes agent + BM. e.g. 3-year anniversary in 3 days — J. Smith → BM.",
+        'agent_birthday'             => "A team member's birthday, so the BM can acknowledge it. Computed annually from the user's date of birth (active users). Routes BM. e.g. Birthday in 3 days — J. Smith → BM. (Empty on live until staff birth dates are captured.)",
+        'contact_birthday'           => "A contact's birthday, surfaced only when the agent opted that contact in. Computed annually from the contact's birthday. Routes the owning agent. e.g. Birthday in 3 days — A. Buyer → agent.",
+        'rmcp_ack_expiry'            => "An agent's RMCP acknowledgement reaching its re-sign point. Fires from the acknowledgement's valid-until date. Routes agent → compliance officer → admin. e.g. RMCP acknowledgement expires in 14 days — J. Smith → agent + compliance officer.",
+        'salary_review'              => "The annual salary-review planning marker (1 March). Computed. Routes HR → admin. e.g. Annual salary review 1 Mar → HR + admin.",
+        'filed_document_expiry'      => "A document in the filing register expiring (non-mandate types; EA/OA excluded to avoid duplicating Mandate Expiry). Fires from a filed document's expiry date. Routes agent → BM. e.g. COC expires in 14 days — 12 Beach Rd → agent.",
+        'office_closure'             => "An agency-wide closure day everyone should see (public holiday, shutdown). NOTE: no emitter yet — deferred to the leave module; currently inactive. Would route to everyone. e.g. Office closed 16 Dec → everyone.",
+        'viewing'                    => "An agent-booked buyer viewing appointment — the one class that can span several homes in one trip. Created manually. Same-day actionable; asks for feedback after. Routes agent → BM → admin. e.g. Viewing tomorrow, 3 properties for A. Buyer → agent + BM.",
+        'property_evaluation'        => "An agent's booked visit to evaluate a property for a potential seller. Created manually. Routes agent → BM → admin. e.g. Evaluation in 5 days — 12 Beach Rd → agent + BM.",
+        'listing_presentation'       => "An agent presenting a CMA / market analysis to win a seller's mandate. Created manually. Routes agent → BM → admin. e.g. Listing presentation in 5 days — Seller J → agent + BM.",
+        'meeting'                    => "A general meeting (team / client / external). Created manually; informational, never overdue. Routes agent → BM. e.g. Team meeting tomorrow → agent + BM.",
+        'task'                       => "A personal to-do with a deadline. Created manually. Routes the agent only. e.g. Task due 12 Jan — follow up bank → agent.",
+        'other'                      => "Catch-all for a manual event that fits no other class. Informational. Routes the agent only. e.g. Misc appointment 25 Jul → agent.",
+        'private'                    => "A personal busy block: everyone in scope sees the slot is taken, but only the creator sees the detail. Created manually. e.g. 'Private' busy block Fri 14:00 → creator sees detail, others see busy.",
+        'leave_annual'               => "Approved annual leave placed on the calendar. Written when leave is approved. Agents see their own; BM + admin see all. e.g. Annual leave 12–16 Aug — R. Clerk → BM + admin.",
+        'leave_sick'                 => "Approved sick leave placed on the calendar. Written when leave is approved. Same visibility as annual leave. e.g. Sick leave 3 Aug — R. Clerk → BM + admin.",
+        'manual'                     => "The default class for a manually created event when no specific class is chosen. Visible to its creator. e.g. Ad-hoc event with no class → falls to Manual, creator only.",
+    ];
+
     public function run(): void
     {
         foreach ($this->classes() as $class) {
@@ -98,7 +155,17 @@ class CalendarEventClassSeeder extends Seeder
             ->whereNull('agency_id')->where('actor_role', 'buyer_action')
             ->update(['autofill_buyers' => true]);
 
-        $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings.');
+        // AT-197 — plain-language, Johan-facing descriptions for the settings screen,
+        // written from the CODE TRUTH of each emitter (what it is · trigger · routing ·
+        // one concrete example). Applied to ALL rows for a class (globals AND agency
+        // overrides) so the screen shows the current text regardless of an override.
+        foreach (self::CLASS_DESCRIPTIONS as $eventClass => $desc) {
+            CalendarEventClassSetting::withoutGlobalScopes()
+                ->where('event_class', $eventClass)
+                ->update(['description' => $desc]);
+        }
+
+        $this->command->info('Seeded ' . count($this->classes()) . ' calendar event class settings + AT-197 descriptions.');
     }
 
     /**

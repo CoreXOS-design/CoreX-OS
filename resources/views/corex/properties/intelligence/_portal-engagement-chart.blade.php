@@ -11,8 +11,11 @@
 --}}
 @php
     $engagement = $engagement ?? app(\App\Services\PropertyIntelligenceService::class)->getPortalEngagementSeries($property->id);
-    $series   = $engagement['series'] ?? [];
-    $hasData  = $engagement['has_data'] ?? false;
+    $series    = $engagement['series'] ?? [];
+    $hasData   = $engagement['has_data'] ?? false;
+    $ppHasData = $engagement['pp_has_data'] ?? false;
+    $ppViews   = array_sum(array_column($series, 'pp_views'));
+    $ppLeads   = array_sum(array_column($series, 'pp_leads'));
 @endphp
 
 <div class="rounded-md p-4"
@@ -21,7 +24,7 @@
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div>
             <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Portal Engagement Over Time</h3>
-            <p class="text-[10px]" style="color: var(--text-muted);">Property24 daily views &amp; lead counts. Private Property does not expose historical stats.</p>
+            <p class="text-[10px]" style="color: var(--text-muted);">Property24 daily views &amp; lead counts (chart), backfilled to ~6 months. Private Property views &amp; enquiries are collected nightly from switch-on (no historical backfill).</p>
         </div>
         <div class="flex items-center gap-1">
             @foreach(['30' => '30D', '90' => '90D', 'all' => '6M'] as $val => $label)
@@ -36,10 +39,10 @@
         </div>
     </div>
 
-    @if(! $hasData)
+    @if(! $hasData && ! $ppHasData)
         <div class="text-xs text-gray-400 py-8 text-center">
             No portal view data yet for this listing.
-            <div class="text-[10px] mt-1" style="color: var(--text-muted);">Property24 stats are collected nightly and backfilled up to ~6 months where available.</div>
+            <div class="text-[10px] mt-1" style="color: var(--text-muted);">Property24 stats are collected nightly and backfilled up to ~6 months where available. Private Property stats begin accumulating the day the snapshot is enabled.</div>
         </div>
     @else
         <div class="flex items-center gap-4 mb-2 text-xs">
@@ -51,6 +54,13 @@
                 <span class="inline-block w-2 h-2 rounded-full" style="background:#ef4444;"></span>
                 P24 Leads <span class="font-semibold" x-text="$store.portalViews.totalLeads()"></span>
             </span>
+            @if($ppHasData)
+                <span class="inline-flex items-center gap-1" title="Private Property engagement since the nightly snapshot was enabled (no historical backfill).">
+                    <span class="inline-block w-2 h-2 rounded-full" style="background:#8b5cf6;"></span>
+                    PP Views <span class="font-semibold">{{ number_format($ppViews) }}</span>
+                    <span style="color: var(--text-muted);">· PP Enquiries {{ number_format($ppLeads) }}</span>
+                </span>
+            @endif
             <span style="color: var(--text-muted);" class="text-[10px]" x-text="$store.portalViews.dayLabel()"></span>
         </div>
         <div style="position: relative; height: 260px;">
