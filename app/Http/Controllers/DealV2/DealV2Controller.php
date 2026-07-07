@@ -253,6 +253,9 @@ class DealV2Controller extends Controller
             'commission_amount' => ['nullable', 'numeric', 'min:0'],
             'commission_vat' => ['nullable', 'numeric', 'min:0'],
             'offer_date' => ['required', 'date'],
+            // (AT-192 d) explicit branch selection — accepted here, then resolved
+            // against the capturer's effective branch below (no Branch::first()).
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'linked_deal_id' => ['nullable', 'exists:deals_v2,id'],
             'notes' => ['nullable', 'string'],
             'listing_agent_id' => ['nullable', 'exists:users,id'],
@@ -332,7 +335,21 @@ class DealV2Controller extends Controller
 
         $data['listing_external'] = $request->boolean('listing_external');
         $data['selling_external'] = $request->boolean('selling_external');
-        $data['branch_id'] = auth()->user()->branch_id ?? Branch::first()?->id;
+
+        // (AT-192 d) Branch attribution mirrors DR1 — NEVER silently fall back to
+        // Branch::first() (which lands a NULL-home-branch capturer's deal on an
+        // unrelated branch, e.g. Shelly Beach). Prefer the capturer's effective
+        // branch (their home branch, or the managed-branch context an admin is
+        // currently acting in); otherwise they must choose one explicitly. The
+        // DR2 twin inherits this branch via DealSyncService, so a wrong stamp
+        // here would propagate — hence the same hard gate the DR1 register uses.
+        $resolvedBranchId = auth()->user()->effectiveBranchId() ?: ((int) ($data['branch_id'] ?? 0) ?: null);
+        if (! $resolvedBranchId) {
+            return back()->withInput()->withErrors([
+                'branch_id' => 'Please choose the branch this deal belongs to. Your account has no home branch, so the branch cannot be filled in automatically.',
+            ]);
+        }
+        $data['branch_id'] = $resolvedBranchId;
         $data['created_by_id'] = auth()->id();
 
         $deal = $this->pipelineService->createDeal($data);
