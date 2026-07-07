@@ -1,5 +1,17 @@
 # agency_id NOT-NULL Landmine Register — live sweep 2026-07-07
 
+> **RESOLVED 2026-07-07 — LIVE main `0793284d`, Staging `2ce3112f`, QA1 `df8f51e4` (Jira AT-203 → Production).**
+> All open writers stamped from their subject pillar. The class-kill guard
+> (`tests/Feature/MultiTenancy/AgencyIdRawInsertGuardTest.php`) then surfaced **6
+> more** latent `updateOrInsert` sites (targets ×5, branch_activity_columns ×1) —
+> only their INSERT leg 500s, so they had never fired in the log — now also
+> stamped. **11 writers total.** Guard fails the build on any future raw
+> insert/insertGetId/updateOrInsert into a NOT-NULL agency_id table that omits
+> the stamp. `buyer_property_responses` was made byte-identical to cc2's AT-204
+> `fe496ca0` (no-op merge). See the AT-203 Jira comment for the full per-writer
+> table. Everything below is the original read-only diagnosis.
+
+
 **Trigger:** AT-202 (seller + buyer public links 500'd on `SQLSTATE 1364 Field 'agency_id' doesn't have a default value`). Johan asked for the full pending-migration / landmine sweep across live.
 
 **Method:** `migrate:status` on `/corex`; 6-day live `laravel.log` (2026-07-01 → 07-07) grepped for `1364 ... agency_id`; per erroring table the writer site + code-state resolved; proactive raw-`DB::table()->insert` sweep across the whole `add_agency_id_*` wave; `information_schema` nullability confirmation. **Read-only — no migrations run, no fixes applied.**
