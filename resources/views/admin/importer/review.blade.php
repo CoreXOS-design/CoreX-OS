@@ -1,7 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -177,8 +178,9 @@
                 </div>
             </div>
 
-            {{-- Create portal modal --}}
-            <div x-show="createOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+            {{-- Create portal modal (teleported to body so it is never clipped by the card's overflow-hidden) --}}
+            <template x-teleport="body">
+            <div x-show="createOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4"
                  @keydown.escape.window="createOpen = false">
                 <div class="fixed inset-0 bg-black/50" @click="createOpen = false"></div>
                 <form method="POST" action="{{ route('admin.importer.portal.create') }}"
@@ -206,6 +208,7 @@
                     </div>
                 </form>
             </div>
+            </template>
         </div>
     @empty
         <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">

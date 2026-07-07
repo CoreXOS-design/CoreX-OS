@@ -33,7 +33,10 @@
   .ellie-list .meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 
   .ellie-messages { padding: 1.25rem; display:flex; flex-direction:column; gap: 0.75rem; }
-  .bubble { max-width: 72%; padding: 0.75rem 0.875rem; border-radius: 6px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; font-size: 0.875rem; }
+  /* pre-line (not pre-wrap): keep the model's intentional line breaks (e.g.
+     numbered steps) but collapse its stray leading/indent whitespace so the
+     first line doesn't render with a ragged left margin. */
+  .bubble { max-width: 72%; padding: 0.75rem 0.875rem; border-radius: 6px; line-height: 1.45; white-space: pre-line; word-wrap: break-word; overflow-wrap: anywhere; font-size: 0.875rem; }
   .bubble.user { margin-left: auto; background: var(--brand-button); color: #fff; }
   .bubble.assistant { margin-right: auto; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); }
   .bubble .role { font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
