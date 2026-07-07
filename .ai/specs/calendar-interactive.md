@@ -515,3 +515,54 @@ carries alternating tint classes; the single-tile endpoint builds without persis
 tile. Headless proof (`proof-explicit-save.js`, 1920×1080 + 1366×768): popping-panels
 reproduced→dead, transient-survives-navigation, reload-renders-default, save-promotes-current,
 reset-discards-transients, continuous alternating tints, paged month paging.
+
+# 16.9 View-save trap — "Save default" only promotes a DELIBERATELY chosen view (2026-07-07)
+
+> **Status:** AS-BUILT, HFC2402 (2026-07-07). Amends §16.4's "Save default reads current
+> view/scroll". Trigger: Kym Pollard reported "my calendar is empty / most entries gone."
+
+## 16.9.1 The incident
+No data was lost — Kym's 431 events were all present. Her `default_view` had silently
+flipped to `day`, so every calendar open landed on a single day (~4 entries) instead of her
+month. **Five of six agents** with a saved preference (Kym, Shalan & Shawn Du Bois, Dru De
+Bruyn, Gerda Baard) were locked into `day` within two days of the cockpit shipping — none had
+deliberately chosen it. Remediation: their `default_view` was reset to `month` (the factory
+default they had before the cockpit).
+
+## 16.9.2 Root cause
+`index.blade.php` routes **every event-click to `?view=day`** (`CalendarController` event
+deep-links, L1355). §16.4's Save read `body.view = $currentView` — the *server-rendered*
+view. So an agent who clicked an event (→ forced day view) and then clicked **"Save default"**
+to persist their *tile/strip arrangement* silently promoted `day` to their default view. The
+arrangement and the landing view were conflated; a navigation masqueraded as a preference.
+This is exactly the "does this trap the agent behind a screen" failure the Operating Principle
+forbids.
+
+## 16.9.3 The rule (Johan's ruling — "keep, but only user-chosen view")
+"Save default" still captures the view, **but only when the user DELIBERATELY chose it this
+session.** A view reached by an event-click / `?view=` deep-link is navigation, never a saved
+preference, and is excluded.
+
+Mechanism — no new state needed, because the transient already encodes deliberate choice:
+- The **view switcher** and **Stream·Pages toggle** are the ONLY writers of the transient
+  `view` / `scroll_mode` keys (`window.CoreXCal.patch(...)`, toolbar links). A deliberate
+  click on either is the ONLY thing that sets them.
+- Event-clicks / deep-links land on `?view=day` via a plain navigation — they do **not**
+  patch the transient.
+- Therefore `save()` now promotes `view` / `scroll_mode` **only when present in the transient**
+  (`window.CoreXCal.get()`), instead of grabbing the server-rendered `$currentView`. Absent →
+  the field is omitted from the POST → `saveCockpit`'s existing
+  `array_key_exists('view',$data) && !== null` guard leaves the saved default untouched.
+- Same fix applied to `scroll_mode` (identical bug class — fix the class, not the instance).
+
+On reload the transient is cleared (§16.3), so an in-session view choice does not survive a
+hard reload — consistent with the three-tier model. To change a saved default view an agent
+clicks the switcher, then "Save default".
+
+## 16.9.4 Tests
+`CalendarExplicitSaveTest::test_save_without_view_leaves_the_existing_default_view_untouched` —
+an arrangement-only save (no `view` / `scroll_mode`, the shape the browser POSTs after a tweak
+with no deliberate view choice) leaves `default_view` and saved `scroll_mode` intact while the
+sent arrangement fields still persist. The client-side "only send a deliberately chosen view"
+behaviour belongs in the `proof-explicit-save.js` headless harness (event-click → day → Save
+default → default_view stays month).
