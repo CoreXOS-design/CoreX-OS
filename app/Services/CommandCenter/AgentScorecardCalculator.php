@@ -117,6 +117,12 @@ class AgentScorecardCalculator
                 'period_start' => $start->toDateString(),
             ],
             [
+                // Runs from the nightly console command — no Auth::user(), so
+                // BelongsToAgency cannot infer agency_id (and the single-agency
+                // net is off on a multi-agency install). Stamp from the agent
+                // (User = Agent pillar). In values so a moved agent's card
+                // re-homes rather than forking a new row.
+                'agency_id'           => $user->agency_id,
                 'period_end'          => $end->toDateString(),
                 'tasks_completed'     => $tasksCompleted,
                 'tasks_overdue'       => $tasksOverdue,
