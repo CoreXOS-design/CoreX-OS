@@ -9,6 +9,7 @@ use App\Models\Communications\CommunicationPending;
 use App\Models\Communications\CommunicationWaDevice;
 use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -273,6 +274,7 @@ class WaArchiveIngestor
             'owner_user_id'          => $device->user_id,
         ];
 
+        try {
         return DB::transaction(function () use ($contact, $direction, $common, $media, $agencyId, $device) {
             // AT-59: promote a matching provisional outbound row in place rather
             // than inserting a duplicate of the agent's click.
@@ -308,6 +310,39 @@ class WaArchiveIngestor
 
             return self::RESULT_ARCHIVED;
         });
+        } catch (UniqueConstraintViolationException $e) {
+            // AT-149 — concurrent duplicate WAHA delivery: a racing insert of the
+            // SAME (agency_id, external_id) won and committed first. A pre-check
+            // (backfillBodyIfArchived / alreadySeen above) cannot close this
+            // TOCTOU window; the unique key is the authoritative dedup. The
+            // message is ALREADY archived by the winner — nothing is dropped.
+            // Swallow ONLY this identity key; any other unique violation is a
+            // real fault and must surface.
+            if (! str_contains($e->getMessage(), 'comm_agency_ext_uq')) {
+                throw $e;
+            }
+            $existing = Communication::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agencyId)
+                ->where('external_id', $common['external_id'])
+                ->first(['id', 'text_hash']);
+            $incomingHash = $common['text_hash'] ?? null;
+            if ($existing && $incomingHash && $existing->text_hash && $existing->text_hash !== $incomingHash) {
+                // Same message id, DIFFERENT body — no longer benign noise. Keep the
+                // first-stored row (never overwrite a captured body) and flag it.
+                Log::warning('AT-149 WA re-delivery with a DIFFERENT body for an existing external_id — kept first', [
+                    'agency_id'   => $agencyId,
+                    'external_id' => $common['external_id'],
+                    'existing_id' => $existing->id,
+                ]);
+            } else {
+                Log::debug('AT-149 WA duplicate re-delivery skipped (already archived)', [
+                    'agency_id'   => $agencyId,
+                    'external_id' => $common['external_id'],
+                ]);
+            }
+
+            return self::RESULT_DUPLICATE;
+        }
     }
 
     /**
@@ -376,6 +411,19 @@ class WaArchiveIngestor
             ]);
 
             return self::RESULT_BODY_FILLED;
+        }
+
+        // AT-149 — a re-delivery of an ALREADY-CAPTURED message that carries a
+        // DIFFERENT body is not benign noise: keep the first-stored body (never
+        // overwritten above) and flag the anomaly for review. Identical re-sends
+        // (same text) stay silent.
+        if ($existing->body_status === 'captured' && is_string($text) && trim($text) !== ''
+            && trim($text) !== trim($existingText)) {
+            Log::warning('AT-149 WA re-delivery with a DIFFERENT body for a captured external_id — kept first', [
+                'agency_id'   => $agencyId,
+                'external_id' => $externalId,
+                'existing_id' => $existing->id,
+            ]);
         }
 
         return self::RESULT_DUPLICATE;
