@@ -346,6 +346,19 @@ class Property24ApiClient
      * `totalContactLeads` and a `price` snapshot. Returned under the standard
      * envelope's `data`; caller (P24StatsService) upserts one metric row per day.
      */
+    /**
+     * Override the per-request HTTP read timeout (seconds). The nightly stats
+     * sweep sets this LOW so a flaky P24 handshake fails fast (~20s) instead of
+     * hanging the default 120s — a single 120s stall per bad listing was burning
+     * the whole nightly budget and starving most of the book (AT-200). Bounded
+     * to a sane floor so we never set an un-completable timeout.
+     */
+    public function setReadTimeout(int $seconds): self
+    {
+        $this->readTimeout = max(5, $seconds);
+        return $this;
+    }
+
     public function getListingStatistics(
         int $listingNumber,
         ?string $startDate = null,
