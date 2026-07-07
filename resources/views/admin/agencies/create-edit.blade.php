@@ -448,6 +448,17 @@
                 <span class="text-sm font-medium" style="color:var(--text-primary);">Enable Private Property integration for this agency</span>
             </label>
 
+            <label class="flex items-center gap-3">
+                <input type="hidden" name="pp_lead_pull_enabled" value="0">
+                <input type="checkbox" name="pp_lead_pull_enabled" value="1"
+                       {{ old('pp_lead_pull_enabled', $agency->pp_lead_pull_enabled ?? false) ? 'checked' : '' }}
+                       class="w-4 h-4 rounded cursor-pointer"
+                       style="accent-color:var(--brand-icon, #0ea5e9);">
+                <span class="text-sm font-medium" style="color:var(--text-primary);">Pull buyer-enquiry leads from Private Property
+                    <span class="text-xs font-normal" style="color:var(--text-muted);">— polls every 5 min into Portal Leads (kill-switch; off = no polling)</span>
+                </span>
+            </label>
+
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Username</label>

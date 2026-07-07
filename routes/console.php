@@ -149,6 +149,15 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
     ->withoutOverlapping()
     ->name('p24-leads-pull');
 
+// Private Property buyer-enquiry leads pull (ListingLeadDetailsFeed → portal_leads).
+// P24-parity intake. Runs every 5 minutes but is DORMANT by default: the pull
+// only fires for agencies with pp_lead_pull_enabled=true (gate in PpLeadService),
+// so the tick is a cheap no-op until an admin flips the toggle. See AT-192.
+Schedule::job(new \App\Jobs\PrivateProperty\PullPpLeadsJob())
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->name('pp-leads-pull');
+
 // Prune the p24_syndication_logs retention window nightly (03:30) — the table
 // grows one row per P24 API call and had ballooned past the InnoDB buffer pool,
 // dragging the whole DB. Batched deletes keep 45 days. See PruneP24SyndicationLogs.

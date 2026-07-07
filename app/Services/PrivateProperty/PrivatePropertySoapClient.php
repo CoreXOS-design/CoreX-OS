@@ -219,6 +219,27 @@ class PrivatePropertySoapClient
     }
 
     /**
+     * Pull buyer-enquiry LEADS for the branch since $startDate.
+     * WSDL: ListingLeadDetailsFeed { dateTime StartDate, SecurityToken Token }
+     *   → ArrayOfListingLeadDetail (LeadId, Date, BranchId, UniqueListingId,
+     *     PPRef, FromEmail, FromName, FromContactNumber, ToEmail, Message,
+     *     PropertyRefs).
+     *
+     * Read-only reporting call — the P24-parity intake channel. Returns the
+     * decoded SOAP array (or the client's {error:true,...} envelope on fault;
+     * PpLeadService treats that as a clean skip so the scheduler never breaks).
+     */
+    public function listingLeadDetailsFeed(?string $startDate = null): array
+    {
+        return $this->call('ListingLeadDetailsFeed', [
+            // PP expects a .NET dateTime; unqualified local time matches the
+            // format the feed/status calls already send successfully.
+            'StartDate' => $startDate ?? now()->subDays(7)->format('Y-m-d\TH:i:s'),
+            'Token'     => $this->buildToken(),
+        ]);
+    }
+
+    /**
      * Get PP reference number by listing.
      * WSDL: GetReferenceNumberByListing { guid BranchId, string UniqueListingID, ListingType listingType, SecurityToken Token }
      */
