@@ -26,16 +26,17 @@ final class P24StatsActiveStockScopeTest extends TestCase
     use RefreshDatabase;
 
     private int $agentId;
+    private int $agencyId;
+    private int $branchId;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal']); // id may be 1
-        $this->agentId = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent'])->id;
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal']);
         $this->agencyId = $agency->id;
+        $this->branchId = \App\Models\Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id])->id;
+        $this->agentId = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $this->branchId, 'role' => 'agent'])->id;
     }
-
-    private int $agencyId;
 
     protected function tearDown(): void
     {
@@ -46,7 +47,7 @@ final class P24StatsActiveStockScopeTest extends TestCase
     private function prop(string $ref, string $status): Property
     {
         return Property::forceCreate([
-            'agency_id' => $this->agencyId, 'agent_id' => $this->agentId,
+            'agency_id' => $this->agencyId, 'agent_id' => $this->agentId, 'branch_id' => $this->branchId,
             'p24_ref' => $ref, 'p24_listing_number' => $ref,
             'p24_syndication_status' => 'active', 'status' => $status, 'title' => "P {$ref}",
         ]);

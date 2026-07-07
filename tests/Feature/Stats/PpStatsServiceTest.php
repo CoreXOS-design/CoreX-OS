@@ -26,6 +26,7 @@ final class PpStatsServiceTest extends TestCase
 
     private Agency $agency;
     private User $agent;
+    private \App\Models\Branch $branch;
 
     protected function setUp(): void
     {
@@ -36,7 +37,8 @@ final class PpStatsServiceTest extends TestCase
             'pp_username' => 'u', 'pp_password' => 'p',
             'pp_branch_guid' => '6f0a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c',
         ]);
-        $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent']);
+        $this->branch = \App\Models\Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
+        $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
     }
 
     protected function tearDown(): void
@@ -48,7 +50,7 @@ final class PpStatsServiceTest extends TestCase
     private function prop(string $ref, string $status): Property
     {
         return Property::forceCreate([
-            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'pp_ref' => $ref,
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id, 'pp_ref' => $ref,
             'pp_syndication_status' => 'active', 'status' => $status, 'title' => "P {$ref}",
         ]);
     }
