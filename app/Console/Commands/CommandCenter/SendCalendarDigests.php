@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use App\Services\CommandCenter\NotificationPreferenceService;
+use App\Services\PermissionService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -88,6 +89,15 @@ class SendCalendarDigests extends Command
                 foreach ($users as $user) {
                     $grouped = ['red' => [], 'amber' => [], 'green' => []];
 
+                    // Role-driven data-scope ceiling (own | branch | all) — the SAME
+                    // clamp the calendar grid applies (CalendarController::index ->
+                    // PermissionService::calendarScope -> CalendarEvent::scopeVisibleTo).
+                    // Without this the digest fell back to canSee() alone, which grants
+                    // role/colour-based visibility of OTHER agents' events — so an
+                    // 'own'-scope agent received calendar items that were not theirs.
+                    // Mirroring the grid's scope keeps the two exactly in parity.
+                    $scope = PermissionService::calendarScope($user);
+
                     foreach ($digestClasses as $classConfig) {
                         // Resolve effective config for user's agency.
                         $cfg = CalendarEventClassSetting::forAgencyAndClass(
@@ -114,6 +124,7 @@ class SendCalendarDigests extends Command
                                 $today->copy()->addDays($showDays),
                             ])
                             ->whereNull('deleted_at')
+                            ->visibleTo($user, $scope)
                             ->get();
 
                         foreach ($candidates as $event) {
