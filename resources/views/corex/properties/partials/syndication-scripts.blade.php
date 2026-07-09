@@ -71,10 +71,10 @@ function ppSyndication(config) {
         statusBadgeStyle() {
             const styles = {
                 '': 'background:var(--surface-2); color:var(--text-muted);',
-                'pending': 'background:rgba(245,158,11,0.12); color:var(--ds-amber);',
-                'submitted': 'background:rgba(245,158,11,0.12); color:var(--ds-amber);',
-                'active': 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--ds-green);',
-                'error': 'background:rgba(239,68,68,0.12); color:var(--ds-crimson);',
+                'pending': 'background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber);',
+                'submitted': 'background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber);',
+                'active': 'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);',
+                'error': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
                 'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
             };
             if (!this.enabled && !this.status) return styles[''];
@@ -371,7 +371,7 @@ function p24Syndication(config) {
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitting':'background:rgba(59,130,246,0.12);color:#3b82f6;','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','rejected':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
         },
@@ -528,7 +528,7 @@ function websiteSyndication(config) {
             return labels[this.status] || (this.enabled ? 'Active' : 'Off');
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-3);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','submitted':'background:rgba(245,158,11,0.12);color:var(--ds-amber);','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:var(--ds-crimson);','deactivated':'background:var(--surface-3);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
         },

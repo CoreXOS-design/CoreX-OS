@@ -68,20 +68,20 @@
                                 ],
                             ];
                         @endphp
-                        <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-3 mt-2">
+                        <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-2 mt-2">
                             {{-- Header card — click toggles active/deactivated (enable = active). --}}
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                                  @click="toggleEnabled()"
-                                 :style="enabled ? 'background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
+                                 :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border:1px solid var(--border);'">
                                 <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#3b82f6' : 'color:var(--text-muted)'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
                                     </svg>
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="name"></span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                         :style="enabled ? 'background:#3b82f6' : 'background:var(--surface-3)'"
+                                         :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
                                         <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
                                               style="background:#fff; margin-top:2px;"
@@ -105,20 +105,20 @@
                             <div x-show="enabled && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
                                 <a x-show="publicUrl" :href="publicUrl" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
-                                   style="background:#3b82f6; color:#fff;">
+                                   style="background:var(--brand-button); color:#fff;">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                                     View on website
                                 </a>
                                 <button type="button" @click.stop="post(urls.refresh)" :disabled="loading"
                                         :class="publicUrl ? '' : 'flex-1'"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
                                 <button type="button" @click.stop="post(urls.deactivate)" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
@@ -132,7 +132,7 @@
                             {{-- Toast message --}}
                             <div x-show="message && messageType === 'success'" x-cloak x-transition
                                  class="px-3 py-2 rounded-md text-xs font-medium"
-                                 style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                 style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                  x-text="message"></div>
 
                             {{-- Error panel --}}
@@ -173,15 +173,15 @@
                                 'publicUrl'       => $property->publicListingUrls()['pp'] ?? '',
                             ];
                         @endphp
-                        <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-3">
+                        <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2">
 
                             {{-- Private Property toggle row --}}
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
                                  @click="toggleEnabled()"
-                                 :style="enabled ? 'background:rgba(0,212,170,0.06); border-color:color-mix(in srgb, var(--brand-icon) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
+                                 :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
                                     </svg>
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);">Private Property</span>
@@ -189,7 +189,7 @@
                                 <div class="flex items-center gap-2">
                                     {{-- Toggle switch --}}
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                         :style="enabled ? 'background:var(--ds-green)' : 'background:var(--surface-3)'"
+                                         :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch"
                                          :aria-checked="enabled">
                                         <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
@@ -224,11 +224,11 @@
                             {{-- PP Exclusive listing warning --}}
                             <div x-show="isPpExclusiveActive()" x-cloak
                                  class="rounded-md px-3 py-2.5 space-y-1"
-                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                 style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
                                 <p class="text-xs font-semibold" style="color:var(--ds-amber);">
                                     PP Exclusive listing — do not publish elsewhere until <span x-text="ppDelayUntil"></span>
                                 </p>
-                                <p class="text-[0.6875rem]" style="color:#d97706;">
+                                <p class="text-[0.6875rem]" style="color:var(--ds-amber);">
                                     <span x-text="ppDelayDaysRemaining()"></span> days remaining
                                 </p>
                             </div>
@@ -236,7 +236,7 @@
                             {{-- Missing fields warning --}}
                             <div x-show="enabled && missingFields.length > 0" x-cloak
                                  class="rounded-md px-3 py-2.5 space-y-1.5"
-                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                 style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
                                 <p class="text-xs font-semibold" style="color:var(--ds-amber);">Cannot submit — missing required fields:</p>
                                 <ul class="space-y-0.5 m-0 pl-3" style="list-style:disc;">
                                     <template x-for="(f, idx) in missingFields" :key="idx">
@@ -263,7 +263,7 @@
                                         @click.stop="submitListing()"
                                         :disabled="loading || missingFields.length > 0"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:var(--ds-green); color:#fff;'"
+                                        :style="missingFields.length > 0 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;' : 'background:var(--brand-button); color:#fff;'"
                                         :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
                                     <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
@@ -272,7 +272,7 @@
                                 {{-- Reactivate (for deactivated, no ref yet edge case) --}}
                                 <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -282,19 +282,19 @@
                             <div x-show="enabled && ppRef && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="ppListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
-                                   style="background:var(--ds-green); color:#fff;">
+                                   style="background:var(--brand-button); color:#fff;">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                                     View on PP
                                 </a>
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
                                 <button type="button" @click.stop="deactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
@@ -304,7 +304,7 @@
                             <div x-show="enabled && ppRef && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -319,7 +319,7 @@
                             <div x-show="message && messageType === 'success'" x-cloak
                                  x-transition
                                  class="px-3 py-2 rounded-md text-xs font-medium"
-                                 style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
+                                 style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                  x-text="message"></div>
 
                             {{-- Debug error panel --}}
@@ -337,7 +337,7 @@
                                 </div>
                                 <ul class="space-y-1 m-0 pl-3" style="list-style:disc;">
                                     <template x-for="(err, i) in debugErrors" :key="i">
-                                        <li class="text-xs break-words" style="color:#f87171; word-break:break-word;"
+                                        <li class="text-xs break-words" style="color:var(--ds-crimson); word-break:break-word;"
                                             x-text="err"></li>
                                     </template>
                                 </ul>
@@ -375,27 +375,27 @@
                                 'publicUrl'              => $property->publicListingUrls()['p24'] ?? '',
                             ];
                         @endphp
-                        <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-3 mt-2">
+                        <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2">
                             {{-- P24 exclusive lock warning --}}
                             <div x-show="isPpExclusiveLocked()" x-cloak
                                  class="rounded-md px-3 py-2 text-xs font-medium"
-                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); color:var(--ds-amber);">
+                                 style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); color:var(--ds-amber);">
                                 Cannot enable P24 syndication during PP exclusive period (until <span x-text="ppDelayUntil"></span>)
                             </div>
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
                                  :class="isPpExclusiveLocked() ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                                  @click="!isPpExclusiveLocked() && toggleEnabled()"
-                                 :style="enabled ? 'background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.25);' : 'background:var(--surface-2); border-color:var(--border);'">
+                                 :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#3b82f6' : 'color:var(--text-muted)'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
                                     </svg>
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);">Property24</span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                         :style="enabled ? 'background:#3b82f6' : 'background:var(--surface-3)'"
+                                         :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
                                         <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
                                               style="background:#fff; margin-top:2px;"
@@ -430,7 +430,7 @@
                             {{-- Missing fields warning --}}
                             <div x-show="enabled && !p24Ref && missingFields.length > 0" x-cloak
                                  class="rounded-md px-3 py-2.5 space-y-1.5"
-                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                 style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
                                 <p class="text-xs font-semibold" style="color:var(--ds-amber);">Cannot submit — missing required fields:</p>
                                 <ul class="space-y-0.5 m-0 pl-3" style="list-style:disc;">
                                     <template x-for="(f, idx) in missingFields" :key="idx">
@@ -445,7 +445,7 @@
                                         @click.stop="submitListing()"
                                         :disabled="loading || missingFields.length > 0"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:#3b82f6; color:#fff;'"
+                                        :style="missingFields.length > 0 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;' : 'background:var(--brand-button); color:#fff;'"
                                         :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
                                     <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
@@ -454,7 +454,7 @@
                                 {{-- Reactivate (for deactivated, no ref yet edge case) --}}
                                 <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -464,19 +464,19 @@
                             <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted' || status === 'submitting')" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="p24ListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
-                                   style="background:#3b82f6; color:#fff;">
+                                   style="background:var(--brand-button); color:#fff;">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                                     View on P24
                                 </a>
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
                                 <button type="button" @click.stop="deactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
+                                        style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
@@ -486,7 +486,7 @@
                             <div x-show="enabled && p24Ref && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -507,7 +507,7 @@
                             {{-- Toast message --}}
                             <div x-show="message && messageType === 'success'" x-cloak x-transition
                                  class="px-3 py-2 rounded-md text-xs font-medium"
-                                 style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                 style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                  x-text="message"></div>
 
                             {{-- Error panel --}}
@@ -520,7 +520,7 @@
                                 </div>
                                 <ul class="space-y-1 m-0 pl-3" style="list-style:disc;">
                                     <template x-for="(err, i) in debugErrors" :key="i">
-                                        <li class="text-xs break-words" style="color:#f87171; word-break:break-word;" x-text="err"></li>
+                                        <li class="text-xs break-words" style="color:var(--ds-crimson); word-break:break-word;" x-text="err"></li>
                                     </template>
                                 </ul>
                             </div>
@@ -560,8 +560,8 @@
                     <a href="{{ route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]) }}?agent=me"
                        target="_blank"
                        class="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold no-underline"
-                       style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);"
-                       onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon) 18%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon) 8%, transparent)'">
+                       style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
+                       onmouseover="this.style.background='color-mix(in srgb, var(--brand-button) 18%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-button) 10%, transparent)'">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
                         Show my info
                     </a>
@@ -569,7 +569,7 @@
                        target="_blank"
                        class="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold no-underline"
                        style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                       onmouseover="this.style.background='var(--surface-3,#2a3a4a)'" onmouseout="this.style.background='var(--surface-2)'">
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface-2)'">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
                         Show listing agent info
                     </a>
