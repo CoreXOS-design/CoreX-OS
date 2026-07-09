@@ -229,6 +229,26 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $this->assertContains($p->id, Property::liveOnAnyPortal()->pluck('id')->all());
     }
 
+    public function test_card_shows_both_portal_references_and_only_the_ones_issued(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Both-Refs', [
+            'p24_ref' => '117369247',
+            'pp_ref'  => 'PP-998877',
+        ]);
+        $this->property($agencyId, $admin, 'ZZZ-P24-Only', ['p24_ref' => '556677889']);
+
+        $res = $this->get(route('corex.properties.index'))->assertOk();
+
+        $res->assertSee('P24: 117369247');
+        $res->assertSee('PP: PP-998877');
+        $res->assertSee('P24: 556677889');
+        // A property with no PP reference must not sprout an empty PP pill.
+        $res->assertDontSee('PP: </span>', false);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */

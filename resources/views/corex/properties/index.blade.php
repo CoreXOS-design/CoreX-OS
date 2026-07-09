@@ -706,12 +706,12 @@
             $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
             $brandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
-            // Sold listings get a red status pill; withdrawn/sold also grey out the P24 ref.
+            // Sold listings get a red status pill; withdrawn/sold also grey out the portal refs.
             $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true);
             $statusPillStyle = $statusKey === 'sold'
                 ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
                 : $brandPillStyle;
-            $p24PillStyle = $isOffMarket
+            $refPillStyle = $isOffMarket
                 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
                 : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);';
             // "Live" = advertised on at least one portal (own website / P24 /
@@ -820,13 +820,24 @@
                     @if($property->size_m2)<span>{{ number_format($property->size_m2) }} m²</span>@endif
                 </div>
 
-                @if($property->p24_ref)
-                <div class="mt-1.5">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold"
-                          style="{{ $p24PillStyle }}"
+                {{-- Portal references — P24 and Private Property side by side, each
+                     shown only once the portal has issued one. --}}
+                @if($property->p24_ref || $property->pp_ref)
+                <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    @if($property->p24_ref)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
+                          style="{{ $refPillStyle }}"
                           title="Property24 listing number">
                         P24: {{ $property->p24_ref }}
                     </span>
+                    @endif
+                    @if($property->pp_ref)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
+                          style="{{ $refPillStyle }}"
+                          title="Private Property listing number">
+                        PP: {{ $property->pp_ref }}
+                    </span>
+                    @endif
                 </div>
                 @endif
 
