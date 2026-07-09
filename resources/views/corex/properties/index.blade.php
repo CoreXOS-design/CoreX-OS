@@ -4,7 +4,7 @@
 @section('corex-content')
 @php
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
-    $synPanelUrlTemplate = route('v1.properties.syndication-panel', ['property' => '__ID__']);
+    $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
 @endphp
 <div class="w-full space-y-5"
      x-data="{

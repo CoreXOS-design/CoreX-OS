@@ -98,7 +98,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             'p24_syndication_status'  => 'active',
         ]);
 
-        $res = $this->getJson(route('v1.properties.syndication-panel', $p))->assertOk();
+        $res = $this->getJson(route('api.v1.properties.syndication-panel', $p))->assertOk();
         $html = $res->json('html');
 
         // The live control surface — not a read-only summary.
@@ -117,7 +117,28 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         // instead of the panel; the endpoint must refuse for the same reason.
         $p = $this->property($agencyId, $admin, 'ZZZ-Blocked-Panel');
 
-        $this->getJson(route('v1.properties.syndication-panel', $p))->assertForbidden();
+        $this->getJson(route('api.v1.properties.syndication-panel', $p))->assertForbidden();
+    }
+
+    /**
+     * The panel is fetched by a cookie-authed browser, so its route MUST sit on
+     * the `web` middleware stack. Registered under routes/api.php it 401s with
+     * "Unauthenticated." in the browser, because bootstrap/app.php strips
+     * Sanctum's EnsureFrontendRequestsAreStateful from the `api` group (mobile
+     * is bearer-token only). A guest redirect proves the session stack is live.
+     */
+    public function test_panel_endpoint_runs_on_the_session_authenticated_web_stack(): void
+    {
+        $this->assertContains(
+            'web',
+            app('router')->getRoutes()->getByName('api.v1.properties.syndication-panel')->gatherMiddleware(),
+            'The syndication-panel route left the web group — a browser fetch will be Unauthenticated.'
+        );
+
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->property($agencyId, $admin, 'ZZZ-Guest-House', ['compliance_snapshot_at' => now()]);
+
+        $this->get(route('api.v1.properties.syndication-panel', $p))->assertRedirect(route('login'));
     }
 
     public function test_property_page_still_renders_the_shared_panel(): void
