@@ -9,9 +9,65 @@
     Included by every page that renders the panel. Include it ONCE per page.
 --}}
 <script>
+// Copy a listing URL to the clipboard.
+//
+// navigator.clipboard exists only in a secure context (https, or localhost).
+// CoreX runs over plain http on some internal hosts, where it is undefined —
+// hence the execCommand fallback. Returns true only when the text really landed.
+async function corexCopyListingUrl(text) {
+    if (!text) return false;
+
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) { /* fall through to the legacy path */ }
+    }
+
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+}
+
+// Mixin: the copy-link button on every portal panel. `copied` flips the icon to
+// a tick for two seconds; `copyError` renders inline on failure.
+//
+// It does NOT route failure through showMessage(): every panel renders that slot
+// with `messageType === 'success'`, so an error there would be invisible.
+function corexCopyLinkMixin() {
+    return {
+        copied: false,
+        copyError: '',
+        copyTimer: null,
+        async copyLink(url) {
+            this.copyError = '';
+            if (!url || url === '#') {
+                this.copyError = 'No public link for this listing yet';
+                return;
+            }
+            if (!await corexCopyListingUrl(url)) {
+                this.copyError = 'Could not copy the link';
+                return;
+            }
+            this.copied = true;
+            clearTimeout(this.copyTimer);
+            this.copyTimer = setTimeout(() => { this.copied = false; }, 2000);
+        },
+    };
+}
+
 // Private Property Syndication Alpine component
 function ppSyndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId,
         enabled: config.enabled,
         status: config.status || '',
@@ -353,6 +409,7 @@ function ppSyndication(config) {
 
 function p24Syndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
         p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
         lastError: config.lastError || '', csrfToken: config.csrfToken, isSandbox: config.isSandbox ?? true,
@@ -512,6 +569,7 @@ function p24Syndication(config) {
 // header toggle activates/deactivates directly.
 function websiteSyndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId,
         name: config.name || 'Website',
         enabled: config.enabled,
