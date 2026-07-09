@@ -152,7 +152,7 @@ Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
 // Private Property buyer-enquiry leads pull (ListingLeadDetailsFeed → portal_leads).
 // P24-parity intake. Runs every 5 minutes but is DORMANT by default: the pull
 // only fires for agencies with pp_lead_pull_enabled=true (gate in PpLeadService),
-// so the tick is a cheap no-op until an admin flips the toggle. See AT-192.
+// so the tick is a cheap no-op until an admin flips the toggle. See AT-199.
 Schedule::job(new \App\Jobs\PrivateProperty\PullPpLeadsJob())
     ->everyFiveMinutes()
     ->withoutOverlapping()
