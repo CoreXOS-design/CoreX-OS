@@ -2,11 +2,54 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@php
+    // '__ID__' placeholder — the panel URL is resolved per property in JS.
+    $synPanelUrlTemplate = route('v1.properties.syndication-panel', ['property' => '__ID__']);
+@endphp
 <div class="w-full space-y-5"
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
+
+        // Syndication modal. `syn` holds the open property; the panel markup is
+        // fetched from the API and injected, so the index and the property page
+        // render one and the same control surface.
         syn: null,
-        openSyn(payload) { this.syn = payload; }
+        synStep: 'main',
+        synLoading: false,
+        synError: '',
+
+        async openSyn(id, title) {
+            this.syn = { id, title };
+            this.synStep = 'main';
+            this.synError = '';
+            this.synLoading = true;
+            this.$refs.synBody.innerHTML = '';
+
+            try {
+                const res = await fetch('{{ $synPanelUrlTemplate }}'.replace('__ID__', id), {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || ('Could not load syndication (HTTP ' + res.status + ')'));
+
+                this.synLoading = false;
+                this.$refs.synBody.innerHTML = data.html;
+                // The panel carries its own Alpine components (ppSyndication,
+                // p24Syndication, websiteSyndication). Injected nodes are inert
+                // until Alpine walks them.
+                window.Alpine.initTree(this.$refs.synBody);
+            } catch (e) {
+                this.synLoading = false;
+                this.synError = e.message || 'Network error';
+            }
+        },
+
+        closeSyn() {
+            this.syn = null;
+            this.synStep = 'main';
+            this.synError = '';
+            this.$refs.synBody.innerHTML = '';
+        }
      }"
      x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
@@ -973,8 +1016,11 @@
     @endif
     @endif
 
-    {{-- Syndication viewer — one modal, driven by every card/row trigger --}}
+    {{-- Syndication — one modal, driven by every card/row trigger --}}
     @include('corex.properties.partials.syndication-modal')
 
 </div>
+
+{{-- Alpine components the injected syndication panel binds to --}}
+@include('corex.properties.partials.syndication-scripts')
 @endsection

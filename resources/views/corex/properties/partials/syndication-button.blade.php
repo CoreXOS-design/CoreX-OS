@@ -20,16 +20,13 @@
 @endphp
 @if($synVisible)
     @php
-        $synLinks   = $property->syndication_links ?? [];
-        $synLive    = collect($synLinks)->where('status', 'live');
-        $synPayload = [
-            'title' => $property->buildDisplayAddress() ?: ($property->title ?: 'Property'),
-            'links' => $synLinks,
-        ];
+        $synLinks = $property->syndication_links ?? [];
+        $synLive  = collect($synLinks)->where('status', 'live');
+        $synLabel = $property->buildDisplayAddress() ?: ($property->title ?: 'Property');
         $synTitle = 'Syndication — live on ' . $synLive->pluck('label')->join(', ');
     @endphp
     <button type="button"
-            @click.prevent.stop="openSyn({{ Illuminate\Support\Js::from($synPayload) }})"
+            @click.prevent.stop="openSyn({{ (int) $property->id }}, {{ Illuminate\Support\Js::from($synLabel) }})"
             aria-label="{{ $synTitle }}"
             title="{{ $synTitle }}"
             @class([

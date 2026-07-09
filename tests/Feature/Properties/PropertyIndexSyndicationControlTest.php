@@ -87,6 +87,56 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $res->assertDontSee(self::MARKER, false);
     }
 
+    public function test_panel_endpoint_serves_the_same_control_surface_as_the_property_page(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $p = $this->property($agencyId, $admin, 'ZZZ-Panel-House', [
+            'compliance_snapshot_at'  => now(),
+            'p24_ref'                 => '112233445',
+            'p24_syndication_status'  => 'active',
+        ]);
+
+        $res = $this->getJson(route('v1.properties.syndication-panel', $p))->assertOk();
+        $html = $res->json('html');
+
+        // The live control surface — not a read-only summary.
+        $this->assertStringContainsString('p24Syndication(', $html);
+        $this->assertStringContainsString('ppSyndication(', $html);
+        $this->assertStringContainsString('Deactivate', $html);
+        $this->assertStringContainsString('Live preview', $html);
+    }
+
+    public function test_panel_endpoint_refuses_a_listing_that_may_not_be_marketed(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        // No snapshot, gates unmet → the property page opens Compliance Status
+        // instead of the panel; the endpoint must refuse for the same reason.
+        $p = $this->property($agencyId, $admin, 'ZZZ-Blocked-Panel');
+
+        $this->getJson(route('v1.properties.syndication-panel', $p))->assertForbidden();
+    }
+
+    public function test_property_page_still_renders_the_shared_panel(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $p = $this->property($agencyId, $admin, 'ZZZ-Show-House', [
+            'compliance_snapshot_at' => now(),
+        ]);
+
+        $this->get(route('corex.properties.show', $p))
+            ->assertOk()
+            // Panel markup + its Alpine components both survive the extraction.
+            ->assertSee('p24Syndication(', false)
+            ->assertSee('function p24Syndication(config)', false)
+            ->assertSee('Live preview', false);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */

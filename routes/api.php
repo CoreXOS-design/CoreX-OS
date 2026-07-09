@@ -251,6 +251,14 @@ Route::middleware('auth:sanctum')->group(function () {
             ]);
         })->name('v1.logged-user');
 
+        // Shared syndication panel for one property — the SAME surface the
+        // property page renders inline. Fetched by the Properties index so a
+        // card/row opens the real control (toggle · refresh · deactivate ·
+        // live preview) instead of a second, divergent copy of it.
+        Route::get('/properties/{property}/syndication-panel', \App\Http\Controllers\Api\PropertySyndicationPanelController::class)
+            ->middleware('permission:access_properties')
+            ->name('v1.properties.syndication-panel');
+
         // Mobile app theme preference (light/dark)
         Route::get('/me/theme', function (Request $request) {
             return response()->json([
