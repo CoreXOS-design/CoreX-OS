@@ -15,6 +15,8 @@ use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
+use App\Services\Images\PropertyImageGuard;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
@@ -1343,13 +1345,31 @@ class PropertyController extends Controller
         $images = $property->$group ?? [];
 
         if (isset($images[$index])) {
-            // Delete the file from storage
-            $url  = $images[$index];
-            $path = str_replace('/storage/', '', parse_url($url, PHP_URL_PATH));
-            Storage::disk('public')->delete($path);
-
+            $url = $images[$index];
             array_splice($images, $index, 1);
-            $property->update([$group => $images]);
+
+            $updates = [$group => $images];
+
+            // Drop it from the URL-keyed category map as well, or the caption
+            // structure keeps naming a photo that no longer exists. Must be an
+            // explicit removal, not the existence filter — the file is still on
+            // disk at this point (we unlink it below, after the JSON commits).
+            if ($group === 'gallery_images_json') {
+                $updates['gallery_categories_json'] = $this->removeUrlFromCategories(
+                    $property->gallery_categories_json,
+                    $url
+                );
+            }
+
+            $property->update($updates);
+
+            // Unlink only AFTER the reference is gone. The reverse order leaves a
+            // window — and, if the update fails, a permanent dangling reference
+            // that makes PrivateProperty reject the whole listing (property 6060).
+            // Guard the path: never unlink outside this property's directory.
+            if (PropertyImageGuard::belongsToProperty($property, $url)) {
+                Storage::disk('public')->delete((string) PropertyImageGuard::relativePath($url));
+            }
         }
 
         return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
@@ -1516,10 +1536,46 @@ class PropertyController extends Controller
 
         // Smart gallery saves both categories and flat list
         if ($request->has('gallery_categories_json')) {
+            // Refuse a save built on a stale copy of the gallery. This endpoint
+            // takes the client's array as the COMPLETE new truth, so without this
+            // check a second tab (or a tab left open across a rotate/upload/delete)
+            // silently reverts whatever the newer one did — which is exactly how
+            // property 6060 ended up publishing a photo that no longer existed.
+            $sent = $request->input('gallery_fingerprint');
+            if (is_string($sent) && $sent !== '' && $sent !== $property->galleryFingerprint()) {
+                return response()->json([
+                    'ok'      => false,
+                    'stale'   => true,
+                    'message' => 'This page is showing an older version of the gallery. Reload the page and redo your changes.',
+                ], 409);
+            }
+
+            // The client is not trusted to name files that exist. Drop any
+            // reference that is not persistable (deleted file, another property's
+            // directory, traversal) rather than storing it — a dangling URL makes
+            // PrivateProperty reject the entire listing update, not just the photo.
+            [$images, $droppedImages] = PropertyImageGuard::partition(
+                $property,
+                (array) $request->input('gallery_images_json', [])
+            );
+
             $updates = [
-                'gallery_categories_json' => $request->input('gallery_categories_json'),
-                'gallery_images_json'     => $request->input('gallery_images_json', []),
+                'gallery_categories_json' => $this->sanitizeGalleryCategories(
+                    $property,
+                    $request->input('gallery_categories_json')
+                ),
+                'gallery_images_json' => $images,
             ];
+
+            // Never silently truncate — name what was refused so a bad reference
+            // is visible in the log instead of quietly disappearing.
+            if ($droppedImages) {
+                Log::warning('Gallery save dropped unusable image references', [
+                    'property_id' => $property->id,
+                    'dropped'     => count($droppedImages),
+                    'urls'        => array_slice($droppedImages, 0, 10),
+                ]);
+            }
 
             // Persist the custom-tag registry so a custom tag survives even when
             // no photo is filed under it yet (an empty tag has no category in
@@ -1543,7 +1599,14 @@ class PropertyController extends Controller
 
             $property->update($updates);
 
-            return response()->json(['ok' => true]);
+            // Hand back the new fingerprint so the tab that just saved stays in
+            // sync and its next save is not rejected as stale.
+            return response()->json([
+                'ok'          => true,
+                'dropped'     => count($droppedImages),
+                'images'      => $images,
+                'fingerprint' => $property->fresh()->galleryFingerprint(),
+            ]);
         }
 
         // Legacy reorder (flat list by index)
@@ -1602,17 +1665,107 @@ class PropertyController extends Controller
             return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
         }
 
-        $this->swapImageUrl($property, $oldUrl, $newUrl);
+        // Commit the new URL BEFORE unlinking the original. If the swap matched
+        // nothing the JSON still names the original, so removing it would strand
+        // the listing on a missing file — discard the rotated copy instead and
+        // fail loudly rather than corrupt the gallery.
+        if (! $this->swapImageUrl($property, $oldUrl, $newUrl)) {
+            Storage::disk('public')->delete((string) PropertyImageGuard::relativePath($newUrl));
 
-        return response()->json(['ok' => true, 'url' => $newUrl]);
+            Log::error('Image rotation aborted — image not found in property gallery', [
+                'property_id' => $property->id,
+                'image_url'   => $oldUrl,
+            ]);
+
+            return response()->json([
+                'ok'      => false,
+                'message' => 'That photo is no longer part of this gallery. Reload the page and try again.',
+            ], 409);
+        }
+
+        // The reference is committed; the original is now safe to remove.
+        Storage::disk('public')->delete((string) PropertyImageGuard::relativePath($oldUrl));
+
+        return response()->json([
+            'ok'          => true,
+            'url'         => $newUrl,
+            'fingerprint' => $property->fresh()->galleryFingerprint(),
+        ]);
+    }
+
+    /**
+     * Remove one specific URL from the URL-keyed category structure, wherever it
+     * appears. Used when a photo is deleted — the file may still be on disk at
+     * that moment, so an existence-based filter would not catch it.
+     */
+    private function removeUrlFromCategories(mixed $cats, string $url): mixed
+    {
+        if (!is_array($cats)) {
+            return $cats;
+        }
+
+        $without = fn (array $urls): array => array_values(array_filter(
+            $urls,
+            fn ($u) => $u !== $url
+        ));
+
+        if (!empty($cats['categories']) && is_array($cats['categories'])) {
+            foreach ($cats['categories'] as $i => $cat) {
+                if (isset($cat['images']) && is_array($cat['images'])) {
+                    $cats['categories'][$i]['images'] = $without($cat['images']);
+                }
+            }
+        }
+
+        if (!empty($cats['unsorted']) && is_array($cats['unsorted'])) {
+            $cats['unsorted'] = $without($cats['unsorted']);
+        }
+
+        return $cats;
+    }
+
+    /**
+     * Strip unusable image references out of the URL-keyed category structure,
+     * mirroring the filter applied to the flat list. The two must agree: the
+     * category map supplies portal captions, so a dead URL surviving here would
+     * caption a photo that no longer exists.
+     *
+     * Shape: { categories: [{name, images:[url...]}], unsorted: [url...] }
+     */
+    private function sanitizeGalleryCategories(Property $property, mixed $cats): mixed
+    {
+        if (!is_array($cats)) {
+            return $cats;
+        }
+
+        $keep = fn (array $urls): array => PropertyImageGuard::partition($property, $urls)[0];
+
+        if (!empty($cats['categories']) && is_array($cats['categories'])) {
+            foreach ($cats['categories'] as $i => $cat) {
+                if (isset($cat['images']) && is_array($cat['images'])) {
+                    $cats['categories'][$i]['images'] = $keep($cat['images']);
+                }
+            }
+        }
+
+        if (!empty($cats['unsorted']) && is_array($cats['unsorted'])) {
+            $cats['unsorted'] = $keep($cats['unsorted']);
+        }
+
+        return $cats;
     }
 
     /**
      * Replace an image URL everywhere it can appear on a property: the four
      * image lists and the URL-keyed gallery category structure. Persisted in a
      * single update so the listing never references the deleted original.
+     *
+     * Returns true when at least one reference was actually rewritten. The
+     * caller MUST NOT delete the original file on a false return — a swap that
+     * matched nothing means the JSON still points at the old name, and unlinking
+     * it would leave the listing referencing a file that no longer exists.
      */
-    private function swapImageUrl(Property $property, string $old, string $new): void
+    private function swapImageUrl(Property $property, string $old, string $new): bool
     {
         $updates = [];
 
@@ -1663,9 +1816,13 @@ class PropertyController extends Controller
             }
         }
 
-        if ($updates) {
-            $property->update($updates);
+        if (!$updates) {
+            return false;
         }
+
+        $property->update($updates);
+
+        return true;
     }
 
     public function ad(Property $property)

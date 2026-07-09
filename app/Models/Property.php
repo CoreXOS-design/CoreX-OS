@@ -1351,6 +1351,29 @@ class Property extends Model
     }
 
     /**
+     * Fingerprint of the gallery AS THE BROWSER LAST SAW IT. Handed to the page
+     * at render and echoed back on save, so the server can tell a save built on
+     * the current gallery from one built on a stale copy.
+     *
+     * Why this exists: the gallery save posts the client's ENTIRE image array as
+     * the new truth. Two tabs open on the same property means last-write-wins —
+     * the older tab silently reverts anything the newer one did. That is how the
+     * property 6060 dangling reference was created: a tab loaded before a photo
+     * rotation re-posted its pre-rotation array, resurrecting the URL of the file
+     * the rotation had already deleted, and PrivateProperty then 404'd on it.
+     *
+     * Compare with `===` against the value the client sends; a mismatch means
+     * "your copy is out of date" and the save must be refused, not merged.
+     */
+    public function galleryFingerprint(): string
+    {
+        return sha1(json_encode([
+            $this->gallery_images_json ?? [],
+            $this->gallery_categories_json ?? [],
+        ]));
+    }
+
+    /**
      * Cheap fingerprint of the image set that goes to a portal (the ordered
      * syndication gallery + its caption/category map). Path-list based — NO file
      * reads — so it is safe to call on every submit. Changes when an image is

@@ -3255,7 +3255,7 @@
                 $availableTags = $property->getAvailableGalleryTags();
             @endphp
 
-            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
+            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}'), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
 
                 {{-- Header --}}
                 <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
@@ -6272,6 +6272,11 @@ async function rotateLightbox(degrees) {
         }
         var newUrl = data.url;
 
+        // The rotate changed the stored gallery, so this tab's fingerprint is now
+        // stale. Adopt the server's or the next save would be rejected as a stale
+        // write — by its own rotation.
+        if (data.fingerprint) _lbGallery.fingerprint = data.fingerprint;
+
         // Swap the URL in the lightbox copy and in the live gallery state. The
         // gallery tag map is keyed by URL, so remap that key too (server already
         // remapped the persisted copy).
@@ -6321,12 +6326,17 @@ document.addEventListener('keydown', function(e) {
 
 // Smart Gallery Manager
 // Tag-based gallery manager
-function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags) {
+function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags, fingerprint) {
     return {
         images: initImages || [],
         tags: initTags || {},
         availableTags: availableTags || [],
         propertyId, csrfToken,
+        // Fingerprint of the gallery this page was rendered from. Sent on every
+        // save so the server can reject a save built on a stale copy (two tabs
+        // open, or a tab left open across a rotate). Refreshed from every
+        // successful save/rotate response.
+        fingerprint: fingerprint || '',
         dirty: false, saving: false, saveMsg: '', saveError: false,
         tagMode: false,
         selected: [],              // array of indices selected in tag mode
@@ -6520,11 +6530,33 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
                         // tags that have no photos filed under them yet — without
                         // this an empty custom tag is lost on reload.
                         gallery_available_tags: this.availableTags,
+                        // Proves this save was built on the current gallery. A
+                        // mismatch means another tab moved on and the server
+                        // refuses (409) rather than letting us revert its work.
+                        gallery_fingerprint: this.fingerprint,
                     }),
                 });
+                const data = await res.json().catch(() => ({}));
+
+                if (res.status === 409) {
+                    this.dirty = true;
+                    this.saveError = true;
+                    this.saveMsg = 'Out of date — reload';
+                    alert(data.message || 'This page is showing an older version of the gallery. Reload the page and redo your changes.');
+                    return;
+                }
+
+                if (res.ok && data.fingerprint) this.fingerprint = data.fingerprint;
+                // The server refuses references to files that no longer exist;
+                // adopt its cleaned list so the page matches what was stored.
+                if (res.ok && Array.isArray(data.images)) this.images = data.images;
+
                 this.dirty = !res.ok;
                 this.saveMsg = res.ok ? 'Saved' : 'Failed to save';
                 this.saveError = !res.ok;
+                if (res.ok && data.dropped > 0) {
+                    this.saveMsg = 'Saved — ' + data.dropped + ' missing photo(s) removed';
+                }
             } catch (e) { this.saveMsg = 'Network error'; this.saveError = true; }
             finally { this.saving = false; setTimeout(() => this.saveMsg = '', 3000); }
         },
