@@ -327,6 +327,20 @@ Route::middleware('auth')->group(function () {
         Route::get('/properties',      [\App\Http\Controllers\Api\V1\PropertiesController::class, 'index'])->name('properties.index');
         Route::get('/properties/{property}', [\App\Http\Controllers\Api\V1\PropertiesController::class, 'show'])->name('properties.show');
 
+        // Shared syndication panel for one property — the SAME surface the
+        // property page renders inline. Fetched by the Properties index so a
+        // card/row opens the real control (toggle · refresh · deactivate ·
+        // live preview) instead of a second, divergent copy of it.
+        //
+        // Registered here, not in routes/api.php: bootstrap/app.php strips
+        // Sanctum's EnsureFrontendRequestsAreStateful from the `api` group, so
+        // /api/v1/* there is bearer-token only (mobile) and a cookie-authed
+        // browser fetch returns "Unauthenticated." The URI still starts with
+        // api/, so the endpoint appears in the Admin → API catalogue (NN #7).
+        Route::get('/properties/{property}/syndication-panel', \App\Http\Controllers\Api\PropertySyndicationPanelController::class)
+            ->middleware('permission:access_properties')
+            ->name('properties.syndication-panel');
+
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
 

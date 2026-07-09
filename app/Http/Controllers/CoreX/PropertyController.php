@@ -87,7 +87,13 @@ class PropertyController extends Controller
         $bathsMin       = $request->query('baths_min', '');
         $sort           = $request->query('sort', $defaultSort);  // newest|oldest|price_asc|price_desc|title|status_priority
 
-        $query = Property::with(['agent', 'branch', 'secondAgent']);
+        // websiteSyndication feeds portalLinks() below — loaded here (without the
+        // agency scope, matching the pivot's own lookup) so the syndication
+        // control on every card/row costs no extra query.
+        $query = Property::with([
+            'agent', 'branch', 'secondAgent',
+            'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
+        ]);
 
         // ── Agent multi-select ────────────────────────────────────────────
         // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
@@ -163,7 +169,10 @@ class PropertyController extends Controller
         }
 
         if ($status === 'published') {
-            $query->whereNotNull('published_at');
+            // "Live" = advertised on a portal, matching the card's Live badge.
+            // NOT published_at — that legacy flag is written only by the publish
+            // checkbox and no syndication path ever touches it.
+            $query->liveOnAnyPortal();
         } elseif ($status === 'on_market') {
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
@@ -203,15 +212,13 @@ class PropertyController extends Controller
             "COUNT(*) as total,"
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
-            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
-            . " SUM(CASE WHEN published_at IS NOT NULL THEN 1 ELSE 0 END) as synced"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
         )->first();
         $stats = [
             'total'  => (int) ($agg->total ?? 0),
             'active' => (int) ($agg->active ?? 0),
             'draft'  => (int) ($agg->draft ?? 0),
             'sold'   => (int) ($agg->sold ?? 0),
-            'synced' => (int) ($agg->synced ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -279,6 +286,14 @@ class PropertyController extends Controller
                 $p->marketing_status = $report->ready ? 'ready' : 'blocked';
                 $p->marketing_status_detail = $report->ready ? 'All gates passed' : implode(', ', array_map(fn ($b) => \Illuminate\Support\Str::limit($b, 30), $report->blockedBy));
             }
+
+            // Syndication control (card + row). It appears only for a listing the
+            // agency is allowed to market — mirrors $isMarketable on the show page
+            // — AND which actually reaches at least one portal. A blocked listing,
+            // or one that reaches nothing, has no syndication to look at.
+            $p->is_marketable      = in_array($p->marketing_status, ['live', 'ready'], true);
+            $p->syndication_links  = $p->portalLinks();
+            $p->has_syndication    = collect($p->syndication_links)->contains(fn ($l) => $l['status'] === 'live');
         }
 
         // Sort by marketing_status (derived — PHP sort, current page only)

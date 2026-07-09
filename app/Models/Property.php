@@ -780,6 +780,88 @@ class Property extends Model
     }
 
     /**
+     * Is this listing currently advertised on ANY syndication portal — the
+     * agency's own website, Property24, or Private Property?
+     *
+     * This, not isPublished(), is what "Live" means to an agent. `published_at`
+     * is the legacy HFC-Premium publish flag, written only by the publish
+     * checkbox and the publish/unpublish action; NO syndication path touches it
+     * (verified: `published_at` appears nowhere in the syndication controllers
+     * or services). A listing can therefore be live on all three portals with a
+     * null `published_at`, and vice versa.
+     *
+     * Derived from portalLinks() so there is one definition of "live on a
+     * portal" and the badge can never disagree with the syndication panel.
+     * Free of queries when `websiteSyndication` is eager-loaded.
+     */
+    public function isLiveOnAnyPortal(): bool
+    {
+        foreach ($this->portalLinks() as $link) {
+            if ($link['status'] === 'live') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * SQL twin of isLiveOnAnyPortal() — same three portals, same gates, so the
+     * "Live" KPI tile and its filter count exactly the cards that wear the
+     * badge. Keep in lockstep with portalLinks()/buildP24Url()/buildPpUrl().
+     */
+    public function scopeLiveOnAnyPortal($query)
+    {
+        $ppOffMarket = ['deactivated', 'disabled', 'archived', 'removed', 'expired'];
+
+        return $query->where(function ($outer) use ($ppOffMarket) {
+            // Own website — the pivot row is enabled for at least one site.
+            $outer->whereExists(function ($sub) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('property_website_syndication as pws')
+                    ->whereColumn('pws.property_id', 'properties.id')
+                    ->whereNull('pws.deleted_at')
+                    ->where('pws.enabled', true);
+            })
+            // Property24 — switched ON, with a reference and an active status.
+            // The `enabled` gate is what makes a disabled listing stop counting:
+            // its status column keeps its stale 'active' value. See portalLinks().
+            ->orWhere(function ($p24) {
+                $p24->where('p24_syndication_enabled', true)
+                    ->whereNotNull('p24_ref')
+                    ->where('p24_ref', '!=', '')
+                    ->where('p24_syndication_status', 'active');
+            })
+            // Private Property — switched ON, with a reference. The ref is the
+            // durable live signal; the status flaps on every routine re-push, so
+            // only an off-market status kills it.
+            ->orWhere(function ($pp) use ($ppOffMarket) {
+                $pp->where('pp_syndication_enabled', true)
+                   ->whereNotNull('pp_ref')
+                   ->where('pp_ref', '!=', '')
+                   ->where(function ($s) use ($ppOffMarket) {
+                       $s->whereNull('pp_syndication_status')
+                         ->orWhereNotIn('pp_syndication_status', $ppOffMarket);
+                   });
+            });
+        });
+    }
+
+    /**
+     * The portals this listing is live on, by label. Drives the Live badge's
+     * tooltip so the agent sees WHERE it is live without opening the panel.
+     *
+     * @return string[]
+     */
+    public function livePortalLabels(): array
+    {
+        return array_values(array_map(
+            static fn (array $l) => $l['label'],
+            array_filter($this->portalLinks(), static fn (array $l) => $l['status'] === 'live'),
+        ));
+    }
+
+    /**
      * Cosmetic/SEO slug for the public website — the title run through the
      * exact same transform as Laravel's Str::slug() (lowercase, accents
      * stripped, every run of non-alphanumeric characters collapsed to a
@@ -1056,10 +1138,14 @@ class Property extends Model
         // (the property_website_syndication pivot — same check the mobile
         // Overview placement used). The public URL is composed by the
         // config-driven public_url accessor (never hardcoded).
-        $websiteLive = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->where('property_id', $this->id)
-            ->where('enabled', true)
-            ->exists();
+        // Eager-loaded on list screens (many properties per page) so the check
+        // costs one query for the page rather than one per property.
+        $websiteLive = $this->relationLoaded('websiteSyndication')
+            ? $this->websiteSyndication->contains(fn ($row) => (bool) $row->enabled)
+            : \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('property_id', $this->id)
+                ->where('enabled', true)
+                ->exists();
         $links[] = [
             'portal' => 'website',
             'label'  => 'Company Website',
@@ -1069,22 +1155,31 @@ class Property extends Model
         ];
 
         // ── Property24 ─────────────────────────────────────────────
-        $p24Url = $this->buildP24Url();
+        // The `enabled` switch is authoritative, not the status column. Turning
+        // a portal off leaves `*_syndication_status` at its last value — the
+        // deactivate call updates it only on success, and legacy rows never had
+        // it cleared — so a disabled listing routinely still reads 'active'.
+        // Trusting the status alone marked sold, fully-unsyndicated listings as
+        // live. A portal is live only when the agency has it switched ON *and*
+        // the portal has confirmed the listing.
+        $p24Url  = $this->buildP24Url();
+        $p24Live = $p24Url !== null && (bool) $this->p24_syndication_enabled;
         $links[] = [
             'portal' => 'property24',
             'label'  => 'Property24',
-            'status' => $p24Url ? 'live' : 'not_published',
-            'url'    => $p24Url,
+            'status' => $p24Live ? 'live' : 'not_published',
+            'url'    => $p24Live ? $p24Url : null,
             'ref'    => $this->p24_ref,
         ];
 
         // ── Private Property ───────────────────────────────────────
-        $ppUrl = $this->buildPpUrl();
+        $ppUrl  = $this->buildPpUrl();
+        $ppLive = $ppUrl !== null && (bool) $this->pp_syndication_enabled;
         $links[] = [
             'portal' => 'private_property',
             'label'  => 'Private Property',
-            'status' => $ppUrl ? 'live' : 'not_published',
-            'url'    => $ppUrl,
+            'status' => $ppLive ? 'live' : 'not_published',
+            'url'    => $ppLive ? $ppUrl : null,
             'ref'    => $this->pp_ref,
         ];
 
