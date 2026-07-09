@@ -229,14 +229,25 @@ Steps mirror the real settings sections (`$railGroups` in
 | # | key | Step | Backing store(s) |
 |---|-----|------|------------------|
 | 1 | `identity` | Welcome / Agency identity | `agencies` company-identity fields |
-| 2 | `commission` | Commission & revenue share | `commission_settings` |
-| 3 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
-| 4 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
-| 5 | `matches` | Matches | `performance_settings` (`matches_*`) |
-| 6 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `property_setting_items`/contact type+source+tag stores |
-| 7 | `compliance` | Compliance | `FicaOfficerAppointment`, `InformationOfficerAppointment`, whistleblow columns on `agencies` |
-| 8 | `notifications` | Notifications & dashboard | `NotificationPreferenceService`, `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
-| 9 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+| 2 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
+| 3 | `commission` | Commission & revenue share | `commission_settings` |
+| 4 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
+| 5 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
+| 6 | `matches` | Matches | `performance_settings` (`matches_*`) |
+| 7 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), contact type/source stores |
+| 8 | `compliance` | Compliance | whistleblow columns on `agencies` |
+| 9 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
+| 10 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+
+**Step 2 — Branding.** Logo upload (with live preview + remove), the four semantic brand
+colours (`default_color` = headers/profiles, `button_color` = CTAs, `icon_color` = icons/links,
+`sidebar_color` = sidebar highlight), **client-side colour auto-detection from the uploaded
+logo** (canvas pixel bucketing → dominant palette + a suggested accent/dark pair; nothing is
+applied until the admin clicks, and nothing persists until Save), and a **live preview** mock of
+the header / sidebar / icon / button. Saver: `CompanySettingsController@update` — the canonical
+branding write path, explicitly designed for sibling forms (only validated, *present* keys reach
+`$agency->update()`), so posting just logo + colours never wipes the company-identity fields.
+It takes `(Request, Agency)`, hence the per-saver `pass_agency` flag on the saver map.
 
 **Each step provides:**
 - Sane defaults pre-filled (system defaults) → accept-and-continue is one click.

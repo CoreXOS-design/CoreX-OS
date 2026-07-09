@@ -118,7 +118,13 @@ class AgencySetupWizardController extends Controller
 
         foreach (($config['savers'] ?? []) as $saver) {
             try {
-                app($saver['controller'])->{$saver['method']}($request);
+                // Some canonical savers take the Agency as a second argument
+                // (e.g. CompanySettingsController@update). Declared per-saver.
+                $args = [$request];
+                if (!empty($saver['pass_agency'])) {
+                    $args[] = $this->agency();
+                }
+                app($saver['controller'])->{$saver['method']}(...$args);
             } catch (ValidationException $e) {
                 // Bubble so the step re-renders with the field error(s).
                 throw $e;

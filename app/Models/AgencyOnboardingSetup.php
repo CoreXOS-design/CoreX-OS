@@ -31,15 +31,16 @@ class AgencyOnboardingSetup extends Model
      * resources/views/corex/settings.blade.php ($railGroups).
      */
     public const STEPS = [
-        'identity',       // 1 — Welcome / agency identity
-        'commission',     // 2 — Commission & revenue share
-        'properties',     // 3 — Properties & listings
-        'presentations',  // 4 — Presentations / CMA
-        'matches',        // 5 — Matches
-        'contacts',       // 6 — Contacts
-        'compliance',     // 7 — Compliance
-        'notifications',  // 8 — Notifications & dashboard
-        'access',         // 9 — Access & finish
+        'identity',       // 1  — Welcome / agency identity
+        'branding',       // 2  — Logo & agency colours (auto-detect + preview)
+        'commission',     // 3  — Commission & revenue share
+        'properties',     // 4  — Properties & listings
+        'presentations',  // 5  — Presentations / CMA
+        'matches',        // 6  — Matches
+        'contacts',       // 7  — Contacts
+        'compliance',     // 8  — Compliance
+        'notifications',  // 9  — Notifications & dashboard
+        'access',         // 10 — Access & finish
     ];
 
     protected $fillable = [

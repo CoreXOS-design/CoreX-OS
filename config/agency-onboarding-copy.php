@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\CompanySettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
@@ -69,6 +70,21 @@ return [
             ['key' => 'email_disclaimer', 'source' => 'agency', 'type' => 'textarea', 'label' => 'Email disclaimer',
              'explain' => 'The legal disclaimer appended to agent email signatures.',
              'affects' => 'Every outgoing email signature.'],
+        ],
+    ],
+
+    'branding' => [
+        'title' => 'Your logo & agency colours',
+        'intro' => 'Upload your logo and CoreX will pick your brand colours out of it — '
+            . 'adjust anything you like and watch the preview update live. These colours '
+            . 'carry through your sidebar, buttons, documents and public property pages.',
+        'partial' => 'agency-setup.steps.branding',
+        'savers' => [
+            // CompanySettingsController@update is the canonical branding save
+            // (it is explicitly designed for sibling forms — only validated,
+            // present keys reach $agency->update(), so posting just the logo +
+            // colours never wipes the company fields). Takes (Request, Agency).
+            ['controller' => CompanySettingsController::class, 'method' => 'update', 'pass_agency' => true],
         ],
     ],
 

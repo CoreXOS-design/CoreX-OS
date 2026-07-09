@@ -166,7 +166,7 @@ class AgencySetupWizardTest extends TestCase
             'ffc_no'       => 'FFC123456',
         ]);
 
-        $resp->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
+        $resp->assertRedirect(route('corex.agency-setup.step', ['step' => 'branding']));
 
         $agency->refresh();
         $this->assertSame('Coastal Realty (Pty) Ltd', $agency->trading_name);
@@ -176,6 +176,38 @@ class AgencySetupWizardTest extends TestCase
         $setup->refresh();
         $this->assertContains('identity', $setup->completed_steps);
         $this->assertSame(2, $setup->current_step);
+    }
+
+    public function test_branding_step_renders_and_writes_colours_and_logo(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $agency = $this->agency();
+        $agency->update(['trading_name' => 'Coastal Realty (Pty) Ltd']);
+        $admin = $this->admin($agency);
+        $this->setupFor($agency);
+
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'branding']))
+            ->assertOk()
+            ->assertSee('Your four brand colours')
+            ->assertSee('Live preview');
+
+        $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'branding']), [
+            'sidebar_color' => '#d81b60',
+            'icon_color'    => '#d81b60',
+            'default_color' => '#1a237e',
+            'button_color'  => '#d81b60',
+            'logo'          => \Illuminate\Http\UploadedFile::fake()->image('logo.png', 200, 200),
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
+
+        $agency->refresh();
+        $this->assertSame('#d81b60', $agency->sidebar_color);
+        $this->assertSame('#1a237e', $agency->default_color);
+        $this->assertSame('#d81b60', $agency->button_color);
+        $this->assertNotNull($agency->logo_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($agency->logo_path);
+
+        // The canonical branding saver must NOT wipe sibling company fields.
+        $this->assertSame('Coastal Realty (Pty) Ltd', $agency->trading_name);
     }
 
     public function test_matches_step_writes_performance_settings_via_canonical_path(): void
@@ -321,10 +353,10 @@ class AgencySetupWizardTest extends TestCase
     {
         $agency = $this->agency();
         $admin  = $this->admin($agency);
-        $this->setupFor($agency, ['current_step' => 3, 'completed_steps' => ['identity', 'commission']]);
+        $this->setupFor($agency, ['current_step' => 3, 'completed_steps' => ['identity', 'branding']]);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.index'))
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
     }
 
     public function test_skip_advances_without_marking_complete(): void
@@ -334,7 +366,7 @@ class AgencySetupWizardTest extends TestCase
         $setup  = $this->setupFor($agency);
 
         $this->actingAs($admin)->post(route('corex.agency-setup.step.skip', ['step' => 'identity']))
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branding']));
 
         $setup->refresh();
         $this->assertNotContains('identity', (array) $setup->completed_steps);
