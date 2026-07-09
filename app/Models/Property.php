@@ -1056,10 +1056,14 @@ class Property extends Model
         // (the property_website_syndication pivot — same check the mobile
         // Overview placement used). The public URL is composed by the
         // config-driven public_url accessor (never hardcoded).
-        $websiteLive = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->where('property_id', $this->id)
-            ->where('enabled', true)
-            ->exists();
+        // Eager-loaded on list screens (many properties per page) so the check
+        // costs one query for the page rather than one per property.
+        $websiteLive = $this->relationLoaded('websiteSyndication')
+            ? $this->websiteSyndication->contains(fn ($row) => (bool) $row->enabled)
+            : \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('property_id', $this->id)
+                ->where('enabled', true)
+                ->exists();
         $links[] = [
             'portal' => 'website',
             'label'  => 'Company Website',

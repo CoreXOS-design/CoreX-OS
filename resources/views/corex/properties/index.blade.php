@@ -2,7 +2,13 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="{ view: localStorage.getItem('prop_view') || 'grid' }" x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
+<div class="w-full space-y-5"
+     x-data="{
+        view: localStorage.getItem('prop_view') || 'grid',
+        syn: null,
+        openSyn(payload) { this.syn = payload; }
+     }"
+     x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -665,8 +671,11 @@
             $p24PillStyle = $isOffMarket
                 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
                 : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);';
+            // Drives how much room the left-hand badge stack leaves for the
+            // top-right cluster (Live badge + syndication button).
+            $showSynBtn = ($property->is_marketable ?? false) && ($property->has_syndication ?? false);
         @endphp
-        <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
+        <div class="relative rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
              onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.06)'"
              onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
@@ -691,18 +700,13 @@
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
                 {{-- Listing type + Status + Mandate badges (left) --}}
-                <div class="absolute top-2.5 left-2.5 right-12 flex flex-row flex-wrap items-center gap-1.5">
+                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-24' : 'right-12' }} flex flex-row flex-wrap items-center gap-1.5">
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
                     @if($property->mandate_type)
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
                 </div>
-
-                {{-- Live badge (moved to right to make room for branded pills) --}}
-                @if($property->isPublished())
-                <span class="ds-badge ds-badge-info absolute top-2.5 right-2.5" style="background:var(--brand-icon, #0ea5e9);color:#fff;">Live</span>
-                @endif
 
                 {{-- Photo count --}}
                 @if(count($images) > 0)
@@ -712,6 +716,16 @@
                 </span>
                 @endif
             </a>
+
+            {{-- Top-right cluster: Live badge + syndication viewer. Sits outside
+                 the thumbnail anchor so the button is a real button, not a
+                 nested interactive element inside a link. --}}
+            <div class="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
+                @if($property->isPublished())
+                <span class="ds-badge ds-badge-info" style="background:var(--brand-icon, #0ea5e9);color:#fff;">Live</span>
+                @endif
+                @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'card'])
+            </div>
 
             {{-- Content --}}
             <div class="px-3.5 py-3 flex flex-col flex-1">
@@ -927,6 +941,7 @@
                     </td>
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">
+                            @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
                             <a href="{{ route('corex.properties.show', $property) }}" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
                             <a href="{{ route('corex.properties.ad', $property) }}" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
                             <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
@@ -957,6 +972,9 @@
     </div>
     @endif
     @endif
+
+    {{-- Syndication viewer — one modal, driven by every card/row trigger --}}
+    @include('corex.properties.partials.syndication-modal')
 
 </div>
 @endsection

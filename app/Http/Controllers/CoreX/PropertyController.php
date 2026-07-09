@@ -87,7 +87,13 @@ class PropertyController extends Controller
         $bathsMin       = $request->query('baths_min', '');
         $sort           = $request->query('sort', $defaultSort);  // newest|oldest|price_asc|price_desc|title|status_priority
 
-        $query = Property::with(['agent', 'branch', 'secondAgent']);
+        // websiteSyndication feeds portalLinks() below — loaded here (without the
+        // agency scope, matching the pivot's own lookup) so the syndication
+        // control on every card/row costs no extra query.
+        $query = Property::with([
+            'agent', 'branch', 'secondAgent',
+            'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
+        ]);
 
         // ── Agent multi-select ────────────────────────────────────────────
         // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
@@ -279,6 +285,14 @@ class PropertyController extends Controller
                 $p->marketing_status = $report->ready ? 'ready' : 'blocked';
                 $p->marketing_status_detail = $report->ready ? 'All gates passed' : implode(', ', array_map(fn ($b) => \Illuminate\Support\Str::limit($b, 30), $report->blockedBy));
             }
+
+            // Syndication control (card + row). It appears only for a listing the
+            // agency is allowed to market — mirrors $isMarketable on the show page
+            // — AND which actually reaches at least one portal. A blocked listing,
+            // or one that reaches nothing, has no syndication to look at.
+            $p->is_marketable      = in_array($p->marketing_status, ['live', 'ready'], true);
+            $p->syndication_links  = $p->portalLinks();
+            $p->has_syndication    = collect($p->syndication_links)->contains(fn ($l) => $l['status'] === 'live');
         }
 
         // Sort by marketing_status (derived — PHP sort, current page only)
