@@ -189,7 +189,9 @@ class AgencySetupWizardTest extends TestCase
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'branding']))
             ->assertOk()
             ->assertSee('Your four brand colours')
-            ->assertSee('Live preview');
+            ->assertSee('Dark Preview')
+            ->assertSee('Light Preview')
+            ->assertSee('Link text');
 
         $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'branding']), [
             'sidebar_color' => '#d81b60',
