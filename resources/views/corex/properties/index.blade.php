@@ -173,14 +173,12 @@
             'On Market' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
             'Draft'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
             'Sold'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
-            'Live' => '<path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918"/>',
         ];
         $kpiColors = [
             'Total'     => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
             'On Market' => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
             'Draft'     => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
             'Sold'      => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
-            'Live' => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)', 'fg' => 'var(--brand-icon, #0ea5e9)'],
         ];
     @endphp
     @php
@@ -189,13 +187,12 @@
             ['label' => 'On Market', 'value' => $stats['active'], 'filter' => 'on_market'],
             ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
             ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
-            ['label' => 'Live',      'value' => $stats['synced'], 'filter' => 'published'],
         ];
         $currentStatus = $status ?? '';
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 xl:gap-4" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];

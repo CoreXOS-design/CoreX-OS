@@ -214,17 +214,11 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
         )->first();
-        // Live = advertised on at least one portal — the same predicate the card
-        // badge and the 'published' filter use, so the tile counts exactly the
-        // cards that wear the badge. Its own query: the scope is a correlated
-        // EXISTS, not a conditional SUM.
-        $agg->synced = (clone $query)->liveOnAnyPortal()->count();
         $stats = [
             'total'  => (int) ($agg->total ?? 0),
             'active' => (int) ($agg->active ?? 0),
             'draft'  => (int) ($agg->draft ?? 0),
             'sold'   => (int) ($agg->sold ?? 0),
-            'synced' => (int) ($agg->synced ?? 0),
         ];
 
         // Sorting — whitelisted columns only
