@@ -780,6 +780,83 @@ class Property extends Model
     }
 
     /**
+     * Is this listing currently advertised on ANY syndication portal — the
+     * agency's own website, Property24, or Private Property?
+     *
+     * This, not isPublished(), is what "Live" means to an agent. `published_at`
+     * is the legacy HFC-Premium publish flag, written only by the publish
+     * checkbox and the publish/unpublish action; NO syndication path touches it
+     * (verified: `published_at` appears nowhere in the syndication controllers
+     * or services). A listing can therefore be live on all three portals with a
+     * null `published_at`, and vice versa.
+     *
+     * Derived from portalLinks() so there is one definition of "live on a
+     * portal" and the badge can never disagree with the syndication panel.
+     * Free of queries when `websiteSyndication` is eager-loaded.
+     */
+    public function isLiveOnAnyPortal(): bool
+    {
+        foreach ($this->portalLinks() as $link) {
+            if ($link['status'] === 'live') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * SQL twin of isLiveOnAnyPortal() — same three portals, same gates, so the
+     * "Live" KPI tile and its filter count exactly the cards that wear the
+     * badge. Keep in lockstep with portalLinks()/buildP24Url()/buildPpUrl().
+     */
+    public function scopeLiveOnAnyPortal($query)
+    {
+        $ppOffMarket = ['deactivated', 'disabled', 'archived', 'removed', 'expired'];
+
+        return $query->where(function ($outer) use ($ppOffMarket) {
+            // Own website — the pivot row is enabled for at least one site.
+            $outer->whereExists(function ($sub) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('property_website_syndication as pws')
+                    ->whereColumn('pws.property_id', 'properties.id')
+                    ->whereNull('pws.deleted_at')
+                    ->where('pws.enabled', true);
+            })
+            // Property24 — a reference AND an active status.
+            ->orWhere(function ($p24) {
+                $p24->whereNotNull('p24_ref')
+                    ->where('p24_ref', '!=', '')
+                    ->where('p24_syndication_status', 'active');
+            })
+            // Private Property — the ref is the durable live signal; the status
+            // flaps on every routine re-push, so only an off-market status kills it.
+            ->orWhere(function ($pp) use ($ppOffMarket) {
+                $pp->whereNotNull('pp_ref')
+                   ->where('pp_ref', '!=', '')
+                   ->where(function ($s) use ($ppOffMarket) {
+                       $s->whereNull('pp_syndication_status')
+                         ->orWhereNotIn('pp_syndication_status', $ppOffMarket);
+                   });
+            });
+        });
+    }
+
+    /**
+     * The portals this listing is live on, by label. Drives the Live badge's
+     * tooltip so the agent sees WHERE it is live without opening the panel.
+     *
+     * @return string[]
+     */
+    public function livePortalLabels(): array
+    {
+        return array_values(array_map(
+            static fn (array $l) => $l['label'],
+            array_filter($this->portalLinks(), static fn (array $l) => $l['status'] === 'live'),
+        ));
+    }
+
+    /**
      * Cosmetic/SEO slug for the public website — the title run through the
      * exact same transform as Laravel's Str::slug() (lowercase, accents
      * stripped, every run of non-alphanumeric characters collapsed to a

@@ -169,7 +169,10 @@ class PropertyController extends Controller
         }
 
         if ($status === 'published') {
-            $query->whereNotNull('published_at');
+            // "Live" = advertised on a portal, matching the card's Live badge.
+            // NOT published_at — that legacy flag is written only by the publish
+            // checkbox and no syndication path ever touches it.
+            $query->liveOnAnyPortal();
         } elseif ($status === 'on_market') {
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
@@ -209,9 +212,13 @@ class PropertyController extends Controller
             "COUNT(*) as total,"
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
-            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
-            . " SUM(CASE WHEN published_at IS NOT NULL THEN 1 ELSE 0 END) as synced"
+            . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold"
         )->first();
+        // Live = advertised on at least one portal — the same predicate the card
+        // badge and the 'published' filter use, so the tile counts exactly the
+        // cards that wear the badge. Its own query: the scope is a correlated
+        // EXISTS, not a conditional SUM.
+        $agg->synced = (clone $query)->liveOnAnyPortal()->count();
         $stats = [
             'total'  => (int) ($agg->total ?? 0),
             'active' => (int) ($agg->active ?? 0),

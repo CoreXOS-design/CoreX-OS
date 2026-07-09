@@ -158,6 +158,77 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             ->assertSee('Live preview', false);
     }
 
+    /**
+     * The Live badge means "advertised on a portal", NOT `published_at`.
+     *
+     * `published_at` is the legacy HFC-Premium publish flag; no syndication path
+     * writes it. Keying the badge off it meant two listings syndicated
+     * identically showed different badges — the bug this pins shut.
+     */
+    public function test_live_badge_follows_the_portals_not_the_legacy_published_at_flag(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        // Live on P24, never "published" → badge.
+        $live = $this->property($agencyId, $admin, 'ZZZ-Portal-Live', [
+            'p24_ref'                => '112233445',
+            'p24_syndication_status' => 'active',
+            'published_at'           => null,
+        ]);
+
+        // "Published" long ago, on no portal → no badge.
+        $stale = $this->property($agencyId, $admin, 'ZZZ-Published-Only', [
+            'published_at' => now(),
+        ]);
+
+        $this->assertTrue($live->isLiveOnAnyPortal());
+        $this->assertSame(['Property24'], $live->livePortalLabels());
+        $this->assertFalse($stale->isLiveOnAnyPortal());
+
+        // The SQL twin must agree with the PHP predicate, or the KPI tile and
+        // its filter would count different listings than the badge marks.
+        $liveIds = Property::liveOnAnyPortal()->pluck('id')->all();
+        $this->assertContains($live->id, $liveIds);
+        $this->assertNotContains($stale->id, $liveIds);
+
+        // The tile counts exactly the badged cards.
+        $this->get(route('corex.properties.index'))->assertOk();
+        $this->get(route('corex.properties.index', ['status' => 'published']))
+            ->assertOk()
+            ->assertSee('ZZZ-Portal-Live')
+            ->assertDontSee('ZZZ-Published-Only');
+    }
+
+    public function test_live_badge_counts_the_agency_website_as_a_portal(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $p = $this->property($agencyId, $admin, 'ZZZ-Website-Live');
+
+        $this->assertFalse($p->isLiveOnAnyPortal());
+
+        $keyId = (int) DB::table('agency_api_keys')->insertGetId([
+            'agency_id' => $agencyId,
+            'name'        => 'Main site',
+            'key_prefix'  => Str::random(8),
+            'secret_hash' => hash('sha256', Str::random(16)),
+            'created_at'  => now(), 'updated_at' => now(),
+        ]);
+        DB::table('property_website_syndication')->insert([
+            'agency_id'         => $agencyId,
+            'property_id'       => $p->id,
+            'agency_api_key_id' => $keyId,
+            'enabled'           => true,
+            'status'            => 'active',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertTrue($p->fresh()->isLiveOnAnyPortal());
+        $this->assertContains($p->id, Property::liveOnAnyPortal()->pluck('id')->all());
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */
