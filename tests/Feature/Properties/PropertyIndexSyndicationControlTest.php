@@ -162,18 +162,19 @@ final class PropertyIndexSyndicationControlTest extends TestCase
     }
 
     /**
-     * The Live badge means "advertised on a portal", NOT `published_at`.
+     * "Live" means advertised on a portal, NOT `published_at`.
      *
      * `published_at` is the legacy HFC-Premium publish flag; no syndication path
-     * writes it. Keying the badge off it meant two listings syndicated
-     * identically showed different badges — the bug this pins shut.
+     * writes it. Keying the live predicate off it meant two listings syndicated
+     * identically read differently — the bug this pins shut. The predicate now
+     * drives the syndication button and the ?status=published filter.
      */
-    public function test_live_badge_follows_the_portals_not_the_legacy_published_at_flag(): void
+    public function test_live_predicate_follows_the_portals_not_the_legacy_published_at_flag(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
         $this->actingAs($admin);
 
-        // Live on P24, never "published" → badge.
+        // Live on P24, never "published" → counts as live.
         $live = $this->property($agencyId, $admin, 'ZZZ-Portal-Live', [
             'p24_ref'                => '112233445',
             'p24_syndication_status' => 'active',
@@ -181,7 +182,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             'published_at'           => null,
         ]);
 
-        // "Published" long ago, on no portal → no badge.
+        // "Published" long ago, on no portal → not live.
         $stale = $this->property($agencyId, $admin, 'ZZZ-Published-Only', [
             'published_at' => now(),
         ]);
@@ -191,12 +192,12 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $this->assertFalse($stale->isLiveOnAnyPortal());
 
         // The SQL twin must agree with the PHP predicate, or the KPI tile and
-        // its filter would count different listings than the badge marks.
+        // its filter would select different listings than the PHP predicate reports.
         $liveIds = Property::liveOnAnyPortal()->pluck('id')->all();
         $this->assertContains($live->id, $liveIds);
         $this->assertNotContains($stale->id, $liveIds);
 
-        // The tile counts exactly the badged cards.
+        // The filter selects exactly the live listings.
         $this->get(route('corex.properties.index'))->assertOk();
         $this->get(route('corex.properties.index', ['status' => 'published']))
             ->assertOk()
@@ -204,7 +205,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             ->assertDontSee('ZZZ-Published-Only');
     }
 
-    public function test_live_badge_counts_the_agency_website_as_a_portal(): void
+    public function test_live_predicate_counts_the_agency_website_as_a_portal(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
         $this->actingAs($admin);
@@ -235,7 +236,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
 
     /**
      * The reported bug: sold listings with every portal switched OFF still wore
-     * the Live badge, and the P24 panel still read "Active".
+     * the Live badge (since removed), and the P24 panel still read "Active".
      *
      * Turning a portal off leaves `*_syndication_status` at its last value — the
      * deactivate call rewrites it only on success, and legacy rows never had it
@@ -272,6 +273,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $this->get(route('corex.properties.index'))
             ->assertOk()
             ->assertSee('ZZZ-Sold-Switched-Off')
+            // No syndication button either: it shares the live predicate.
             ->assertDontSee(self::MARKER, false);
     }
 

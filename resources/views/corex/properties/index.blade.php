@@ -711,15 +711,12 @@
             $refPillStyle = $isOffMarket
                 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
                 : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);';
-            // "Live" = advertised on at least one portal (own website / P24 /
-            // Private Property), NOT the legacy published_at flag — no syndication
-            // path writes that column. Same predicate as the syndication button,
-            // so the badge and the panel can never disagree.
-            $isLiveOnPortal = $property->has_syndication ?? $property->isLiveOnAnyPortal();
-            $livePortals    = $isLiveOnPortal ? $property->livePortalLabels() : [];
-            // Drives how much room the left-hand badge stack leaves for the
-            // top-right cluster (Live badge + syndication button).
-            $showSynBtn = ($property->is_marketable ?? false) && $isLiveOnPortal;
+            // The syndication button is the card's only live-on-a-portal signal:
+            // it appears when the listing may be marketed AND reaches at least one
+            // portal (own website / P24 / Private Property), and its tooltip names
+            // them. Drives how much room the left-hand badge stack is given.
+            $showSynBtn = ($property->is_marketable ?? false)
+                && ($property->has_syndication ?? $property->isLiveOnAnyPortal());
         @endphp
         <div class="relative rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
@@ -746,7 +743,9 @@
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
                 {{-- Listing type + Status + Mandate badges (left) --}}
-                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-24' : 'right-12' }} flex flex-row flex-wrap items-center gap-1.5">
+                {{-- right-12 clears the syndication button when it renders; the
+                     pills wrap rather than run under it. --}}
+                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
                     @if($property->mandate_type)
@@ -763,14 +762,10 @@
                 @endif
             </a>
 
-            {{-- Top-right cluster: Live badge + syndication viewer. Sits outside
-                 the thumbnail anchor so the button is a real button, not a
-                 nested interactive element inside a link. --}}
-            <div class="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
-                @if($isLiveOnPortal)
-                <span class="ds-badge ds-badge-info" style="background:var(--brand-icon, #0ea5e9);color:#fff;"
-                      title="Live on {{ implode(', ', $livePortals) }}">Live</span>
-                @endif
+            {{-- Syndication viewer. Sits outside the thumbnail anchor so the
+                 button is a real button, not a nested interactive element
+                 inside a link. --}}
+            <div class="absolute top-2.5 right-2.5 z-10 flex items-center">
                 @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'card'])
             </div>
 
