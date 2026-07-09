@@ -18,6 +18,24 @@
             </div>
             <h1 class="text-xl font-bold" style="color:var(--text-primary,#0f172a);">{{ $config['title'] }}</h1>
             <p class="text-sm mt-2" style="color:var(--text-muted,#64748b);">{{ $config['intro'] }}</p>
+
+            {{-- Plain-English explainer: what this feature actually IS, before we
+                 ask anyone to configure it. --}}
+            @if (!empty($config['what']))
+                <div class="mt-4 rounded-md px-4 py-3"
+                     style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 7%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent);">
+                    <div class="flex items-start gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
+                             class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                        </svg>
+                        <div class="min-w-0">
+                            <div class="text-xs font-bold mb-1" style="color:var(--text-primary,#0f172a);">{{ $config['what']['title'] }}</div>
+                            <p class="text-xs leading-relaxed" style="color:var(--text-secondary,#475569);">{{ $config['what']['body'] }}</p>
+                        </div>
+                    </div>
+                </div>
+            @endif
         </div>
 
         @if (session('success'))
@@ -56,7 +74,9 @@
                                 <p class="text-xs mt-0.5" style="color:var(--text-muted,#64748b);">{{ $control['explain'] }}</p>
                             @endif
                             @if (!empty($control['affects']))
-                                <p class="text-[11px] mt-0.5 italic" style="color:var(--text-muted,#94a3b8);">Affects: {{ $control['affects'] }}</p>
+                                <p class="text-[11px] mt-1" style="color:var(--text-muted,#94a3b8);">
+                                    <span class="font-semibold">What this changes:</span> {{ $control['affects'] }}
+                                </p>
                             @endif
                         </div>
 

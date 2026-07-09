@@ -336,6 +336,27 @@ class AgencySetupWizardTest extends TestCase
             ->assertDontSee('Contact types');
     }
 
+    public function test_every_step_explains_itself_before_asking_for_config(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        // Every step carries a plain-English "what is this" explainer card.
+        foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
+            $what = config("agency-onboarding-copy.$step.what");
+            $this->assertNotEmpty($what, "Step [$step] must explain itself before asking for config.");
+            $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
+                ->assertOk()
+                ->assertSee($what['title']);
+        }
+
+        // The jargon case that prompted this: Matches defines itself first.
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'matches']))
+            ->assertSee('What Core Matches is')
+            ->assertSee('What this changes:');
+    }
+
     public function test_notifications_step_writes_inline(): void
     {
         $agency = $this->agency();

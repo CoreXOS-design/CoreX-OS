@@ -272,6 +272,17 @@ It takes `(Request, Agency)`, hence the per-saver `pass_agency` flag on the save
 `config/agency-onboarding-copy.php` (a per-step / per-setting content map). **Not**
 AI-generated at view time (must be accurate + stable). Views read from the config map.
 
+**Copy rules (binding — STANDARDS F.8).** Every step MUST carry a `what` explainer card
+(`{title, body}`) rendered above the controls, which **defines the feature in plain English
+before anyone is asked to configure it** — e.g. "What Core Matches is" explains the buyer-wishlist
+engine before the four Matches toggles. Every control carries:
+- `explain` — a full sentence saying what the setting is, and when you'd want it either way;
+- `affects` — rendered as **"What this changes:"**, a *concrete, observable* consequence the
+  admin can picture. Tautologies are forbidden: "whether matches are computed at all" says
+  nothing; "whether your agents get told who to call when a new listing lands" says something.
+Guarded by `test_every_step_explains_itself_before_asking_for_config` (asserts every step in
+`STEPS` has a `what` block and renders it).
+
 ---
 
 ## 6. Save-path map — every step reuses the settings page's write path
