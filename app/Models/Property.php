@@ -823,16 +823,21 @@ class Property extends Model
                     ->whereNull('pws.deleted_at')
                     ->where('pws.enabled', true);
             })
-            // Property24 — a reference AND an active status.
+            // Property24 — switched ON, with a reference and an active status.
+            // The `enabled` gate is what makes a disabled listing stop counting:
+            // its status column keeps its stale 'active' value. See portalLinks().
             ->orWhere(function ($p24) {
-                $p24->whereNotNull('p24_ref')
+                $p24->where('p24_syndication_enabled', true)
+                    ->whereNotNull('p24_ref')
                     ->where('p24_ref', '!=', '')
                     ->where('p24_syndication_status', 'active');
             })
-            // Private Property — the ref is the durable live signal; the status
-            // flaps on every routine re-push, so only an off-market status kills it.
+            // Private Property — switched ON, with a reference. The ref is the
+            // durable live signal; the status flaps on every routine re-push, so
+            // only an off-market status kills it.
             ->orWhere(function ($pp) use ($ppOffMarket) {
-                $pp->whereNotNull('pp_ref')
+                $pp->where('pp_syndication_enabled', true)
+                   ->whereNotNull('pp_ref')
                    ->where('pp_ref', '!=', '')
                    ->where(function ($s) use ($ppOffMarket) {
                        $s->whereNull('pp_syndication_status')
@@ -1150,22 +1155,31 @@ class Property extends Model
         ];
 
         // ── Property24 ─────────────────────────────────────────────
-        $p24Url = $this->buildP24Url();
+        // The `enabled` switch is authoritative, not the status column. Turning
+        // a portal off leaves `*_syndication_status` at its last value — the
+        // deactivate call updates it only on success, and legacy rows never had
+        // it cleared — so a disabled listing routinely still reads 'active'.
+        // Trusting the status alone marked sold, fully-unsyndicated listings as
+        // live. A portal is live only when the agency has it switched ON *and*
+        // the portal has confirmed the listing.
+        $p24Url  = $this->buildP24Url();
+        $p24Live = $p24Url !== null && (bool) $this->p24_syndication_enabled;
         $links[] = [
             'portal' => 'property24',
             'label'  => 'Property24',
-            'status' => $p24Url ? 'live' : 'not_published',
-            'url'    => $p24Url,
+            'status' => $p24Live ? 'live' : 'not_published',
+            'url'    => $p24Live ? $p24Url : null,
             'ref'    => $this->p24_ref,
         ];
 
         // ── Private Property ───────────────────────────────────────
-        $ppUrl = $this->buildPpUrl();
+        $ppUrl  = $this->buildPpUrl();
+        $ppLive = $ppUrl !== null && (bool) $this->pp_syndication_enabled;
         $links[] = [
             'portal' => 'private_property',
             'label'  => 'Private Property',
-            'status' => $ppUrl ? 'live' : 'not_published',
-            'url'    => $ppUrl,
+            'status' => $ppLive ? 'live' : 'not_published',
+            'url'    => $ppLive ? $ppUrl : null,
             'ref'    => $this->pp_ref,
         ];
 

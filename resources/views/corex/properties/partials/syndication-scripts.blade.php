@@ -64,7 +64,7 @@ function ppSyndication(config) {
                 'error': 'Error',
                 'deactivated': 'Deactivated',
             };
-            if (!this.enabled && !this.status) return 'Disabled';
+            if (!this.enabled) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
 
@@ -77,7 +77,7 @@ function ppSyndication(config) {
                 'error': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
                 'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
             };
-            if (!this.enabled && !this.status) return styles[''];
+            if (!this.enabled) return styles[''];
             return styles[this.status] || styles[''];
         },
 
@@ -367,12 +367,12 @@ function p24Syndication(config) {
         },
         statusLabel() {
             const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
-            if (!this.enabled && !this.status) return 'Disabled';
+            if (!this.enabled) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
             const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
-            if (!this.enabled && !this.status) return styles[''];
+            if (!this.enabled) return styles[''];
             return styles[this.status] || styles[''];
         },
         p24ListingUrl() {
@@ -524,12 +524,12 @@ function websiteSyndication(config) {
         loading: false, message: '', messageType: 'success', errorMsg: '',
         statusLabel() {
             const labels = {'':'Off','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','deactivated':'Off'};
-            if (!this.enabled && !this.status) return 'Off';
-            return labels[this.status] || (this.enabled ? 'Active' : 'Off');
+            if (!this.enabled) return 'Off';
+            return labels[this.status] || 'Off';
         },
         statusBadgeStyle() {
             const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
-            if (!this.enabled && !this.status) return styles[''];
+            if (!this.enabled) return styles[''];
             return styles[this.status] || styles[''];
         },
         showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },

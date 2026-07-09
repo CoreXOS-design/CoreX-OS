@@ -42,6 +42,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             // Live on Property24 → portalLinks() reports a live portal + URL.
             'p24_ref'                 => '112233445',
             'p24_syndication_status'  => 'active',
+            'p24_syndication_enabled' => true,
         ]);
 
         $res = $this->get(route('corex.properties.index'))->assertOk();
@@ -79,6 +80,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $this->property($agencyId, $admin, 'ZZZ-Blocked-House', [
             'p24_ref'                => '556677889',
             'p24_syndication_status' => 'active',
+            'p24_syndication_enabled' => true,
         ]);
 
         $res = $this->get(route('corex.properties.index'))->assertOk();
@@ -96,6 +98,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             'compliance_snapshot_at'  => now(),
             'p24_ref'                 => '112233445',
             'p24_syndication_status'  => 'active',
+            'p24_syndication_enabled' => true,
         ]);
 
         $res = $this->getJson(route('api.v1.properties.syndication-panel', $p))->assertOk();
@@ -174,6 +177,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $live = $this->property($agencyId, $admin, 'ZZZ-Portal-Live', [
             'p24_ref'                => '112233445',
             'p24_syndication_status' => 'active',
+            'p24_syndication_enabled' => true,
             'published_at'           => null,
         ]);
 
@@ -227,6 +231,48 @@ final class PropertyIndexSyndicationControlTest extends TestCase
 
         $this->assertTrue($p->fresh()->isLiveOnAnyPortal());
         $this->assertContains($p->id, Property::liveOnAnyPortal()->pluck('id')->all());
+    }
+
+    /**
+     * The reported bug: sold listings with every portal switched OFF still wore
+     * the Live badge, and the P24 panel still read "Active".
+     *
+     * Turning a portal off leaves `*_syndication_status` at its last value — the
+     * deactivate call rewrites it only on success, and legacy rows never had it
+     * cleared. So `p24_syndication_status = 'active'` with
+     * `p24_syndication_enabled = false` is the NORMAL shape of a disabled
+     * listing, not an anomaly. The enabled switch is authoritative.
+     */
+    public function test_a_switched_off_portal_is_not_live_even_with_a_stale_active_status(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $sold = $this->property($agencyId, $admin, 'ZZZ-Sold-Switched-Off', [
+            'status'                  => 'sold',
+            'p24_ref'                 => '115247763',
+            'p24_syndication_status'  => 'active',   // stale — never cleared
+            'p24_syndication_enabled' => false,      // the truth
+            'pp_ref'                  => 'PP-11223',
+            'pp_syndication_status'   => 'active',   // stale
+            'pp_syndication_enabled'  => false,      // the truth
+        ]);
+
+        $this->assertFalse($sold->isLiveOnAnyPortal());
+        $this->assertSame([], $sold->livePortalLabels());
+
+        // No dead links out to a listing the portal no longer hosts.
+        $links = collect($sold->portalLinks())->keyBy('portal');
+        $this->assertNull($links['property24']['url']);
+        $this->assertNull($links['private_property']['url']);
+
+        // The SQL twin must agree, or the Live tile keeps counting it.
+        $this->assertNotContains($sold->id, Property::liveOnAnyPortal()->pluck('id')->all());
+
+        $this->get(route('corex.properties.index'))
+            ->assertOk()
+            ->assertSee('ZZZ-Sold-Switched-Off')
+            ->assertDontSee(self::MARKER, false);
     }
 
     public function test_card_shows_both_portal_references_and_only_the_ones_issued(): void
