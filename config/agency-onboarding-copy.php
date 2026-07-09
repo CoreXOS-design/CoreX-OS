@@ -88,6 +88,22 @@ return [
         ],
     ],
 
+    'branches' => [
+        'title' => 'Your branches',
+        'intro' => 'Add each office you trade from. Agents, properties and deals are filed '
+            . 'against a branch, and your performance dashboards break down by it. '
+            . 'If you run a single office, one branch is all you need.',
+        'savers' => [
+            ['controller' => SettingsController::class, 'method' => 'updateSplitBranches'],
+        ],
+        'controls' => [
+            ['key' => 'split_branches_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Keep branch data separate', 'explain' => 'When on, each branch only sees its own properties, contacts and deals.',
+             'affects' => 'What agents in one branch can see of another branch.'],
+        ],
+        'aux_partial' => 'agency-setup.steps.branches',
+    ],
+
     'commission' => [
         'title' => 'Commission & revenue share',
         'intro' => 'This is the engine room. Your commission split, annual cap, fees and '

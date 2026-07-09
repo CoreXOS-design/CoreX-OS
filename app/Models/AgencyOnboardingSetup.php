@@ -33,14 +33,15 @@ class AgencyOnboardingSetup extends Model
     public const STEPS = [
         'identity',       // 1  — Welcome / agency identity
         'branding',       // 2  — Logo & agency colours (auto-detect + preview)
-        'commission',     // 3  — Commission & revenue share
-        'properties',     // 4  — Properties & listings
-        'presentations',  // 5  — Presentations / CMA
-        'matches',        // 6  — Matches
-        'contacts',       // 7  — Contacts
-        'compliance',     // 8  — Compliance
-        'notifications',  // 9  — Notifications & dashboard
-        'access',         // 10 — Access & finish
+        'branches',       // 3  — Branches / offices
+        'commission',     // 4  — Commission & revenue share
+        'properties',     // 5  — Properties & listings
+        'presentations',  // 6  — Presentations / CMA
+        'matches',        // 7  — Matches
+        'contacts',       // 8  — Contacts
+        'compliance',     // 9  — Compliance
+        'notifications',  // 10 — Notifications & dashboard
+        'access',         // 11 — Access & finish
     ];
 
     protected $fillable = [

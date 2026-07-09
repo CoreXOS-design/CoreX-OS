@@ -199,7 +199,7 @@ class AgencySetupWizardTest extends TestCase
             'default_color' => '#1a237e',
             'button_color'  => '#d81b60',
             'logo'          => \Illuminate\Http\UploadedFile::fake()->image('logo.png', 200, 200),
-        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
 
         $agency->refresh();
         $this->assertSame('#d81b60', $agency->sidebar_color);
@@ -276,6 +276,50 @@ class AgencySetupWizardTest extends TestCase
                 ->assertDontSee('Manage property types')
                 ->assertDontSee('Manage contact types');
         }
+    }
+
+    public function test_branches_step_adds_and_archives_inline(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);   // also creates branch "Main", admin assigned to it
+        $this->setupFor($agency);
+
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'branches']))
+            ->assertOk()
+            ->assertSee('Existing branches')
+            ->assertSee('Main');
+
+        // Add a branch through the wizard (canonical createBranch).
+        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'branch']), [
+            'name' => 'Seabreeze Bay', 'code' => 'SBB',
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
+
+        $new = \App\Models\Branch::where('name', 'Seabreeze Bay')->first();
+        $this->assertNotNull($new);
+        $this->assertSame($agency->id, (int) $new->agency_id);
+
+        // Archive it (no users attached) — soft delete, never a hard delete.
+        $this->actingAs($admin)->delete(route('corex.agency-setup.collection.remove', ['collection' => 'branch', 'id' => $new->id]))
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
+
+        $this->assertNull(\App\Models\Branch::find($new->id));
+        $this->assertNotNull(\App\Models\Branch::withTrashed()->find($new->id));
+    }
+
+    public function test_branch_with_assigned_users_cannot_be_archived(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);   // admin sits on branch "Main"
+        $this->setupFor($agency);
+
+        $main = \App\Models\Branch::where('name', 'Main')->firstOrFail();
+
+        $this->actingAs($admin)->delete(route('corex.agency-setup.collection.remove', ['collection' => 'branch', 'id' => $main->id]))
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']))
+            ->assertSessionHasErrors();
+
+        // The refusal must hold — the branch is still live.
+        $this->assertNotNull(\App\Models\Branch::find($main->id));
     }
 
     public function test_contacts_step_shows_lead_sources_not_fixed_contact_types(): void
@@ -372,7 +416,7 @@ class AgencySetupWizardTest extends TestCase
         $this->setupFor($agency, ['current_step' => 3, 'completed_steps' => ['identity', 'branding']]);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.index'))
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'commission']));
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
     }
 
     public function test_skip_advances_without_marking_complete(): void

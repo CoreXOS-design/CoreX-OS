@@ -75,6 +75,7 @@ class AgencySetupWizardController extends Controller
         'mandate_type'    => ['step' => 'properties', 'group' => 'mandate_type',    'label' => 'Mandate types',    'placeholder' => 'e.g. Sole Mandate'],
         'condition_level' => ['step' => 'properties', 'group' => 'condition_level', 'label' => 'Condition levels', 'placeholder' => 'e.g. Renovated'],
         'contact_source'  => ['step' => 'contacts',   'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
+        'branch'          => ['step' => 'branches',   'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -82,6 +83,9 @@ class AgencySetupWizardController extends Controller
         return match ($step) {
             'commission' => [
                 'commission' => \App\Models\CommissionSetting::forAgency($agency->id),
+            ],
+            'branches' => [
+                'branches' => \App\Models\Branch::orderBy('name')->get(),
             ],
             'properties' => [
                 'propertyGroups' => collect(['property_type', 'property_status', 'mandate_type', 'condition_level'])
@@ -170,6 +174,8 @@ class AgencySetupWizardController extends Controller
                 app(\App\Http\Controllers\CoreX\SettingsController::class)->storePropertySettingItem($request);
             } elseif ($collection === 'contact_source') {
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->store($request);
+            } elseif ($collection === 'branch') {
+                app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->createBranch($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -184,7 +190,7 @@ class AgencySetupWizardController extends Controller
     }
 
     /** DELETE /corex/agency-setup/collection/{collection}/{id} — remove a list item. */
-    public function removeCollectionItem(string $collection, int $id)
+    public function removeCollectionItem(Request $request, string $collection, int $id)
     {
         $def = self::COLLECTIONS[$collection] ?? abort(404);
         $this->resolveOrCreateSetup();
@@ -198,6 +204,13 @@ class AgencySetupWizardController extends Controller
             } elseif ($collection === 'contact_source') {
                 $src = \App\Models\ContactSource::findOrFail($id);
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->destroy($src);
+            } elseif ($collection === 'branch') {
+                $branch = \App\Models\Branch::findOrFail($id);
+                // deleteBranch refuses (and flashes an error bag) while users are
+                // still attached — that guard must reach the wizard, not be
+                // swallowed. It flashes to session immediately, so it survives
+                // our own redirect below.
+                app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->deleteBranch($request, $branch);
             }
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
@@ -205,8 +218,11 @@ class AgencySetupWizardController extends Controller
             }
         }
 
-        return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
-            ->with('success', 'Removed.');
+        $redirect = redirect()->route('corex.agency-setup.step', ['step' => $def['step']]);
+
+        // Don't stamp a misleading "Removed." over a refusal (e.g. branch still
+        // has users assigned).
+        return session()->get('errors') ? $redirect : $redirect->with('success', 'Removed.');
     }
 
     /** POST /corex/agency-setup/finish — mark complete, exit to dashboard. */

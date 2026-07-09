@@ -231,14 +231,23 @@ Steps mirror the real settings sections (`$railGroups` in
 |---|-----|------|------------------|
 | 1 | `identity` | Welcome / Agency identity | `agencies` company-identity fields |
 | 2 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
-| 3 | `commission` | Commission & revenue share | `commission_settings` |
-| 4 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
-| 5 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
-| 6 | `matches` | Matches | `performance_settings` (`matches_*`) |
-| 7 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 8 | `compliance` | Compliance | whistleblow columns on `agencies` |
-| 9 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
-| 10 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+| 3 | `branches` | Branches / offices | `branches`, `agencies.split_branches_enabled` |
+| 4 | `commission` | Commission & revenue share | `commission_settings` |
+| 5 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
+| 6 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
+| 7 | `matches` | Matches | `performance_settings` (`matches_*`) |
+| 8 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
+| 9 | `compliance` | Compliance | whistleblow columns on `agencies` |
+| 10 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
+| 11 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+
+**Step 3 — Branches.** Mirrors Company Settings → Branches: inline add (name + code), list, and
+archive, delegating to the canonical `BranchAssignmentController::createBranch` /
+`deleteBranch`. Archive is a **soft delete** (Non-negotiable #1) and `deleteBranch`'s
+reassignment guard — a branch with agents still assigned cannot be archived — is surfaced in
+the wizard (its flashed error bag survives the wizard's redirect; we suppress the "Removed."
+success flash when errors are present). Also carries the `split_branches_enabled` toggle
+(saver `SettingsController@updateSplitBranches`).
 
 **Step 2 — Branding.** Logo upload (with live preview + remove), the four semantic brand
 colours (`default_color` = headers/profiles, `button_color` = CTAs, `icon_color` = icons/links,
