@@ -185,8 +185,8 @@ return [
     'contacts' => [
         'title' => 'Contacts',
         'intro' => 'Your contacts are the people behind every deal — buyers, sellers, landlords, '
-            . 'tenants, attorneys. Set how the list behaves, then tailor the categories you '
-            . 'file them under.',
+            . 'tenants, attorneys. Set how the list behaves, then add the lead sources you '
+            . 'actually use.',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateContactsPerPage'],
         ],

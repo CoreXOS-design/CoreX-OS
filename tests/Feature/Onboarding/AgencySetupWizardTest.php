@@ -278,6 +278,20 @@ class AgencySetupWizardTest extends TestCase
         }
     }
 
+    public function test_contacts_step_shows_lead_sources_not_fixed_contact_types(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        // Contact types are the six fixed signing roles — the wizard must not
+        // render them as if they were configurable.
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'contacts']))
+            ->assertOk()
+            ->assertSee('Lead sources')
+            ->assertDontSee('Contact types');
+    }
+
     public function test_notifications_step_writes_inline(): void
     {
         $agency = $this->agency();

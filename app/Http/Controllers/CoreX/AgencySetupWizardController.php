@@ -88,8 +88,10 @@ class AgencySetupWizardController extends Controller
                     ->mapWithKeys(fn ($g) => [$g => \App\Models\PropertySettingItem::group($g)->orderBy('sort_order')->orderBy('name')->get()])
                     ->all(),
             ],
+            // Contact TYPES are the six fixed signing roles (Owner, Other, Seller,
+            // Buyer, Lessor, Lessee) — not configurable, so the wizard doesn't
+            // surface them. Only lead sources are editable here.
             'contacts' => [
-                'contactTypes'   => \App\Models\ContactType::orderBy('sort_order')->orderBy('name')->get(),
                 'contactSources' => \App\Models\ContactSource::orderBy('sort_order')->orderBy('name')->get(),
             ],
             'notifications' => [

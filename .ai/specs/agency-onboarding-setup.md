@@ -132,7 +132,8 @@ the step configures is rendered and saved *inside* the wizard. Two rendering mod
   types/condition levels, and contact sources. These post to wizard sub-routes
   (`corex.agency-setup.collection.add|remove`) that delegate to the canonical
   `storePropertySettingItem`/`destroyPropertySettingItem` / `ContactSourceController` CRUD and
-  redirect back to the step. Contact **types** are system-managed (locked) and shown read-only.
+  redirect back to the step. Contact **types** are the six FIXED signing roles (Owner, Other,
+  Seller, Buyer, Lessor, Lessee) — not configurable, so the wizard does not surface them at all.
 
 Regression-guarded by `test_no_step_deep_links_out_of_the_wizard` (iterates all 9 steps).
 
@@ -234,7 +235,7 @@ Steps mirror the real settings sections (`$railGroups` in
 | 4 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
 | 5 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 6 | `matches` | Matches | `performance_settings` (`matches_*`) |
-| 7 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), contact type/source stores |
+| 7 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
 | 8 | `compliance` | Compliance | whistleblow columns on `agencies` |
 | 9 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
 | 10 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
