@@ -51,7 +51,7 @@ class PropertyImageGuard
         }
 
         $host = parse_url($url, PHP_URL_HOST);
-        if ($host !== null && $host !== '' && $host !== parse_url((string) config('app.url'), PHP_URL_HOST)) {
+        if ($host !== null && $host !== '' && !in_array(strtolower($host), self::localHosts(), true)) {
             return null; // someone else's host — not ours to police
         }
 
@@ -68,6 +68,26 @@ class PropertyImageGuard
         }
 
         return $rel;
+    }
+
+    /**
+     * Every hostname that serves our own `/storage` — the canonical domain, the
+     * alternate vhosts and the bare IP. Gallery URLs were historically written
+     * in whichever form the creating request produced, so all of them appear in
+     * the data and all of them are files we can stat. Keying this off APP_URL
+     * alone would silently exempt the alternate-host references from validation.
+     *
+     * @return list<string> lowercased hosts
+     */
+    private static function localHosts(): array
+    {
+        $configured = (array) config('corex-images.local_hosts', []);
+        $configured[] = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        return array_values(array_unique(array_filter(array_map(
+            fn ($h) => is_string($h) ? strtolower(trim($h)) : null,
+            $configured
+        ))));
     }
 
     /** True when the URL points at a file CoreX hosts (whether or not it exists). */

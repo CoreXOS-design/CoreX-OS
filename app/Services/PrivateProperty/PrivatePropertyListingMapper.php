@@ -1000,11 +1000,12 @@ class PrivatePropertyListingMapper
         //
         // Never hand PP a CoreX-hosted URL we cannot serve. Externally-hosted
         // images (portal mirrors) are passed through — we cannot stat them.
-        $missing   = array_values(array_filter(
-            $allImages,
-            fn ($u) => PropertyImageGuard::isLocal($u) && !PropertyImageGuard::existsOnDisk($u)
-        ));
-        $allImages = array_values(array_diff($allImages, $missing));
+        //
+        // Dropping to an EMPTY set is refused upstream (submitListing), because
+        // an empty photo set can clear the images on the live portal listing.
+        $servable  = $property->servableSyndicationImages();
+        $missing   = array_values(array_diff($allImages, $servable));
+        $allImages = array_values(array_intersect($allImages, $servable));
 
         if ($missing) {
             try {

@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Images\PropertyImageGuard;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -188,6 +189,64 @@ final class GalleryReferenceIntegrityTest extends TestCase
         $this->assertSame([$external], $p->fresh()->gallery_images_json);
     }
 
+    /**
+     * Gallery URLs exist in the data as relative paths AND as absolute URLs on
+     * several hostnames we serve (canonical domain, alternate vhost, bare IP) —
+     * all the same file on our disk. Every one must be treated as local, or the
+     * alternate-host references silently skip validation, which is the check
+     * that keeps a dangling URL out of the PrivateProperty payload.
+     */
+    public function test_every_hostname_we_serve_storage_from_counts_as_local(): void
+    {
+        config(['app.url' => 'https://corexos.co.za']);
+        config(['corex-images.local_hosts' => [
+            'corexos.co.za', 'www.corexos.co.za', 'corex.hfcoastal.co.za', '91.99.130.85',
+        ]]);
+
+        $path = '/storage/properties/6060/a.jpg';
+
+        foreach ([
+            $path,
+            'https://corexos.co.za' . $path,
+            'https://www.corexos.co.za' . $path,
+            'https://corex.hfcoastal.co.za' . $path,
+            'http://91.99.130.85' . $path,
+        ] as $url) {
+            $this->assertTrue(PropertyImageGuard::isLocal($url), "should be local: {$url}");
+            $this->assertSame('properties/6060/a.jpg', PropertyImageGuard::relativePath($url));
+        }
+
+        // A genuine portal mirror stays external — we cannot stat another host.
+        $this->assertTrue(PropertyImageGuard::isExternal('https://images.prop24.com/m/a.jpg'));
+
+        // Traversal is refused regardless of host.
+        $this->assertNull(PropertyImageGuard::relativePath('https://corexos.co.za/storage/../../etc/passwd'));
+        $this->assertNull(PropertyImageGuard::relativePath('https://corexos.co.za/storage/%2e%2e/%2e%2e/etc/passwd'));
+    }
+
+    public function test_gallery_save_drops_a_missing_file_referenced_by_absolute_url(): void
+    {
+        config(['app.url' => 'https://corexos.co.za']);
+
+        $p = $this->makeProperty();
+        $real = $this->storeJpeg($p->id, 'real.jpg');
+        // The corrupted 6060 shape, written in the absolute form most rows use.
+        $ghost = "https://corexos.co.za/storage/properties/{$p->id}/rotated-away.jpg";
+
+        $p->update(['gallery_images_json' => [$real]]);
+
+        $this->actingAs($this->user)
+            ->postJson("/corex/properties/{$p->id}/reorder-images", [
+                'gallery_categories_json' => ['categories' => [], 'unsorted' => []],
+                'gallery_images_json'     => [$real, $ghost],
+                'gallery_fingerprint'     => $p->galleryFingerprint(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('dropped', 1);
+
+        $this->assertSame([$real], $p->fresh()->gallery_images_json);
+    }
+
     // ── 3. delete ordering ───────────────────────────────────────────────────
 
     public function test_deleting_an_image_clears_it_from_the_category_map_too(): void
@@ -239,5 +298,34 @@ final class GalleryReferenceIntegrityTest extends TestCase
         $this->assertStringNotContainsString('gone.jpg', $joined);
         $this->assertStringContainsString('real.jpg', $joined);
         $this->assertStringContainsString('prop24.com', $joined, 'externally hosted mirrors must still be sent');
+    }
+
+    /**
+     * Dropping missing photos must never degrade into submitting an EMPTY photo
+     * set: PP could read that as "remove this listing's images". A listing whose
+     * photos are all missing is refused, not published photo-less.
+     */
+    public function test_a_listing_with_no_servable_photos_is_refused_not_emptied(): void
+    {
+        $p = $this->makeProperty();
+        $real = $this->storeJpeg($p->id, 'real.jpg');
+        $ghost = Storage::disk('public')->url("properties/{$p->id}/gone.jpg");
+
+        // All photos present → publishable.
+        $p->forceFill(['gallery_images_json' => [$real]])->save();
+        $this->assertFalse($p->fresh()->hasGalleryButNothingServable());
+
+        // One of two missing → still publishable, minus the dead one.
+        $p->forceFill(['gallery_images_json' => [$real, $ghost]])->save();
+        $this->assertFalse($p->fresh()->hasGalleryButNothingServable());
+        $this->assertSame([$real], $p->fresh()->servableSyndicationImages());
+
+        // Every photo missing → refuse, so PP keeps whatever it already has.
+        $p->forceFill(['gallery_images_json' => [$ghost]])->save();
+        $this->assertTrue($p->fresh()->hasGalleryButNothingServable());
+
+        // A genuinely photo-less listing is NOT refused — it simply has no photos.
+        $p->forceFill(['gallery_images_json' => []])->save();
+        $this->assertFalse($p->fresh()->hasGalleryButNothingServable());
     }
 }

@@ -1351,6 +1351,38 @@ class Property extends Model
     }
 
     /**
+     * The syndication gallery minus any CoreX-hosted photo whose file is not on
+     * disk. Externally-hosted images (portal mirrors) are kept — we cannot stat
+     * another host.
+     *
+     * PrivateProperty downloads every photo BY URL and rejects the ENTIRE
+     * UpdateListing when one 404s (PP120), so a dangling reference silently
+     * blocks all further updates of that listing. Publishing only what we can
+     * actually serve means a bad reference costs one photo, never the listing.
+     *
+     * @return string[]
+     */
+    public function servableSyndicationImages(): array
+    {
+        return array_values(array_filter(
+            $this->syndicationImages(),
+            fn ($url) => !\App\Services\Images\PropertyImageGuard::isLocal($url)
+                || \App\Services\Images\PropertyImageGuard::existsOnDisk($url)
+        ));
+    }
+
+    /**
+     * True when this property has photos on paper but none we can actually
+     * serve. Such a listing must NOT be pushed to a portal: it would submit an
+     * empty photo set, which can clear the images on the live portal listing.
+     * Refuse and surface it instead.
+     */
+    public function hasGalleryButNothingServable(): bool
+    {
+        return !empty($this->syndicationImages()) && empty($this->servableSyndicationImages());
+    }
+
+    /**
      * Fingerprint of the gallery AS THE BROWSER LAST SAW IT. Handed to the page
      * at render and echoed back on save, so the server can tell a save built on
      * the current gallery from one built on a stale copy.

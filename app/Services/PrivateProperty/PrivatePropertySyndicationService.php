@@ -41,6 +41,28 @@ class PrivatePropertySyndicationService
     public function submitListing(Property $property): array
     {
         $this->client->forAgency($property->agency);
+
+        // A listing whose gallery is non-empty but whose photo files are ALL
+        // missing must not be submitted. We would send an empty photo set, and
+        // an empty set can clear the images already live on the PP listing.
+        // Refuse, surface it, change nothing — the operator repairs the gallery
+        // (php artisan properties:repair-gallery-references) and re-submits.
+        if ($property->hasGalleryButNothingServable()) {
+            $message = 'Every photo on this listing is missing from storage — refusing to publish a photo-less update to Private Property. Run properties:repair-gallery-references.';
+
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => $message,
+            ]);
+
+            Log::channel('private_property')->error('PP submit refused — no servable images', [
+                'property_id' => $property->id,
+                'gallery'     => count($property->syndicationImages()),
+            ]);
+
+            return ['success' => false, 'message' => $message];
+        }
+
         // Map the property to a PP payload
         $payload = $this->mapper->map($property);
 
