@@ -643,7 +643,7 @@ function propertyWizard(config) {
               unit_number: '', floor_number: '', unit_section_block: '', complex_name: '',
               property_number: '', stand_number: '', zone_type: '', district: '', region: '',
               address_internal_note: '' },
-        s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
+        s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ $defaultAgentId ?? auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         init() {
             // AT-210 — resuming a draft: hydrate step 1 & 3 from the draft's own

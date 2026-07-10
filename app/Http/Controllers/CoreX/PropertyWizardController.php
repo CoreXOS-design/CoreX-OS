@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 /**
  * 4-step wizard for creating a property.
@@ -108,6 +109,9 @@ class PropertyWizardController extends Controller
         ];
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList($user);
+        // Step-3 agent picker default — a valid agent, never the acting owner
+        // (who cannot be a property agent). Mirrors createDraft's attribution.
+        $defaultAgentId = $this->defaultCaptureAgentId($user);
 
         // Unique suburb list for autocomplete (agent's scope)
         $suburbs = Property::query()
@@ -147,7 +151,7 @@ class PropertyWizardController extends Controller
 
         return view('corex.properties.wizard', compact(
             'draft', 'draftPrefill', 'settingItems', 'branches', 'agents', 'suburbs',
-            'preLinkedContact', 'contactPrefill'
+            'preLinkedContact', 'contactPrefill', 'defaultAgentId'
         ));
     }
 
@@ -226,10 +230,15 @@ class PropertyWizardController extends Controller
                 ));
             }
         } else {
-            // Smart defaults — Observer will set agency_id via BelongsToAgency
-            $data['agent_id']  = $user->id;
-            $data['branch_id'] = $user->effectiveBranchId();
-            $data['status']    = 'draft';
+            // The listing follows its agent (AT-211). Attribute the new draft to a
+            // VALID agent — the actor if they can be one, else an active agency
+            // member — and derive agency + branch from that agent. A System Owner
+            // can NEVER be the property agent (PropertyObserver::saving rejects it),
+            // so stamping the actor 500'd the wizard for admins/owners. agency_id is
+            // set explicitly rather than left to BelongsToAgency, which cannot infer
+            // it for an owner with no home agency.
+            [$data['agent_id'], $data['agency_id'], $data['branch_id']] = $this->resolveDraftAttribution($user);
+            $data['status'] = 'draft';
 
             // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
             $property = Property::create($data);
@@ -424,6 +433,61 @@ class PropertyWizardController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * The agent a NEW draft is attributed to for this actor: the actor themselves
+     * when they can be a property agent, otherwise the first active agency member
+     * in their effective agency (an owner/admin capturing on an agent's behalf).
+     * Returns null when the actor is an owner and no agency member is available.
+     */
+    private function defaultCaptureAgentId(User $user): ?int
+    {
+        // A real (non-owner) agent lists under their own name.
+        if (!in_array($user->role, User::ownerRoleNames(), true)) {
+            return $user->id;
+        }
+
+        // Owner/system account: pick a valid, non-owner member of the active
+        // agency (agencyMembers() already excludes owner roles).
+        return User::agencyMembers()
+            ->where('is_active', 1)
+            ->when($user->effectiveAgencyId(), fn ($q, $agencyId) => $q->where('agency_id', $agencyId))
+            ->orderBy('name')
+            ->value('id');
+    }
+
+    /**
+     * Resolve [agent_id, agency_id, branch_id] for a new draft — the listing
+     * follows its agent. Throws a clean 422 (never a 500) when the actor cannot
+     * be an agent and no agency member is available to assign.
+     *
+     * @return array{0:int,1:?int,2:int}
+     */
+    private function resolveDraftAttribution(User $user): array
+    {
+        $agentId = $this->defaultCaptureAgentId($user);
+        if (!$agentId) {
+            throw ValidationException::withMessages([
+                'agent_id' => 'Your account cannot be listed as the property agent, and no active agency member is available to assign. Add an agent to this agency first, or pick one before saving.',
+            ]);
+        }
+
+        $agent    = User::find($agentId);
+        $agencyId = $agent->agency_id ?? $user->effectiveAgencyId();
+        $branchId = $agent->effectiveBranchId() ?? $agent->branch_id;
+
+        // branch_id is NOT NULL — fall back to the agency's first branch.
+        if (!$branchId && $agencyId) {
+            $branchId = Branch::where('agency_id', $agencyId)->orderBy('id')->value('id');
+        }
+        if (!$branchId) {
+            throw ValidationException::withMessages([
+                'branch_id' => 'No branch is available to list this property under. Create a branch for the agency first.',
+            ]);
+        }
+
+        return [$agentId, $agencyId, $branchId];
+    }
 
     private function agentList(User $user): \Illuminate\Support\Collection
     {
