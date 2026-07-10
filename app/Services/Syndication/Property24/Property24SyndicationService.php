@@ -270,6 +270,29 @@ class Property24SyndicationService
         return ['success' => false, 'transient' => true, 'message' => 'Property24 is temporarily unavailable — please retry the submission shortly.'];
     }
 
+    /**
+     * Ask P24 whether the listing is currently on the portal. This is the ONLY
+     * trustworthy answer to "is it still live" — p24_syndication_status is a local
+     * cache that has drifted (a Sold push used to write 'deactivated' while the
+     * listing stayed up). Returns null when we cannot get an answer, so callers
+     * can distinguish "not on portal" from "P24 didn't tell us".
+     */
+    public function isOnPortal(Property $property): ?bool
+    {
+        if (empty($property->p24_ref)) {
+            return null;
+        }
+
+        $this->bindClientForProperty($property);
+        $result = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
+
+        if (! ($result['success'] ?? false)) {
+            return null;
+        }
+
+        return (bool) ($result['data'] ?? false);
+    }
+
     public function deactivateListing(Property $property): array
     {
         if (empty($property->p24_ref)) {

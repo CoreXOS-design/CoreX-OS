@@ -50,8 +50,11 @@ class SyndicationController extends Controller
             $updateData['pp_syndication_status'] = 'pending';
         }
 
-        // If disabling and currently submitted/active, deactivate on PP
-        if (!$nowEnabled && in_array($property->pp_syndication_status, ['submitted', 'active'])) {
+        // Switching syndication off must take the listing OFF the portal. Guard on
+        // "may still be live" (a pp_ref and no 'deactivated' marker), never on a
+        // whitelist of statuses — the old ['submitted','active'] check skipped the
+        // delist for 'pending'/'error' and left the listing live on PP.
+        if (!$nowEnabled && $property->mayBeLiveOnPp()) {
             $result = $this->syndicationService->deactivateListing($property);
             if (!$result['success']) {
                 return response()->json([

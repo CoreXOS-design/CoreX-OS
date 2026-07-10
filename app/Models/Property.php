@@ -71,6 +71,45 @@ class Property extends Model
     }
 
     /**
+     * The one value of p24_syndication_status / pp_syndication_status that means
+     * "the portal no longer carries this listing". Every other value — including
+     * the terminal-but-still-listed 'sold' / 'rented' — means the listing may
+     * still be visible, so a delist must be attempted.
+     */
+    public const PORTAL_OFF_STATUS = 'deactivated';
+
+    /**
+     * P24 statuses that are terminal on the market but leave the listing ON the
+     * portal. Written by PropertyObserver's status auto-sync; recognised here so
+     * the delist guards and the portal-link builder agree on what "still live"
+     * means. See Property24ListingMapper::removesFromPortal().
+     */
+    public const P24_ON_PORTAL_TERMINAL_STATUSES = ['sold', 'rented'];
+
+    /**
+     * True when P24 may still be showing this listing. The ONLY safe basis for a
+     * delist guard: we hold a portal reference and nothing has told us the
+     * listing left the portal. Anything else — 'sold', 'rented', 'pending',
+     * 'error', 'submitting' — is a listing we must still try to withdraw.
+     *
+     * Deliberately NOT gated on p24_syndication_enabled: that flag is a "should
+     * CoreX sync" switch, and a listing toggled off while live is exactly the
+     * case that stranded property #2142 on the portal.
+     */
+    public function mayBeLiveOnP24(): bool
+    {
+        return ! empty($this->p24_ref)
+            && $this->p24_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /** Private Property mirror of mayBeLiveOnP24(). */
+    public function mayBeLiveOnPp(): bool
+    {
+        return ! empty($this->pp_ref)
+            && $this->pp_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /**
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
@@ -1028,13 +1067,15 @@ class Property extends Model
     /**
      * P24 slug-composed direct listing URL. Returns null unless we have an
      * activated p24_ref. Sandbox vs production picked from p24_syndication_status
-     * to stay consistent with the legacy inline JS — only 'active' listings
-     * earn a real URL; in-flight states (submitted, pending) don't yet point
-     * at a live page on P24.
+     * to stay consistent with the legacy inline JS — in-flight states (submitted,
+     * pending) don't yet point at a live page on P24. 'sold' / 'rented' listings
+     * DO have a live page: P24 keeps terminal-but-not-removed stock on the portal.
      */
     private function buildP24Url(): ?string
     {
-        if (empty($this->p24_ref) || $this->p24_syndication_status !== 'active') {
+        $onPortal = array_merge(['active'], self::P24_ON_PORTAL_TERMINAL_STATUSES);
+
+        if (empty($this->p24_ref) || ! in_array((string) $this->p24_syndication_status, $onPortal, true)) {
             return null;
         }
         $slugify = static function (?string $s): string {
