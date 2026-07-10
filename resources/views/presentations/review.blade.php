@@ -350,7 +350,11 @@
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag"></div>
-            <h2 class="review-section-title">2 · Comparable Sales — {{ count($compRows) }} found</h2>
+            {{-- AT-214 — presentation-scoped, so it doesn't read as the property-level
+                 "Comparable Sales" figure on the Intelligence panel (that one is the live
+                 CmaCoverageService count). This is how many of the available comps are
+                 used in THIS CMA. --}}
+            <h2 class="review-section-title">2 · Comparable Sales — {{ collect($compRows)->where('is_included', true)->count() }} of {{ count($compRows) }} comps used in this CMA</h2>
         </div>
 
         <div class="review-comps-layout">

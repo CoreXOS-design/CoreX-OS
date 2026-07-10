@@ -382,23 +382,56 @@ class PropertyIntelligenceService
     }
 
     /**
-     * Latest market position data from most recent snapshot.
+     * Market position for the property — computed LIVE (AT-214).
+     *
+     * This previously read the most recent PropertyPresentationSnapshot, which
+     * FROZE recommended price / area average / comparable count at generation
+     * time and then drifted from reality — agents saw stale Intelligence figures
+     * that disagreed with the live CMA coverage. Every figure now derives from a
+     * live canonical, so the property page, the seller live link and the client
+     * insights API all read the same current numbers. Same shape as before, so
+     * callers are unchanged; `snapshot_date` is now "today" and `is_live` is set.
      */
     public function getLatestMarketPosition(int $propertyId): ?array
     {
-        $latest = \App\Models\PropertyPresentationSnapshot::where('property_id', $propertyId)
-            ->orderByDesc('generated_at')
-            ->first();
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (!$property) return null;
 
-        if (!$latest) return null;
+        $mds             = app(\App\Services\MarketDataSnapshotService::class);
+        $comparableSales = $mds->getComparableSales($propertyId);
+        $areaAvg         = $mds->calculateAreaAverages($property->suburb);
+        $recommend       = $mds->calculateRecommendedPrice($property, $comparableSales);
+
+        // Property-level comparable count = the canonical coverage union
+        // (deals + MIC pool + sold comps, deduped) — one truth with the CMA
+        // coverage badge shown when generating a presentation. A coverage-scoring
+        // failure must never 500 the (public) seller page — degrade to the live
+        // sold-comp count, never a frozen snapshot value.
+        try {
+            $compCount = (int) (app(\App\Services\Presentations\CmaCoverageService::class)
+                ->scoreForProperty($property)['comp_count'] ?? 0);
+        } catch (\Throwable $e) {
+            report($e);
+            $compCount = $comparableSales->count();
+        }
+
+        // Nothing meaningful to show → keep the card hidden (blade @if guard).
+        if ($recommend === null && empty($areaAvg['avg_price']) && $compCount === 0) {
+            return null;
+        }
+
+        $domAnchor = $property->listed_date ?? $property->p24_activated_at
+            ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at;
+        $dom = $domAnchor ? (int) round(abs($domAnchor->diffInDays(now()))) : null;
 
         return [
-            'recommended_price' => $latest->recommended_price_at_time,
-            'days_on_market' => $latest->days_on_market_at_time,
-            'area_avg_price' => $latest->market_data_snapshot['area_average_price'] ?? null,
-            'area_avg_dom' => $latest->market_data_snapshot['area_days_on_market'] ?? null,
-            'snapshot_date' => $latest->generated_at?->toDateString(),
-            'comparable_sales_count' => count($latest->market_data_snapshot['comparable_sales'] ?? []),
+            'recommended_price'      => $recommend,
+            'days_on_market'         => $dom,
+            'area_avg_price'         => $areaAvg['avg_price'] ?? null,
+            'area_avg_dom'           => $areaAvg['avg_dom'] ?? null,
+            'snapshot_date'          => now()->toDateString(),
+            'comparable_sales_count' => $compCount,
+            'is_live'                => true,
         ];
     }
 
