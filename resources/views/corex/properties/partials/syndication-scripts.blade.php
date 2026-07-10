@@ -118,6 +118,7 @@ function ppSyndication(config) {
                 'submitted': 'Submitted',
                 'active': 'Active',
                 'error': 'Error',
+                'rejected': 'Rejected',
                 'deactivated': 'Deactivated',
             };
             if (!this.enabled) return 'Disabled';
@@ -131,6 +132,7 @@ function ppSyndication(config) {
                 'submitted': 'background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber);',
                 'active': 'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);',
                 'error': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
+                'rejected': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
                 'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
             };
             if (!this.enabled) return styles[''];
