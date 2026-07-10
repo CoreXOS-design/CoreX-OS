@@ -615,6 +615,26 @@ class PropertyController extends Controller
         return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch'));
     }
 
+    /**
+     * AT-221 Layer 1 — reject, at capture, a description carrying content the
+     * listing portals refuse (built from their real rejection reasons). Throws a
+     * validation error on `description` so the agent fixes it inline before the
+     * listing can be saved and syndicated. Portal LIFECYCLE reasons (expiry,
+     * blocked) are not content and are handled honestly at sync (Layer 3).
+     */
+    private function guardPortalContent(?string $description): void
+    {
+        if ($description === null || $description === '') {
+            return;
+        }
+        $temp = new Property();
+        $temp->description = $description;
+        $violations = app(\App\Services\Syndication\PortalContentValidator::class)->captureViolations($temp);
+        if (!empty($violations)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['description' => $violations]);
+        }
+    }
+
     public function store(Request $request)
     {
         /** @var User $user */
@@ -719,6 +739,11 @@ class PropertyController extends Controller
             'pending_contact_ids.*'     => 'integer',
             'pending_new_contacts'      => 'nullable|array',
         ]);
+
+        // AT-221 — Layer 1: prevent at capture. Block a save whose description
+        // carries content the portals reject (e.g. a phone number) with a plain
+        // message the agent fixes in seconds, before it ever reaches syndication.
+        $this->guardPortalContent($data['description'] ?? null);
 
         // A property must have at least one contact linked on creation.
         $hasContact = !empty(array_filter((array) $request->input('pending_contact_ids', [])))
@@ -1052,6 +1077,9 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:512000',
         ]);
+
+        // AT-221 — Layer 1: prevent at capture (see store()).
+        $this->guardPortalContent($data['description'] ?? null);
 
         // Agent images for portal syndication
         if ($request->hasFile('pp_agent_image')) {
