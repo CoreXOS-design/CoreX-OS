@@ -324,6 +324,14 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
+        // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
+        // session (components/reminder-toast.blade.php). MUST live in this
+        // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
+        // stateful session disabled) which 401'd every poll. Self-scoped per user.
+        Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
+        Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
+        Route::post('/command-center/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('command-center.reminders.snooze');
+
         Route::get('/properties',      [\App\Http\Controllers\Api\V1\PropertiesController::class, 'index'])->name('properties.index');
         Route::get('/properties/{property}', [\App\Http\Controllers\Api\V1\PropertiesController::class, 'show'])->name('properties.show');
 

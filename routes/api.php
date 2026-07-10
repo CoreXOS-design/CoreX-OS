@@ -429,11 +429,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/today',           [CommandCenterApiController::class, 'today'])->name('v1.command-center.today');
             Route::post('/today/refresh',  [CommandCenterApiController::class, 'todayRefresh'])->name('v1.command-center.today.refresh');
 
-            // ── Event reminders (AT-178) — global popup toast feed + actions.
-            // Self-scoped: each user only sees/acts on their own due reminders.
-            Route::get('/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('v1.command-center.reminders.due');
-            Route::post('/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('v1.command-center.reminders.read');
-            Route::post('/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('v1.command-center.reminders.snooze');
+            // ── Event reminders (AT-178) MOVED to routes/web.php's session-authenticated
+            // api/v1 group (browser-visible XHR). They are polled by the reminder-toast
+            // blade component from the browser session, which this auth:sanctum
+            // (token-only, stateful session disabled here) group rejected with 401.
+            // See routes/web.php `api.v1.command-center.reminders.*`.
 
             Route::get('/calendar',                                       [CommandCenterApiController::class, 'calendarIndex'])->name('v1.command-center.calendar.index');
             Route::post('/calendar',                                      [CommandCenterApiController::class, 'calendarStore'])->name('v1.command-center.calendar.store');
