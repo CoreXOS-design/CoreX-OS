@@ -324,6 +324,15 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
+        // AT-220 — session-armour token refresh. GET (no CSRF needed) returns the
+        // current CSRF token so long-lived authoring pages (document/template
+        // editor, e-sign wizard) can refresh a stale token in-place AND slide the
+        // session, instead of dying with a 419. Auth-gated → a dead session yields
+        // 401 JSON, which the client turns into the plain "connection lost" banner.
+        Route::get('/csrf-token', function () {
+            return response()->json(['token' => csrf_token()]);
+        })->name('csrf-token');
+
         // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
         // session (components/reminder-toast.blade.php). MUST live in this
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,

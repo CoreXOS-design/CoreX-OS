@@ -132,5 +132,6 @@
         signatureZones: @json($signatureZones ?? [])
     };
 </script>
+<script src="{{ asset('js/corex-session-guard.js') }}"></script>
 <script src="{{ asset('js/docuperfect-editor.js') }}"></script>
 @endsection
