@@ -1,0 +1,161 @@
+<?php
+
+namespace Tests\Feature\Dr2;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\Property;
+use App\Models\User;
+use App\Services\PermissionService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
+
+/**
+ * AT-217 (DR2) — the DR2 capture screen writes DR1's OWN `deals` tables (an exact
+ * rebuild, not the sunset deals-v2 module) and layers the §2 property link. These
+ * tests prove: the capture route renders; a store persists a real `deals` row with
+ * DR1-parity fields; a picked property links on deals.property_id with manual/exact
+ * provenance; and DR1's own capture stays untouched (both writers coexist).
+ */
+class Dr2CaptureTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        PermissionService::clearCache();
+        parent::tearDown();
+    }
+
+    private function payload(int $listingAgentId, int $sellingAgentId, array $overrides = []): array
+    {
+        return array_merge([
+            'period'                => '2026-06',
+            'deal_date'             => '2026-06-10',
+            'property_value'        => 1000000,
+            'total_commission'      => 57500,
+            'listing_split_percent' => 50,
+            'selling_split_percent' => 50,
+            'listing_agents'        => [(string) $listingAgentId],
+            'selling_agents'        => [(string) $sellingAgentId],
+        ], $overrides);
+    }
+
+    /** @return array{0:Agency,1:Branch,2:User,3:User,4:User} agency, branch, admin, listing agent, selling agent */
+    private function scaffold(string $slug): array
+    {
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => $slug]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Southbroom']);
+        $admin  = User::factory()->create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'is_active' => true,
+        ]);
+        $l = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $s = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+
+        return [$agency, $branch, $admin, $l, $s];
+    }
+
+    public function test_dr2_create_screen_renders(): void
+    {
+        [, , $admin] = $this->scaffold('dr2-render');
+
+        $this->withoutVite();
+        $this->actingAs($admin)
+            ->get(route('deals-dr2.create'))
+            ->assertOk()
+            ->assertSee('Add Deal (DR2)', false);
+    }
+
+    public function test_dr2_store_persists_a_real_deals_row(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-store');
+
+        $before = DB::table('deals')->count();
+
+        $this->actingAs($admin)
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+                'branch_id'        => $branch->id,
+                'property_address' => '12 Marine Drive, Uvongo',
+                'seller_name'      => 'A Seller',
+            ]))
+            ->assertRedirect(route('deals-dr2.index'))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame($before + 1, DB::table('deals')->count(), 'DR2 must write one real deals row.');
+        $this->assertDatabaseHas('deals', [
+            'agency_id'        => $agency->id,
+            'branch_id'        => $branch->id,
+            'period'           => '2026-06',
+            'property_address' => '12 Marine Drive, Uvongo',
+            'seller_name'      => 'A Seller',
+        ]);
+    }
+
+    public function test_dr2_store_links_the_picked_property_with_manual_exact_provenance(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-link');
+
+        $property = Property::create([
+            'title'         => 'DR2 Linked Listing',
+            'agency_id'     => $agency->id,
+            'agent_id'      => $l->id,
+            'branch_id'     => $branch->id,
+            'listing_type'  => 'sale',
+            'address'       => '12 Marine Drive, Uvongo',
+            'street_name'   => 'Marine Drive',
+            'suburb'        => 'Uvongo',
+            'town'          => 'Uvongo',
+            'province'      => 'KwaZulu-Natal',
+            'price'         => 1000000,
+            'property_type' => 'House',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+                'branch_id'   => $branch->id,
+                'property_id' => $property->id,
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('deals', [
+            'agency_id'       => $agency->id,
+            'property_id'     => $property->id,
+            'link_source'     => 'manual',
+            'link_confidence' => 'exact',
+        ]);
+    }
+
+    public function test_dr2_store_still_enforces_the_branch_gate(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'dr2-gate']);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Ballito']);
+        $admin  = User::factory()->create([
+            'agency_id' => $agency->id, 'branch_id' => null, 'role' => 'admin', 'is_active' => true,
+        ]);
+        $l = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $s = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+
+        $before = DB::table('deals')->count();
+
+        $this->actingAs($admin)
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id)) // no branch_id
+            ->assertSessionHasErrors('branch_id');
+
+        $this->assertSame($before, DB::table('deals')->count(), 'No null-branch DR2 deal may be created.');
+    }
+
+    public function test_dr1_capture_is_untouched_and_coexists(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-coexist');
+
+        // DR1's own route still stores to the same table — proof the rebuild left DR1 intact.
+        $this->actingAs($admin)
+            ->post(route('admin.deals.store'), $this->payload($l->id, $s->id, ['branch_id' => $branch->id]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('deals', [
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'period' => '2026-06',
+        ]);
+    }
+}
