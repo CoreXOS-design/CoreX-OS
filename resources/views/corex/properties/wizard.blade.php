@@ -19,6 +19,7 @@
         existingImages: {{ collect($draft?->gallery_images_json ?? [])->values()->toJson() }},
         suburbs: {{ $suburbs->toJson() }},
         contactPrefill: {{ json_encode($contactPrefill ?? null) }},
+        draftPrefill: {{ json_encode($draftPrefill ?? null) }},
     })">
 
     {{-- Header --}}
@@ -235,12 +236,12 @@
                     <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                         @include('corex._partials.p24-location-picker', [
                             'fieldPrefix'        => 'p24',
-                            'initialProvinceId'  => (int) ($contactPrefill['p24_province_id'] ?? 0),
-                            'initialCityId'      => (int) ($contactPrefill['p24_city_id'] ?? 0),
-                            'initialSuburbId'    => (int) ($contactPrefill['p24_suburb_id'] ?? 0),
-                            'initialProvinceName'=> $contactPrefill['province'] ?? '',
-                            'initialCityName'    => $contactPrefill['city'] ?? '',
-                            'initialSuburbName'  => $contactPrefill['suburb'] ?? '',
+                            'initialProvinceId'  => (int) ($contactPrefill['p24_province_id'] ?? $draftPrefill['p24_province_id'] ?? 0),
+                            'initialCityId'      => (int) ($contactPrefill['p24_city_id'] ?? $draftPrefill['p24_city_id'] ?? 0),
+                            'initialSuburbId'    => (int) ($contactPrefill['p24_suburb_id'] ?? $draftPrefill['p24_suburb_id'] ?? 0),
+                            'initialProvinceName'=> $contactPrefill['province'] ?? $draftPrefill['province'] ?? '',
+                            'initialCityName'    => $contactPrefill['city'] ?? $draftPrefill['city'] ?? '',
+                            'initialSuburbName'  => $contactPrefill['suburb'] ?? $draftPrefill['suburb'] ?? '',
                             'denormaliseNames'   => false,
                         ])
                         <div class="text-[11px] mt-2" style="color:var(--text-muted);">
@@ -645,6 +646,20 @@ function propertyWizard(config) {
         s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         init() {
+            // AT-210 — resuming a draft: hydrate step 1 & 3 from the draft's own
+            // saved values so the wizard CONTINUES the same record. submitStep1
+            // then ships property_id and the server updates that row in place,
+            // instead of minting a duplicate and orphaning the original.
+            const dp = config.draftPrefill;
+            if (dp) {
+                Object.keys(this.s1).forEach(k => {
+                    if (dp[k] !== null && dp[k] !== undefined) this.s1[k] = dp[k];
+                });
+                Object.keys(this.s3).forEach(k => {
+                    if (dp[k] !== null && dp[k] !== undefined) this.s3[k] = dp[k];
+                });
+            }
+
             // Seed step 1 from the originating contact's structured address.
             const pf = config.contactPrefill;
             if (pf) {
@@ -698,6 +713,10 @@ function propertyWizard(config) {
                 const body = new FormData();
                 Object.entries(this.s1).forEach(([k, v]) => body.append(k, v ?? ''));
                 if (this.contactId) body.append('contact_id', this.contactId);
+                // AT-210 — when a draft is already in flight (resume, or back→edit
+                // step 1), send its id so the server UPDATES it in place rather
+                // than minting a second draft.
+                if (this.propertyId) body.append('property_id', this.propertyId);
                 body.append('_token', this.csrf);
                 const r = await fetch(this.routes.draft, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
                 const j = await r.json();
