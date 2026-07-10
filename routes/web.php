@@ -636,6 +636,18 @@ Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:ac
     Route::delete('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'destroy'])->name('deposit-interest-calculator.destroy')->middleware('permission:access_deposit_calc_history');
 });
 
+// ===== DEAL REGISTER (DR2) — shared shell (AT-215) =====
+// DR2 rebuilds DR1 on the SAME `deals` tables (spec deal-register-v2-rebuild-spec.md),
+// coexisting with DR1 behind its own nav + permission. Distinct from the abandoned
+// deals-v2 module (URI `deals-v2/*`), which sunsets under AT-219. Reuses DR1's deal
+// permissions (view_deals / create_deals). AT-217 (cc3) builds the capture into create/store.
+Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(function () {
+    Route::get('/',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'index'])->middleware('permission:view_deals')->name('index');
+    Route::get('/create',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'create'])->middleware('permission:create_deals')->name('create');
+    Route::post('/',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'store'])->middleware('permission:create_deals')->name('store');
+    Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
+});
+
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
 Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');

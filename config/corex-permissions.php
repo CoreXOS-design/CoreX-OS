@@ -71,6 +71,9 @@ return [
         ['key' => 'deals.create',            'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 31],
         ['key' => 'deals.edit',              'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 32],
         ['key' => 'deals.archive',           'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 33],
+        // AT-218 (DR2) — Deal Documents. New granular action; the DR2 register/capture
+        // themselves reuse DR1's view_deals / create_deals (spec deal-register-v2-rebuild §5).
+        ['key' => 'deals.upload_documents',  'label' => 'Upload Deal Documents',           'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 35],
 
         // ── Listings — Granular Actions ──
         ['key' => 'listings.view',           'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'listings',         'sort_order' => 34],

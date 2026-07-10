@@ -871,6 +871,9 @@
                 @endpermission
                 @permission('view_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                @endif
                 @endpermission
 
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
@@ -959,6 +962,9 @@
                 @endpermission
                 @permission('view_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                @endif
                 @endpermission
                 @permission('view_listings')
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
