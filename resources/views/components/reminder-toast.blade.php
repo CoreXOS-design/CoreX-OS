@@ -73,7 +73,7 @@ window.reminderToast = function () {
     return {
         toasts: [],
         chimed: new Set(),
-        dueUrl: '{{ route('v1.command-center.reminders.due') }}',
+        dueUrl: '{{ route('api.v1.command-center.reminders.due') }}',
         actionTemplate: '{{ url('/api/v1/command-center/reminders') }}/__ID__',
         intervalMs: {{ (int) ($reminderPollSeconds ?? 60) }} * 1000,
         timer: null,
