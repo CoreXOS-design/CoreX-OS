@@ -55,6 +55,53 @@ class PropertyWizardController extends Controller
                 ?: $draftsQuery->latest('updated_at')->first();
         }
 
+        // When resuming, hydrate the wizard from the draft's own saved values so
+        // the form CONTINUES the same record (AT-210). Without this the resumed
+        // draft rendered with blank step-1/3 fields, so any step-1 submit either
+        // failed validation or — once re-filled — minted a *second* draft and
+        // orphaned the first. The prefill feeds both the Alpine step state and
+        // the P24 location picker's initial selection.
+        $draftPrefill = $draft ? [
+            // Step 1
+            'listing_type'       => $draft->listing_type,
+            'title'              => $draft->title,
+            'property_type'      => $draft->property_type,
+            'price'              => $draft->price,
+            'beds'               => $draft->beds,
+            'baths'              => $draft->baths,
+            'half_baths'         => $draft->half_baths,
+            'garages'            => $draft->garages,
+            'suburb'             => $draft->suburb,
+            'city'               => $draft->city,
+            'province'           => $draft->province,
+            'p24_province_id'    => (int) ($draft->p24_province_id ?? 0),
+            'p24_city_id'        => (int) ($draft->p24_city_id ?? 0),
+            'p24_suburb_id'      => (int) ($draft->p24_suburb_id ?? 0),
+            'street_number'      => $draft->street_number,
+            'street_name'        => $draft->street_name,
+            'unit_number'        => $draft->unit_number,
+            'floor_number'       => $draft->floor_number,
+            'unit_section_block' => $draft->unit_section_block,
+            'complex_name'       => $draft->complex_name,
+            'property_number'    => $draft->property_number,
+            'stand_number'       => $draft->stand_number,
+            'zone_type'          => $draft->zone_type,
+            'district'           => $draft->district,
+            'region'             => $draft->region,
+            'address_internal_note' => $draft->address_internal_note,
+            // Step 3
+            'description'        => $draft->description,
+            'mandate_type'       => $draft->mandate_type,
+            'branch_id'          => $draft->branch_id,
+            'agent_id'           => $draft->agent_id,
+            'size_m2'            => $draft->size_m2,
+            'erf_size_m2'        => $draft->erf_size_m2,
+            'rental_amount'      => $draft->rental_amount,
+            'deposit_amount'     => $draft->deposit_amount,
+            'lease_start_date'   => optional($draft->lease_start_date)->format('Y-m-d'),
+            'lease_end_date'     => optional($draft->lease_end_date)->format('Y-m-d'),
+        ] : null;
+
         $settingItems = [
             'types'        => PropertySettingItem::group('property_type')->where('active', true)->get(),
             'mandateTypes' => PropertySettingItem::group('mandate_type')->get(),
@@ -99,7 +146,7 @@ class PropertyWizardController extends Controller
         }
 
         return view('corex.properties.wizard', compact(
-            'draft', 'settingItems', 'branches', 'agents', 'suburbs',
+            'draft', 'draftPrefill', 'settingItems', 'branches', 'agents', 'suburbs',
             'preLinkedContact', 'contactPrefill'
         ));
     }
@@ -112,6 +159,7 @@ class PropertyWizardController extends Controller
         abort_unless($user->hasPermission('properties.create'), 403);
 
         $data = $request->validate([
+            'property_id'     => 'nullable|integer',   // set when resuming/editing an existing draft (AT-210)
             'listing_type'    => 'required|string|in:sale,rental',
             'property_type'   => 'required|string|max:50',
             'suburb'          => 'nullable|string|max:100',
@@ -144,24 +192,56 @@ class PropertyWizardController extends Controller
         $contactId = $data['contact_id'] ?? null;
         unset($data['contact_id']);
 
+        $draftId = $data['property_id'] ?? null;
+        unset($data['property_id']);
+
         // Verify P24 chain and overwrite text columns with canonical names.
         $data = $this->applyP24Location($data);
 
-        // Smart defaults — Observer will set agency_id via BelongsToAgency
-        $data['agent_id']  = $user->id;
-        $data['branch_id'] = $user->effectiveBranchId();
-        $data['status']    = 'draft';
+        // AT-210 — idempotent step 1. When the wizard already holds a draft
+        // (resume, or "back → edit step 1"), UPDATE that row in place instead of
+        // minting a second draft and orphaning the first. Ownership + draft state
+        // are enforced, so a published or other-agent property is never mutated.
+        $existing = $draftId
+            ? Property::where('id', $draftId)
+                ->where('agent_id', $user->id)   // own draft only — mirrors start()'s ?resume scope
+                ->where('status', 'draft')
+                ->whereNull('published_at')
+                ->first()
+            : null;
 
-        // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
-        $property = Property::create($data);
+        if ($existing) {
+            $previousSuburbId = (int) ($existing->p24_suburb_id ?? 0);
 
-        if ($property->p24_suburb_id) {
-            event(new \App\Events\Property\PropertySuburbLinked(
-                property: $property,
-                previousP24SuburbId: null,
-                newP24SuburbId: (int) $property->p24_suburb_id,
-                actorUserId: $user->id,
-            ));
+            // Preserve owner/branch/status; only the step-1 fields change.
+            $existing->update($data);
+            $property = $existing;
+
+            if ($property->p24_suburb_id && (int) $property->p24_suburb_id !== $previousSuburbId) {
+                event(new \App\Events\Property\PropertySuburbLinked(
+                    property: $property,
+                    previousP24SuburbId: $previousSuburbId ?: null,
+                    newP24SuburbId: (int) $property->p24_suburb_id,
+                    actorUserId: $user->id,
+                ));
+            }
+        } else {
+            // Smart defaults — Observer will set agency_id via BelongsToAgency
+            $data['agent_id']  = $user->id;
+            $data['branch_id'] = $user->effectiveBranchId();
+            $data['status']    = 'draft';
+
+            // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
+            $property = Property::create($data);
+
+            if ($property->p24_suburb_id) {
+                event(new \App\Events\Property\PropertySuburbLinked(
+                    property: $property,
+                    previousP24SuburbId: null,
+                    newP24SuburbId: (int) $property->p24_suburb_id,
+                    actorUserId: $user->id,
+                ));
+            }
         }
 
         // Link the originating contact as the seller side of the listing
