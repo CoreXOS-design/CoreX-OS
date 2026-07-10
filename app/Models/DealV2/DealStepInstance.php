@@ -18,6 +18,7 @@ class DealStepInstance extends Model
     protected $fillable = [
         'agency_id',
         'deal_id',
+        'dr1_deal_id',
         'pipeline_step_id',
         'name',
         'description',
@@ -75,6 +76,15 @@ class DealStepInstance extends Model
     public function deal(): BelongsTo
     {
         return $this->belongsTo(DealV2::class, 'deal_id');
+    }
+
+    /**
+     * AT-216: DR2 pipeline anchor — the DR1 deal this step belongs to.
+     * Coexists with the legacy deals_v2 anchor (`deal()`) until AT-219 sunset.
+     */
+    public function dr1Deal(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Deal::class, 'dr1_deal_id');
     }
 
     public function pipelineStep(): BelongsTo
