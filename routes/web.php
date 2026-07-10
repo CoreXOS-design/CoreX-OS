@@ -324,11 +324,10 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
-        // ── Event reminders (AT-178) — global popup toast feed + actions.
-        // Registered HERE (session-authenticated web group), not in routes/api.php:
-        // bootstrap/app.php strips Sanctum's EnsureFrontendRequestsAreStateful from
-        // the `api` group, so a browser-session poll under auth:sanctum 401s on every
-        // tick (AT-212). Self-scoped: each user only sees/acts on their own reminders.
+        // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
+        // session (components/reminder-toast.blade.php). MUST live in this
+        // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
+        // stateful session disabled) which 401'd every poll. Self-scoped per user.
         Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
         Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
         Route::post('/command-center/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('command-center.reminders.snooze');

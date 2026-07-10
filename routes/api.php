@@ -429,10 +429,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/today',           [CommandCenterApiController::class, 'today'])->name('v1.command-center.today');
             Route::post('/today/refresh',  [CommandCenterApiController::class, 'todayRefresh'])->name('v1.command-center.today.refresh');
 
-            // ── Event reminders (AT-178) moved to routes/web.php's session
-            // api/v1 group (name api.v1.command-center.reminders.*) — the browser
-            // toast polls from a session, not a token; under auth:sanctum here it
-            // 401'd every tick (AT-212). Do NOT re-add reminder routes to this file.
+            // ── Event reminders (AT-178) MOVED to routes/web.php's session-authenticated
+            // api/v1 group (browser-visible XHR). They are polled by the reminder-toast
+            // blade component from the browser session, which this auth:sanctum
+            // (token-only, stateful session disabled here) group rejected with 401.
+            // See routes/web.php `api.v1.command-center.reminders.*`.
 
             Route::get('/calendar',                                       [CommandCenterApiController::class, 'calendarIndex'])->name('v1.command-center.calendar.index');
             Route::post('/calendar',                                      [CommandCenterApiController::class, 'calendarStore'])->name('v1.command-center.calendar.store');

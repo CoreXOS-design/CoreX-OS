@@ -423,12 +423,15 @@ function p24Syndication(config) {
             return new Date(this.ppDelayUntilRaw) > new Date();
         },
         statusLabel() {
-            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
+            // 'sold'/'rented' are terminal market states that P24 KEEPS on the
+            // portal — the listing is still publicly visible, so never label them
+            // 'Deactivated'. Only 'deactivated' means the portal dropped it.
+            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','sold':'Sold — still on P24','rented':'Rented — still on P24','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
             if (!this.enabled) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','sold':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','rented':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled) return styles[''];
             return styles[this.status] || styles[''];
         },
