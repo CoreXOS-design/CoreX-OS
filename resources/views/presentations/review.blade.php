@@ -350,11 +350,16 @@
     <div class="review-card">
         <div class="review-section-header">
             <div class="review-section-tag"></div>
-            {{-- AT-214 — presentation-scoped, so it doesn't read as the property-level
-                 "Comparable Sales" figure on the Intelligence panel (that one is the live
-                 CmaCoverageService count). This is how many of the available comps are
-                 used in THIS CMA. --}}
-            <h2 class="review-section-title">2 · Comparable Sales — {{ collect($compRows)->where('is_included', true)->count() }} of {{ count($compRows) }} comps used in this CMA</h2>
+            {{-- AT-214 — presentation-scoped: N = comps used in THIS CMA, M = the
+                 CANONICAL count available for the property (CmaCoverageService, the
+                 same figure as the Intelligence panel + coverage badge). Not
+                 count($compRows) (this presentation's own set), which read "N of N"
+                 and implied every available comp was used. --}}
+            @php
+                $compsUsed      = collect($compRows)->where('is_included', true)->count();
+                $compsAvailable = max((int) ($canonicalCompCount ?? 0), $compsUsed);
+            @endphp
+            <h2 class="review-section-title">2 · Comparable Sales — {{ $compsUsed }} of {{ $compsAvailable }} comps used in this CMA</h2>
         </div>
 
         <div class="review-comps-layout">
