@@ -148,7 +148,7 @@
                     @if($subject['asking_price'])
                         R {{ number_format($subject['asking_price']) }}
                     @else
-                        <span class="text-amber-500 italic">Not set — enter in form above</span>
+                        <span class="italic" style="color: var(--ds-amber, #f59e0b);">Not set — enter in form above</span>
                     @endif
                 </p>
             </div>
@@ -178,9 +178,9 @@
                 <span class="text-xs block" style="color: var(--text-muted);">Sales Count</span>
                 <p class="text-lg font-bold" style="color: var(--text-primary);">{{ $suburb['sales_count'] ?? '—' }}</p>
             </div>
-            <div class="bg-sky-50 rounded-md p-3 text-center">
+            <div class="rounded-md p-3 text-center" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                 <span class="text-xs block" style="color: var(--brand-icon, #0ea5e9);">Median Price</span>
-                <p class="text-lg font-bold" style="color: var(--brand-default, #0b2a4a);">
+                <p class="text-lg font-bold" style="color: var(--text-primary);">
                     @if($suburb['median_price'])
                         R {{ number_format($suburb['median_price']) }}
                     @else
@@ -225,23 +225,25 @@
     {{-- ── STOCK ABSORPTION ──────────────────────────────────────────────── --}}
     @if(!empty($stock['total_active_stock']) && !empty($stock['months_of_supply']))
     @php
-        $absColor = match($stock['absorption_color'] ?? '') {
-            'green'  => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
-            'amber'  => ['bg' => 'bg-amber-50',   'border' => 'border-amber-200',   'text' => 'text-amber-700',   'badge' => 'bg-amber-100 text-amber-800'],
-            'orange' => ['bg' => 'bg-orange-50',   'border' => 'border-orange-200',  'text' => 'text-orange-700',  'badge' => 'bg-orange-100 text-orange-800'],
-            'red'    => ['bg' => 'bg-red-50',      'border' => 'border-red-200',     'text' => 'text-red-700',     'badge' => 'bg-red-100 text-red-800'],
-            default  => ['bg' => 'bg-gray-50',     'border' => 'border-gray-200',    'text' => 'text-gray-700',    'badge' => 'bg-gray-100 text-gray-800'],
+        // Theme-aware token per severity tier (§1.5 / §3.9 alert tints).
+        $absTone = match($stock['absorption_color'] ?? '') {
+            'green'  => 'var(--ds-green, #059669)',
+            'amber'  => 'var(--ds-amber, #f59e0b)',
+            'orange' => 'var(--ds-orange, #ea580c)',
+            'red'    => 'var(--ds-crimson, #c41e3a)',
+            default  => 'var(--text-muted, #9ca3af)',
         };
     @endphp
-    <div class="{{ $absColor['bg'] }} {{ $absColor['border'] }} border rounded-md p-5 mb-4">
+    <div class="border rounded-md p-5 mb-4"
+         style="background: color-mix(in srgb, {{ $absTone }} 10%, transparent); border-color: color-mix(in srgb, {{ $absTone }} 30%, transparent);">
         <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold {{ $absColor['text'] }} uppercase tracking-wide">Stock Absorption Rate</h3>
-            <span class="text-xs px-2.5 py-1 rounded-full font-semibold {{ $absColor['badge'] }}">{{ $stock['absorption_label'] }}</span>
+            <h3 class="text-sm font-semibold uppercase tracking-wide" style="color: {{ $absTone }};">Stock Absorption Rate</h3>
+            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="background: color-mix(in srgb, {{ $absTone }} 18%, transparent); color: {{ $absTone }};">{{ $stock['absorption_label'] }}</span>
         </div>
         <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div class="text-center">
                 <span class="text-xs block" style="color: var(--text-muted);">Active Listings</span>
-                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ $stock['total_active_stock'] }}</p>
+                <p class="text-xl font-bold" style="color: {{ $absTone }};">{{ $stock['total_active_stock'] }}</p>
                 @if($stock['stock_source'] === 'portal_search')
                     <span class="text-xs" style="color: var(--text-muted);">from P24 search</span>
                 @endif
@@ -253,15 +255,15 @@
             </div>
             <div class="text-center">
                 <span class="text-xs block" style="color: var(--text-muted);">Months of Supply</span>
-                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ number_format($stock['months_of_supply'], 1) }}</p>
+                <p class="text-xl font-bold" style="color: {{ $absTone }};">{{ number_format($stock['months_of_supply'], 1) }}</p>
             </div>
             <div class="text-center">
                 <span class="text-xs block" style="color: var(--text-muted);">Years of Supply</span>
-                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ number_format($stock['years_of_supply'], 1) }}</p>
+                <p class="text-xl font-bold" style="color: {{ $absTone }};">{{ number_format($stock['years_of_supply'], 1) }}</p>
             </div>
         </div>
         @if($stock['search_total_count'] && $stock['listings_with_price'] < $stock['search_total_count'])
-        <p class="text-xs {{ $absColor['text'] }} mt-3 opacity-75">
+        <p class="text-xs mt-3 opacity-75" style="color: {{ $absTone }};">
             Price data available for {{ $stock['listings_with_price'] }} of {{ $stock['search_total_count'] }} listings &mdash; actual competition may be higher.
         </p>
         @endif
@@ -325,9 +327,9 @@
                     <p class="text-xl font-bold" style="color: var(--text-primary);">{{ $inflow['count_30d'] }}</p>
                     <span class="text-xs" style="color: var(--text-muted);">new listings</span>
                 </div>
-                <div class="bg-sky-50 rounded-md p-3 text-center ring-1 ring-sky-200">
+                <div class="rounded-md p-3 text-center" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);">
                     <span class="text-xs block" style="color: var(--brand-icon, #0ea5e9);">Last 90 Days</span>
-                    <p class="text-xl font-bold" style="color: var(--brand-default, #0b2a4a);">{{ $inflow['count_90d'] }}</p>
+                    <p class="text-xl font-bold" style="color: var(--text-primary);">{{ $inflow['count_90d'] }}</p>
                     <span class="text-xs" style="color: var(--brand-icon, #0ea5e9);">new listings</span>
                 </div>
             </div>
@@ -343,7 +345,7 @@
                         </p>
                     </div>
                     <div class="text-right">
-                        <p class="text-2xl font-bold" style="color: var(--brand-default, #0b2a4a);">{{ $inflow['new_listing_rate'] }}</p>
+                        <p class="text-2xl font-bold" style="color: var(--text-primary);">{{ $inflow['new_listing_rate'] }}</p>
                         <p class="text-xs" style="color: var(--text-muted);">per month</p>
                     </div>
                 </div>
@@ -367,10 +369,12 @@
             {{-- Row 3: Absorption impact --}}
             @if($inflow['net_absorption'] !== null)
             @php
-                $trendColor = match($inflow['stock_trend'] ?? '') {
-                    'growing'   => ['bg' => 'bg-red-50', 'border' => 'border-red-200', 'text' => 'text-red-700', 'badge' => 'bg-red-100 text-red-800'],
-                    'depleting' => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
-                    default     => ['bg' => 'bg-amber-50', 'border' => 'border-amber-200', 'text' => 'text-amber-700', 'badge' => 'bg-amber-100 text-amber-800'],
+                // growing stock = genuine market-danger tier (crimson); depleting =
+                // good (green); stable = attention (amber). Theme-aware tints.
+                $trendTone = match($inflow['stock_trend'] ?? '') {
+                    'growing'   => 'var(--ds-crimson, #c41e3a)',
+                    'depleting' => 'var(--ds-green, #059669)',
+                    default     => 'var(--ds-amber, #f59e0b)',
                 };
                 $trendLabel = match($inflow['stock_trend'] ?? '') {
                     'growing'   => 'Stock Growing',
@@ -380,10 +384,11 @@
             @endphp
             <div class="grid grid-cols-1 gap-4 mb-4 md:grid-cols-2">
                 {{-- Left: Standard vs Adjusted --}}
-                <div class="{{ $trendColor['bg'] }} {{ $trendColor['border'] }} border rounded-md p-4">
+                <div class="border rounded-md p-4"
+                     style="background: color-mix(in srgb, {{ $trendTone }} 10%, transparent); border-color: color-mix(in srgb, {{ $trendTone }} 30%, transparent);">
                     <div class="flex items-center justify-between mb-3">
-                        <p class="text-xs font-semibold {{ $trendColor['text'] }} uppercase tracking-wide">Adjusted Absorption</p>
-                        <span class="text-xs px-2.5 py-1 rounded-full font-semibold {{ $trendColor['badge'] }}">{{ $trendLabel }}</span>
+                        <p class="text-xs font-semibold uppercase tracking-wide" style="color: {{ $trendTone }};">Adjusted Absorption</p>
+                        <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="background: color-mix(in srgb, {{ $trendTone }} 18%, transparent); color: {{ $trendTone }};">{{ $trendLabel }}</span>
                     </div>
                     <div class="space-y-2 text-sm">
                         <div class="flex justify-between">
@@ -397,21 +402,21 @@
                         </div>
                         <div class="flex justify-between">
                             <span style="color: var(--text-secondary);">Net absorption</span>
-                            <span class="font-medium {{ $trendColor['text'] }}">
+                            <span class="font-medium" style="color: {{ $trendTone }};">
                                 {{ $inflow['monthly_sales'] }} sold &minus; {{ $inflow['new_listing_rate'] }} new
                                 = {{ $inflow['net_absorption'] > 0 ? '+' : '' }}{{ $inflow['net_absorption'] }}/mo
                             </span>
                         </div>
                         @if($inflow['adjusted_months_supply'] !== null)
-                        <div class="flex justify-between pt-1 border-t {{ $trendColor['border'] }}">
+                        <div class="flex justify-between pt-1 border-t" style="border-color: color-mix(in srgb, {{ $trendTone }} 30%, transparent);">
                             <span class="font-medium" style="color: var(--text-secondary);">Adjusted supply</span>
-                            <span class="font-bold {{ $trendColor['text'] }}">{{ $inflow['adjusted_months_supply'] }} months</span>
+                            <span class="font-bold" style="color: {{ $trendTone }};">{{ $inflow['adjusted_months_supply'] }} months</span>
                         </div>
                         @endif
                         @if($inflow['pool_after_3_months'] !== null)
                         <div class="flex justify-between">
                             <span style="color: var(--text-secondary);">Pool after 3 months</span>
-                            <span class="font-medium {{ $trendColor['text'] }}">~{{ $inflow['pool_after_3_months'] }} properties</span>
+                            <span class="font-medium" style="color: {{ $trendTone }};">~{{ $inflow['pool_after_3_months'] }} properties</span>
                         </div>
                         @endif
                     </div>
@@ -444,14 +449,15 @@
                         </div>
                         @endif
                         @if($inflow['adjusted_prob_3_months'] !== null && $inflow['adjusted_prob_3_months'] != $inflow['prob_3_months'])
+                        @php $adjDown = $inflow['adjusted_prob_3_months'] < ($inflow['prob_3_months'] ?? 0); $adjTone = $adjDown ? 'var(--ds-amber, #f59e0b)' : 'var(--ds-green, #059669)'; @endphp
                         <div>
                             <div class="flex justify-between text-sm mb-1">
                                 <span style="color: var(--text-secondary);">Adjusted 3-month <span class="text-xs" style="color: var(--text-muted);">(with inflow)</span></span>
-                                <span class="font-bold {{ $inflow['adjusted_prob_3_months'] < ($inflow['prob_3_months'] ?? 0) ? 'text-red-600' : 'text-emerald-600' }}">{{ $inflow['adjusted_prob_3_months'] }}%</span>
+                                <span class="font-bold" style="color: {{ $adjTone }};">{{ $inflow['adjusted_prob_3_months'] }}%</span>
                             </div>
                             <div class="w-full rounded-full h-2" style="background: var(--border);">
-                                <div class="{{ $inflow['adjusted_prob_3_months'] < ($inflow['prob_3_months'] ?? 0) ? 'bg-red-400' : 'bg-emerald-400' }} h-2 rounded-full"
-                                     style="width: {{ min($inflow['adjusted_prob_3_months'], 100) }}%"></div>
+                                <div class="h-2 rounded-full"
+                                     style="background: {{ $adjTone }}; width: {{ min($inflow['adjusted_prob_3_months'], 100) }}%"></div>
                             </div>
                         </div>
                         @endif
@@ -463,14 +469,15 @@
             {{-- Row 4: Key insight narrative --}}
             @if(!empty($inflow['narrative']))
             @php
-                $narrativeBg = match($inflow['stock_trend'] ?? '') {
-                    'growing'   => 'bg-red-50 border-red-200 text-red-800',
-                    'depleting' => 'bg-emerald-50 border-emerald-200 text-emerald-800',
-                    default     => 'bg-amber-50 border-amber-200 text-amber-800',
+                $narrativeTone = match($inflow['stock_trend'] ?? '') {
+                    'growing'   => 'var(--ds-crimson, #c41e3a)',
+                    'depleting' => 'var(--ds-green, #059669)',
+                    default     => 'var(--ds-amber, #f59e0b)',
                 };
             @endphp
-            <div class="{{ $narrativeBg }} border rounded-md p-4">
-                <p class="text-sm font-medium leading-relaxed">{{ $inflow['narrative'] }}</p>
+            <div class="border rounded-md p-4"
+                 style="background: color-mix(in srgb, {{ $narrativeTone }} 10%, transparent); border-color: color-mix(in srgb, {{ $narrativeTone }} 30%, transparent);">
+                <p class="text-sm font-medium leading-relaxed" style="color: var(--text-primary);">{{ $inflow['narrative'] }}</p>
             </div>
             @endif
 
@@ -502,23 +509,24 @@
         {{-- Price Position Ranking --}}
         @if(!empty($pricePos['has_data']))
         @php
-            $posColors = match($pricePos['position_color'] ?? '') {
-                'green'  => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
-                'amber'  => ['bg' => 'bg-amber-50',   'border' => 'border-amber-200',   'text' => 'text-amber-700',   'badge' => 'bg-amber-100 text-amber-800'],
-                'orange' => ['bg' => 'bg-orange-50',  'border' => 'border-orange-200',  'text' => 'text-orange-700',  'badge' => 'bg-orange-100 text-orange-800'],
-                'red'    => ['bg' => 'bg-red-50',     'border' => 'border-red-200',     'text' => 'text-red-700',     'badge' => 'bg-red-100 text-red-800'],
-                default  => ['bg' => 'bg-gray-50',    'border' => 'border-gray-200',    'text' => 'text-gray-700',    'badge' => 'bg-gray-100 text-gray-800'],
+            $posTone = match($pricePos['position_color'] ?? '') {
+                'green'  => 'var(--ds-green, #059669)',
+                'amber'  => 'var(--ds-amber, #f59e0b)',
+                'orange' => 'var(--ds-orange, #ea580c)',
+                'red'    => 'var(--ds-crimson, #c41e3a)',
+                default  => 'var(--text-muted, #9ca3af)',
             };
         @endphp
-        <div class="{{ $posColors['bg'] }} {{ $posColors['border'] }} border rounded-md p-4 mb-4">
+        <div class="border rounded-md p-4 mb-4"
+             style="background: color-mix(in srgb, {{ $posTone }} 10%, transparent); border-color: color-mix(in srgb, {{ $posTone }} 30%, transparent);">
             <div class="flex items-center justify-between mb-2">
-                <p class="text-xs font-medium {{ $posColors['text'] }}">Your Price Position</p>
-                <span class="text-xs px-2.5 py-1 rounded-full font-semibold {{ $posColors['badge'] }}">{{ $pricePos['position_label'] }}</span>
+                <p class="text-xs font-medium" style="color: {{ $posTone }};">Your Price Position</p>
+                <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="background: color-mix(in srgb, {{ $posTone }} 18%, transparent); color: {{ $posTone }};">{{ $pricePos['position_label'] }}</span>
             </div>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <div class="text-center">
                     <span class="text-xs block" style="color: var(--text-muted);">Rank</span>
-                    <p class="text-xl font-bold {{ $posColors['text'] }}">{{ $pricePos['price_rank'] }} <span class="text-sm font-normal" style="color: var(--text-muted);">of {{ $pricePos['total_listings'] }}</span></p>
+                    <p class="text-xl font-bold" style="color: {{ $posTone }};">{{ $pricePos['price_rank'] }} <span class="text-sm font-normal" style="color: var(--text-muted);">of {{ $pricePos['total_listings'] }}</span></p>
                 </div>
                 <div class="text-center">
                     <span class="text-xs block" style="color: var(--text-muted);">Priced Higher</span>
@@ -530,7 +538,7 @@
                 </div>
                 <div class="text-center">
                     <span class="text-xs block" style="color: var(--text-muted);">Percentile</span>
-                    <p class="text-xl font-bold {{ $posColors['text'] }}">{{ $pricePos['price_percentile'] }}%</p>
+                    <p class="text-xl font-bold" style="color: {{ $posTone }};">{{ $pricePos['price_percentile'] }}%</p>
                     <span class="text-xs" style="color: var(--text-muted);">more expensive than</span>
                 </div>
             </div>
@@ -543,12 +551,13 @@
             <p class="text-xs mb-2 font-medium" style="color: var(--text-muted);">Price Distribution (R 500K brackets) — {{ $priceBrk['total_priced'] }} listings with price data</p>
             <div class="space-y-1.5">
                 @foreach($priceBrk['brackets'] as $bracket)
-                <div class="flex items-center gap-3 {{ $bracket['contains_asking'] ? 'bg-sky-50 rounded-md px-2 py-1.5 -mx-2 border border-sky-200' : '' }}">
+                <div class="flex items-center gap-3 {{ $bracket['contains_asking'] ? 'rounded-md px-2 py-1.5 -mx-2 border' : '' }}"
+                     @if($bracket['contains_asking']) style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);" @endif>
                     <span class="text-xs w-44 flex-shrink-0 text-right font-mono" style="color: var(--text-secondary);">{{ $bracket['label'] }}</span>
                     <div class="flex-1 rounded-full h-5 overflow-hidden" style="background: var(--surface-2);">
                         @if($bracket['bar_pct'] > 0)
-                        <div class="h-full rounded-full {{ $bracket['contains_asking'] ? 'bg-sky-500' : '' }}"
-                             style="width: {{ max($bracket['bar_pct'], 4) }}%;{{ $bracket['contains_asking'] ? '' : ' background: var(--text-muted);' }}"></div>
+                        <div class="h-full rounded-full"
+                             style="width: {{ max($bracket['bar_pct'], 4) }}%; background: {{ $bracket['contains_asking'] ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};"></div>
                         @endif
                     </div>
                     <span class="text-xs font-semibold w-8 text-right" style="color: var(--text-primary);">{{ $bracket['count'] }}</span>
@@ -579,11 +588,11 @@
 
         @foreach($compSections as $section)
             @if($section['data']['count'] > 0)
-            <details class="mb-3 border rounded-md" style="border-color: var(--border);" {{ $firstOpen ? 'open' : '' }}>
+            <details class="analysis-accordion mb-3 border rounded-md" style="border-color: var(--border);" {{ $firstOpen ? 'open' : '' }}>
                 @php $firstOpen = false; @endphp
                 <summary class="cursor-pointer px-4 py-3 text-sm font-medium transition-all duration-300 select-none flex items-center justify-between" style="color: var(--text-primary);">
                     <span>{{ $section['label'] }}</span>
-                    <span class="px-2 py-0.5 rounded-full text-xs bg-sky-100 font-medium" style="color: var(--brand-default, #0b2a4a);">{{ $section['data']['count'] }}</span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);">{{ $section['data']['count'] }}</span>
                 </summary>
                 <div class="px-4 pb-4 overflow-x-auto">
                     <table class="w-full text-sm">
@@ -599,7 +608,7 @@
                         </thead>
                         <tbody class="divide-y" style="--tw-divide-opacity:1; border-color: var(--border);">
                             @foreach($section['data']['rows'] as $row)
-                            <tr class="transition-all duration-300" style="--hover-bg: var(--surface-2);" onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''">
+                            <tr class="analysis-hover-row">
                                 <td class="py-2 pr-3 text-xs" style="color: var(--text-primary);">{{ $row['address'] ?? '—' }}</td>
                                 <td class="py-2 pr-3 text-right" style="color: var(--text-secondary);">{{ $row['distance_m'] ?? '—' }}</td>
                                 <td class="py-2 pr-3 text-right" style="color: var(--text-secondary);">{{ $row['extent_m2'] ? number_format($row['extent_m2']) : '—' }}</td>
@@ -662,12 +671,10 @@
                 <div class="flex items-center gap-3">
                     @foreach(['lower' => $cma['cma_lower'], 'middle' => $cma['cma_middle'], 'upper' => $cma['cma_upper']] as $range => $val)
                     @php $isSel = ($cma['selected_range'] ?? 'middle') === $range; @endphp
-                    <div class="cma-tile text-center flex-1 rounded-md p-3 cursor-pointer transition-all duration-300
-                        {{ $isSel ? 'bg-sky-50 ring-1 ring-sky-200' : '' }}"
-                        @if(!$isSel) style="background: var(--surface-2);" @endif
+                    <div class="cma-tile analysis-tile text-center flex-1 rounded-md p-3 cursor-pointer {{ $isSel ? 'is-selected' : '' }}"
                         data-range="{{ $range }}" data-value="{{ $val }}">
-                        <span class="text-xs block" style="color: {{ $isSel ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};">{{ ucfirst($range) }}</span>
-                        <p class="{{ $isSel ? 'font-bold text-lg' : 'font-semibold' }}" style="color: {{ $isSel ? 'var(--brand-default, #0b2a4a)' : 'var(--text-primary)' }};">R {{ number_format($val) }}</p>
+                        <span class="analysis-tile-label text-xs block">{{ ucfirst($range) }}</span>
+                        <p class="analysis-tile-value">R {{ number_format($val) }}</p>
                     </div>
                     @endforeach
                 </div>
@@ -682,12 +689,10 @@
                     @php $vicSel = $presentation->vicinity_selected_range ?? 'middle'; @endphp
                     @foreach(['lower' => $cma['vicinity_lower'], 'middle' => $cma['vicinity_middle'], 'upper' => $cma['vicinity_upper']] as $range => $val)
                     @php $isSel = $vicSel === $range; @endphp
-                    <div class="vicinity-tile text-center flex-1 rounded-md p-3 cursor-pointer transition-all duration-300
-                        {{ $isSel ? 'bg-sky-50 ring-1 ring-sky-200' : '' }}"
-                        @if(!$isSel) style="background: var(--surface-2);" @endif
+                    <div class="vicinity-tile analysis-tile text-center flex-1 rounded-md p-3 cursor-pointer {{ $isSel ? 'is-selected' : '' }}"
                         data-range="{{ $range }}" data-value="{{ $val }}">
-                        <span class="text-xs block" style="color: {{ $isSel ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};">{{ ucfirst($range) }}</span>
-                        <p class="{{ $isSel ? 'font-bold text-lg' : 'font-semibold' }}" style="color: {{ $isSel ? 'var(--brand-default, #0b2a4a)' : 'var(--text-primary)' }};">R {{ number_format($val) }}</p>
+                        <span class="analysis-tile-label text-xs block">{{ ucfirst($range) }}</span>
+                        <p class="analysis-tile-value">R {{ number_format($val) }}</p>
                     </div>
                     @endforeach
                 </div>
@@ -700,14 +705,14 @@
 
         {{-- Asking vs CMA comparison --}}
         @if($cma['asking_price'] && $cma['selected_value'])
-        <div id="asking-vs-cma" class="mt-4 p-4 rounded-md border {{ $cma['is_overpriced'] ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200' }}"
+        <div id="asking-vs-cma" class="analysis-verdict mt-4 p-4 rounded-md border {{ $cma['is_overpriced'] ? 'tone-amber' : 'tone-green' }}"
              data-asking="{{ $cma['asking_price'] }}"
              data-cma-lower="{{ $cma['cma_lower'] }}"
              data-cma-middle="{{ $cma['cma_middle'] }}"
              data-cma-upper="{{ $cma['cma_upper'] }}">
             <div class="flex items-center justify-between">
                 <div>
-                    <p id="asking-cma-label" class="text-xs font-medium {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
+                    <p id="asking-cma-label" class="analysis-verdict-tone text-xs font-medium">
                         Asking Price vs CMA {{ ucfirst($cma['selected_range'] ?? 'middle') }}
                     </p>
                     <p id="asking-cma-values" class="text-sm mt-1" style="color: var(--text-primary);">
@@ -715,14 +720,10 @@
                     </p>
                 </div>
                 <div class="text-right">
-                    <p id="asking-cma-pct" class="text-2xl font-bold {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
+                    <p id="asking-cma-pct" class="analysis-verdict-tone text-2xl font-bold">
                         @if($cma['asking_vs_cma_pct'] > 0)+@endif{{ $cma['asking_vs_cma_pct'] }}%
                     </p>
-                    @if($cma['is_overpriced'])
-                        <p id="asking-cma-note" class="text-xs text-red-500 font-medium">Above CMA evaluation</p>
-                    @else
-                        <p id="asking-cma-note" class="text-xs text-emerald-500 font-medium hidden"></p>
-                    @endif
+                    <p id="asking-cma-note" class="text-xs font-medium {{ $cma['is_overpriced'] ? '' : 'hidden' }}" style="color: var(--ds-amber, #f59e0b);">{{ $cma['is_overpriced'] ? 'Above CMA evaluation' : '' }}</p>
                 </div>
             </div>
         </div>
@@ -750,7 +751,7 @@
             {{-- AT-27 — non-silent lock (platform rule). --}}
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
                  style="background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
-                <span class="text-xs" style="color: var(--text-secondary);">&#128274; Locked — confirmed snapshot. Re-open the presentation to change the competition set.</span>
+                <span class="text-xs" style="color: var(--text-secondary);">Locked — confirmed snapshot. Re-open the presentation to change the competition set.</span>
                 @if($reopenUrl)<form method="POST" action="{{ $reopenUrl }}" class="inline">@csrf<button type="submit" class="corex-btn-outline text-xs">Re-open to edit</button></form>@endif
             </div>
         @else
@@ -780,7 +781,7 @@
                         $cErf5 = !empty($row['erf_size_m2']) ? (int) $row['erf_size_m2'] : (!empty($row['property_size_m2']) ? (int) $row['property_size_m2'] : null);
                         $cListDate5 = $row['listed_date'] ?? (!empty($row['first_seen_at']) ? \Illuminate\Support\Carbon::parse($row['first_seen_at'])->format('Y-m-d') : null);
                     @endphp
-                    <tr class="comp-row transition-all" onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''">
+                    <tr class="comp-row analysis-hover-row">
                         @if($canCurate)
                         <td class="py-2 pr-2 text-center">
                             <input type="checkbox" class="comp-incl" checked
@@ -876,7 +877,7 @@
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
                  style="background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
                 <span class="text-xs" style="color: var(--text-secondary);">
-                    &#128274; Locked — confirmed snapshot. Re-open the presentation to edit holding costs, then Confirm &amp; Generate.
+                    Locked — confirmed snapshot. Re-open the presentation to edit holding costs, then Confirm &amp; Generate.
                 </span>
                 @isset($presentation)
                 <form method="POST" action="{{ route('presentations.analysis.reopen', $presentation) }}" class="inline">
@@ -939,20 +940,20 @@
             <div>
                 <p class="text-xs mb-2 font-medium" style="color: var(--text-muted);">Cumulative Projections</p>
                 <div class="space-y-2">
-                    <div class="flex justify-between items-center bg-amber-50 rounded-md px-4 py-3">
-                        <span class="text-sm text-amber-700">3 months</span>
-                        <span class="font-bold text-amber-800">R <span id="hc-proj-3m">{{ number_format($holding['projected_3m']) }}</span></span>
+                    <div class="flex justify-between items-center rounded-md px-4 py-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent);">
+                        <span class="text-sm" style="color: var(--ds-amber, #f59e0b);">3 months</span>
+                        <span class="font-bold" style="color: var(--ds-amber, #f59e0b);">R <span id="hc-proj-3m">{{ number_format($holding['projected_3m']) }}</span></span>
                     </div>
-                    <div class="flex justify-between items-center bg-orange-50 rounded-md px-4 py-3">
-                        <span class="text-sm text-orange-700">6 months</span>
-                        <span class="font-bold text-orange-800">R <span id="hc-proj-6m">{{ number_format($holding['projected_6m']) }}</span></span>
+                    <div class="flex justify-between items-center rounded-md px-4 py-3" style="background: color-mix(in srgb, var(--ds-orange, #ea580c) 12%, transparent);">
+                        <span class="text-sm" style="color: var(--ds-orange, #ea580c);">6 months</span>
+                        <span class="font-bold" style="color: var(--ds-orange, #ea580c);">R <span id="hc-proj-6m">{{ number_format($holding['projected_6m']) }}</span></span>
                     </div>
-                    <div class="flex justify-between items-center bg-red-50 rounded-md px-4 py-3">
-                        <span class="text-sm text-red-700">12 months</span>
-                        <span class="font-bold text-red-800">R <span id="hc-proj-12m">{{ number_format($holding['projected_12m']) }}</span></span>
+                    <div class="flex justify-between items-center rounded-md px-4 py-3" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent);">
+                        <span class="text-sm" style="color: var(--ds-crimson, #c41e3a);">12 months</span>
+                        <span class="font-bold" style="color: var(--ds-crimson, #c41e3a);">R <span id="hc-proj-12m">{{ number_format($holding['projected_12m']) }}</span></span>
                     </div>
                 </div>
-                <p class="mt-3 text-xs text-red-600 font-medium text-center">
+                <p class="mt-3 text-xs font-medium text-center" style="color: var(--ds-crimson, #c41e3a);">
                     Every month at current asking price costs R <span id="hc-monthly-total-2">{{ number_format($holding['monthly_total']) }}</span>
                 </p>
             </div>
@@ -1049,8 +1050,8 @@
         <h3 class="ds-section-header">7. Key Insights</h3>
 
         @if(!$insights['asking_price_set'])
-            <div class="bg-amber-50 border border-amber-200 rounded-md p-4">
-                <p class="text-sm text-amber-700">
+            <div class="border rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border-color: color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);">
+                <p class="text-sm" style="color: var(--text-primary);">
                     Enter an asking price in the analysis form above to see price position comparisons.
                 </p>
             </div>
@@ -1064,29 +1065,24 @@
             <div class="space-y-3" id="key-insights-list">
                 @foreach($insights['comparisons'] as $comp)
                     @php
-                        $statusColors = match($comp['status']) {
-                            'danger'  => 'bg-red-50 border-red-200 text-red-700',
-                            'warning' => 'bg-amber-50 border-amber-200 text-amber-700',
-                            default   => 'bg-emerald-50 border-emerald-200 text-emerald-700',
-                        };
-                        $pctColors = match($comp['status']) {
-                            'danger'  => 'text-red-600',
-                            'warning' => 'text-amber-600',
-                            default   => 'text-emerald-600',
+                        $insightTone = match($comp['status']) {
+                            'danger'  => 'tone-crimson',
+                            'warning' => 'tone-amber',
+                            default   => 'tone-green',
                         };
                     @endphp
-                    <div class="insight-card flex items-center justify-between p-4 rounded-md border {{ $statusColors }}"
+                    <div class="insight-card analysis-verdict flex items-center justify-between p-4 rounded-md border {{ $insightTone }}"
                          data-label="{{ $comp['label'] }}"
                          data-benchmark="{{ $comp['benchmark'] }}"
                          data-asking="{{ $comp['asking'] }}"
                          data-pct="{{ $comp['pct_difference'] }}">
                         <div>
-                            <p class="insight-label text-xs font-medium opacity-75">{{ $comp['label'] }}</p>
-                            <p class="insight-values text-sm mt-1">
+                            <p class="insight-label analysis-verdict-tone text-xs font-medium opacity-75">{{ $comp['label'] }}</p>
+                            <p class="insight-values text-sm mt-1" style="color: var(--text-primary);">
                                 R {{ number_format($comp['asking']) }} vs R {{ number_format($comp['benchmark']) }}
                             </p>
                         </div>
-                        <p class="insight-pct text-xl font-bold {{ $pctColors }}">
+                        <p class="insight-pct analysis-verdict-tone text-xl font-bold">
                             @if($comp['pct_difference'] > 0)+@endif{{ $comp['pct_difference'] }}%
                         </p>
                     </div>

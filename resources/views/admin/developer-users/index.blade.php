@@ -2,6 +2,12 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+@php
+    // Presentation-only tallies derived from the already-loaded collection.
+    // Kept consistent with the per-row status logic below (truthy is_active = Active).
+    $activeCount   = $users->filter(fn ($u) => $u->is_active)->count();
+    $disabledCount = $users->count() - $activeCount;
+@endphp
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
@@ -16,13 +22,25 @@
         </div>
     </div>
 
-    {{-- Flash status --}}
+    {{-- Flash status (§3.9 success alert) --}}
     @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm font-medium"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
-            {{ session('status') }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
+
+    {{-- Stat tiles (§3.2) --}}
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Platform Users" :value="number_format($users->count())" />
+        <x-corex-kpi-card title="Active" :value="number_format($activeCount)" />
+        <x-corex-kpi-card title="Disabled" :value="number_format($disabledCount)" />
+    </div>
 
     {{-- List --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -42,7 +60,7 @@
                         <tr style="border-top: 1px solid var(--border);">
                             <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $u->name }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $u->email }}</td>
-                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $roleLabels[$u->role] ?? $u->role }}</td>
+                            <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $roleLabels[$u->role] ?? \Illuminate\Support\Str::headline($u->role) }}</td>
                             <td class="px-4 py-3">
                                 @if($u->is_active)
                                     <span class="ds-badge ds-badge-success">Active</span>

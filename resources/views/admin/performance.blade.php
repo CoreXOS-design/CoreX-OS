@@ -45,8 +45,13 @@
     $statusSummary = $statusSummary ?? [];
 @endphp
 
-<x-app-layout>
-    <x-slot name="header">
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex')
+
+@section('corex-content')
+    <div class="w-full space-y-6">
+
+        {{-- Page header --}}
         <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
@@ -63,9 +68,6 @@
                 </form>
             </div>
         </div>
-    </x-slot>
-
-    <div class="space-y-6">
 
         {{-- STATUS TILES --}}
         <div class="space-y-3">
@@ -74,7 +76,7 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 
                 <a href="/admin/deals?status=Declined&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-status-declined">
+                    <div class="ds-status-card ds-status-declined h-full">
                         <div class="ds-label mb-2">Declined</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
@@ -90,7 +92,7 @@
                 </a>
 
                 <a href="/admin/deals?status=Pending&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-status-pending">
+                    <div class="ds-status-card ds-status-pending h-full">
                         <div class="ds-label mb-2">Pending</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
@@ -106,7 +108,7 @@
                 </a>
 
                 <a href="/admin/deals?status=Granted&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-status-granted">
+                    <div class="ds-status-card ds-status-granted h-full">
                         <div class="ds-label mb-2">Granted</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
@@ -122,7 +124,7 @@
                 </a>
 
                 <a href="/admin/deals?status=Registered&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-status-registered">
+                    <div class="ds-status-card ds-status-registered h-full">
                         <div class="ds-label mb-2">Registered</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
@@ -143,7 +145,7 @@
             {{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-money-pending">
+                    <div class="ds-status-card ds-money-pending h-full">
                         <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">
                             R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -152,7 +154,7 @@
                 </a>
 
                 <a href="/admin/deals?status=Granted&commission_status=Not%20Paid" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-money-granted">
+                    <div class="ds-status-card ds-money-granted h-full">
                         <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">
                             R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -164,7 +166,7 @@
                 </a>
 
                 <a href="/admin/deals?status=Registered&commission_status=Not%20Paid" class="block transition-all duration-300">
-                    <div class="ds-status-card ds-money-registered">
+                    <div class="ds-status-card ds-money-registered h-full">
                         <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">
                             R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}
@@ -277,7 +279,7 @@
             <div class="ds-section-sub mb-4">Value and points progress per branch for the selected period.</div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                @foreach(($r['branches'] ?? []) as $b)
+                @forelse(($r['branches'] ?? []) as $b)
                     @php
                         $bid = (int)($b['branch_id'] ?? 0);
                         $bName = (string)($b['branch_name'] ?? 'Branch');
@@ -322,7 +324,18 @@
                             </div>
                         </div>
                     </a>
-                @endforeach
+                @empty
+                    <div class="ds-status-card md:col-span-2 xl:col-span-3 py-12 text-center">
+                        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                             style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                            <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21" />
+                            </svg>
+                        </div>
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No branch data yet</h3>
+                        <p class="text-sm" style="color: var(--text-muted);">Branch progress appears here once branches have targets and activity for this period.</p>
+                    </div>
+                @endforelse
             </div>
         </div>
 
@@ -367,7 +380,7 @@
                                 <td class="px-4 py-3 text-right font-bold" style="color: var(--text-muted);">—</td>
                             </tr>
 
-                            @foreach(($r['rows'] ?? []) as $row)
+                            @forelse(($r['rows'] ?? []) as $row)
                                 @php
                                     $pointsTargetRow = (float)($row['targets']['points'] ?? 0);
                                     $pointsActualRow = (float)($row['actuals']['points'] ?? 0);
@@ -433,7 +446,13 @@
                                         <span class="ds-badge {{ $badgeClass }}">{{ $status }}</span>
                                     </td>
                                 </tr>
-                            @endforeach
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                                        No agent targets or actuals for this period yet.
+                                    </td>
+                                </tr>
+                            @endforelse
                         </tbody>
                     </table>
                 </div>
@@ -559,4 +578,4 @@
             Privacy: This page shows derived targets + activity + deal actuals. No worksheet net-income fields are exposed.
         </div>
     </div>
-</x-app-layout>
+@endsection

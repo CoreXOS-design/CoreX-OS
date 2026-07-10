@@ -11,7 +11,7 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Agency Management</h1>
                 <p class="text-sm text-white/60">Create and manage all agencies on the platform.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <a href="{{ route('agencies.create') }}" class="corex-btn-primary">+ New Agency</a>
             </div>
         </div>
@@ -29,7 +29,7 @@
 
     {{-- Flash messages --}}
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
                     color: var(--text-primary);">
@@ -37,7 +37,7 @@
         </div>
     @endif
     @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
                     color: var(--text-primary);">
@@ -83,18 +83,20 @@
                                           title="Button: {{ $agency->button_color }}"></span>
                                 </div>
                             </td>
-                            <td class="px-4 py-3 text-center">
-                                @if($agency->is_active)
-                                    <span class="ds-badge ds-badge-success">Active</span>
-                                @else
-                                    <span class="ds-badge ds-badge-default">Inactive</span>
-                                @endif
-                                @if($agency->isInMaintenance())
-                                    <span class="ds-badge ds-badge-warning"
-                                          title="Only System Owners can access this agency. Users see the maintenance screen after login.@if($agency->maintenance_started_at) Since {{ $agency->maintenance_started_at->diffForHumans() }}.@endif">
-                                        Maintenance
-                                    </span>
-                                @endif
+                            <td class="px-4 py-3">
+                                <div class="flex flex-wrap items-center justify-center gap-1">
+                                    @if($agency->is_active)
+                                        <span class="ds-badge ds-badge-success">Active</span>
+                                    @else
+                                        <span class="ds-badge ds-badge-default">Inactive</span>
+                                    @endif
+                                    @if($agency->isInMaintenance())
+                                        <span class="ds-badge ds-badge-warning"
+                                              title="Only System Owners can access this agency. Users see the maintenance screen after login.@if($agency->maintenance_started_at) Since {{ $agency->maintenance_started_at->diffForHumans() }}.@endif">
+                                            Maintenance
+                                        </span>
+                                    @endif
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex items-center justify-end gap-3">

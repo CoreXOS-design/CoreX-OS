@@ -17,7 +17,10 @@ class CalendarThresholdResolver
      *                               Only threshold day numbers are overridden;
      *                               show_days, is_active, visibility, and
      *                               notifications still come from class config.
-     * @return 'red'|'amber'|'green'|null   null = don't show on calendar yet
+     * @return 'red'|'amber'|'green'|'neutral'|null   'neutral' = visible, no RAG
+     *         urgency (beyond green OR class inactive/missing); null ONLY when the
+     *         event has no date to place it on the grid. A class-config state never
+     *         resolves to null — deactivating a class must not erase existing events.
      */
     public function resolve(?int $agencyId, string $eventClass, ?Carbon $eventDate, ?array $overrides = null): ?string
     {
@@ -27,8 +30,16 @@ class CalendarThresholdResolver
 
         $config = CalendarEventClassSetting::forAgencyAndClass($agencyId, $eventClass);
 
+        // A missing or INACTIVE class config must never ERASE an existing event from the
+        // calendar. Deactivating a class stops new-event generation, RAG urgency, and
+        // notifications — it does NOT hide events already on the calendar. Render such
+        // events 'neutral' (visible, no urgency) instead of null, which applyFilters and
+        // the deck tiles drop. Root cause of the 2026-07-07 HFC blackout: all of agency
+        // 1's class settings were toggled is_active=0 → every event resolved to null →
+        // the whole book vanished from every calendar. Neutral makes the worst case
+        // "no colour", never "no calendar".
         if (!$config || !$config->is_active) {
-            return null;
+            return 'neutral';
         }
 
         $daysUntil = (int) now()->startOfDay()->diffInDays($eventDate->copy()->startOfDay(), false);
@@ -67,8 +78,10 @@ class CalendarThresholdResolver
     public function resolveForEvent(CalendarEvent $event): ?string
     {
         $config = CalendarEventClassSetting::forAgencyAndClass($event->agency_id, $event->category ?? '');
+        // Missing/inactive class config → neutral, never null: an event already on the
+        // calendar is never erased by its class being deactivated (see resolve()).
         if (!$config || !$config->is_active) {
-            return null;
+            return 'neutral';
         }
 
         // Informational events (leave, birthdays, holidays, time-blocks, and any

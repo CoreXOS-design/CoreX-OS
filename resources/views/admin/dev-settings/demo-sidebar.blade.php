@@ -13,17 +13,20 @@
                 <p class="text-sm text-white/60">Choose which sidebar items and sub-pages a demo agency shows.</p>
             </div>
             <a href="{{ route('admin.dev-settings.index') }}"
-               class="inline-flex items-center gap-2 text-sm rounded-md px-3 py-2 self-start"
-               style="background: rgba(255,255,255,0.12); color:#fff;">
-                ← Back to Dev Settings
+               class="corex-btn-outline text-sm self-start"
+               style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
+                Back to Dev Settings
             </a>
         </div>
     </div>
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+             style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                     color: var(--text-primary);">
             <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green, #059669);">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />

@@ -3,7 +3,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
 @section('corex-content')
-<div class="w-full max-w-5xl mx-auto space-y-4">
+<div class="w-full space-y-4">
 
     {{-- Header --}}
     <div>
@@ -31,19 +31,19 @@
         <h2 class="ds-section-header" style="margin: 0 0 8px 0;">Deal details</h2>
         <div class="grid gap-3 text-sm" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal #</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal #</div>
                 <span style="color: var(--text-primary);">{{ $deal?->deal_no ?? '—' }}</span>
             </div>
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal date</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Deal date</div>
                 <span style="color: var(--text-primary);">{{ $deal?->deal_date?->format('j M Y') ?: '—' }}</span>
             </div>
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Registration</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Registration</div>
                 <span style="color: var(--text-primary);">{{ $deal?->registration_date?->format('j M Y') ?: '—' }}</span>
             </div>
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Sale price</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Sale price</div>
                 <span style="color: var(--text-primary);">
                     @if($deal?->sale_price)
                         R {{ number_format((int) $deal->sale_price) }}
@@ -55,11 +55,11 @@
                 </span>
             </div>
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Seller</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Seller</div>
                 <span style="color: var(--text-primary);">{{ $deal?->seller_name ?: '—' }}</span>
             </div>
             <div>
-                <div class="text-[0.625rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Buyer</div>
+                <div class="text-[0.6875rem] uppercase tracking-wider mb-0.5" style="color: var(--text-muted);">Buyer</div>
                 <span style="color: var(--text-primary);">{{ $deal?->buyer_name ?: '—' }}</span>
             </div>
         </div>

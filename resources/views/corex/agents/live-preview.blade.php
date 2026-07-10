@@ -65,12 +65,19 @@
             default                  => [ucfirst((string) $p->status), '#64748b', 'rgba(100,116,139,.1)'],
         };
     };
+    // Exclusive = sole mandate (the agency's protected stock).
+    $isExclusive = fn ($p) => in_array(strtolower((string) $p->mandate_type), ['sole', 'sole mandate'], true);
     $listingImg = function ($l) {
         $img = collect(array_merge(
             $l->gallery_images_json ?? [], $l->dawn_images_json ?? [], $l->noon_images_json ?? [], $l->dusk_images_json ?? [],
         ))->filter()->first();
         if (!$img) return null;
-        return Str::startsWith($img, ['http://', 'https://']) ? $img : asset('storage/'.ltrim($img, '/'));
+        if (Str::startsWith($img, ['http://', 'https://'])) return $img;
+        // Paths may be stored already-rooted ("/storage/…" or "storage/…") or
+        // bare ("properties/…"). Only prepend the storage/ prefix when it's not
+        // there already — otherwise we get a dead /storage/storage/… URL.
+        $img = ltrim($img, '/');
+        return Str::startsWith($img, 'storage/') ? asset($img) : asset('storage/'.$img);
     };
 @endphp
 <!DOCTYPE html>
@@ -167,6 +174,23 @@
         .ico { width:1rem; height:1rem; flex:0 0 1rem; }
         /* listing tag — matches the status pill on the Properties page */
         .badge { display:inline-flex; align-items:center; padding:.25rem .625rem; border-radius:9999px; font-size:.75rem; font-weight:600; }
+
+        /* share — dropdown anchored to the Share button */
+        .share-wrap { position:relative; display:inline-block; }
+        .share-menu { position:absolute; z-index:40; top:calc(100% + .5rem); left:0; min-width:12.5rem; background:var(--white); border:1px solid var(--border); border-radius:.5rem; box-shadow:0 16px 40px rgba(20,26,77,.14); padding:.375rem; opacity:0; transform:translateY(-4px); pointer-events:none; transition:opacity .16s ease, transform .16s ease; }
+        .share-wrap.open .share-menu { opacity:1; transform:translateY(0); pointer-events:auto; }
+        .share-item { display:flex; align-items:center; gap:.65rem; width:100%; padding:.55rem .7rem; border-radius:.375rem; background:transparent; border:0; text-align:left; cursor:pointer; color:var(--text); font-size:.875rem; font-weight:500; text-decoration:none; font-family:inherit; }
+        .share-item:hover { background:var(--slate-100); color:var(--navy); }
+        .share-item svg { width:1.1rem; height:1.1rem; flex:0 0 1.1rem; color:var(--muted); }
+        .share-item:hover svg { color:var(--marine); }
+
+        /* listing filter tabs — pill chips above the grid */
+        .tabs { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1.75rem; }
+        .tab { display:inline-flex; align-items:center; gap:.45rem; padding:.5rem 1rem; border-radius:9999px; border:1px solid var(--border); background:#fff; color:var(--text); font-size:.8125rem; font-weight:600; letter-spacing:.01em; cursor:pointer; font-family:inherit; transition:all .18s ease; }
+        .tab:hover { border-color:rgba(59,161,230,.5); color:var(--marine); }
+        .tab.active { background:var(--brand-default); border-color:var(--brand-default); color:#fff; }
+        .tab .cnt { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.7rem; opacity:.7; }
+        .tab.active .cnt { opacity:.85; }
     </style>
 </head>
 <body>
@@ -202,6 +226,42 @@
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">{!! $socialIcon[$net] !!}</svg>
                         </a>
                     @endforeach
+
+                    {{-- SHARE — copy link / WhatsApp / Email / Facebook / X (uses native share sheet on mobile) --}}
+                    @php
+                        $shareUrl   = $ogUrl;
+                        $shareTitle = trim($agent->name.(optional($agency)->name ? ' — '.$agency->name : ''));
+                        $shareText  = $shareTitle.' · '.$ogDescription;
+                    @endphp
+                    <div class="share-wrap" id="shareWrap"
+                         data-url="{{ $shareUrl }}" data-title="{{ $shareTitle }}" data-text="{{ $shareText }}">
+                        <button type="button" class="btn btn-soft" id="shareBtn" aria-haspopup="true" aria-expanded="false">
+                            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 12a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm0 0 9-5.25M7.5 12l9 5.25m0 0a2.25 2.25 0 1 0 4.5 0 2.25 2.25 0 0 0-4.5 0Zm0-10.5a2.25 2.25 0 1 0 4.5 0 2.25 2.25 0 0 0-4.5 0Z"/></svg>
+                            Share
+                        </button>
+                        <div class="share-menu" role="menu" aria-labelledby="shareBtn">
+                            <a class="share-item" role="menuitem" data-share="whatsapp" target="_blank" rel="noopener" href="#">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M.05 24l1.69-6.16A11.9 11.9 0 0 1 .15 11.9C.15 5.34 5.49 0 12.05 0a11.82 11.82 0 0 1 8.41 3.49 11.82 11.82 0 0 1 3.48 8.42c0 6.56-5.34 11.9-11.89 11.9a11.9 11.9 0 0 1-5.7-1.45L.05 24Zm6.6-3.8c1.68.99 3.28 1.59 5.4 1.59 5.44 0 9.87-4.43 9.88-9.88a9.87 9.87 0 0 0-16.85-6.99A9.82 9.82 0 0 0 2.2 11.9c0 2.2.61 3.85 1.65 5.57l-.99 3.6 3.79-.87Zm11.36-5.29c-.07-.12-.26-.2-.55-.34-.29-.14-1.72-.85-1.99-.95-.26-.1-.46-.14-.65.14-.19.29-.74.95-.91 1.14-.17.19-.34.22-.62.07-.29-.14-1.22-.45-2.32-1.43-.86-.77-1.44-1.72-1.61-2-.17-.29-.02-.45.12-.59.13-.13.29-.34.43-.51.15-.17.19-.29.29-.48.1-.19.05-.36-.02-.51-.07-.14-.65-1.57-.89-2.15-.24-.56-.47-.48-.65-.49l-.55-.01c-.19 0-.5.07-.76.36-.26.29-1 .98-1 2.38 0 1.41 1.02 2.77 1.17 2.96.14.19 2.01 3.06 4.86 4.29.68.29 1.21.47 1.62.6.68.22 1.3.19 1.79.11.55-.08 1.72-.7 1.96-1.38.24-.68.24-1.26.17-1.38Z"/></svg>
+                                WhatsApp
+                            </a>
+                            <a class="share-item" role="menuitem" data-share="email" href="#">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25H4.5a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5H4.5A2.25 2.25 0 0 0 2.25 6.75m19.5 0v.24a2.25 2.25 0 0 1-1.07 1.92l-7.5 4.61a2.25 2.25 0 0 1-2.36 0l-7.5-4.61A2.25 2.25 0 0 1 2.25 6.99v-.24"/></svg>
+                                Email
+                            </a>
+                            <a class="share-item" role="menuitem" data-share="facebook" target="_blank" rel="noopener" href="#">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.78-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 22 12Z"/></svg>
+                                Facebook
+                            </a>
+                            <a class="share-item" role="menuitem" data-share="x" target="_blank" rel="noopener" href="#">
+                                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.22-6.82-5.97 6.82H.9l7.73-8.83L.06 2.25h6.83l4.71 6.23 5.44-6.23Zm-1.16 17.52h1.83L7.02 4.13H5.05l12.03 15.64Z"/></svg>
+                                X (Twitter)
+                            </a>
+                            <button type="button" class="share-item" role="menuitem" data-share="copy" id="shareCopy">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.69 15 6.88a4.5 4.5 0 1 1 6.36 6.37l-3.18 3.18a4.5 4.5 0 0 1-6.37 0 4.51 4.51 0 0 1-.66-.82m1.66-6.6a4.5 4.5 0 0 0-6.37 0l-3.18 3.18a4.5 4.5 0 1 0 6.36 6.37L10.81 15"/></svg>
+                                <span id="shareCopyLabel">Copy link</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -220,18 +280,37 @@
     @endif
 
     {{-- LISTINGS --}}
+    @php
+        $cntAll       = $listings->count();
+        $cntActive    = $listings->filter(fn ($p) => (string) $p->status === 'active')->count();
+        $cntSold      = $listings->filter(fn ($p) => (string) $p->status === 'sold')->count();
+        $cntExclusive = $listings->filter($isExclusive)->count();
+        $perPage      = 20;
+    @endphp
     <section id="listings" style="margin-bottom:4rem;">
         <div class="label">Properties</div>
-        <h2 class="title" style="margin:.6rem 0 1.75rem;">{{ $isSelf ? 'My' : $agent->name."'s" }} {{ $listings->count() }} Listing{{ $listings->count() === 1 ? '' : 's' }}</h2>
+        <h2 class="title" style="margin:.6rem 0 1.25rem;">{{ $isSelf ? 'My' : $agent->name."'s" }} <span id="listingCount">{{ $cntAll }}</span> <span id="listingNoun">Listing{{ $cntAll === 1 ? '' : 's' }}</span></h2>
         @if($listings->isEmpty())
             <div class="card" style="padding:2.5rem; text-align:center; color:var(--muted-2);">No listings yet.</div>
         @else
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {{-- Filter tabs — All / Active / Sold / Exclusive (sole mandate) --}}
+            <div class="tabs" id="listingTabs" role="tablist">
+                <button type="button" class="tab active" data-filter="all" role="tab" aria-selected="true">All <span class="cnt">{{ $cntAll }}</span></button>
+                @if($cntActive)<button type="button" class="tab" data-filter="active" role="tab" aria-selected="false">Active <span class="cnt">{{ $cntActive }}</span></button>@endif
+                @if($cntSold)<button type="button" class="tab" data-filter="sold" role="tab" aria-selected="false">Sold <span class="cnt">{{ $cntSold }}</span></button>@endif
+                @if($cntExclusive)<button type="button" class="tab" data-filter="exclusive" role="tab" aria-selected="false">Exclusive <span class="cnt">{{ $cntExclusive }}</span></button>@endif
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" id="listingGrid" data-per-page="{{ $perPage }}">
                 @foreach($listings as $l)
                     @php [$lbl,$lc,$lbg] = $statusFor($l); $src = $listingImg($l); @endphp
-                    <a href="{{ route('corex.properties.preview', $l) }}" target="_blank" class="card lcard" style="text-decoration:none; color:inherit; display:block;">
+                    <a href="{{ route('corex.properties.preview', $l) }}" target="_blank"
+                       class="card lcard listing-card"
+                       data-status="{{ (string) $l->status }}"
+                       data-exclusive="{{ $isExclusive($l) ? '1' : '0' }}"
+                       style="text-decoration:none; color:inherit; display:block;">
                         <div style="position:relative; aspect-ratio:4/3; background:var(--slate-100); overflow:hidden;">
-                            @if($src)<img src="{{ $src }}" alt="{{ $l->title }}" style="width:100%; height:100%; object-fit:cover;">@else<div class="flex items-center justify-center h-full" style="color:var(--muted-2); font-size:.8rem;">No image</div>@endif
+                            @if($src)<img src="{{ $src }}" alt="{{ $l->title }}" loading="lazy" style="width:100%; height:100%; object-fit:cover;">@else<div class="flex items-center justify-center h-full" style="color:var(--muted-2); font-size:.8rem;">No image</div>@endif
                             <span class="badge" style="position:absolute; top:.7rem; left:.7rem; {{ (string) $l->status === 'sold' ? 'background:var(--red);' : 'background:var(--brand-default);' }} color:#fff;">{{ $lbl }}</span>
                         </div>
                         <div style="padding:1.1rem 1.25rem 1.35rem;">
@@ -249,6 +328,14 @@
                         </div>
                     </a>
                 @endforeach
+            </div>
+
+            {{-- Empty state per-filter (JS toggles when a tab has no on-screen matches) --}}
+            <div id="listingEmpty" class="card" style="display:none; padding:2.5rem; text-align:center; color:var(--muted-2);">No listings in this view.</div>
+
+            {{-- Load more — reveals 20 at a time within the active filter --}}
+            <div id="loadMoreWrap" style="display:none; text-align:center; margin-top:2.25rem;">
+                <button type="button" id="loadMoreBtn" class="btn btn-soft">Show more</button>
             </div>
         @endif
     </section>
@@ -310,6 +397,123 @@
         <div style="margin-top:.4rem;">Registered with the PPRA</div>
     </div>
 </div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ── SHARE ────────────────────────────────────────────────────────────────
+    var wrap = document.getElementById('shareWrap');
+    if (wrap) {
+        var url   = wrap.dataset.url || window.location.href;
+        var title = wrap.dataset.title || document.title;
+        var text  = wrap.dataset.text || title;
+        var eu = encodeURIComponent(url), et = encodeURIComponent(text), etitle = encodeURIComponent(title);
+
+        wrap.querySelectorAll('[data-share]').forEach(function (el) {
+            var kind = el.getAttribute('data-share');
+            if (kind === 'whatsapp') el.href = 'https://wa.me/?text=' + encodeURIComponent(text + ' ' + url);
+            else if (kind === 'facebook') el.href = 'https://www.facebook.com/sharer/sharer.php?u=' + eu;
+            else if (kind === 'x') el.href = 'https://twitter.com/intent/tweet?url=' + eu + '&text=' + et;
+            else if (kind === 'email') el.href = 'mailto:?subject=' + etitle + '&body=' + encodeURIComponent(text + '\n\n' + url);
+        });
+
+        var btn = document.getElementById('shareBtn');
+        var closeMenu = function () { wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+        var openMenu  = function () { wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); };
+
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            // Prefer the OS share sheet on devices that support it (mobile).
+            if (navigator.share) {
+                navigator.share({ title: title, text: text, url: url }).catch(function () {});
+                return;
+            }
+            wrap.classList.contains('open') ? closeMenu() : openMenu();
+        });
+
+        var copyBtn = document.getElementById('shareCopy');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var done = function () {
+                    var lbl = document.getElementById('shareCopyLabel');
+                    if (lbl) { var t = lbl.textContent; lbl.textContent = 'Copied!'; setTimeout(function () { lbl.textContent = t; }, 1500); }
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(done).catch(done);
+                } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = url; document.body.appendChild(ta); ta.select();
+                    try { document.execCommand('copy'); } catch (err) {}
+                    document.body.removeChild(ta); done();
+                }
+            });
+        }
+
+        // Clicking a real share link should also close the menu.
+        wrap.querySelectorAll('a.share-item').forEach(function (a) {
+            a.addEventListener('click', function () { setTimeout(closeMenu, 0); });
+        });
+        document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) closeMenu(); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
+    }
+
+    // ── LISTINGS: filter tabs + reveal 20 at a time ──────────────────────────
+    var grid = document.getElementById('listingGrid');
+    if (grid) {
+        var perPage   = parseInt(grid.dataset.perPage, 10) || 20;
+        var cards     = Array.prototype.slice.call(grid.querySelectorAll('.listing-card'));
+        var tabs      = Array.prototype.slice.call(document.querySelectorAll('#listingTabs .tab'));
+        var loadWrap  = document.getElementById('loadMoreWrap');
+        var loadBtn   = document.getElementById('loadMoreBtn');
+        var emptyBox  = document.getElementById('listingEmpty');
+        var countEl   = document.getElementById('listingCount');
+        var nounEl    = document.getElementById('listingNoun');
+        var filter    = 'all';
+        var shown     = perPage;
+
+        var matches = function (card) {
+            if (filter === 'all') return true;
+            if (filter === 'exclusive') return card.dataset.exclusive === '1';
+            return card.dataset.status === filter;
+        };
+
+        var render = function () {
+            var seen = 0;
+            cards.forEach(function (card) {
+                if (matches(card)) {
+                    seen++;
+                    card.style.display = seen <= shown ? '' : 'none';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            var total = seen;
+            if (countEl) countEl.textContent = total;
+            if (nounEl)  nounEl.textContent = 'Listing' + (total === 1 ? '' : 's');
+            if (emptyBox) emptyBox.style.display = total === 0 ? '' : 'none';
+            if (loadWrap) loadWrap.style.display = total > shown ? '' : 'none';
+        };
+
+        tabs.forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                tabs.forEach(function (t) { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+                tab.classList.add('active');
+                tab.setAttribute('aria-selected', 'true');
+                filter = tab.dataset.filter;
+                shown = perPage;
+                render();
+                document.getElementById('listings').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+
+        if (loadBtn) loadBtn.addEventListener('click', function () { shown += perPage; render(); });
+
+        render();
+    }
+})();
+</script>
 
 </body>
 </html>

@@ -41,7 +41,7 @@
         </svg>
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="ds-badge ds-badge-info">{{ strtoupper((string)($context['filter'] ?? 'view')) }}</span>
+                <span class="ds-badge ds-badge-info" title="Current listing view">{{ strtoupper((string)(($context['filter'] ?? '') ?: 'active')) }}</span>
                 <strong>{{ $context['title'] ?? 'Listings' }}</strong>
                 <span class="text-xs" style="color: var(--text-muted);">·</span>
                 <span class="text-xs" style="color: var(--text-muted);">{{ number_format($contextCount) }} {{ \Illuminate\Support\Str::plural('listing', $contextCount) }}</span>
@@ -67,14 +67,18 @@
         </div>
 
         {{-- Mandate & Type Filter Pills --}}
+        @php
+            $hasActiveFilter = (request('mandate') !== null && request('mandate') !== '')
+                || (request('type') !== null && request('type') !== '')
+                || (request('filter') !== null && request('filter') !== '');
+        @endphp
         <div class="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-3" data-tour="at-agent-listings-filters" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
             <div class="flex items-center gap-2 flex-wrap">
                 <div class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Mandate</div>
                 <div class="flex flex-wrap gap-1.5">
                     @forelse($byMandate as $m)
                         <a href="{{ route('agent.listings', array_merge(request()->except('page'), ['mandate' => $m->label])) }}"
-                           class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs transition-all duration-300"
-                           style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); white-space: nowrap;">
+                           class="al-filter-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs">
                             <span class="font-semibold">{{ number_format((int)$m->c) }}</span>
                             <span>{{ $m->label }}</span>
                         </a>
@@ -89,8 +93,7 @@
                 <div class="flex flex-wrap gap-1.5">
                     @forelse($byType as $t)
                         <a href="{{ route('agent.listings', array_merge(request()->except('page'), ['type' => $t->label])) }}"
-                           class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs transition-all duration-300"
-                           style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); white-space: nowrap;">
+                           class="al-filter-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs">
                             <span class="font-semibold">{{ number_format((int)$t->c) }}</span>
                             <span>{{ $t->label }}</span>
                         </a>
@@ -99,11 +102,20 @@
                     @endforelse
                 </div>
             </div>
+
+            @if($hasActiveFilter)
+            <a href="{{ route('agent.listings') }}" class="ml-auto self-center inline-flex items-center gap-1 text-xs font-semibold transition-colors duration-150" style="color: var(--brand-icon);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+                </svg>
+                Clear filters
+            </a>
+            @endif
         </div>
 
         {{-- Table --}}
         <div class="overflow-x-auto" data-tour="at-agent-listings-table">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table al-listing-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
@@ -145,14 +157,14 @@
                 @endphp
 
                 {{-- Address row --}}
-                <tr style="background: var(--surface-2);">
+                <tr class="al-listing-address">
                     <td colspan="9" class="px-4 py-2">
                         <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $addressText }}</div>
                     </td>
                 </tr>
 
                 {{-- Data row --}}
-                <tr>
+                <tr class="al-listing-row">
                     <td class="px-4 py-3">
                         @if($l->status)
                             <span class="ds-badge {{ $statusBadge }}">{{ \Illuminate\Support\Str::limit((string)$l->status, 20, '') }}</span>
@@ -228,8 +240,8 @@
                 </tr>
 
                 {{-- Separator --}}
-                <tr aria-hidden="true">
-                    <td colspan="9" class="p-0" style="border-bottom: 1px solid var(--border);"></td>
+                <tr aria-hidden="true" class="al-listing-spacer">
+                    <td colspan="9" class="p-0"></td>
                 </tr>
 
                 @empty
@@ -249,4 +261,42 @@
     </div>
 
 </div>
+
+<style>
+    /* Branded filter pill — token-aware hover via CSS (no inline JS, no dead transition). */
+    .al-filter-pill {
+        background: color-mix(in srgb, var(--brand-icon) 12%, transparent);
+        color: var(--brand-icon);
+        border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);
+        white-space: nowrap;
+        transition: background 150ms ease, border-color 150ms ease;
+    }
+    .al-filter-pill:hover {
+        background: color-mix(in srgb, var(--brand-icon) 20%, transparent);
+        border-color: color-mix(in srgb, var(--brand-icon) 45%, transparent);
+    }
+
+    /* Three-row listing pattern: address banner + data row + spacer are one unit.
+       Neutralise the default .ds-table nth-child zebra (hardcoded #f8fafc breaks dark
+       mode) and per-row hover; shade + hover the pair with tokens instead. */
+    .al-listing-table tbody tr.al-listing-address,
+    .al-listing-table tbody tr.al-listing-row,
+    .al-listing-table tbody tr.al-listing-spacer {
+        background: transparent;
+    }
+    .al-listing-table tbody tr.al-listing-address {
+        background: var(--surface-2);
+    }
+    .al-listing-table tbody tr.al-listing-row {
+        border-top: 1px solid var(--border);
+    }
+    .al-listing-table tbody tr.al-listing-spacer td {
+        height: 0.5rem;
+        border: 0;
+    }
+    .al-listing-table tbody tr.al-listing-address:hover,
+    .al-listing-table tbody tr.al-listing-row:hover {
+        background: color-mix(in srgb, var(--brand-icon) 6%, var(--surface));
+    }
+</style>
 @endsection

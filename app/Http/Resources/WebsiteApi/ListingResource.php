@@ -69,7 +69,10 @@ class ListingResource extends JsonResource
 
             // Dimensions / rooms.
             'beds'    => $this->beds !== null ? (int) $this->beds : null,
-            'baths'   => $this->baths !== null ? (float) $this->baths : null,
+            // Whole full-bath count. Kept an int (not float): the half surfaces
+            // separately in `half_baths`, and JSON can't carry a trailing `.0`
+            // anyway (json_encode collapses 1.0 -> 1 without PRESERVE_ZERO_FRACTION).
+            'baths'   => $this->baths !== null ? (int) $this->baths : null,
             // Half bathroom (guest toilet / cloakroom) count — a first-class
             // scalar alongside `baths`, NOT rolled into it. The website renders
             // total baths exactly as CoreX does everywhere: `baths + ½` when

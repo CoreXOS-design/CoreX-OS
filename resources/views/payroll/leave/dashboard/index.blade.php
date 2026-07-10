@@ -25,10 +25,7 @@
                 <a href="{{ url('/corex/settings?s=leave-visibility') }}"
                    title="Leave Settings"
                    aria-label="Leave Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center w-[30px] h-[30px] rounded-md text-white bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -77,7 +74,7 @@
             ],
         ];
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 xl:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 xl:gap-4">
         @foreach($kpiTiles as $kpi)
         <div class="rounded-md px-4 py-3 flex items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:{{ $kpi['bg'] }};color:{{ $kpi['fg'] }};">

@@ -1,5 +1,10 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-@extends('layouts.corex-app')
+{{-- Layout: layouts.corex — matches every sibling Real-Estate page (contacts,
+     core-matches, properties) and the adjacent Presentations → Analytics page.
+     Carries id="appScroll" on <main> (used by menu/tour positioning), the
+     correct @stack('head') → agency-brand ordering, and matching font loading,
+     so this page renders at the same width and chrome as the rest of the module. --}}
+@extends('layouts.corex')
 
 @section('corex-content')
 @php

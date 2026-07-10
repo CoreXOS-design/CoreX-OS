@@ -1,5 +1,10 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-@extends('layouts.corex-app')
+{{-- Layout: layouts.corex — the standard list/index shell used by Contacts,
+     Core Matches and Properties. Matches those pages exactly (full-width
+     content column, id="appScroll" main, corex-user-id + draft-persistence
+     meta stack). Previously extended layouts.corex-app, which omitted that
+     meta and left this page inconsistent with its sibling index pages. --}}
+@extends('layouts.corex')
 
 @section('corex-content')
 <div class="w-full space-y-5">

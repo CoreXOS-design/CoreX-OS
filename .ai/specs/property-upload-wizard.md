@@ -63,7 +63,7 @@ Step 1: Basics                   Step 2: Photos                  Step 3: Details
 
 - 4 steps, progress bar at top, "Back" and "Continue" at bottom.
 - **Autosave** on each "Continue" click — saves a draft `Property` row with `status='draft'` after step 1.
-- **Resume** — if agent navigates away after step 1, a draft exists; returning to `/corex/properties/wizard` offers "Continue draft" or "Start new".
+- **Resume** — drafts are resumed only via the listing's "Drafts" button (`?resume=<id>`, AT-188); a plain "New Property" always starts fresh. Agents may keep multiple concurrent drafts. Resuming preloads the draft's fields and edits it in place (AT-210).
 - **Skippable:** only step 1 fields are required to create the draft. Steps 2–4 can be skipped entirely — the property is saved as a draft.
 - **Publish gate:** step 4 shows a readiness checklist. Publish button is enabled only when required items are green (title, price, type, suburb, ≥1 photo, description).
 
@@ -143,8 +143,8 @@ Route::post('/wizard/{property}/finalize',   [PropertyWizardController::class, '
 ```
 
 **Controller methods:**
-- `start()` — find-or-render: if a draft exists owned by this user with `status='draft'` and no photos/description, show "Continue or Start Fresh" prompt. Else render wizard view.
-- `createDraft(Request)` — validates step-1 fields, calls `Property::create(...)` with smart defaults. **Observer fires but `isPublished()` is false, so no sync yet.** Returns JSON `{id, next_step: 2}`.
+- `start()` — renders the wizard. A plain "New Property" visit ALWAYS starts fresh (AT-188): it only rebinds to an existing draft when the request carries `?resume` (the listing's "Drafts" button / multi-draft popup). An agent may hold **any number** of concurrent drafts. On `?resume`, `start()` also hydrates the wizard (step-1 + step-3 fields + the P24 location picker) from the draft's own saved values so continuing edits the SAME record (AT-210 — `$draftPrefill`).
+- `createDraft(Request)` — validates step-1 fields, then **idempotent** (AT-210): with an optional `property_id` that resolves to the caller's own unpublished draft it `->update()`s that row in place (owner/branch/status preserved; `PropertySuburbLinked` only re-fires on a suburb change); otherwise it `Property::create(...)`s a fresh draft with smart defaults. A tampered/foreign/published id mints a new draft rather than mutating another row. This stops "resume" or "back → edit step 1" from minting a duplicate and orphaning the original. **Observer fires but `isPublished()` is false, so no sync yet.** Returns JSON `{id, next_step: 2}`.
 - `saveStep(Property, Request)` — validates the submitted step's fields, calls `$property->update(...)`. Returns JSON `{next_step}`.
 - `uploadPhotos(Property, Request)` — same logic as `PropertyController@update`'s gallery image branch. Returns JSON `{uploaded: N, urls: []}`.
 - `finalize(Property, Request)` — validates publish intent, sets `published_at` + `status='active'` if publishing, calls `$property->update()`. **Observer fires `saved()` → syndication dispatches.** Redirects to property show page.

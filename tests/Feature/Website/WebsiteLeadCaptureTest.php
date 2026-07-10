@@ -98,6 +98,44 @@ class WebsiteLeadCaptureTest extends TestCase
         ])->assertCreated();
     }
 
+    public function test_website_lead_notifies_listing_agent_only_not_matched_contact_owner(): void
+    {
+        $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal', 'website_enabled' => true]);
+        $branch = Branch::forceCreate(['agency_id' => $agency->id, 'name' => 'Main']);
+        $listingAgent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $otherAgent   = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+
+        $listing = new Property();
+        $listing->forceFill([
+            'title' => 'Villa', 'agent_id' => $listingAgent->id,
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'status' => 'active',
+        ])->save();
+
+        // The enquirer already exists as a contact OWNED BY a different agent.
+        $existing = new Contact();
+        $existing->forceFill([
+            'first_name' => 'Repeat', 'last_name' => 'Buyer', 'email' => 'repeat@example.com',
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'created_by_user_id' => $otherAgent->id,
+        ])->save();
+
+        $token = $this->mintKey($agency, [AgencyApiKey::SCOPE_LEADS_WRITE]);
+
+        $resp = $this->withToken($token)->postJson('/api/v1/website/leads', [
+            'source' => 'website', 'listing_id' => $listing->id,
+            'name' => 'Repeat Buyer', 'email' => 'repeat@example.com',
+        ])->assertCreated();
+
+        // Routed to the listing agent only — the matched contact's owner is NOT notified.
+        $this->assertSame([$listingAgent->id], $resp->json('assigned_agent_ids'));
+        $this->assertNotContains($otherAgent->id, $resp->json('assigned_agent_ids'));
+
+        // ...but the contact owner is still RECORDED on the lead (visibility intact).
+        $lead = PortalLead::withoutGlobalScope(AgencyScope::class)->find($resp->json('lead_id'));
+        $this->assertTrue((bool) $lead->contact_exists);
+        $this->assertSame($otherAgent->id, $lead->existing_contact_agent_id);
+        $this->assertSame([$listingAgent->id], $lead->agentIds());
+    }
+
     public function test_key_without_leads_write_scope_is_forbidden(): void
     {
         $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal', 'website_enabled' => true]);

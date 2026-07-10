@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -6,30 +7,30 @@
     $docTypeLabels = $documentTypes->pluck('label', 'key')->toArray();
 @endphp
 
+<div class="w-full space-y-5">
+
 {{-- Page Header (Pattern A — branded) --}}
-<div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+<div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div data-tour="docs-intro">
             <h1 class="text-xl font-bold text-white leading-tight">Document Library</h1>
             <p class="text-sm text-white/60">Upload, browse and manage shared documents.</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
             @include('layouts.partials.tour-header-launcher')
-        </div>
-        @if($presentation)
-            <div class="flex items-center gap-2">
+            @if($presentation)
                 <a href="{{ $returnUrl ?? route('presentations.show', $presentation) . '#documents' }}"
                    class="corex-btn-outline">
                     Back to Presentation #{{ $presentation->id }}
                 </a>
-            </div>
-        @endif
+            @endif
+        </div>
     </div>
 </div>
 
 {{-- Attach toolbar --}}
 @if($presentation)
-<div class="rounded-md px-4 py-3 text-sm flex items-start gap-3 mb-4"
+<div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
      style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent);
             border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);
             color: var(--text-primary);">
@@ -296,6 +297,7 @@
         @endif
     </div>
 </div>
+</div>{{-- /w-full space-y-5 wrapper --}}
 
 @if($presentation)
 <script>

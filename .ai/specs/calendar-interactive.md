@@ -515,3 +515,120 @@ carries alternating tint classes; the single-tile endpoint builds without persis
 tile. Headless proof (`proof-explicit-save.js`, 1920×1080 + 1366×768): popping-panels
 reproduced→dead, transient-survives-navigation, reload-renders-default, save-promotes-current,
 reset-discards-transients, continuous alternating tints, paged month paging.
+
+# 16.9 View-save trap — "Save default" only promotes a DELIBERATELY chosen view (2026-07-07)
+
+> **Status:** AS-BUILT, HFC2402 (2026-07-07). Amends §16.4's "Save default reads current
+> view/scroll". Trigger: Kym Pollard reported "my calendar is empty / most entries gone."
+
+## 16.9.1 The incident
+No data was lost — Kym's 431 events were all present. Her `default_view` had silently
+flipped to `day`, so every calendar open landed on a single day (~4 entries) instead of her
+month. **Five of six agents** with a saved preference (Kym, Shalan & Shawn Du Bois, Dru De
+Bruyn, Gerda Baard) were locked into `day` within two days of the cockpit shipping — none had
+deliberately chosen it. Remediation: their `default_view` was reset to `month` (the factory
+default they had before the cockpit).
+
+## 16.9.2 Root cause
+`index.blade.php` routes **every event-click to `?view=day`** (`CalendarController` event
+deep-links, L1355). §16.4's Save read `body.view = $currentView` — the *server-rendered*
+view. So an agent who clicked an event (→ forced day view) and then clicked **"Save default"**
+to persist their *tile/strip arrangement* silently promoted `day` to their default view. The
+arrangement and the landing view were conflated; a navigation masqueraded as a preference.
+This is exactly the "does this trap the agent behind a screen" failure the Operating Principle
+forbids.
+
+## 16.9.3 The rule (Johan's ruling — "keep, but only user-chosen view")
+"Save default" still captures the view, **but only when the user DELIBERATELY chose it this
+session.** A view reached by an event-click / `?view=` deep-link is navigation, never a saved
+preference, and is excluded.
+
+Mechanism — no new state needed, because the transient already encodes deliberate choice:
+- The **view switcher** and **Stream·Pages toggle** are the ONLY writers of the transient
+  `view` / `scroll_mode` keys (`window.CoreXCal.patch(...)`, toolbar links). A deliberate
+  click on either is the ONLY thing that sets them.
+- Event-clicks / deep-links land on `?view=day` via a plain navigation — they do **not**
+  patch the transient.
+- Therefore `save()` now promotes `view` / `scroll_mode` **only when present in the transient**
+  (`window.CoreXCal.get()`), instead of grabbing the server-rendered `$currentView`. Absent →
+  the field is omitted from the POST → `saveCockpit`'s existing
+  `array_key_exists('view',$data) && !== null` guard leaves the saved default untouched.
+- Same fix applied to `scroll_mode` (identical bug class — fix the class, not the instance).
+
+On reload the transient is cleared (§16.3), so an in-session view choice does not survive a
+hard reload — consistent with the three-tier model. To change a saved default view an agent
+clicks the switcher, then "Save default".
+
+## 16.9.4 Tests
+`CalendarExplicitSaveTest::test_save_without_view_leaves_the_existing_default_view_untouched` —
+an arrangement-only save (no `view` / `scroll_mode`, the shape the browser POSTs after a tweak
+with no deliberate view choice) leaves `default_view` and saved `scroll_mode` intact while the
+sent arrangement fields still persist. The client-side "only send a deliberately chosen view"
+behaviour belongs in the `proof-explicit-save.js` headless harness (event-click → day → Save
+default → default_view stays month).
+
+# 17. Inactive class must NEVER erase existing events (colour resolver hardening) — 2026-07-07
+
+> **Status:** AS-BUILT, HFC2402 (2026-07-07). Triggered by a production incident (below).
+> Amends the `CalendarThresholdResolver` contract. Ships to main + Staging + live.
+
+## 17.1 The incident (root cause)
+Kym Pollard (and, it turned out, **all 22 HFC agents**) reported empty calendars. No data was
+lost — every event was present. **Cause (identified 2026-07-07): the AT-197 Part A "turn-off".**
+A developer/agent session deliberately turned OFF all 49 event classes for agency 1 (HFC) via the
+settings screen's own mechanism — an agency-1 override row per class (`updateOrCreate` on
+`agency_id`+`event_class`, a faithful copy of the global with `is_active=false`; 48 rows, the
+duplicate `manual` collapses). It was a documented, planned operation "for the midweek setup
+session" with a captured restoration baseline (`.ai/audits/2026-07-06-event-classes-snapshot.md`).
+The two timestamps (rows created 18:19 on 07-06, updated 05:10 on 07-07) are its two passes — the
+first pass 500'd on a JSON-cast bug (copied `getAttributes()` raw strings into array-cast columns)
+and was re-run from the model's cast accessors; that re-run is the 05:10 stamp. Agency 1 is the
+ONLY agency with override rows; every other agency uses the (still-active) globals — which is why
+only HFC was hit.
+
+**Why a documented "turn-off" blanked every calendar — the impact-statement gap.** AT-197's own
+impact statement assumed an inactive class would leave events *"materialised but inert"* (still
+visible, no RAG/notifications) and that *"agents keep working the calendar normally."* The real
+code did NOT behave that way: `CalendarThresholdResolver::resolveForEvent()` returned **null** for
+an inactive class, and `CalendarController::applyFilters()` + `CalendarTileService` **drop every
+null-colour event** → the whole book vanished. `forAgencyAndClass()` returns the agency row when
+one exists (even inactive), so the dead overrides shadowed the healthy globals. The fix below
+makes reality match the impact statement: inactive = inert-but-visible, never erased.
+
+## 17.2 The rule
+A class-config *state* must NEVER erase an event already on the calendar. Deactivating a class
+stops **new-event generation, RAG urgency, and notifications** — it does **not** hide events
+already scheduled. So a missing or inactive class config now resolves to **`neutral`** (visible,
+no RAG urgency), never `null`. The ONLY `null` case is an event with no `event_date` to place on
+the grid. Worst case is now "no colour", never "no calendar".
+
+Implementation (`CalendarThresholdResolver`): both `resolve()` and `resolveForEvent()` return
+`'neutral'` where they previously returned `null` for `!$config || !$config->is_active`. `'neutral'`
+was already a first-class resolved colour (the "beyond green threshold" case), so the entire
+render/tile/reconcile stack already handles it — no downstream change. `ReconcileCalendarEvents`
+already treats `neutral` transitions correctly; event owners always pass `canSee` via the creator
+rule, so their own events render regardless of colour.
+
+## 17.3 What was deliberately NOT done
+A blanket "fall back to the active global when the agency override is inactive" in
+`forAgencyAndClass()` was rejected: it would delete an agency's ability to deactivate a class at
+all (an inactive override would always be overridden by the active global). Neutral-render is the
+correct expression of the intent — deactivation is non-destructive, not non-existent.
+
+## 17.4 Data remediation (live)
+Agency 1's 48 override rows were reactivated to restore RAG immediately, then reset to the global
+default (the audit's own prescribed restore: delete the agency-1 overrides → inherit globals).
+They are faithful copies of the globals — carry no real customization and are a maintenance trap
+(they shadow future global threshold/visibility changes). The one apparent `manual` "difference"
+was a false positive: `[]` (empty array) vs `{}` (empty object) in the notification columns — a
+`json_encode` artifact, not a customization. Reset via the sanctioned `resetEventClass` semantics
+(hard delete of the thin override layer — these config rows are not SoftDeletes-protected
+records), backed up to `storage/app/hfc-class-settings-backup-2026-07-07.json` first. After
+removal HFC tracks the active globals. NOTE: the turn-off was AT-197's deliberate setup-session
+prep; if that setup still needs HFC's classes quieted it can now be re-done safely (§17.2 keeps
+events visible) — coordinate with the AT-197 owner before re-applying.
+
+## 17.5 Tests
+`tests/Feature/CommandCenter/InactiveClassStillRendersTest.php`: active class → RAG; inactive
+class → neutral (not null); the incident shape (inactive agency override shadowing an active
+global) → neutral; `resolve()` direct inactive → neutral, and null ONLY when there is no date.

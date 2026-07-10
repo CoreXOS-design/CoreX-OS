@@ -1,38 +1,47 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-    {{-- Page header --}}
-    <div class="flex items-center justify-between gap-4" style="background:var(--brand-default, #0b2a4a); border-radius:6px; padding:20px 24px;">
+    {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
+    @php
+        $statusColors = [
+            'applied'           => 'var(--text-muted)',
+            'documents_pending' => 'var(--ds-amber)',
+            'compliance_review' => 'var(--brand-icon)',
+            'mentor_assignment' => 'var(--brand-default)',
+            'training'          => 'var(--brand-icon)',
+            'activated'         => 'var(--ds-green)',
+            'rejected'          => 'var(--ds-crimson)',
+            'withdrawn'         => 'var(--text-muted)',
+        ];
+        $sc = $statusColors[$application->status] ?? 'var(--text-muted)';
+    @endphp
+    <div class="rounded-md px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+         style="background: var(--brand-default, #0b2a4a);">
         <div>
-            <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">{{ $application->full_name }}</h2>
-            <div class="flex items-center gap-2" style="font-size:0.875rem; color:rgba(255,255,255,0.55);">
+            <h1 class="text-xl font-bold text-white leading-tight">{{ $application->full_name }}</h1>
+            <div class="flex items-center flex-wrap gap-2 mt-1 text-sm text-white/60">
                 <span>{{ $application->designation_label }}</span>
                 <span>&middot;</span>
-                @php
-                    $statusColors = [
-                        'applied' => '#94a3b8', 'documents_pending' => '#f59e0b',
-                        'compliance_review' => '#3b82f6', 'mentor_assignment' => '#8b5cf6',
-                        'training' => '#14b8a6', 'activated' => '#22c55e',
-                        'rejected' => '#ef4444', 'withdrawn' => '#6b7280',
-                    ];
-                    $sc = $statusColors[$application->status] ?? '#94a3b8';
-                @endphp
-                <span class="px-2 py-0.5 rounded text-xs font-bold" style="background:{{ $sc }}25; color:{{ $sc }};">{{ $application->status_label }}</span>
+                <span class="ds-badge" style="background: color-mix(in srgb, {{ $sc }} 45%, transparent); color: #fff;">{{ $application->status_label }}</span>
                 <span>&middot;</span>
-                <span>{{ $application->daysInCurrentStage() }} days in stage</span>
+                <span>{{ number_format($application->daysInCurrentStage()) }} days in stage</span>
             </div>
         </div>
-        <a href="{{ route('onboarding.index') }}" class="text-sm no-underline px-3 py-1.5 rounded-md" style="color:rgba(255,255,255,0.7); border:1px solid rgba(255,255,255,0.2);">Back to Pipeline</a>
+        <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline text-sm flex-shrink-0"
+           style="color:#fff; border-color: rgba(255,255,255,0.35);">Back to Pipeline</a>
     </div>
 
-    {{-- Session messages --}}
+    {{-- Session messages (UI_DESIGN_SYSTEM §3.9 Alert block) --}}
     @if(session('success'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
     @if(session('error'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">{{ session('error') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ session('error') }}</div>
     @endif
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -42,7 +51,7 @@
              ══════════════════════════════════════ --}}
         <div class="space-y-4">
             {{-- Personal --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+            <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Personal</h3>
                 <div class="space-y-2 text-sm">
                     <div><span style="color:var(--text-muted);">Name:</span> <span style="color:var(--text-primary); font-weight:600;">{{ $application->full_name }}</span></div>
@@ -53,11 +62,11 @@
             </div>
 
             {{-- Professional --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+            <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Professional</h3>
                 <div class="space-y-2 text-sm">
                     <div><span style="color:var(--text-muted);">Designation:</span> <span style="color:var(--text-primary);">{{ $application->designation_label }}</span></div>
-                    <div><span style="color:var(--text-muted);">Experience:</span> <span style="color:var(--text-primary);">{{ $application->years_experience }} years</span></div>
+                    <div><span style="color:var(--text-muted);">Experience:</span> <span style="color:var(--text-primary);">{{ number_format($application->years_experience) }} years</span></div>
                     <div><span style="color:var(--text-muted);">Current agency:</span> <span style="color:var(--text-primary);">{{ $application->current_agency ?? '—' }}</span></div>
                     <div><span style="color:var(--text-muted);">FFC:</span> <span style="color:var(--text-primary);">{{ $application->ffc_number ?? '—' }}</span></div>
                     <div><span style="color:var(--text-muted);">FFC Expiry:</span> <span style="color:var(--text-primary);">{{ $application->ffc_expiry?->format('d M Y') ?? '—' }}</span></div>
@@ -66,7 +75,7 @@
             </div>
 
             {{-- Motivation & Referral --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+            <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Motivation & Referral</h3>
                 <div class="space-y-2 text-sm">
                     @if($application->motivation)
@@ -78,7 +87,7 @@
             </div>
 
             {{-- Timeline --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+            <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Timeline</h3>
                 <div class="space-y-2 text-xs">
                     <div style="color:var(--text-secondary);">Applied: {{ $application->created_at->format('d M Y H:i') }}</div>
@@ -89,10 +98,10 @@
                     <div style="color:var(--text-secondary);">Reviewed by: {{ $application->reviewedByUser->name }}</div>
                     @endif
                     @if($application->activated_at)
-                    <div style="color:#22c55e;">Activated: {{ $application->activated_at->format('d M Y H:i') }} by {{ $application->activatedByUser?->name }}</div>
+                    <div style="color:var(--ds-green);">Activated: {{ $application->activated_at->format('d M Y H:i') }} by {{ $application->activatedByUser?->name }}</div>
                     @endif
                     @if($application->status_notes)
-                    <div class="mt-2 p-2 rounded text-xs" style="background:var(--surface-2); color:var(--text-secondary);">{{ $application->status_notes }}</div>
+                    <div class="mt-2 p-2 rounded-md text-xs" style="background:var(--surface-2); color:var(--text-secondary);">{{ $application->status_notes }}</div>
                     @endif
                 </div>
             </div>
@@ -101,7 +110,7 @@
         {{-- ══════════════════════════════════════
              MIDDLE — Documents
              ══════════════════════════════════════ --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Documents</h3>
 
             {{-- Upload form --}}
@@ -127,9 +136,9 @@
                 @forelse($application->documents as $doc)
                 <div class="flex items-center gap-2 p-2 rounded-md" style="border:1px solid var(--border);">
                     @if($doc->status === 'verified')
-                        <span class="text-green-500 flex-shrink-0"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg></span>
+                        <span class="flex-shrink-0" style="color:var(--ds-green);"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg></span>
                     @elseif($doc->status === 'rejected')
-                        <span class="text-red-500 flex-shrink-0"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" /></svg></span>
+                        <span class="flex-shrink-0" style="color:var(--ds-crimson);"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" /></svg></span>
                     @else
                         <span class="flex-shrink-0" style="color:var(--text-muted);"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg></span>
                     @endif
@@ -146,14 +155,14 @@
                         <form method="POST" action="{{ route('onboarding.verify-document', $doc) }}" class="inline">
                             @csrf
                             <input type="hidden" name="action" value="verify">
-                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.25);">Verify</button>
+                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-green) 12%, transparent); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--ds-green) 25%, transparent);">Verify</button>
                         </form>
                         <form method="POST" action="{{ route('onboarding.verify-document', $doc) }}" class="inline"
                               x-data onsubmit="event.preventDefault(); let r = prompt('Rejection reason:'); if(r) { this.querySelector('[name=rejection_reason]').value = r; this.submit(); }">
                             @csrf
                             <input type="hidden" name="action" value="reject">
                             <input type="hidden" name="rejection_reason" value="">
-                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,0.12); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Reject</button>
+                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-crimson) 12%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Reject</button>
                         </form>
                         @endif
                     </div>
@@ -167,24 +176,24 @@
         {{-- ══════════════════════════════════════
              RIGHT — Checklist
              ══════════════════════════════════════ --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <h3 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Onboarding Checklist</h3>
 
             {{-- Progress bar --}}
-            @php $pct = $application->completionPercent(); @endphp
+            @php $pct = (int) round($application->completionPercent()); @endphp
             <div class="flex items-center gap-2 mb-4">
                 <div class="flex-1 h-2 rounded-full overflow-hidden" style="background:var(--border);">
-                    <div class="h-full rounded-full transition-all" style="width:{{ $pct }}%; background:{{ $pct === 100 ? '#22c55e' : '#0ea5e9' }};"></div>
+                    <div class="h-full rounded-full transition-all" style="width:{{ $pct }}%; background:{{ $pct === 100 ? 'var(--ds-green)' : 'var(--brand-icon)' }};"></div>
                 </div>
                 <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $pct }}%</span>
             </div>
 
             <div class="space-y-1">
                 @foreach($application->checklist as $item)
-                <form method="POST" action="{{ route('onboarding.toggle-checklist', $item) }}" class="flex items-start gap-2 p-1.5 rounded transition-colors hover:bg-white/5">
+                <form method="POST" action="{{ route('onboarding.toggle-checklist', $item) }}" class="flex items-start gap-2 p-1.5 rounded-md transition-colors" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                     @csrf
                     <button type="submit" class="flex-shrink-0 mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors"
-                            style="{{ $item->is_completed ? 'background:#22c55e; border-color:#22c55e; color:#fff;' : 'background:var(--surface); border-color:var(--border);' }}">
+                            style="{{ $item->is_completed ? 'background:var(--ds-green); border-color:var(--ds-green); color:#fff;' : 'background:var(--surface); border-color:var(--border);' }}">
                         @if($item->is_completed)
                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                         @endif
@@ -193,7 +202,7 @@
                         <div class="text-xs {{ $item->is_completed ? 'line-through' : '' }}" style="color:{{ $item->is_completed ? 'var(--text-muted)' : 'var(--text-primary)' }};">
                             {{ $item->item_label }}
                             @if($item->is_required)
-                            <span class="text-red-400">*</span>
+                            <span class="text-red-500">*</span>
                             @endif
                         </div>
                         @if($item->is_completed && $item->completed_at)
@@ -214,7 +223,7 @@
          STATUS ACTIONS
          ══════════════════════════════════════ --}}
     @if(!in_array($application->status, ['activated', 'rejected', 'withdrawn']))
-    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Actions</h3>
         <div class="flex items-center gap-3 flex-wrap">
             {{-- Advance --}}
@@ -224,8 +233,8 @@
                   onsubmit="return confirm('Advance to {{ \App\Models\AgentApplication::STATUS_LABELS[$next] }}?')">
                 @csrf
                 <input type="hidden" name="status" value="{{ $next }}">
-                <button type="submit" class="corex-btn-primary text-sm px-4 py-2"
-                        {{ !$application->canAdvanceTo($next) ? 'disabled style=opacity:0.5;cursor:not-allowed' : '' }}>
+                <button type="submit" class="corex-btn-primary text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                        {{ !$application->canAdvanceTo($next) ? 'disabled' : '' }}>
                     Advance to {{ \App\Models\AgentApplication::STATUS_LABELS[$next] }}
                 </button>
             </form>
@@ -245,9 +254,9 @@
                             <option value="{{ $branch->id }}">{{ $branch->name }}</option>
                         @endforeach
                     </select>
-                    <button type="submit" class="text-sm px-4 py-2 rounded-md font-semibold"
-                            style="background:#22c55e; color:#fff;"
-                            {{ !$application->canAdvanceTo('activated') ? 'disabled style=opacity:0.5;cursor:not-allowed;background:#22c55e;color:#fff' : '' }}>
+                    <button type="submit" class="text-sm px-4 py-2 rounded-md font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                            style="background:var(--ds-green); color:#fff;"
+                            {{ !$application->canAdvanceTo('activated') ? 'disabled' : '' }}>
                         Activate Agent
                     </button>
                 </div>

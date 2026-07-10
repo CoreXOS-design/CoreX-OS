@@ -333,8 +333,30 @@ Route::middleware('auth')->group(function () {
             return response()->json(['token' => csrf_token()]);
         })->name('csrf-token');
 
+        // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
+        // session (components/reminder-toast.blade.php). MUST live in this
+        // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
+        // stateful session disabled) which 401'd every poll. Self-scoped per user.
+        Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
+        Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
+        Route::post('/command-center/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('command-center.reminders.snooze');
+
         Route::get('/properties',      [\App\Http\Controllers\Api\V1\PropertiesController::class, 'index'])->name('properties.index');
         Route::get('/properties/{property}', [\App\Http\Controllers\Api\V1\PropertiesController::class, 'show'])->name('properties.show');
+
+        // Shared syndication panel for one property — the SAME surface the
+        // property page renders inline. Fetched by the Properties index so a
+        // card/row opens the real control (toggle · refresh · deactivate ·
+        // live preview) instead of a second, divergent copy of it.
+        //
+        // Registered here, not in routes/api.php: bootstrap/app.php strips
+        // Sanctum's EnsureFrontendRequestsAreStateful from the `api` group, so
+        // /api/v1/* there is bearer-token only (mobile) and a cookie-authed
+        // browser fetch returns "Unauthenticated." The URI still starts with
+        // api/, so the endpoint appears in the Admin → API catalogue (NN #7).
+        Route::get('/properties/{property}/syndication-panel', \App\Http\Controllers\Api\PropertySyndicationPanelController::class)
+            ->middleware('permission:access_properties')
+            ->name('properties.syndication-panel');
 
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
@@ -621,6 +643,30 @@ Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:ac
     Route::get('/history', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'history'])->name('deposit-interest-calculator.history')->middleware('permission:access_deposit_calc_history');
     Route::get('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'show'])->name('deposit-interest-calculator.show')->middleware('permission:access_deposit_calc_history');
     Route::delete('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'destroy'])->name('deposit-interest-calculator.destroy')->middleware('permission:access_deposit_calc_history');
+});
+
+// ===== DEAL REGISTER (DR2) — shared shell (AT-215) =====
+// DR2 rebuilds DR1 on the SAME `deals` tables (spec deal-register-v2-rebuild-spec.md),
+// coexisting with DR1 behind its own nav + permission. Distinct from the abandoned
+// deals-v2 module (URI `deals-v2/*`), which sunsets under AT-219. Reuses DR1's deal
+// permissions (view_deals / create_deals). AT-217 (cc3) builds the capture into create/store.
+Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(function () {
+    Route::get('/',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'index'])->middleware('permission:view_deals')->name('index');
+    Route::get('/create',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'create'])->middleware('permission:create_deals')->name('create');
+    Route::post('/',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'store'])->middleware('permission:create_deals')->name('store');
+
+    // AT-217 §2 capture-enhancement JSON feeds (canonical property picker + linked
+    // seller/buyer contacts + attorney supplier directory). Static paths declared
+    // BEFORE the {deal} wildcards so they never shadow-capture.
+    Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
+    // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
+    // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
+    Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
+    Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
+
+    Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
+    Route::put('/{deal}',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====

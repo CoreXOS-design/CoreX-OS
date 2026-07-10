@@ -21,6 +21,12 @@ use Illuminate\Support\Str;
  * Uses GD (loaded locally AND on prod, unlike imagick) — same dependency the
  * upload downscaler and AgentPhotoNormalizer already rely on.
  *
+ * This service does NOT delete the original. Ordering matters: the original may
+ * only be unlinked once the property JSON has committed the new URL, or a failed
+ * swap leaves the listing pointing at a file that no longer exists (property
+ * 6060 — PrivateProperty 404'd on it and rejected every listing update). The
+ * caller owns that sequence; see PropertyController::rotateImage.
+ *
  * Spec: .ai/specs/gallery-image-rotation.md
  */
 class PropertyImageRotator
@@ -29,7 +35,9 @@ class PropertyImageRotator
      * @param  int  $degrees  Passed straight to GD imagerotate() (counter-
      *                        clockwise positive): 90 = rotate left,
      *                        -90 = rotate right, 180 = flip.
-     * @return string The new public URL of the rotated file.
+     * @return string The new public URL of the rotated file. The original is
+     *                left on disk for the caller to remove after it has
+     *                persisted the new URL.
      *
      * @throws \InvalidArgumentException  url outside this property's dir, or unreadable
      * @throws \RuntimeException          GD unavailable / encode failed
@@ -74,9 +82,6 @@ class PropertyImageRotator
 
         $this->encode($rotated, $disk->path($newRel), (int) $info[2]);
         imagedestroy($rotated);
-
-        // Remove the original now the rotated copy is written.
-        $disk->delete($rel);
 
         return $disk->url($newRel);
     }

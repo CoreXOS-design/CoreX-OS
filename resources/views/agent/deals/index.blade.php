@@ -12,7 +12,7 @@
                 <h1 class="text-xl font-bold text-white leading-tight">My Deals</h1>
                 <p class="text-sm text-white/60" data-tour="at-agent-deals-intro">Deals where you are allocated on listing and/or selling side.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
                 <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-semibold text-white"
                       data-tour="at-agent-deals-count"

@@ -236,7 +236,7 @@
                                 elseif ($csVal === 'Loss') $commBadge = 'ds-badge-loss';
                             @endphp
 
-                            <tr class="relative">
+                            <tr>
                                 <td class="px-3 py-2.5">
                                     <a href="{{ route('admin.deals.edit', $deal) }}" class="ds-agent-link font-bold">{{ $deal->deal_no }}</a>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $deal->deal_date ? \Carbon\Carbon::parse($deal->deal_date)->format('d M Y') : '—' }}</div>
@@ -276,12 +276,12 @@
                                     </div>
                                 </td>
 
-                                <td class="px-2 py-2.5 text-center" x-data="{ open: false }">
+                                <td class="px-2 py-2.5 text-center relative" x-data="{ open: false }">
                                     <button type="button" @click="open = !open" class="deals-quick-edit p-1 rounded-md transition-colors duration-150" style="color: var(--text-muted);" title="Quick status update">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
                                     </button>
                                     <div x-show="open" @click.outside="open = false" x-cloak
-                                         class="absolute right-0 z-20 mt-1 p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border); min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+                                         class="absolute right-0 top-full z-30 mt-1 p-3 rounded-md text-left" style="background: var(--surface); border: 1px solid var(--border); min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
                                         <form method="POST" action="{{ route('admin.deals.quickUpdate', $deal) }}">
                                             @csrf
                                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Accepted</label>

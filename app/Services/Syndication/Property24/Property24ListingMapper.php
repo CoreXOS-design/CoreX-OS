@@ -1625,6 +1625,24 @@ class Property24ListingMapper
         return in_array($p24Status, ['Sold', 'Rented', 'Withdrawn', 'Expired', 'Cancelled']);
     }
 
+    /**
+     * Does pushing this P24 status take the listing OFF the portal?
+     *
+     * Terminal is NOT the same as removed. 'Sold' and 'Rented' are terminal
+     * market states that P24 keeps on the portal (it shows them as sold/rented
+     * stock); only 'Withdrawn', 'Expired' and 'Cancelled' actually remove the
+     * listing. Conflating the two stranded live listings: a Sold push wrote
+     * p24_syndication_status='deactivated', and every delist path downstream
+     * then skipped the property as "already off the portal" while P24's own
+     * is-on-portal still answered true.
+     *
+     * Audit: .ai/audits/p24-sold-not-delisted-2026-07-10.md (property #2142)
+     */
+    public static function removesFromPortal(string $p24Status): bool
+    {
+        return in_array($p24Status, ['Withdrawn', 'Expired', 'Cancelled'], true);
+    }
+
     private function mapListingType(?string $type): string
     {
         if (empty($type)) return 'Sale';

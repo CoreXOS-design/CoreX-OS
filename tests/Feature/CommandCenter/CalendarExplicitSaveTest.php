@@ -103,6 +103,34 @@ final class CalendarExplicitSaveTest extends TestCase
         $this->assertSame(['appointments', 'deal'], $pref->calendar_layers, 'layers promoted');
     }
 
+    /**
+     * AT-164 view-trap regression (2026-07-07). The client only sends `view` /
+     * `scroll_mode` in the save payload when the user DELIBERATELY chose them via the
+     * switcher (the transient `view` key). A save that OMITS those fields — the shape the
+     * browser POSTs after an arrangement tweak with no deliberate view choice — must leave
+     * the existing default_view (and saved scroll_mode) untouched. Guards the backend
+     * contract the client fix depends on: five agents were silently locked into Day view
+     * because an arrangement save used to carry a forced day view.
+     */
+    public function test_save_without_view_leaves_the_existing_default_view_untouched(): void
+    {
+        CalendarUserPreference::create([
+            'user_id' => $this->user->id, 'default_view' => 'month',
+            'calendar_cockpit' => ['scroll_mode' => 'paged'],
+        ]);
+
+        $this->actingAs($this->user)->postJson(route('command-center.calendar.cockpit.save'), [
+            // Arrangement-only save — NO `view`, NO `scroll_mode` (user made no deliberate choice).
+            'strip_collapsed' => true,
+            'strip_height'    => 200,
+        ])->assertOk();
+
+        $pref = $this->pref();
+        $this->assertSame('month', $pref->default_view, 'default_view NOT clobbered by an arrangement-only save');
+        $this->assertSame('paged', $pref->calendar_cockpit['scroll_mode'], 'saved scroll_mode preserved');
+        $this->assertTrue($pref->calendar_cockpit['strip_collapsed'], 'the arrangement fields that WERE sent still save');
+    }
+
     public function test_save_drops_unknown_tiles_and_layers_but_keeps_valid_ones(): void
     {
         $real = array_column(app(CalendarTileService::class)->catalog($this->user), 'tile_id')[0];

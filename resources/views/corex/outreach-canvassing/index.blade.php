@@ -13,9 +13,9 @@
 
 @php
     $sourceTokens = [
-        'mic_prospect'   => '--ds-emerald,#059669',
-        'direct_contact' => '--brand-link,#0e7490',
-        'comms_tile'     => '--ds-orange,#d97706',
+        'mic_prospect'   => '--ds-green,#059669',
+        'direct_contact' => '--brand-icon,#0ea5e9',
+        'comms_tile'     => '--ds-orange,#ea580c',
     ];
     $sub = $feed['subtotals'] ?? ['mic_prospect' => 0, 'direct_contact' => 0, 'comms_tile' => 0];
 @endphp
@@ -49,7 +49,7 @@
         <button @click="tab = 'consent'"
                 :style="tab === 'consent' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-secondary,#6b7280);'"
                 :class="tab === 'consent' ? 'border-b-2' : 'border-b-2 border-transparent'"
-                class="px-4 py-2.5 text-sm font-semibold">Consent Funnel <span class="text-xs font-normal" style="color:var(--text-tertiary,#9ca3af);">(AT-91)</span></button>
+                class="px-4 py-2.5 text-sm font-semibold">Consent Funnel</button>
     </div>
 
     {{-- ════════════════ TAB 1 — ACTIVITY FEED ════════════════ --}}
@@ -73,7 +73,7 @@
             <div class="rounded-md px-4 py-3" style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb);">
                 <div class="text-xs font-semibold" style="color:var(--text-secondary,#6b7280);">Total actions</div>
                 <div class="text-2xl font-bold mt-1 tabular-nums" style="color:var(--text-primary,#0b2a4a);">{{ number_format($feed['total'] ?? 0) }}</div>
-                <div class="text-[0.625rem] mt-0.5" style="color:var(--text-tertiary,#9ca3af);">
+                <div class="text-[0.625rem] mt-0.5" style="color:var(--text-muted,#9ca3af);">
                     = {{ number_format($sub['mic_prospect'] ?? 0) }} + {{ number_format($sub['direct_contact'] ?? 0) }} + {{ number_format($sub['comms_tile'] ?? 0) }}
                 </div>
             </div>
@@ -98,14 +98,20 @@
             </select>
             @if($filterSource)
                 <a href="{{ route('corex.outreach-canvassing.index', ['tab' => 'activity', 'days' => $filterDays]) }}"
-                   class="text-xs font-semibold" style="color:var(--brand-link,#0e7490);">Clear source filter</a>
+                   class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear source filter</a>
             @endif
         </form>
 
         @if(empty($feed['rows']))
-            <div class="rounded-md p-8 text-center" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
-                <p class="text-base font-semibold" style="color:var(--text-primary,#0b2a4a);">No outreach or canvassing activity yet</p>
-                <p class="mt-1 text-sm" style="color:var(--text-secondary,#6b7280);">
+            <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+                    </svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">No outreach or canvassing activity yet</h3>
+                <p class="text-sm" style="color:var(--text-muted,#9ca3af);">
                     Claims, pitches and comms-tile messages will appear here as they happen — each tagged with where it came from.
                 </p>
             </div>
@@ -139,7 +145,7 @@
                                     <td class="px-4 py-2.5 whitespace-nowrap" style="color:var(--text-secondary,#6b7280);">{{ $r['agent'] }}</td>
                                     <td class="px-4 py-2.5 whitespace-nowrap" style="color:var(--text-secondary,#6b7280);">{{ $r['channel'] ? ucfirst($r['channel']) : '—' }}</td>
                                     <td class="px-4 py-2.5 whitespace-nowrap" style="color:var(--text-secondary,#6b7280);">{{ $r['outcome'] ?: '—' }}</td>
-                                    <td class="px-4 py-2.5 text-right whitespace-nowrap tabular-nums" style="color:var(--text-tertiary,#9ca3af);"
+                                    <td class="px-4 py-2.5 text-right whitespace-nowrap tabular-nums" style="color:var(--text-muted,#9ca3af);"
                                         title="{{ $r['when'] ? \Carbon\Carbon::parse($r['when'])->format('j M Y H:i') : '' }}">
                                         {{ $r['when'] ? \Carbon\Carbon::parse($r['when'])->diffForHumans() : '—' }}
                                     </td>
@@ -150,11 +156,11 @@
                 </div>
             </div>
             @if(!empty($feed['truncated']))
-                <p class="text-xs" style="color:var(--text-tertiary,#9ca3af);">
+                <p class="text-xs" style="color:var(--text-muted,#9ca3af);">
                     Showing the most recent actions in this window. Narrow the window or filter by source to see more.
                 </p>
             @endif
-            <p class="text-xs" style="color:var(--text-tertiary,#9ca3af);">
+            <p class="text-xs" style="color:var(--text-muted,#9ca3af);">
                 Source tags are derived from durable facts: a pitch counts as <strong>MIC prospecting</strong> when its property
                 is a matched prospecting listing, otherwise <strong>Direct contact</strong>; comms-tile quick-sends are their own
                 stream. The three are never merged — the total above is the visible sum of the parts.
@@ -164,7 +170,7 @@
 
     {{-- ════════════════ TAB 2 — CONSENT FUNNEL (AT-91, as-is) ════════════════ --}}
     <div x-show="tab === 'consent'" x-cloak>
-        @include('corex.outreach-summary._board', ['rows' => $rows, 'totals' => $totals, 'hasAwaiting' => $hasAwaiting])
+        @include('corex.outreach-summary._board', ['rows' => $rows, 'totals' => $totals, 'hasAwaiting' => $hasAwaiting, 'embedded' => true])
     </div>
 </div>
 @endsection

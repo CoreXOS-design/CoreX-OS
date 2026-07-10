@@ -19,7 +19,7 @@ class PortalLeadController extends Controller
             ->orderByDesc('received_at');
 
         if ($portal = $request->get('portal')) {
-            if (in_array($portal, [PortalLead::PORTAL_P24, PortalLead::PORTAL_PP], true)) {
+            if (in_array($portal, [PortalLead::PORTAL_P24, PortalLead::PORTAL_PP, PortalLead::PORTAL_WEBSITE], true)) {
                 $query->where('portal', $portal);
             }
         }

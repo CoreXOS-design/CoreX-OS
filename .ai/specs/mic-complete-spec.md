@@ -1590,3 +1590,36 @@ For easy retrieval when planning future builds — these are decisions already m
 **Approval:** Johan Reichel — [signature pending in chat]
 **Implementation start:** Upon Johan's approval in chat.
 **First build prompt:** Phase A1 (schema migrations).
+---
+
+# Addendum — "This Week" tile buttons: relative URLs + count-matches-destination (2026-07-07)
+
+**Bug reported:** the three "This Week" hero action buttons (Pitch now / View pocket / See new) "do not work."
+
+**Two root causes:**
+
+1. **Cross-domain links (the "do nothing").** Tiles are cached by `WarmThisWeekTilesJob`
+   at 02:30 — a queue context with no request host — so `route()` baked the absolute
+   `APP_URL` host (`corexos.co.za`) into every link. With `session.domain = NULL` (host-only
+   cookies), an agent on the canonical `corex.hfcoastal.co.za` who clicked a tile navigated
+   cross-domain to `corexos.co.za`, where their session cookie does not exist → bounced to
+   login. **Fix:** `ThisWeekTileBuilder` now builds every `action_url` **relative**
+   (`route(..., [], false)`) — host-agnostic, so it works on whichever domain the agent is on
+   AND the nightly warm job can never bake a cross-domain host again.
+
+2. **Count ≠ destination.** Each tile's headline number came from a *different* query than the
+   Work-tab list its link opens: `matches` counted raw buyer-match listings (4592) vs the
+   `pitch_now_high` preset (829); `new_listings` counted `tracked_properties` since Friday (7)
+   vs the `new_today` preset on `prospecting_listings` since today (0 → "See new" landed on an
+   empty list); `pocket` showed buyer *demand* (6) vs the suburb+bedrooms *supply* filter (1).
+   **Fix:** the preset logic moved into `App\Services\Prospecting\ProspectingActionPresetService`
+   (single source of truth). `MarketIntelligenceController::applyActionPreset()` delegates to it,
+   and the tile builder counts through it — running the SAME query the list runs AND collapsing
+   cross-listed duplicates the same way (`groupBy(property_group_id ?? 'single_'.id)`). So a
+   tile's number now equals the row count you land on. The pocket tile headlines the *supply*
+   (listings to work) with demand as sentence context, and any tile whose destination is empty
+   is suppressed — a tile can never advertise N and land on 0.
+
+**Tests:** `tests/Feature/MarketIntelligence/ThisWeekTileConsistencyTest.php` — grouped count
+collapses cross-listed duplicates (3 rows / 2 groups → 2); every emitted tile URL is relative.
+Live-verified for Andre: matches 829==829, pocket 1==1, new-listings tile correctly hidden (0).

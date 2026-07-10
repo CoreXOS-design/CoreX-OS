@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -9,7 +10,7 @@
     $canBulk = $can['download'] || $can['deleteFile'];
 @endphp
 
-<div x-data="sharedDrive()">
+<div class="w-full" x-data="sharedDrive()">
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
@@ -34,14 +35,14 @@
                     <p class="text-sm text-white/60">{{ $drive->is_restricted ? 'Visible only to invited members.' : 'Shared with everyone in the agency.' }} Max 50&nbsp;MB per file.</p>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 @if($can['manageDrive'])
-                    <button type="button" @click="showAccessModal = true" class="corex-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.4);">
+                    <button type="button" @click="showAccessModal = true" class="corex-btn-outline corex-btn-on-brand">
                         Manage Access
                     </button>
                 @endif
                 @if($can['createFolder'])
-                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.4);">
+                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline corex-btn-on-brand">
                         + New Folder
                     </button>
                 @endif
@@ -86,7 +87,7 @@
                     <li class="flex items-center justify-between px-4 py-2 text-sm gap-3">
                         <span class="truncate" style="color: var(--text-primary);" x-text="item.name"></span>
                         <span class="text-xs flex-shrink-0"
-                              :style="item.status === 'error' ? 'color: var(--ds-crimson);' : (item.status === 'done' ? 'color: var(--ds-emerald, #10b981);' : 'color: var(--text-secondary);')"
+                              :style="item.status === 'error' ? 'color: var(--ds-crimson);' : (item.status === 'done' ? 'color: var(--ds-green, #059669);' : 'color: var(--text-secondary);')"
                               x-text="item.message"></span>
                     </li>
                 </template>
@@ -113,7 +114,7 @@
                             </svg>
                             <div class="min-w-0">
                                 <div class="text-sm font-medium truncate" style="color: var(--text-primary);" title="{{ $f->name }}">{{ $f->name }}</div>
-                                <div class="text-xs" style="color: var(--text-secondary);">{{ $f->children_count }} folder(s) · {{ $f->files_count }} file(s)</div>
+                                <div class="text-xs" style="color: var(--text-secondary);">{{ number_format($f->children_count) }} folder(s) · {{ number_format($f->files_count) }} file(s)</div>
                             </div>
                         </a>
                         @if($can['deleteFolder'])
@@ -147,31 +148,32 @@
             @endif
         </div>
         @if($files->count())
-            <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                <table class="w-full text-sm">
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm ds-table">
                     <thead>
-                        <tr style="background: var(--surface-2, var(--surface)); color: var(--text-secondary);">
+                        <tr>
                             @if($canBulk)
-                                <th class="px-4 py-2 w-10">
+                                <th class="px-4 py-2.5 w-10">
                                     <input type="checkbox" :checked="allSelected" @change="toggleAll($event)" title="Select all" style="cursor:pointer;">
                                 </th>
                             @endif
-                            <th class="text-left font-medium px-4 py-2">Name</th>
-                            <th class="text-left font-medium px-4 py-2 hidden md:table-cell">Uploaded by</th>
-                            <th class="text-left font-medium px-4 py-2 hidden sm:table-cell">Size</th>
-                            <th class="text-left font-medium px-4 py-2 hidden lg:table-cell">Date</th>
-                            <th class="px-4 py-2"></th>
+                            <th class="text-left px-4 py-2.5">Name</th>
+                            <th class="text-left px-4 py-2.5 hidden md:table-cell">Uploaded by</th>
+                            <th class="text-left px-4 py-2.5 hidden sm:table-cell">Size</th>
+                            <th class="text-left px-4 py-2.5 hidden lg:table-cell">Date</th>
+                            <th class="px-4 py-2.5"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($files as $file)
-                            <tr style="border-top: 1px solid var(--border); color: var(--text-primary);" :class="selectedIds.includes({{ $file->id }}) ? 'is-selected' : ''">
+                            <tr style="color: var(--text-primary);" :class="selectedIds.includes({{ $file->id }}) ? 'is-selected' : ''">
                                 @if($canBulk)
-                                    <td class="px-4 py-2 w-10">
+                                    <td class="px-4 py-3 w-10">
                                         <input type="checkbox" :value="{{ $file->id }}" x-model.number="selectedIds" style="cursor:pointer;">
                                     </td>
                                 @endif
-                                <td class="px-4 py-2">
+                                <td class="px-4 py-3">
                                     <div class="flex items-center gap-2 min-w-0">
                                         <span class="text-base">{!! $file->isImage() ? '🖼️' : ($file->extension === 'pdf' ? '📕' : '📄') !!}</span>
                                         @if($file->isViewableInline())
@@ -185,10 +187,10 @@
                                         @endif
                                     </div>
                                 </td>
-                                <td class="px-4 py-2 hidden md:table-cell" style="color: var(--text-secondary);">{{ $file->uploader?->name ?? '—' }}</td>
-                                <td class="px-4 py-2 hidden sm:table-cell" style="color: var(--text-secondary);">{{ $file->human_size }}</td>
-                                <td class="px-4 py-2 hidden lg:table-cell" style="color: var(--text-secondary);">{{ $file->created_at?->format('d M Y') }}</td>
-                                <td class="px-4 py-2">
+                                <td class="px-4 py-3 hidden md:table-cell" style="color: var(--text-secondary);">{{ $file->uploader?->name ?? '—' }}</td>
+                                <td class="px-4 py-3 hidden sm:table-cell" style="color: var(--text-secondary);">{{ $file->human_size }}</td>
+                                <td class="px-4 py-3 hidden lg:table-cell" style="color: var(--text-secondary);">{{ $file->created_at?->format('d M Y') }}</td>
+                                <td class="px-4 py-3">
                                     <div class="flex items-center justify-end gap-1">
                                         @if($can['download'])
                                             <a href="{{ route('documents.shared-drive.files.download', $file->id) }}" class="p-1.5 rounded hover:bg-black/5" title="Download" style="color: var(--brand-icon);">
@@ -210,12 +212,22 @@
                         @endforeach
                     </tbody>
                 </table>
+              </div>
             </div>
         @else
-            <div class="rounded-md px-6 py-12 text-center" style="background: var(--surface); border: 1px dashed var(--border);">
-                <p class="text-sm" style="color: var(--text-secondary);">This folder is empty.</p>
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                    </svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">This folder is empty</h3>
                 @if($can['upload'])
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">Drag files here, or use the Upload button above.</p>
+                    <p class="text-sm mb-4" style="color: var(--text-muted);">Drag files here, or use the Upload button above to add documents.</p>
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary">Upload Files</button>
+                @else
+                    <p class="text-sm" style="color: var(--text-muted);">No files have been added here yet.</p>
                 @endif
             </div>
         @endif

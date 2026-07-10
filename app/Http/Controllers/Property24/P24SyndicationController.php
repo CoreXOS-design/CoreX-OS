@@ -35,7 +35,12 @@ class P24SyndicationController extends Controller
             $updateData['p24_syndication_status'] = 'pending';
         }
 
-        if (!$nowEnabled && in_array($property->p24_syndication_status, ['submitted', 'active'])) {
+        // Switching syndication off must take the listing OFF the portal. Guard on
+        // "may still be live" (a p24_ref and no 'deactivated' marker), never on a
+        // whitelist of statuses: the old ['submitted','active'] check silently
+        // skipped the delist for 'sold'/'rented' (still on the portal), 'pending'
+        // and 'error' — leaving the listing live while CoreX reported it removed.
+        if (!$nowEnabled && $property->mayBeLiveOnP24()) {
             $result = $this->syndicationService->deactivateListing($property);
             if (!$result['success']) {
                 return response()->json(['success' => false, 'message' => 'Failed to deactivate on P24: ' . ($result['message'] ?? 'Unknown error')], 422);

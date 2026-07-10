@@ -71,6 +71,45 @@ class Property extends Model
     }
 
     /**
+     * The one value of p24_syndication_status / pp_syndication_status that means
+     * "the portal no longer carries this listing". Every other value — including
+     * the terminal-but-still-listed 'sold' / 'rented' — means the listing may
+     * still be visible, so a delist must be attempted.
+     */
+    public const PORTAL_OFF_STATUS = 'deactivated';
+
+    /**
+     * P24 statuses that are terminal on the market but leave the listing ON the
+     * portal. Written by PropertyObserver's status auto-sync; recognised here so
+     * the delist guards and the portal-link builder agree on what "still live"
+     * means. See Property24ListingMapper::removesFromPortal().
+     */
+    public const P24_ON_PORTAL_TERMINAL_STATUSES = ['sold', 'rented'];
+
+    /**
+     * True when P24 may still be showing this listing. The ONLY safe basis for a
+     * delist guard: we hold a portal reference and nothing has told us the
+     * listing left the portal. Anything else — 'sold', 'rented', 'pending',
+     * 'error', 'submitting' — is a listing we must still try to withdraw.
+     *
+     * Deliberately NOT gated on p24_syndication_enabled: that flag is a "should
+     * CoreX sync" switch, and a listing toggled off while live is exactly the
+     * case that stranded property #2142 on the portal.
+     */
+    public function mayBeLiveOnP24(): bool
+    {
+        return ! empty($this->p24_ref)
+            && $this->p24_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /** Private Property mirror of mayBeLiveOnP24(). */
+    public function mayBeLiveOnPp(): bool
+    {
+        return ! empty($this->pp_ref)
+            && $this->pp_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /**
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
@@ -780,6 +819,88 @@ class Property extends Model
     }
 
     /**
+     * Is this listing currently advertised on ANY syndication portal — the
+     * agency's own website, Property24, or Private Property?
+     *
+     * This, not isPublished(), is what "Live" means to an agent. `published_at`
+     * is the legacy HFC-Premium publish flag, written only by the publish
+     * checkbox and the publish/unpublish action; NO syndication path touches it
+     * (verified: `published_at` appears nowhere in the syndication controllers
+     * or services). A listing can therefore be live on all three portals with a
+     * null `published_at`, and vice versa.
+     *
+     * Derived from portalLinks() so there is one definition of "live on a
+     * portal" and the badge can never disagree with the syndication panel.
+     * Free of queries when `websiteSyndication` is eager-loaded.
+     */
+    public function isLiveOnAnyPortal(): bool
+    {
+        foreach ($this->portalLinks() as $link) {
+            if ($link['status'] === 'live') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * SQL twin of isLiveOnAnyPortal() — same three portals, same gates, so the
+     * "Live" KPI tile and its filter count exactly the cards that wear the
+     * badge. Keep in lockstep with portalLinks()/buildP24Url()/buildPpUrl().
+     */
+    public function scopeLiveOnAnyPortal($query)
+    {
+        $ppOffMarket = ['deactivated', 'disabled', 'archived', 'removed', 'expired'];
+
+        return $query->where(function ($outer) use ($ppOffMarket) {
+            // Own website — the pivot row is enabled for at least one site.
+            $outer->whereExists(function ($sub) {
+                $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                    ->from('property_website_syndication as pws')
+                    ->whereColumn('pws.property_id', 'properties.id')
+                    ->whereNull('pws.deleted_at')
+                    ->where('pws.enabled', true);
+            })
+            // Property24 — switched ON, with a reference and an active status.
+            // The `enabled` gate is what makes a disabled listing stop counting:
+            // its status column keeps its stale 'active' value. See portalLinks().
+            ->orWhere(function ($p24) {
+                $p24->where('p24_syndication_enabled', true)
+                    ->whereNotNull('p24_ref')
+                    ->where('p24_ref', '!=', '')
+                    ->where('p24_syndication_status', 'active');
+            })
+            // Private Property — switched ON, with a reference. The ref is the
+            // durable live signal; the status flaps on every routine re-push, so
+            // only an off-market status kills it.
+            ->orWhere(function ($pp) use ($ppOffMarket) {
+                $pp->where('pp_syndication_enabled', true)
+                   ->whereNotNull('pp_ref')
+                   ->where('pp_ref', '!=', '')
+                   ->where(function ($s) use ($ppOffMarket) {
+                       $s->whereNull('pp_syndication_status')
+                         ->orWhereNotIn('pp_syndication_status', $ppOffMarket);
+                   });
+            });
+        });
+    }
+
+    /**
+     * The portals this listing is live on, by label. Drives the Live badge's
+     * tooltip so the agent sees WHERE it is live without opening the panel.
+     *
+     * @return string[]
+     */
+    public function livePortalLabels(): array
+    {
+        return array_values(array_map(
+            static fn (array $l) => $l['label'],
+            array_filter($this->portalLinks(), static fn (array $l) => $l['status'] === 'live'),
+        ));
+    }
+
+    /**
      * Cosmetic/SEO slug for the public website — the title run through the
      * exact same transform as Laravel's Str::slug() (lowercase, accents
      * stripped, every run of non-alphanumeric characters collapsed to a
@@ -946,13 +1067,15 @@ class Property extends Model
     /**
      * P24 slug-composed direct listing URL. Returns null unless we have an
      * activated p24_ref. Sandbox vs production picked from p24_syndication_status
-     * to stay consistent with the legacy inline JS — only 'active' listings
-     * earn a real URL; in-flight states (submitted, pending) don't yet point
-     * at a live page on P24.
+     * to stay consistent with the legacy inline JS — in-flight states (submitted,
+     * pending) don't yet point at a live page on P24. 'sold' / 'rented' listings
+     * DO have a live page: P24 keeps terminal-but-not-removed stock on the portal.
      */
     private function buildP24Url(): ?string
     {
-        if (empty($this->p24_ref) || $this->p24_syndication_status !== 'active') {
+        $onPortal = array_merge(['active'], self::P24_ON_PORTAL_TERMINAL_STATUSES);
+
+        if (empty($this->p24_ref) || ! in_array((string) $this->p24_syndication_status, $onPortal, true)) {
             return null;
         }
         $slugify = static function (?string $s): string {
@@ -1056,10 +1179,14 @@ class Property extends Model
         // (the property_website_syndication pivot — same check the mobile
         // Overview placement used). The public URL is composed by the
         // config-driven public_url accessor (never hardcoded).
-        $websiteLive = \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->where('property_id', $this->id)
-            ->where('enabled', true)
-            ->exists();
+        // Eager-loaded on list screens (many properties per page) so the check
+        // costs one query for the page rather than one per property.
+        $websiteLive = $this->relationLoaded('websiteSyndication')
+            ? $this->websiteSyndication->contains(fn ($row) => (bool) $row->enabled)
+            : \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('property_id', $this->id)
+                ->where('enabled', true)
+                ->exists();
         $links[] = [
             'portal' => 'website',
             'label'  => 'Company Website',
@@ -1069,22 +1196,31 @@ class Property extends Model
         ];
 
         // ── Property24 ─────────────────────────────────────────────
-        $p24Url = $this->buildP24Url();
+        // The `enabled` switch is authoritative, not the status column. Turning
+        // a portal off leaves `*_syndication_status` at its last value — the
+        // deactivate call updates it only on success, and legacy rows never had
+        // it cleared — so a disabled listing routinely still reads 'active'.
+        // Trusting the status alone marked sold, fully-unsyndicated listings as
+        // live. A portal is live only when the agency has it switched ON *and*
+        // the portal has confirmed the listing.
+        $p24Url  = $this->buildP24Url();
+        $p24Live = $p24Url !== null && (bool) $this->p24_syndication_enabled;
         $links[] = [
             'portal' => 'property24',
             'label'  => 'Property24',
-            'status' => $p24Url ? 'live' : 'not_published',
-            'url'    => $p24Url,
+            'status' => $p24Live ? 'live' : 'not_published',
+            'url'    => $p24Live ? $p24Url : null,
             'ref'    => $this->p24_ref,
         ];
 
         // ── Private Property ───────────────────────────────────────
-        $ppUrl = $this->buildPpUrl();
+        $ppUrl  = $this->buildPpUrl();
+        $ppLive = $ppUrl !== null && (bool) $this->pp_syndication_enabled;
         $links[] = [
             'portal' => 'private_property',
             'label'  => 'Private Property',
-            'status' => $ppUrl ? 'live' : 'not_published',
-            'url'    => $ppUrl,
+            'status' => $ppLive ? 'live' : 'not_published',
+            'url'    => $ppLive ? $ppUrl : null,
             'ref'    => $this->pp_ref,
         ];
 
@@ -1253,6 +1389,61 @@ class Property extends Model
         )));
 
         return !empty($gallery) ? $gallery : $this->allImages();
+    }
+
+    /**
+     * The syndication gallery minus any CoreX-hosted photo whose file is not on
+     * disk. Externally-hosted images (portal mirrors) are kept — we cannot stat
+     * another host.
+     *
+     * PrivateProperty downloads every photo BY URL and rejects the ENTIRE
+     * UpdateListing when one 404s (PP120), so a dangling reference silently
+     * blocks all further updates of that listing. Publishing only what we can
+     * actually serve means a bad reference costs one photo, never the listing.
+     *
+     * @return string[]
+     */
+    public function servableSyndicationImages(): array
+    {
+        return array_values(array_filter(
+            $this->syndicationImages(),
+            fn ($url) => !\App\Services\Images\PropertyImageGuard::isLocal($url)
+                || \App\Services\Images\PropertyImageGuard::existsOnDisk($url)
+        ));
+    }
+
+    /**
+     * True when this property has photos on paper but none we can actually
+     * serve. Such a listing must NOT be pushed to a portal: it would submit an
+     * empty photo set, which can clear the images on the live portal listing.
+     * Refuse and surface it instead.
+     */
+    public function hasGalleryButNothingServable(): bool
+    {
+        return !empty($this->syndicationImages()) && empty($this->servableSyndicationImages());
+    }
+
+    /**
+     * Fingerprint of the gallery AS THE BROWSER LAST SAW IT. Handed to the page
+     * at render and echoed back on save, so the server can tell a save built on
+     * the current gallery from one built on a stale copy.
+     *
+     * Why this exists: the gallery save posts the client's ENTIRE image array as
+     * the new truth. Two tabs open on the same property means last-write-wins —
+     * the older tab silently reverts anything the newer one did. That is how the
+     * property 6060 dangling reference was created: a tab loaded before a photo
+     * rotation re-posted its pre-rotation array, resurrecting the URL of the file
+     * the rotation had already deleted, and PrivateProperty then 404'd on it.
+     *
+     * Compare with `===` against the value the client sends; a mismatch means
+     * "your copy is out of date" and the save must be refused, not merged.
+     */
+    public function galleryFingerprint(): string
+    {
+        return sha1(json_encode([
+            $this->gallery_images_json ?? [],
+            $this->gallery_categories_json ?? [],
+        ]));
     }
 
     /**

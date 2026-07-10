@@ -8,7 +8,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-portal-leads-intro">
                 <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Portal Leads</h1>
-                <p class="text-sm" style="color: rgba(255,255,255,0.6);">Buyer enquiries received from Property24 and Private Property.</p>
+                <p class="text-sm" style="color: rgba(255,255,255,0.6);">Buyer enquiries received from Property24, Private Property and the agency website.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
@@ -31,8 +31,9 @@
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
-                <option value="p24" @selected(($filters['portal'] ?? '') === 'p24')>Property24</option>
-                <option value="pp"  @selected(($filters['portal'] ?? '') === 'pp')>Private Property</option>
+                <option value="p24"     @selected(($filters['portal'] ?? '') === 'p24')>Property24</option>
+                <option value="pp"      @selected(($filters['portal'] ?? '') === 'pp')>Private Property</option>
+                <option value="website" @selected(($filters['portal'] ?? '') === 'website')>Website</option>
             </select>
         </div>
 

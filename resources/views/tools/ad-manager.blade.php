@@ -13,13 +13,15 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Ad Manager</h1>
                 <p class="text-sm text-white/60">Generate ready-to-post ads for multiple properties — image and grounded AI description.</p>
             </div>
-            @include('layouts.partials.tour-header-launcher')
-            <div class="flex items-center gap-2 text-xs font-semibold text-white/70" data-tour="tools-ad-manager-steps">
-                <span :class="step==='select' ? 'text-white' : ''">1. Properties</span>
-                <span class="text-white/40">›</span>
-                <span :class="step==='template' ? 'text-white' : ''">2. Template</span>
-                <span class="text-white/40">›</span>
-                <span :class="step==='results' ? 'text-white' : ''">3. Ads</span>
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher')
+                <div class="flex items-center gap-2 text-xs font-semibold text-white/70" data-tour="tools-ad-manager-steps">
+                    <span :class="step==='select' ? 'text-white' : ''">1. Properties</span>
+                    <span class="text-white/40">›</span>
+                    <span :class="step==='template' ? 'text-white' : ''">2. Template</span>
+                    <span class="text-white/40">›</span>
+                    <span :class="step==='results' ? 'text-white' : ''">3. Ads</span>
+                </div>
             </div>
         </div>
     </div>

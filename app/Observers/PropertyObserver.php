@@ -353,10 +353,14 @@ class PropertyObserver
         if (array_key_exists('status', $property->getChanges())
             && $this->isOffMarketStatus((string) $property->status)) {
             try {
-                // Only dispatch when the property is actually on PP or a website
-                // (P24 is delisted per-status by the auto-sync block below). Skips
-                // pointless no-op jobs for never-syndicated stock.
+                // Only dispatch when the property is actually on a portal or a
+                // website. Skips pointless no-op jobs for never-syndicated stock.
+                // P24 is normally delisted per-status by the auto-sync block below,
+                // but that block is gated on p24_syndication_enabled — so a listing
+                // toggled off while still live on P24 would never be withdrawn by
+                // anything. mayBeLiveOnP24() makes the job the real safety net.
                 $onPortal = $property->pp_syndication_enabled
+                    || $property->mayBeLiveOnP24()
                     || \App\Models\PropertyWebsiteSyndication::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
                         ->where('property_id', $property->id)->where('enabled', true)->exists();
                 if ($onPortal) {
@@ -413,10 +417,18 @@ class PropertyObserver
 
                 Log::channel('property24')->info("Status auto-synced for property #{$property->id}: {$p24Status}");
 
-                // Update local syndication status to reflect terminal states
-                if (Property24ListingMapper::isTerminalStatus($p24Status)) {
+                // Record the listing's lifecycle state ON the portal. Only the
+                // statuses that actually remove it (Withdrawn/Expired/Cancelled)
+                // may be written as 'deactivated' — that value is what every
+                // delist guard reads as "already off the portal". Sold/Rented
+                // stay listed, so they get their own state and remain delistable.
+                if (Property24ListingMapper::removesFromPortal($p24Status)) {
                     $property->updateQuietly([
-                        'p24_syndication_status' => 'deactivated',
+                        'p24_syndication_status' => Property::PORTAL_OFF_STATUS,
+                    ]);
+                } elseif (Property24ListingMapper::isTerminalStatus($p24Status)) {
+                    $property->updateQuietly([
+                        'p24_syndication_status' => strtolower($p24Status),
                     ]);
                 }
             } catch (\Exception $e) {

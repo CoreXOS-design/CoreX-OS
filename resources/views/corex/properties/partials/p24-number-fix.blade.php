@@ -52,7 +52,7 @@
 
                     {{-- Error --}}
                     <div x-show="error" x-cloak class="rounded-md px-3 py-2 text-xs"
-                         style="background:color-mix(in srgb, var(--ds-red,#ef4444) 12%, transparent);color:var(--ds-red,#ef4444);"
+                         style="background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent);color:var(--ds-crimson, #c41e3a);"
                          x-text="error"></div>
 
                     {{-- Progress --}}
@@ -62,7 +62,7 @@
                             <span><span x-text="processed"></span> / <span x-text="total"></span> (<span x-text="pct"></span>%)</span>
                         </div>
                         <div class="h-2 w-full rounded-full overflow-hidden" style="background:var(--surface-2);">
-                            <div class="h-full transition-all duration-200" :style="`width:${pct}%;background:var(--ds-green,#22c55e);`"></div>
+                            <div class="h-full transition-all duration-200" :style="`width:${pct}%;background:var(--ds-green, #059669);`"></div>
                         </div>
                         {{-- Counters --}}
                         <div class="grid grid-cols-5 gap-2 pt-1 text-center">
@@ -83,7 +83,7 @@
                                 <div class="px-3 py-1.5 text-[0.6875rem] flex items-start gap-2" style="border-color:var(--border);">
                                     <span class="font-mono font-semibold flex-shrink-0" style="color:var(--text-primary);" x-text="'#' + (r.ln || '?')"></span>
                                     <span class="px-1.5 rounded text-[0.5625rem] uppercase tracking-wider flex-shrink-0"
-                                          :style="r.status==='conflict' ? 'background:color-mix(in srgb,var(--ds-amber) 18%,transparent);color:var(--ds-amber)' : 'color:var(--text-muted)'"
+                                          :style="r.status==='conflict' ? 'background:color-mix(in srgb,var(--ds-amber, #f59e0b) 18%,transparent);color:var(--ds-amber, #f59e0b)' : 'color:var(--text-muted)'"
                                           x-text="r.status"></span>
                                     <span style="color:var(--text-muted);" x-text="r.reason"></span>
                                 </div>
@@ -102,7 +102,7 @@
                                 x-text="done ? 'Close' : 'Cancel'"></button>
                         <button type="button" x-show="!done" @click="run()" :disabled="running || !file"
                                 class="px-4 py-1.5 rounded-md text-xs font-semibold transition-opacity"
-                                :style="(running || !file) ? 'background:#374151;color:#9ca3af;cursor:not-allowed;' : 'background:var(--ds-green,#22c55e);color:#fff;'">
+                                :style="(running || !file) ? 'background:var(--surface-2);color:var(--text-muted);cursor:not-allowed;' : 'background:var(--ds-green, #059669);color:#fff;'">
                             <span x-show="!running">Run</span>
                             <span x-show="running" x-cloak>Working…</span>
                         </button>
@@ -128,7 +128,7 @@ function p24NumberFix() {
         stats: { applied: 0, conflict: 0, skipped: 0, unmatched: 0, invalid: 0 },
         log: [],
         counters: [
-            { key: 'applied',   label: 'Applied',   color: 'var(--ds-green,#22c55e)' },
+            { key: 'applied',   label: 'Applied',   color: 'var(--ds-green, #059669)' },
             { key: 'conflict',  label: 'Conflict',  color: 'var(--ds-amber,#f59e0b)' },
             { key: 'unmatched', label: 'No match',  color: 'var(--text-muted)' },
             { key: 'skipped',   label: 'Skipped',   color: 'var(--text-muted)' },

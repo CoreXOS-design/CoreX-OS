@@ -312,12 +312,46 @@ function downloadCombinedPdf() {
 }
 
 function loadImg(url) {
-    return new Promise(function(resolve, reject) {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function() { resolve(img); };
-        img.onerror = function() { reject(new Error('Failed to load image: ' + url)); };
-        img.src = url;
+    // AT-207: the page-raster routes are auth-gated. img.crossOrigin='anonymous' has
+    // credentials mode "same-origin", so on a cross-origin URL (edit/list page used on
+    // corex.hfcoastal.co.za while route()/APP_URL emits corexos.co.za) the session
+    // cookie is dropped, the auth middleware 302s to /login, and the <img> fails to
+    // decode HTML → "Failed to load image". Fix (origin-agnostic, no CORS, untainted for
+    // jsPDF): rebase to the current origin, fetch credentialed, hand jsPDF a data URL.
+    var fetchUrl = url;
+    try {
+        var u = new URL(url, window.location.href);
+        fetchUrl = u.pathname + u.search; // same-origin relative → current host + cookie
+    } catch (e) { /* non-absolute URL: fetch as-is */ }
+
+    return fetch(fetchUrl, { credentials: 'include' }).then(function(resp) {
+        if (!resp.ok) {
+            throw new Error('page image HTTP ' + resp.status + ' (' + fetchUrl + ')');
+        }
+        if (resp.redirected) {
+            var to = fetchUrl;
+            try { to = new URL(resp.url).pathname; } catch (e2) {}
+            throw new Error('not authenticated (redirected to ' + to + ') — please reload and sign in');
+        }
+        var ct = resp.headers.get('content-type') || '';
+        if (ct.indexOf('image') === -1) {
+            throw new Error('unexpected response "' + (ct || 'unknown') + '" for page image (' + fetchUrl + ')');
+        }
+        return resp.blob();
+    }, function() {
+        throw new Error('network error loading page image (' + fetchUrl + ')');
+    }).then(function(blob) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() {
+                var img = new Image();
+                img.onload = function() { resolve(img); };
+                img.onerror = function() { reject(new Error('could not decode page image (' + fetchUrl + ')')); };
+                img.src = reader.result; // data: URL — same-origin, never taints the jsPDF canvas
+            };
+            reader.onerror = function() { reject(new Error('could not read page image data (' + fetchUrl + ')')); };
+            reader.readAsDataURL(blob);
+        });
     });
 }
 </script>

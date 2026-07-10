@@ -2035,12 +2035,53 @@
     }
 
     function loadImage(url) {
-        return new Promise(function (resolve, reject) {
-            var img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = function () { resolve(img); };
-            img.onerror = function () { reject(new Error('Failed to load image')); };
-            img.src = url;
+        // AT-207: the page-raster routes (docuperfect.page.image / documents.pageImage)
+        // are auth-gated. The old approach set img.crossOrigin='anonymous', whose
+        // credentials mode is "same-origin" — so on a cross-origin URL (the edit page
+        // is used on corex.hfcoastal.co.za while route()/APP_URL emits corexos.co.za)
+        // the browser dropped the session cookie, the auth middleware 302'd to /login,
+        // and the <img> failed to decode HTML → "Failed to load image".
+        //
+        // Fix (origin-agnostic, no CORS needed, untainted for jsPDF): rebase the URL to
+        // the CURRENT origin (same-origin path) so the fetch carries the session the
+        // agent is actually logged in with, fetch credentialed, then hand jsPDF a
+        // same-origin data URL. Every failure mode surfaces a diagnostic message.
+        var fetchUrl = url;
+        try {
+            var u = new URL(url, window.location.href);
+            fetchUrl = u.pathname + u.search; // same-origin relative → current host + cookie
+        } catch (e) { /* non-absolute URL: fetch as-is */ }
+
+        return fetch(fetchUrl, { credentials: 'include' }).then(function (resp) {
+            if (!resp.ok) {
+                throw new Error('page image HTTP ' + resp.status + ' (' + fetchUrl + ')');
+            }
+            if (resp.redirected) {
+                // followed a redirect (e.g. → /login when the session has expired)
+                var to = fetchUrl;
+                try { to = new URL(resp.url).pathname; } catch (e2) {}
+                throw new Error('not authenticated (redirected to ' + to + ') — please reload and sign in');
+            }
+            var ct = resp.headers.get('content-type') || '';
+            if (ct.indexOf('image') === -1) {
+                throw new Error('unexpected response "' + (ct || 'unknown') + '" for page image (' + fetchUrl + ')');
+            }
+            return resp.blob();
+        }, function () {
+            // fetch rejected outright = network failure / CORS block
+            throw new Error('network error loading page image (' + fetchUrl + ')');
+        }).then(function (blob) {
+            return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function () {
+                    var img = new Image();
+                    img.onload = function () { resolve(img); };
+                    img.onerror = function () { reject(new Error('could not decode page image (' + fetchUrl + ')')); };
+                    img.src = reader.result; // data: URL — same-origin, never taints the jsPDF canvas
+                };
+                reader.onerror = function () { reject(new Error('could not read page image data (' + fetchUrl + ')')); };
+                reader.readAsDataURL(blob);
+            });
         });
     }
 

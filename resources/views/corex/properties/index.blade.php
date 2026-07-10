@@ -1,7 +1,57 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="{ view: localStorage.getItem('prop_view') || 'grid' }" x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
+@php
+    // '__ID__' placeholder — the panel URL is resolved per property in JS.
+    $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
+@endphp
+<div class="w-full space-y-5"
+     x-data="{
+        view: localStorage.getItem('prop_view') || 'grid',
+
+        // Syndication modal. `syn` holds the open property; the panel markup is
+        // fetched from the API and injected, so the index and the property page
+        // render one and the same control surface.
+        syn: null,
+        synStep: 'main',
+        synLoading: false,
+        synError: '',
+
+        async openSyn(id, title) {
+            this.syn = { id, title };
+            this.synStep = 'main';
+            this.synError = '';
+            this.synLoading = true;
+            this.$refs.synBody.innerHTML = '';
+
+            try {
+                const res = await fetch('{{ $synPanelUrlTemplate }}'.replace('__ID__', id), {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.message || ('Could not load syndication (HTTP ' + res.status + ')'));
+
+                this.synLoading = false;
+                this.$refs.synBody.innerHTML = data.html;
+                // The panel carries its own Alpine components (ppSyndication,
+                // p24Syndication, websiteSyndication). Injected nodes are inert
+                // until Alpine walks them.
+                window.Alpine.initTree(this.$refs.synBody);
+            } catch (e) {
+                this.synLoading = false;
+                this.synError = e.message || 'Network error';
+            }
+        },
+
+        closeSyn() {
+            this.syn = null;
+            this.synStep = 'main';
+            this.synError = '';
+            this.$refs.synBody.innerHTML = '';
+        }
+     }"
+     x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -123,14 +173,12 @@
             'On Market' => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
             'Draft'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
             'Sold'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
-            'Published' => '<path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918"/>',
         ];
         $kpiColors = [
-            'Total'     => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
-            'On Market' => ['bg' => 'color-mix(in srgb, var(--ds-green) 12%, transparent)',    'fg' => 'var(--ds-green)'],
-            'Draft'     => ['bg' => 'color-mix(in srgb, var(--ds-amber) 12%, transparent)',    'fg' => 'var(--ds-amber)'],
-            'Sold'      => ['bg' => 'color-mix(in srgb, var(--ds-navy) 12%, transparent)',     'fg' => 'var(--ds-navy)'],
-            'Published' => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
+            'Total'     => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
+            'On Market' => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
+            'Draft'     => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
+            'Sold'      => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
         ];
     @endphp
     @php
@@ -139,13 +187,12 @@
             ['label' => 'On Market', 'value' => $stats['active'], 'filter' => 'on_market'],
             ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
             ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
-            ['label' => 'Published', 'value' => $stats['synced'], 'filter' => 'published'],
         ];
         $currentStatus = $status ?? '';
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 xl:gap-4" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];
@@ -172,10 +219,10 @@
     {{-- Flash --}}
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
-                border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
                 color: var(--text-primary);">
-        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
         </svg>
         <div class="flex-1">{{ session('success') }}</div>
@@ -344,7 +391,12 @@
                 @endif
             </div>
 
-            {{-- Modal popup --}}
+            {{-- Modal popup — teleported to <body> so it always centres on the
+                 viewport, immune to any transformed/overflow ancestor (matches
+                 the p24-number-fix modal pattern). Alpine keeps this component's
+                 scope + $refs across the teleport, so apply() still resolves the
+                 filter form. --}}
+            <template x-teleport="body">
             <div x-show="agentPicker" x-cloak
                  class="fixed inset-0 z-50 flex items-center justify-center p-4"
                  style="background:rgba(0,0,0,0.5);"
@@ -430,6 +482,7 @@
                     </div>
                 </div>
             </div>
+            </template>
             @endif
 
             {{-- View toggle --}}
@@ -649,17 +702,23 @@
             $listingTypeLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
             $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
-            $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
-            // Sold listings get a red status pill; withdrawn/sold also grey out the P24 ref.
+            $brandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
+            // Sold listings get a red status pill; withdrawn/sold also grey out the portal refs.
             $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true);
             $statusPillStyle = $statusKey === 'sold'
-                ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
                 : $brandPillStyle;
-            $p24PillStyle = $isOffMarket
+            $refPillStyle = $isOffMarket
                 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
-                : 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);';
+                : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);';
+            // The syndication button is the card's only live-on-a-portal signal:
+            // it appears when the listing may be marketed AND reaches at least one
+            // portal (own website / P24 / Private Property), and its tooltip names
+            // them. Drives how much room the left-hand badge stack is given.
+            $showSynBtn = ($property->is_marketable ?? false)
+                && ($property->has_syndication ?? $property->isLiveOnAnyPortal());
         @endphp
-        <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
+        <div class="relative rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
              onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.06)'"
              onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
@@ -684,18 +743,15 @@
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
                 {{-- Listing type + Status + Mandate badges (left) --}}
-                <div class="absolute top-2.5 left-2.5 right-12 flex flex-row flex-wrap items-center gap-1.5">
+                {{-- right-12 clears the syndication button when it renders; the
+                     pills wrap rather than run under it. --}}
+                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
                     @if($property->mandate_type)
                     <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
                 </div>
-
-                {{-- Live badge (moved to right to make room for branded pills) --}}
-                @if($property->isPublished())
-                <span class="ds-badge ds-badge-info absolute top-2.5 right-2.5" style="background:var(--brand-icon);color:#fff;">Live</span>
-                @endif
 
                 {{-- Photo count --}}
                 @if(count($images) > 0)
@@ -705,6 +761,13 @@
                 </span>
                 @endif
             </a>
+
+            {{-- Syndication viewer. Sits outside the thumbnail anchor so the
+                 button is a real button, not a nested interactive element
+                 inside a link. --}}
+            <div class="absolute top-2.5 right-2.5 z-10 flex items-center">
+                @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'card'])
+            </div>
 
             {{-- Content --}}
             <div class="px-3.5 py-3 flex flex-col flex-1">
@@ -749,13 +812,24 @@
                     @if($property->size_m2)<span>{{ number_format($property->size_m2) }} m²</span>@endif
                 </div>
 
-                @if($property->p24_ref)
-                <div class="mt-1.5">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold"
-                          style="{{ $p24PillStyle }}"
+                {{-- Portal references — P24 and Private Property side by side, each
+                     shown only once the portal has issued one. --}}
+                @if($property->p24_ref || $property->pp_ref)
+                <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    @if($property->p24_ref)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
+                          style="{{ $refPillStyle }}"
                           title="Property24 listing number">
                         P24: {{ $property->p24_ref }}
                     </span>
+                    @endif
+                    @if($property->pp_ref)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
+                          style="{{ $refPillStyle }}"
+                          title="Private Property listing number">
+                        PP: {{ $property->pp_ref }}
+                    </span>
+                    @endif
                 </div>
                 @endif
 
@@ -790,7 +864,7 @@
                             <button type="submit"
                                     class="text-[10px] font-medium px-2 py-1 rounded-md transition-all duration-300"
                                     style="color:var(--text-muted);"
-                                    onmouseover="this.style.color='var(--ds-crimson)';this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'"
+                                    onmouseover="this.style.color='var(--ds-crimson, #c41e3a)';this.style.background='color-mix(in srgb, var(--ds-crimson, #c41e3a) 8%, transparent)'"
                                     onmouseout="this.style.color='var(--text-muted)';this.style.background=''">
                                 Delete
                             </button>
@@ -832,7 +906,7 @@
                                     $arrow = $isCurrentSort ? (($currentDir ?? 'desc') === 'asc' ? '&#9650;' : '&#9660;') : '';
                                 @endphp
                                 <a href="{{ request()->url() }}?{{ http_build_query(array_merge($sortParams, ['sort' => $col['key'], 'dir' => $nextDir])) }}"
-                                   class="no-underline hover:opacity-70 transition" style="color:{{ $isCurrentSort ? 'var(--brand-icon)' : 'var(--text-muted)' }};">{{ $col['label'] }}{!! $arrow !!}</a>
+                                   class="no-underline hover:opacity-70 transition" style="color:{{ $isCurrentSort ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};">{{ $col['label'] }}{!! $arrow !!}</a>
                             @else
                                 {{ $col['label'] }}
                             @endif
@@ -849,10 +923,10 @@
                     $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
                     $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
-                    $rowBrandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+                    $rowBrandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
                     $rowIsOffMarket  = in_array($rowStatusKey, ['sold', 'withdrawn'], true);
                     $rowStatusPillStyle = $rowStatusKey === 'sold'
-                        ? 'background:var(--ds-crimson); color:#fff; border:none;'
+                        ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
                         : $rowBrandPillStyle;
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
@@ -876,7 +950,7 @@
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->p24_ref)
-                        <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
+                        <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
@@ -900,10 +974,10 @@
                         @php
                             $ms = $property->marketing_status ?? 'n/a';
                             $msStyle = match($ms) {
-                                'live' => 'background:#10b981; color:#fff;',
-                                'ready' => 'background:rgba(0,212,170,.15); color:#047857;',
-                                'blocked' => 'background:rgba(245,158,11,.15); color:#b45309;',
-                                default => '',
+                                'live'    => 'background:var(--ds-green, #059669); color:#fff;',
+                                'ready'   => 'background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);',
+                                'blocked' => 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);',
+                                default   => '',
                             };
                         @endphp
                         @if($ms !== 'n/a')
@@ -920,13 +994,14 @@
                     </td>
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">
+                            @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
                             <a href="{{ route('corex.properties.show', $property) }}" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
                             <a href="{{ route('corex.properties.ad', $property) }}" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
                             <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                                   onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded-md transition-all duration-300" style="color:var(--text-muted);"
-                                        onmouseover="this.style.color='var(--ds-crimson)';this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'"
+                                        onmouseover="this.style.color='var(--ds-crimson, #c41e3a)';this.style.background='color-mix(in srgb, var(--ds-crimson, #c41e3a) 8%, transparent)'"
                                         onmouseout="this.style.color='var(--text-muted)';this.style.background=''">Delete</button>
                             </form>
                         </div>
@@ -951,5 +1026,11 @@
     @endif
     @endif
 
+    {{-- Syndication — one modal, driven by every card/row trigger --}}
+    @include('corex.properties.partials.syndication-modal')
+
 </div>
+
+{{-- Alpine components the injected syndication panel binds to --}}
+@include('corex.properties.partials.syndication-scripts')
 @endsection

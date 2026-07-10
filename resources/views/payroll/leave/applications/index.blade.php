@@ -139,7 +139,7 @@
                         </td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $app->submitted_at?->format('d M H:i') ?? '—' }}</td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('payroll.leave.applications.show', $app) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">View</a>
+                            <a href="{{ route('payroll.leave.applications.show', $app) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">View</a>
                         </td>
                     </tr>
                     @endforeach

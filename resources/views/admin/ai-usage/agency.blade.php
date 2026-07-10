@@ -6,7 +6,7 @@
     $maxSource = collect($bySource)->max('cost') ?: 1;
     $maxUser   = collect($byUser)->max('cost') ?: 1;
 @endphp
-<div class="max-w-7xl mx-auto w-full space-y-5">
+<div class="w-full space-y-5">
 
     {{-- Page header (branded) --}}
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
@@ -28,18 +28,11 @@
     </div>
 
     {{-- KPI tiles --}}
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        @foreach([
-            ['Total spend', 'R ' . number_format($totals['cost'], 2)],
-            ['Generations', number_format($totals['gens'])],
-            ['Input tokens', number_format($totals['inp'])],
-            ['Output tokens', number_format($totals['outp'])],
-        ] as [$label, $value])
-        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="text-xs font-medium uppercase tracking-wider" style="color:var(--text-muted);">{{ $label }}</div>
-            <div class="font-semibold mt-1" style="color:var(--text-primary); font-size:1.625rem;">{{ $value }}</div>
-        </div>
-        @endforeach
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total spend" :value="'R ' . number_format($totals['cost'], 2)" />
+        <x-corex-kpi-card title="Generations" :value="number_format($totals['gens'])" />
+        <x-corex-kpi-card title="Input tokens" :value="number_format($totals['inp'])" />
+        <x-corex-kpi-card title="Output tokens" :value="number_format($totals['outp'])" />
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

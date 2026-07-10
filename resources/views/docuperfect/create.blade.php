@@ -17,10 +17,7 @@
                 <a href="{{ url('/corex/settings?section=my-portal&s=feature-documents') }}"
                    title="Create Document Settings"
                    aria-label="Create Document Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="dp-header-icon-btn inline-flex items-center justify-center rounded-md text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -125,7 +122,7 @@
             </div>
         @else
             {{-- Grid View --}}
-            <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div x-show="viewMode === 'grid'" x-cloak class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 @foreach($templates as $tpl)
                 <div class="rounded-md p-4 flex flex-col transition-all duration-300 docuperfect-card"
                      style="background: var(--surface); border: 1px solid var(--border);"
@@ -303,5 +300,12 @@
 <style>
     .docuperfect-card { transition: border-color 300ms ease, box-shadow 300ms ease; }
     .docuperfect-card:hover { border-color: var(--brand-icon) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .dp-header-icon-btn {
+        width: 30px; height: 30px;
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.18);
+        transition: background 300ms ease;
+    }
+    .dp-header-icon-btn:hover { background: rgba(255,255,255,0.18); }
 </style>
 @endsection

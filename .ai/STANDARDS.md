@@ -103,6 +103,9 @@ If a piece of data exists in the system, it exists in one place. It is never dup
 ### Pillar Linkage is Mandatory
 Every record created in any module must link to at least one pillar (Property, Contact, Deal, Agent). A document with no linked property and no linked contact is an orphan. Orphans are forbidden.
 
+### Deal Branch Attribution — the selling side owns the deal (AT-192, Johan doctrine)
+**A deal belongs to the SELLING agent's acting office.** The selling agent's branch (the office they are acting as when they capture) is the deal's branch. Listing-side agents from a *different* branch are entirely normal (a Shelly Beach listing sold by a Southbroom agent is a **Southbroom** deal) and are **never** a mis-stamp signal. Any future auto-derivation of a deal's branch MUST derive from the **selling side**, never from "any agent whose home branch matches the deal branch" (that heuristic is wrong and is banned from audits). The DR1 capture gate (AT-192 b) takes the branch by **explicit selection** with **no auto-derivation**, so it is already compatible with this doctrine; if derivation is ever added, it derives from the selling agent's acting office.
+
 ### Document Fidelity is Non-Negotiable
 A web document rendered to PDF must be character-for-character identical to the intended legal document. No autocorrection. No smart quotes. No rewording. No reformatting. If a word changes, the document is legally compromised.
 
