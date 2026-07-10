@@ -102,6 +102,16 @@
             if (isDirty) { e.preventDefault(); e.returnValue = ''; }
         });
 
+        // AT-220 — session armour. (1) Heartbeat keeps the CSRF token + session
+        // fresh so an open editor never expires. (2) Debounced autosave persists
+        // work server-side so nothing is stranded in the tab if it is lost.
+        if (window.CoreXSessionGuard) {
+            window.CoreXSessionGuard.startHeartbeat(function (t) { C.csrfToken = t; });
+        }
+        setInterval(function () {
+            if (isDirty && !document.hidden) { save({ silent: true }); }
+        }, 30000);
+
         // Deselect on click outside fields and zones
         document.addEventListener('mousedown', function (e) {
             if (placementMode || dragState) return;
@@ -1794,9 +1804,13 @@
     // ======================================================================
     // SAVE
     // ======================================================================
-    function save() {
+    function save(opts) {
+        // The Save button passes a MouseEvent; autosave passes { silent: true }.
+        if (opts && typeof opts.preventDefault === 'function') opts = null;
+        var silent = !!(opts && opts.silent);
+
         var btn = document.getElementById('dpSaveBtn');
-        if (btn) { btn.textContent = 'Saving\u2026'; btn.disabled = true; }
+        if (btn && !silent) { btn.textContent = 'Saving\u2026'; btn.disabled = true; }
 
         var body = { fields: fields };
 
@@ -1838,21 +1852,53 @@
             });
         }
 
-        fetch(C.saveUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': C.csrfToken, 'Accept': 'application/json' },
-            body: JSON.stringify(body)
+        // AT-220 — route the save through the session guard: a 419 is silently
+        // recovered (fresh token + one resubmit); a genuinely-dead session shows
+        // the plain-language "connection lost" banner, never an HTTP status code.
+        var doRequest = function (token) {
+            return fetch(C.saveUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token || C.csrfToken, 'Accept': 'application/json' },
+                body: JSON.stringify(body),
+                credentials: 'same-origin'
+            });
+        };
+
+        var finish = function () { if (btn && !silent) { btn.textContent = 'Save'; btn.disabled = false; } };
+
+        if (!window.CoreXSessionGuard) {
+            // Fallback (guard script missing) — still never print a raw code.
+            doRequest(C.csrfToken).then(function (r) {
+                if (!r.ok) throw new Error('save');
+                isDirty = false;
+                if (!silent) showToast('Saved successfully', 'success');
+                document.dispatchEvent(new CustomEvent('docuperfect:saved'));
+            }).catch(function () {
+                if (!silent) showToast('Could not save — please try again in a moment.', 'error');
+                document.dispatchEvent(new CustomEvent('docuperfect:save-failed'));
+            }).finally(finish);
+            return;
+        }
+
+        window.CoreXSessionGuard.guardedSubmit(doRequest, {
+            getToken: function () { return C.csrfToken; },
+            setToken: function (t) { C.csrfToken = t; },
+            silent: silent,
+            onRetry: function () { save(); }
         }).then(function (r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!r.ok) throw new Error('save-failed');
             isDirty = false;
-            showToast('Saved successfully', 'success');
+            if (!silent) showToast('Saved successfully', 'success');
             document.dispatchEvent(new CustomEvent('docuperfect:saved'));
         }).catch(function (err) {
-            showToast('Save failed: ' + err.message, 'error');
+            if (err && err.sessionDead) {
+                // Guard already showed the banner — work is safe in the tab.
+                document.dispatchEvent(new CustomEvent('docuperfect:save-failed'));
+                return;
+            }
+            if (!silent) showToast('Could not save — please try again in a moment.', 'error');
             document.dispatchEvent(new CustomEvent('docuperfect:save-failed'));
-        }).finally(function () {
-            if (btn) { btn.textContent = 'Save'; btn.disabled = false; }
-        });
+        }).finally(finish);
     }
 
     // ======================================================================

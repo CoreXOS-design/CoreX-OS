@@ -166,6 +166,7 @@
         packInstanceSaveUrl: @json(route('docuperfect.api.packInstanceValuesSave'))
     };
 </script>
+<script src="{{ asset('js/corex-session-guard.js') }}"></script>
 <script src="{{ asset('js/docuperfect-editor.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
