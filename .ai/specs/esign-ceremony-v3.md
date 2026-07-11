@@ -77,6 +77,11 @@ settled doctrine and where V3 leans on it:
 | **Apply-to-all is agent-only; recipients initial each page individually** (informed-consent). Already built (FIX 2): the "Apply to All Pages?" affordance is gated on `isAgent`. | `esign-v3-complete-spec.md` (l. 1386) | This **is** refinement A (§2) — already settled and shipped. V3 names it as doctrine (professional profile = apply-all; client profile = gate-per-surface) and generalises it to internal candidate→full approvals. |
 | **Amendment = all parties initial only the new content, not re-sign the whole document** ("matches SA wet-ink practice exactly"). | `esign-v3-complete-spec.md` (l. 612); V2 §10 amendment/flag system | This **is** the settled reconciliation of §5 (answer 2): retain prior marks (refinement B), all parties re-initial (blast radius), but only the new content. V3 adds the strike-and-fill rendering and the void-nothing guarantee. |
 | **FICA module** — `FicaSubmission` (risk_rating 1-3, verification_method), status `submitted → agent_approved (Awaiting CO Approval) → approved`, `FicaComplianceOfficer`. | `app/Models/FicaSubmission.php`, `FicaComplianceOfficer`; V2 §9 | The FICA slot's office/verification stage (§11.3, answer 4) **is** this flow — referenced, not redesigned. |
+| ⚠️ **Recipient sourcing — the ONE settled decision this chapter OVERRIDES, not extends.** V2 says recipients are filtered by the contact's **global** type (`contact_types.esign_role` = seller/buyer/lessor/lessee), and queues the build. | V2 **§13** "Contact Filtering"; V2 **§17** Build Priority **item 3** ("wire esign_role into wizard Step 3") | **SUPERSEDED by §2.1** on Johan's DR2 ruling (2026-07-11): recipients resolve from the **property-link role**, not the global contact type; `esign_role` demotes to a fallback where no property link exists. **V2 §17 item 3 must be re-pointed before any build wires recipient sourcing.** |
+
+> **Read the table above as an inheritance rule:** every row except the last says *extend the settled
+> decision*. The last row is the single **override** — where this chapter deliberately reverses settled
+> doctrine. Anything not named here is inherited from the settled specs unchanged.
 
 ---
 
@@ -152,6 +157,56 @@ digitally on all four documents become the simplest client gate; the clause-sign
 blocks (EATS §2.6/§2.7.1/§2.7.4; OTP purchaser/seller/witness/practitioner; FICA client + office;
 Disclosure seller + purchaser) become declared surfaces injected at ceremony time — gated for the
 party who owns them, apply-all for the practitioner's own signatures.
+
+---
+
+### 2.1 Who the parties are — recipients come from the PROPERTY-LINK ROLE
+
+**Doctrine (Johan, 2026-07-11).** This is Johan's DR2 capture ruling, in his own words, extended to
+ceremony recipient sourcing:
+
+> *"Parties should not be linked based on their contact assignment, but on their link to the property;
+> a seller in contacts can be linked to a property as a buyer."*
+
+**The rule.** Ceremony recipients are **offered and routed from the role the contact holds on *this*
+property** — the property↔contact link role — **not from the contact's global contact type.** A contact
+typed "seller" agency-wide who is linked to *this* property as a **buyer** is a **buyer in this
+ceremony**. The global type never overrides the property link.
+
+- **Primary source = the property-link role.** Every ceremony recipient list (who is offered as an
+  owner_party / acquiring_party, who lands in which signing group in §4) resolves from the property's
+  linked contacts and their **link role on that property**.
+- **`contact_types.esign_role` demotes to a FALLBACK filter.** It applies **only where no property link
+  exists** — e.g. a party manually added to a ceremony, or a contact not yet linked to the property. It
+  is never the primary source, and it never wins against a property link.
+- **Manual add stays unfiltered** (as in the settled spec) — the agent can always add a party by hand.
+- **Juristic parties (§7) are unaffected**: the *entity* is the party via its property link; its
+  authorised signatories are resolved from the entity, not from a global type.
+
+**This section SUPERSEDES settled doctrine — the one place this chapter does not merely extend it.**
+`claude_esignature_v2_spec.md` **§13 "Contact Filtering"** prescribes the opposite model
+(*"Solution: esign_role on contact_types … Show contacts where contact_type.esign_role IN ('seller',
+'lessor')"*), and **V2 §17 Build Priority item 3** queues it (*"wire esign_role into wizard Step 3"*).
+**Both are re-pointed by this ruling:** the wizard wires the **property-link role**, with `esign_role`
+retained only as the no-property-link fallback. **No build may wire recipient sourcing until item 3 is
+re-pointed accordingly.**
+
+**The mechanism already exists and is already loaded** — this is a re-point, not new infrastructure:
+
+- `app/Models/Property.php:506` — the property↔contact relationship already carries the role on the
+  pivot (`->withPivot('role')`).
+- `app/Http/Controllers/Docuperfect/ESignWizardController.php:494` — the wizard **already eager-loads
+  it**: `Property::with(['contacts' => fn($q) => $q->withPivot('role')])->find($propertyId)`.
+- `contact_types.esign_role` exists on `ContactType` but is, per V2 §13, *"NOT YET WIRED INTO WIZARD"* —
+  and under this ruling it must not be wired as the primary source.
+- **Precedent:** the DR2 capture screen already resolves parties this way (commit `cc5a4cfd`, *"parties
+  by property-link role"*). The ceremony follows the same truth, so a party means the same thing in
+  Deals and in Documents.
+
+**Why it matters.** A person is a seller on one property and a buyer on another. A single global role on
+the contact cannot express that, so a global-type filter offers the **wrong parties** the moment a
+contact appears in two deals in different roles — and in a signing ceremony the wrong party is not a
+cosmetic bug: it is the wrong person signing the wrong side of a legal instrument.
 
 ---
 
@@ -557,6 +612,10 @@ introduces:
 - The agent can always see **who holds the document and for how long**, and can **nudge**; a
   **lapsed offer produces an evidence report** that **attributes the delay to the party who held
   the document past the deadline.**
+- **The right people are offered.** Ceremony recipients come from the **property-link role** (§2.1) — a
+  contact typed "seller" agency-wide who is linked to *this* property as a **buyer** is offered as a
+  **buyer**. The global contact type is only a fallback where no property link exists, and never
+  overrides the link.
 - **Juristic parties** sign through their authorised natural persons — **who are linked as CoreX
   contacts tied to the entity** — with authority docs in the pack; **witnesses** work when enabled.
 - On completion the ceremony **files as many independent documents on their own names** — the
