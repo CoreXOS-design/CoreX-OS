@@ -225,7 +225,7 @@ The wizard writes to the **existing** backing stores only (§6). No new settings
 
 Steps mirror the real settings sections (`$railGroups` in
 `resources/views/corex/settings.blade.php`). Must-configure-first things come early.
-`TOTAL_STEPS = 12`.
+`TOTAL_STEPS = 11`.
 
 | # | key | Step | Backing store(s) |
 |---|-----|------|------------------|
@@ -233,25 +233,47 @@ Steps mirror the real settings sections (`$railGroups` in
 | 2 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
 | 3 | `branches` | Branches / offices | `branches`, `agencies.split_branches_enabled` |
 | 4 | `commission` | Commission & revenue share | `commission_settings` |
-| 5 | `properties` | Properties & listings | `performance_settings`, `property_setting_items`, `agencies` portal-credential columns |
+| 5 | `properties` | Properties & listings | `performance_settings` (per-page, marketing, syndication toggles) |
 | 6 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 7 | `matches` | Matches | `performance_settings` (`matches_*`) |
 | 8 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
 | 9 | `compliance` | Compliance | whistleblow columns on `agencies` |
 | 10 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
-| 11 | `team` | Invite your team | `users` (via `UserManagementController@store` + `UserInviteMail`) |
-| 12 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+| 11 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
 
-**Step 11 — Invite your team (added 2026-07-11).** An agency that finished the wizard with
-zero agents could not list a property or run a deal — every preceding step configured a
-system nobody could use. The step lists the current roster and adds members inline through
-the canonical `UserManagementController@store`, which creates the user with an
-`INVITE_PENDING` sentinel password (cast `hashed`) and emails `UserInviteMail` so the person
-sets their own password — the admin never handles it. **Edit / deactivate / delete stay on
-the User Management page**, which the step links to: deleting an agent reroutes their printed
-QR codes and needs that page's confirmation UI. `COLLECTIONS['user']` is therefore marked
-`'removable' => false`, and `removeCollectionItem` aborts 404 for it rather than falling
-through and flashing a "Removed." that never happened.
+### 5.1 Deliberately NOT in the wizard (Johan, 2026-07-11)
+
+These were built and then removed on Johan's call. They are out of scope by decision, not
+by oversight — do not reinstate them without asking:
+
+- **Portal credentials (P24 / Private Property) and advanced portal settings.** Not an
+  onboarding concern. They stay on the agency-edit page. The narrow
+  `SettingsController@updatePortalCredentials` saver written for this was removed with them.
+- **"Your property lists"** (the inline property type / status / mandate / condition-level
+  editors). The properties step keeps only its scalar controls; the lists are managed on the
+  settings page.
+- **"Invite your team".** Onboarding configures the agency; adding people stays in User
+  Management.
+
+`test_removed_sections_are_gone` guards the removal. `test_no_step_deep_links_out_of_the_wizard`
+(§3.3a) independently forbids re-adding "open the full editor" links.
+
+### 5.2 Commission step — the mentor programme is optional (2026-07-11)
+
+`commission_settings.mentor_program_enabled` (boolean, **default TRUE**) is an explicit
+on/off switch rendered on **both** the settings page and the wizard's commission step,
+mirroring `revenue_share_enabled`: the toggle gates its detail fields with `x-show`, so they
+disappear when it is off.
+
+Default TRUE is deliberate. The engine previously applied the mentor fee whenever an
+`AgentMentor` row existed, so every agency was effectively running the programme; defaulting
+to false would have silently changed the payout for any agency with mentored agents.
+
+**Off means off, not merely hidden.** Both engine paths — `CommissionCalculationService`
+and `CommissionLedger` — short-circuit the `AgentMentor` lookup when the flag is false, so a
+mentee with a live mentor row is charged **no** mentor fee. Hiding the fields without gating
+the engine would have been a lie. Proven: R20 000 fee on → R0.00 off, agent's take
+R50 300 → R70 300 on a R100 000 (excl. VAT) commission.
 
 **Step 3 — Branches.** Mirrors Company Settings → Branches: inline add (name + code), list, and
 archive, delegating to the canonical `BranchAssignmentController::createBranch` /
@@ -359,11 +381,17 @@ assumption in a comment, verbatim.)
 
 **`Admin\AgencyController@update` is a booby trap — do NOT reuse it.** It requires `name`
 and force-defaults `is_active`, all four brand colours and six feature flags. A partial post
-would **deactivate the agency and reset its branding**. Portal credentials therefore go
-through `SettingsController@updatePortalCredentials` (a narrow saver touching only the six
-portal columns, gated on the same `manage_performance_settings` permission the agency-edit
-route already required — widening *where* credentials are entered, never *who* may enter
-them). A blank password field means **keep the stored secret**, never erase it.
+would **deactivate the agency and reset its branding**. If a future step ever needs a column
+that only lives on that controller, write a narrow saver for those columns rather than
+calling it.
+
+Confirmed instances of the class, all now guarded:
+
+| Saver | Field(s) | Fix |
+|---|---|---|
+| `@updateAgencyDashboardSettings` | `weekend_visible`, `open_hours_enabled` | `$request->has()` guard |
+| `@updatePresentations` | `ss_show_complex_section` | `$request->has()` guard |
+| `Commission\CommissionSettingsController@update` | `mentor_program_enabled`, `revenue_share_enabled` | `$request->has()` guard |
 
 Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.php`.
 

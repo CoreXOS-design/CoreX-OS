@@ -3,10 +3,13 @@
 namespace Tests\Feature\Onboarding;
 
 use App\Models\Agency;
+use App\Models\AgentMentor;
 use App\Models\Branch;
 use App\Models\CommandCenter\AgencyDashboardSetting;
+use App\Models\CommissionSetting;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\CommissionCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -181,161 +184,109 @@ class AgencySetupWizardSaverGuardTest extends TestCase
     }
 
     /**
-     * The properties step used to tell the admin their portal credentials had to
-     * be "saved against the agency" and then give them nowhere to type them.
-     * They now save inline — through a NARROW saver, deliberately not
-     * AgencyController@update, which requires `name` and force-defaults
-     * is_active + the brand colours and would therefore deactivate the agency
-     * and undo the branding step.
+     * The mentor programme is now an explicit on/off switch (2026-07-11), from
+     * both the settings page and the wizard's commission step. Default is ON, so
+     * agencies already running a mentor programme see no change in payout.
      */
-    public function test_properties_step_saves_portal_credentials_without_collateral_damage(): void
-    {
-        $agency = $this->agency();
-        $agency->update([
-            'is_active'     => true,
-            'sidebar_color' => '#123456',
-            'button_color'  => '#456789',
-        ]);
-        $admin = $this->admin($agency);
-
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'properties']), [
-                'properties_per_page'     => 24,
-                'marketing_enabled'       => '1',
-                'syndication_p24_enabled' => '1',
-                'syndication_pp_enabled'  => '0',
-                'p24_username'            => 'hfc_p24',
-                'p24_password'            => 'sekrit24',
-                'p24_agency_id'           => '9931',
-                'pp_username'             => 'hfc_pp',
-                'pp_password'             => 'sekritPP',
-                'pp_branch_guid'          => 'abc-guid',
-            ])
-            ->assertRedirect();
-
-        $a = $agency->fresh();
-        $this->assertSame('hfc_p24', $a->p24_username);
-        $this->assertSame('sekrit24', $a->p24_password);
-        $this->assertSame('hfc_pp', $a->pp_username);
-
-        // The collateral damage AgencyController@update would have caused:
-        $this->assertTrue((bool) $a->is_active, 'the agency must not be deactivated');
-        $this->assertSame('#123456', $a->sidebar_color, 'brand colours must not be reset');
-        $this->assertSame('#456789', $a->button_color, 'brand colours must not be reset');
-    }
-
-    /**
-     * A password field cannot echo the stored secret back, so it renders blank
-     * on every revisit. Blank must mean "leave it alone", never "erase it" —
-     * otherwise re-saving the step to change the per-page count would silently
-     * break syndication.
-     */
-    public function test_blank_password_keeps_the_stored_credential(): void
-    {
-        $agency = $this->agency();
-        $agency->update(['p24_username' => 'hfc_p24', 'p24_password' => 'sekrit24']);
-        $admin = $this->admin($agency);
-
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'properties']), [
-                'properties_per_page'     => 50,
-                'marketing_enabled'       => '1',
-                'syndication_p24_enabled' => '1',
-                'syndication_pp_enabled'  => '0',
-                'p24_username'            => 'hfc_p24',
-                'p24_password'            => '',   // rendered blank, submitted blank
-            ])
-            ->assertRedirect();
-
-        $this->assertSame('sekrit24', $agency->fresh()->p24_password);
-    }
-
-    /**
-     * The team step — an agency that finishes onboarding with zero agents cannot
-     * list a property or run a deal. Invites go through the canonical
-     * UserManagementController@store, which creates the user with an
-     * INVITE_PENDING sentinel password and emails them to set their own.
-     */
-    public function test_team_step_invites_an_agent(): void
+    public function test_mentor_programme_toggle_saves_from_the_wizard(): void
     {
         $agency = $this->agency();
         $admin  = $this->admin($agency);
-        $branch = Branch::where('agency_id', $agency->id)->first();
+
+        $this->assertTrue(
+            (bool) CommissionSetting::forAgency($agency->id)->mentor_program_enabled,
+            'defaults ON so existing mentored agents keep their current payout'
+        );
 
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.collection.add', ['collection' => 'user']), [
-                'name'      => 'Thandeka',
-                'surname'   => 'Mokoena',
-                'email'     => 'thandeka.mokoena@hfcoastal.co.za',
-                'cell'      => '082 555 1234',
-                'role'      => 'agent',
-                'branch_id' => $branch->id,
-            ])
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'team']));
+            ->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $this->commissionPayload([
+                'mentor_program_enabled' => '0',
+            ]))
+            ->assertRedirect();
 
-        $invited = User::where('email', 'thandeka.mokoena@hfcoastal.co.za')->first();
+        $this->assertFalse((bool) CommissionSetting::forAgency($agency->id)->fresh()->mentor_program_enabled);
 
-        $this->assertNotNull($invited, 'the agent should exist');
-        $this->assertSame($agency->id, $invited->agency_id);
-        $this->assertSame((int) $branch->id, (int) $invited->branch_id);
-        $this->assertNull($invited->email_verified_at, 'the invite is pending until they accept');
-        // password is cast => hashed, so the sentinel is stored bcrypted.
+        // And back on again.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $this->commissionPayload([
+                'mentor_program_enabled' => '1',
+            ]))
+            ->assertRedirect();
+
+        $this->assertTrue((bool) CommissionSetting::forAgency($agency->id)->fresh()->mentor_program_enabled);
+    }
+
+    /**
+     * The one that actually matters: switching the programme OFF must stop the
+     * mentor fee being charged, not merely hide the fields. A mentee with a live
+     * AgentMentor row must pay no mentor fee once the agency switches it off.
+     */
+    public function test_mentor_programme_off_charges_no_mentor_fee(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        $mentee = User::factory()->create([
+            'agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true,
+        ]);
+        $mentorAgent = User::factory()->create([
+            'agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true,
+        ]);
+        AgentMentor::create([
+            'agency_id'      => $agency->id,
+            'mentee_user_id' => $mentee->id,
+            'mentor_user_id' => $mentorAgent->id,
+            'is_active'      => true,
+            'assigned_at'    => now(),
+        ]);
+
+        $settings = CommissionSetting::forAgency($agency->id);
+
+        // R115 000 gross incl. VAT, R15 000 VAT => R100 000 excl. At the default
+        // 20% mentor split that is a R20 000 mentor fee.
+        $on = CommissionCalculationService::calculateDealCommission(
+            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale — programme ON'
+        );
         $this->assertTrue(
-            \Illuminate\Support\Facades\Hash::check('INVITE_PENDING', $invited->password),
-            'the agent sets their own password from the invite email'
+            bccomp((string) $on->mentor_fee, '0.00', 2) > 0,
+            'with the programme on, a mentored agent pays a mentor fee'
+        );
+
+        // Programme OFF: same agent, same live AgentMentor row, no fee.
+        $settings->update(['mentor_program_enabled' => false]);
+
+        $off = CommissionCalculationService::calculateDealCommission(
+            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale — programme OFF'
+        );
+        $this->assertSame(
+            '0.00',
+            (string) $off->mentor_fee,
+            'switching the programme off must stop the fee, not just hide the fields'
         );
     }
 
-    /**
-     * The lazy-but-valid shortcut and the messy paths (BUILD_STANDARD §2/§5):
-     * a half-filled invite must be rejected with a message, never a 500, and a
-     * duplicate email must not create a second account.
-     */
-    public function test_invite_rejects_incomplete_and_duplicate_entries(): void
+    /** The commission form's full field set, with overrides. */
+    private function commissionPayload(array $overrides = []): array
     {
-        $agency = $this->agency();
-        $admin  = $this->admin($agency);
-
-        // Missing the required surname/cell/role — rejected, nothing created.
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.collection.add', ['collection' => 'user']), [
-                'name'  => 'Thandeka',
-                'email' => 'thandeka.mokoena@hfcoastal.co.za',
-            ])
-            ->assertSessionHasErrors(['surname', 'cell', 'role']);
-
-        $this->assertNull(User::where('email', 'thandeka.mokoena@hfcoastal.co.za')->first());
-
-        // A real invite, then the same email again.
-        $payload = [
-            'name' => 'Thandeka', 'surname' => 'Mokoena',
-            'email' => 'thandeka.mokoena@hfcoastal.co.za',
-            'cell' => '082 555 1234', 'role' => 'agent',
-        ];
-        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'user']), $payload);
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.collection.add', ['collection' => 'user']), $payload)
-            ->assertSessionHasErrors('email');
-
-        $this->assertSame(1, User::where('email', 'thandeka.mokoena@hfcoastal.co.za')->count());
-    }
-
-    /**
-     * Deleting a team member reroutes their printed QR codes, so it stays on the
-     * User Management page with its confirmation UI. The wizard must 404 rather
-     * than fall through and flash a "Removed." that never happened.
-     */
-    public function test_team_members_cannot_be_removed_from_the_wizard(): void
-    {
-        $agency = $this->agency();
-        $admin  = $this->admin($agency);
-
-        $this->actingAs($admin)
-            ->delete(route('corex.agency-setup.collection.remove', [
-                'collection' => 'user', 'id' => $admin->id,
-            ]))
-            ->assertNotFound();
-
-        $this->assertNotNull($admin->fresh(), 'the admin must still exist');
+        return array_merge([
+            'commission_split_agent'     => 70,
+            'annual_cap'                 => 1000000,
+            'post_cap_transaction_fee'   => 500,
+            'post_cap_fee_cap'           => 5000,
+            'post_cap_reduced_fee'       => 250,
+            'monthly_platform_fee'       => 1000,
+            'risk_management_fee'        => 300,
+            'risk_management_cap'        => 3000,
+            'mentor_program_enabled'     => '1',
+            'mentor_extra_split'         => 20,
+            'mentor_transactions'        => 3,
+            'revenue_share_enabled'      => '0',
+            'revenue_share_pool_percent' => 10,
+            'tier_1_percent'             => 5, 'tier_2_percent' => 4, 'tier_3_percent' => 3,
+            'tier_4_percent'             => 2, 'tier_5_percent' => 1, 'tier_6_percent' => 1,
+            'tier_7_percent'             => 1,
+            'tier_4_flqa_requirement'    => 5,  'tier_5_flqa_requirement' => 10,
+            'tier_6_flqa_requirement'    => 15, 'tier_7_flqa_requirement' => 20,
+        ], $overrides);
     }
 }

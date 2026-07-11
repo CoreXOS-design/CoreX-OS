@@ -2146,11 +2146,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
-    // Portal credentials — narrow saver (P24/PP logins only). Gated on the same
-    // permission as the agency-edit route, so this widens where credentials can
-    // be entered, not who may enter them. See SettingsController for why
-    // AgencyController@update is NOT reused here.
-    Route::post('/settings/portal-credentials', [CoreXSettingsController::class, 'updatePortalCredentials'])->middleware('permission:manage_performance_settings')->name('corex.settings.portal-credentials');
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
     // Build 4 — agency default toggles for which report sections render.
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');

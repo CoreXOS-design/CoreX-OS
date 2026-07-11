@@ -50,28 +50,11 @@ class AgencySetupWizardController extends Controller
             'setup'    => $setup,
             'agency'   => $agency,
             'stepKey'  => $step,
-            'config'   => $this->resolveLinkParams($config, $agency),
+            'config'   => $config,
             'values'   => $this->currentValues($config, $agency),
             'progress' => $this->progress($setup, $step),
             'nav'      => $this->nav($step),
         ], $this->stepData($step, $agency)));
-    }
-
-    /**
-     * The copy file is pure data and cannot know the current agency's id, so a
-     * link that needs it declares the 'CURRENT_AGENCY' placeholder and we bind
-     * the real value here.
-     */
-    private function resolveLinkParams(array $config, Agency $agency): array
-    {
-        foreach (($config['links'] ?? []) as $i => $link) {
-            foreach (($link['params'] ?? []) as $key => $value) {
-                if ($value === 'CURRENT_AGENCY') {
-                    $config['links'][$i]['params'][$key] = $agency->id;
-                }
-            }
-        }
-        return $config;
     }
 
     /**
@@ -82,24 +65,11 @@ class AgencySetupWizardController extends Controller
     /**
      * Inline collection editors (add/remove lists that render OUTSIDE the main
      * form, since they need their own sub-forms). Each maps to the canonical
-     * CRUD so the wizard never rebuilds a parallel store. property_* → the
-     * SettingsController property-setting-item CRUD; contact_source →
-     * ContactSourceController.
+     * CRUD so the wizard never rebuilds a parallel store.
      */
     private const COLLECTIONS = [
-        'property_type'   => ['step' => 'properties', 'group' => 'property_type',   'label' => 'Property types',   'placeholder' => 'e.g. Freehold House'],
-        'property_status' => ['step' => 'properties', 'group' => 'property_status', 'label' => 'Listing statuses', 'placeholder' => 'e.g. Under Offer'],
-        'mandate_type'    => ['step' => 'properties', 'group' => 'mandate_type',    'label' => 'Mandate types',    'placeholder' => 'e.g. Sole Mandate'],
-        'condition_level' => ['step' => 'properties', 'group' => 'condition_level', 'label' => 'Condition levels', 'placeholder' => 'e.g. Renovated'],
-        'contact_source'  => ['step' => 'contacts',   'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
-        'branch'          => ['step' => 'branches',   'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
-        // Invites go through UserManagementController@store — it creates the user
-        // with an INVITE_PENDING password and emails UserInviteMail, so the person
-        // sets their own password and we never handle it. Editing, deactivating
-        // and deleting a team member stay on the full User Management page (a
-        // delete triggers QR rerouting and deserves its confirmation UI), which
-        // the step links to.
-        'user'            => ['step' => 'team',       'label' => 'Team members', 'removable' => false],
+        'contact_source' => ['step' => 'contacts', 'model' => \App\Models\ContactSource::class, 'label' => 'Contact sources', 'placeholder' => 'e.g. Walk-in'],
+        'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -111,11 +81,6 @@ class AgencySetupWizardController extends Controller
             'branches' => [
                 'branches' => \App\Models\Branch::orderBy('name')->get(),
             ],
-            'properties' => [
-                'propertyGroups' => collect(['property_type', 'property_status', 'mandate_type', 'condition_level'])
-                    ->mapWithKeys(fn ($g) => [$g => \App\Models\PropertySettingItem::group($g)->orderBy('sort_order')->orderBy('name')->get()])
-                    ->all(),
-            ],
             // Contact TYPES are the six fixed signing roles (Owner, Other, Seller,
             // Buyer, Lessor, Lessee) — not configurable, so the wizard doesn't
             // surface them. Only lead sources are editable here.
@@ -124,19 +89,6 @@ class AgencySetupWizardController extends Controller
             ],
             'notifications' => [
                 'dashboard' => \App\Models\CommandCenter\AgencyDashboardSetting::firstOrNew(['agency_id' => $agency->id]),
-            ],
-            'team' => [
-                // The roster the admin has built so far. Owners are excluded —
-                // the owner role cannot be assigned through user management, so
-                // showing it here would imply an action that 403s.
-                'teamMembers' => \App\Models\User::where('agency_id', $agency->id)
-                    ->orderBy('name')
-                    ->get(['id', 'name', 'email', 'role', 'branch_id', 'is_active', 'email_verified_at']),
-                'teamBranches' => \App\Models\Branch::orderBy('name')->get(['id', 'name']),
-                'teamRoles'    => collect(\App\Models\Role::allRoles())
-                    ->reject(fn ($r) => $r->is_owner)
-                    ->map(fn ($r) => ['name' => $r->name, 'label' => $r->label ?: $r->name])
-                    ->values()->all(),
             ],
             'compliance' => [
                 'whistleblow' => [
@@ -206,15 +158,10 @@ class AgencySetupWizardController extends Controller
         $this->resolveOrCreateSetup(); // ensure agency context + setup exist
 
         try {
-            if (isset($def['group'])) {
-                $request->merge(['group' => $def['group']]);
-                app(\App\Http\Controllers\CoreX\SettingsController::class)->storePropertySettingItem($request);
-            } elseif ($collection === 'contact_source') {
+            if ($collection === 'contact_source') {
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->store($request);
             } elseif ($collection === 'branch') {
                 app(\App\Http\Controllers\Admin\BranchAssignmentController::class)->createBranch($request);
-            } elseif ($collection === 'user') {
-                app(\App\Http\Controllers\Admin\UserManagementController::class)->store($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -225,27 +172,17 @@ class AgencySetupWizardController extends Controller
         }
 
         return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
-            ->with('success', $collection === 'user' ? 'Invitation sent.' : 'Added.');
+            ->with('success', 'Added.');
     }
 
     /** DELETE /corex/agency-setup/collection/{collection}/{id} — remove a list item. */
     public function removeCollectionItem(Request $request, string $collection, int $id)
     {
         $def = self::COLLECTIONS[$collection] ?? abort(404);
-        // Not every collection can be removed from here. Deleting a team member
-        // reroutes their QR codes and needs its confirmation UI, so it stays on
-        // the User Management page — rather than fall through the branches below
-        // and flash a "Removed." that never happened.
-        abort_if(($def['removable'] ?? true) === false, 404);
         $this->resolveOrCreateSetup();
 
         try {
-            if (isset($def['group'])) {
-                // Route-model binding is bypassed here, but AgencyScope still
-                // applies to the lookup so a cross-tenant id 404s.
-                $item = \App\Models\PropertySettingItem::findOrFail($id);
-                app(\App\Http\Controllers\CoreX\SettingsController::class)->destroyPropertySettingItem($item);
-            } elseif ($collection === 'contact_source') {
+            if ($collection === 'contact_source') {
                 $src = \App\Models\ContactSource::findOrFail($id);
                 app(\App\Http\Controllers\CoreX\ContactSourceController::class)->destroy($src);
             } elseif ($collection === 'branch') {

@@ -398,19 +398,50 @@ class AgencySetupWizardTest extends TestCase
         $admin  = $this->admin($agency);
         $this->setupFor($agency);
 
-        // Add a property type through the wizard's inline editor (canonical CRUD).
-        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'property_type']), [
-            'name' => 'Beachfront Villa',
-        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+        // Add a lead source through the wizard's inline editor (canonical CRUD).
+        // (The property-list editors were removed from the wizard on 2026-07-11;
+        // contact sources are now the collection that exercises this mechanism.)
+        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'contact_source']), [
+            'name' => 'Show Day',
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'contacts']));
 
-        $item = \App\Models\PropertySettingItem::where('group', 'property_type')->where('name', 'Beachfront Villa')->first();
+        $item = \App\Models\ContactSource::where('name', 'Show Day')->first();
         $this->assertNotNull($item);
 
         // Remove it inline.
-        $this->actingAs($admin)->delete(route('corex.agency-setup.collection.remove', ['collection' => 'property_type', 'id' => $item->id]))
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
+        $this->actingAs($admin)->delete(route('corex.agency-setup.collection.remove', ['collection' => 'contact_source', 'id' => $item->id]))
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'contacts']));
 
-        $this->assertNull(\App\Models\PropertySettingItem::where('id', $item->id)->first());
+        $this->assertNull(\App\Models\ContactSource::where('id', $item->id)->first());
+    }
+
+    /**
+     * The property-list editors, the portal-credentials block and the
+     * "Invite your team" step were removed from the wizard on 2026-07-11
+     * (Johan). Guard the removal so they don't creep back in.
+     */
+    public function test_removed_sections_are_gone(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+        $this->setupFor($agency);
+
+        $this->assertNotContains('team', \App\Models\AgencyOnboardingSetup::STEPS);
+        $this->assertSame(11, \App\Models\AgencyOnboardingSetup::totalSteps());
+
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
+            ->assertOk()
+            ->assertDontSee('Your property lists')
+            ->assertDontSee('Portal credentials')
+            ->assertDontSee('Advanced portal settings');
+
+        // The collections that backed those sections no longer resolve.
+        $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'property_type']), [
+            'name' => 'Beachfront Villa',
+        ])->assertNotFound();
+
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'team']))
+            ->assertNotFound();
     }
 
     public function test_validation_error_keeps_user_on_step(): void

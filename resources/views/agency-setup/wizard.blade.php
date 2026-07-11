@@ -119,13 +119,6 @@
                 </div>
             @endforeach
 
-            {{-- Rich inline partial that must sit BELOW the simple controls
-                 (e.g. portal credentials, which only make sense once the
-                 syndication toggles above them have been read). --}}
-            @if (!empty($config['partial_after']))
-                @include($config['partial_after'])
-            @endif
-
             {{-- Deep links into the full editors for complex collections --}}
             @if (!empty($config['links']))
                 <div class="space-y-2">

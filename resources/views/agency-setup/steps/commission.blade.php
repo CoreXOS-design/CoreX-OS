@@ -3,7 +3,11 @@
      and post through the wizard form to CommissionSettingsController@update.
      $commission = CommissionSetting::forAgency() (current values). --}}
 @php $c = $commission; @endphp
-<div class="space-y-5" x-data="{ agentSplit: {{ (int) old('commission_split_agent', $c->commission_split_agent) }}, revShare: {{ old('revenue_share_enabled', $c->revenue_share_enabled) ? 'true' : 'false' }} }">
+<div class="space-y-5" x-data="{
+        agentSplit: {{ (int) old('commission_split_agent', $c->commission_split_agent) }},
+        mentor: {{ old('mentor_program_enabled', $c->mentor_program_enabled) ? 'true' : 'false' }},
+        revShare: {{ old('revenue_share_enabled', $c->revenue_share_enabled) ? 'true' : 'false' }}
+     }">
 
     {{-- Split --}}
     <div>
@@ -59,9 +63,18 @@
 
     {{-- Mentor program --}}
     <div>
-        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Mentor program</h3>
-        <p class="text-xs mb-3" style="color:var(--text-muted);">New agents under a mentor pay an extra split on their first few transactions, shared between mentor and agency.</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="flex items-center gap-3 mb-1">
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="hidden" name="mentor_program_enabled" value="0">
+                <input type="checkbox" name="mentor_program_enabled" value="1" x-model="mentor" class="sr-only peer">
+                <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
+                <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+            </label>
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Mentor programme</h3>
+        </div>
+        <p class="text-xs mb-3" style="color:var(--text-muted);">New agents under a mentor pay an extra split on their first few transactions, shared between mentor and agency. Switch this off if you don't run one — no mentor fee is charged and nothing below applies.</p>
+
+        <div x-show="mentor" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Extra split % (mentored transactions)</label>
                 <input type="number" name="mentor_extra_split" value="{{ old('mentor_extra_split', $c->mentor_extra_split) }}" min="0" max="100" step="1"

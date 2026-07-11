@@ -73,7 +73,32 @@ own toggle. The class is bounded at the three above.
 
 ---
 
-## 2. Dead-ends found — the wizard asked for what it couldn't accept (CLOSED)
+## 2. Scope decisions (Johan, 2026-07-11) — supersedes §2a/§2b below
+
+After review, Johan cut three of the additions. They are **out of scope by decision, not
+oversight**, and `test_removed_sections_are_gone` guards the removal:
+
+- **Portal credentials + advanced portal settings — REMOVED.** Not an onboarding concern;
+  they stay on the agency-edit page. The narrow `updatePortalCredentials` saver was removed
+  with them. (The `AgencyController@update` booby trap in §1 still stands as a standing
+  warning — it is why a narrow saver would have been needed had we kept the feature.)
+- **"Your property lists" (inline property type/status/mandate/condition editors) —
+  REMOVED** from the properties step entirely. Managed on the settings page.
+- **"Invite your team" (step 11) — REMOVED.** Back to 11 steps. Adding people stays in User
+  Management.
+
+**Added instead:** the **mentor programme on/off toggle** on both the settings page and the
+wizard's commission step (`commission_settings.mentor_program_enabled`, default TRUE so no
+existing agency's payout changes). Off hides the detail fields *and* short-circuits both
+engine paths, so a mentee with a live `AgentMentor` row is charged no mentor fee — proven:
+R20 000 → R0.00, agent's take R50 300 → R70 300.
+
+Sections §2a and §2b below record what the dead-ends were and why they were closed at the
+time. They are kept for the reasoning, not as current state.
+
+---
+
+## 2a/2b (HISTORICAL) — the dead-ends as originally found
 
 **a) Portal credentials.** The properties step's explainer said syndication *"only works
 once your portal credentials are saved against the agency"* — and gave the admin nowhere to

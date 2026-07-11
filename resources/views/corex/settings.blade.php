@@ -584,27 +584,38 @@
                 </div>
 
                 {{-- Mentor Program --}}
-                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                    <div>
-                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Mentor Program</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Extra split applied while a new agent is being mentored, and how long it lasts.</div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);"
+                     x-data="{ mentor: {{ old('mentor_program_enabled', $commissionSettings->mentor_program_enabled) ? 'true' : 'false' }} }">
+                    <div class="flex items-center justify-between gap-4">
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Extra Split % (mentored transactions)</label>
-                            <input type="number" name="mentor_extra_split" value="{{ old('mentor_extra_split', $commissionSettings->mentor_extra_split) }}" min="0" max="100" step="1"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Mentor Program</div>
+                            <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Extra split applied while a new agent is being mentored, and how long it lasts. Switch off if your agency doesn't run a mentor programme — no mentor fee is charged.</div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Transactions Before Graduation</label>
-                            <input type="number" name="mentor_transactions" value="{{ old('mentor_transactions', $commissionSettings->mentor_transactions) }}" min="1" max="50" step="1"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="hidden" name="mentor_program_enabled" value="0">
+                            <input type="checkbox" name="mentor_program_enabled" value="1" x-model="mentor" class="sr-only peer">
+                            <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
+                            <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                        </label>
                     </div>
-                    <div class="text-xs" style="color:var(--text-secondary);">
-                        New agents under a mentor pay an extra {{ $commissionSettings->mentor_extra_split }}% on their first {{ $commissionSettings->mentor_transactions }} transactions. Split between mentor and agency.
+                    <div x-show="mentor" x-cloak class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Extra Split % (mentored transactions)</label>
+                                <input type="number" name="mentor_extra_split" value="{{ old('mentor_extra_split', $commissionSettings->mentor_extra_split) }}" min="0" max="100" step="1"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Transactions Before Graduation</label>
+                                <input type="number" name="mentor_transactions" value="{{ old('mentor_transactions', $commissionSettings->mentor_transactions) }}" min="1" max="50" step="1"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="text-xs" style="color:var(--text-secondary);">
+                            New agents under a mentor pay an extra {{ $commissionSettings->mentor_extra_split }}% on their first {{ $commissionSettings->mentor_transactions }} transactions. Split between mentor and agency.
+                        </div>
                     </div>
                 </div>
 

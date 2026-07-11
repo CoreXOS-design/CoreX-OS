@@ -436,60 +436,6 @@ class SettingsController extends Controller
     }
 
     /**
-     * Portal credentials — the P24 / Private Property logins that syndication
-     * cannot run without.
-     *
-     * These columns also live on AgencyController@update (Admin → Agency edit),
-     * but that method is the admin super-form: it REQUIRES `name` and
-     * force-defaults `is_active`, the four brand colours and six feature flags
-     * whenever they are absent. Calling it with a partial payload would
-     * deactivate the agency and reset its branding. So the setup wizard and the
-     * settings page get this narrow saver instead — it touches the portal
-     * columns and nothing else.
-     *
-     * Same permission as the agency-edit route (manage_performance_settings) —
-     * this widens WHERE credentials can be entered, never WHO may enter them.
-     */
-    public function updatePortalCredentials(Request $request)
-    {
-        $user = auth()->user();
-        abort_unless($user?->hasPermission('manage_performance_settings'), 403);
-
-        $agencyId = $user->effectiveAgencyId();
-        abort_unless($agencyId, 404, 'No agency in scope.');
-        $agency = Agency::findOrFail($agencyId);
-
-        $data = $request->validate([
-            'p24_username'   => ['nullable', 'string', 'max:191'],
-            'p24_password'   => ['nullable', 'string', 'max:191'],
-            'p24_agency_id'  => ['nullable', 'string', 'max:32'],
-            'pp_username'    => ['nullable', 'string', 'max:191'],
-            'pp_password'    => ['nullable', 'string', 'max:191'],
-            'pp_branch_guid' => ['nullable', 'string', 'max:64'],
-        ]);
-
-        // Only touch what the calling form actually rendered, so a sibling form
-        // can never blank a credential it never showed.
-        $data = array_intersect_key($data, $request->all());
-
-        // A password field cannot echo the stored secret back, so it renders
-        // blank on every revisit. Blank therefore means "leave it as it is" —
-        // never "erase it". To clear one, clear it on the agency-edit page.
-        foreach (['p24_password', 'pp_password'] as $secret) {
-            if (array_key_exists($secret, $data) && ($data[$secret] === null || $data[$secret] === '')) {
-                unset($data[$secret]);
-            }
-        }
-
-        if ($data !== []) {
-            $agency->update($data);
-        }
-
-        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
-            ->with('success', 'Portal credentials saved.');
-    }
-
-    /**
      * Presentations V2 Phase 2 — CMA coverage thresholds + default period.
      */
     public function updatePresentations(Request $request)

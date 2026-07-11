@@ -41,8 +41,7 @@ class AgencyOnboardingSetup extends Model
         'contacts',       // 8  — Contacts
         'compliance',     // 9  — Compliance
         'notifications',  // 10 — Notifications & dashboard
-        'team',           // 11 — Invite your team
-        'access',         // 12 — Access & finish
+        'access',         // 11 — Access & finish
     ];
 
     protected $fillable = [
