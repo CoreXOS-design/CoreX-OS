@@ -220,6 +220,41 @@ Route::prefix('v1/website')
     });
 
 // ════════════════════════════════════════════════════════════════
+// Demo Access Control (AT-230) — the demo host's control API.
+// SERVED BY PRIMARY. Called by demo1.corexos.co.za, whose own database is
+// destroyed every 3 days and therefore cannot hold the durable records.
+//
+// Reuses the EXISTING machine-auth layer: agency-api guard resolves the
+// AgencyApiKey from the bearer token; website.scope authorises it. No new auth
+// layer was built for this.
+//
+// Deliberately NOT behind `website.live` — that middleware 403s unless
+// agency.website_enabled, which gates the public agency website and has nothing
+// to do with the demo. Putting the gate behind it would mean flipping an
+// unrelated switch to let prospects into the demo.
+//
+// PREFIX IS v1/demo-access, NOT v1/demo — v1/demo is already taken by the
+// mobile app's demo-login group above (api.demo.status / api.demo.login).
+//
+// Spec: .ai/specs/demo-access-control.md §5
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/demo-access')
+    ->middleware(['auth:agency-api', 'throttle:website-api'])
+    ->group(function () {
+        // Gate: verify a credential, re-check a session, record acceptance.
+        Route::middleware('website.scope:demo:gate')->group(function () {
+            Route::post('/verify',           [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
+            Route::get('/session/{token}',   [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
+            Route::post('/accept-tnc',       [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
+        });
+
+        // Telemetry: separate scope, so a leaked telemetry key cannot mint access.
+        Route::middleware('website.scope:demo:telemetry')->group(function () {
+            Route::post('/page-view', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
+        });
+    });
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 Route::middleware('auth:sanctum')->group(function () {

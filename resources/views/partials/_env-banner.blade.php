@@ -45,6 +45,19 @@
             'fg'   => '#ffffff',
             'text' => $envLabel . ' · ' . $host,
         ];
+        // AT-230 — the 3-day reset countdown. Computed here, not inline in the
+        // markup: an @if spanning several lines of HTML attributes (and sitting
+        // directly against another @endif) does not survive Blade's parser.
+        //
+        // The instant comes from DemoResetSchedule::next() — the SAME pure
+        // function the scheduler calls. The banner cannot drift from reality
+        // because there is no second source of truth for it to drift from.
+        $isDemoInstance = \App\Support\Instance::isDemo();
+        $resetAtIso     = $isDemoInstance ? \App\Support\DemoResetSchedule::next()->toIso8601String() : null;
+        $resetSeconds   = $isDemoInstance ? \App\Support\DemoResetSchedule::secondsUntilNext() : 0;
+        // Server-rendered fallback; the script below refines it to the minute.
+        $resetLabel     = 'RESETS IN ' . intdiv($resetSeconds, 86400) . 'd '
+                        . intdiv($resetSeconds % 86400, 3600) . 'h';
     @endphp
     <div role="status" aria-label="Environment: {{ $envLabel }}"
          style="flex:0 0 auto; width:100%; height:24px; line-height:24px;
@@ -55,5 +68,52 @@
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
                 padding:0 12px; user-select:none;">
         {{ $c['text'] }}@if ($envLabel === 'DEMO') · <a href="https://mail.demo1.corexos.co.za" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline;">Open Mailpit</a>@endif
+        @if ($isDemoInstance)
+            · <span id="demo-reset-countdown" data-reset-at="{{ $resetAtIso }}"
+                    title="The demo database is wiped and rebuilt every 3 days at 03:00 SAST. Anything you change will be lost.">{{ $resetLabel }}</span>
+        @endif
     </div>
+
+    {{-- AT-230 — live countdown to the 3-day demo reset.
+         Spec: .ai/specs/demo-access-control.md §6.7
+
+         The instant is computed SERVER-side by DemoResetSchedule::next() — the
+         same pure function the scheduler calls — and merely rendered here. The
+         script only ticks the display; it never decides when the reset is. That
+         is why the banner cannot lie: there is no second source of truth for it
+         to drift from.
+
+         There is no quiet-hours skip and no deferral, so this number is a promise
+         we actually keep. --}}
+    @if ($isDemoInstance)
+        <script>
+            (function () {
+                try {
+                    var el = document.getElementById('demo-reset-countdown');
+                    if (!el) return;
+
+                    var resetAt = new Date(el.dataset.resetAt).getTime();
+                    if (isNaN(resetAt)) return;
+
+                    function tick() {
+                        var left = Math.max(0, Math.floor((resetAt - Date.now()) / 1000));
+
+                        if (left === 0) {
+                            el.textContent = 'RESETTING NOW';
+                            return;
+                        }
+
+                        var d = Math.floor(left / 86400),
+                            h = Math.floor((left % 86400) / 3600),
+                            m = Math.floor((left % 3600) / 60);
+
+                        el.textContent = 'RESETS IN ' + (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
+                    }
+
+                    tick();
+                    setInterval(tick, 30000);
+                } catch (e) { /* the banner must never break a page */ }
+            })();
+        </script>
+    @endif
 @endif

@@ -45,6 +45,17 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_LEADS_WRITE       = 'leads:write';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
+    /**
+     * Demo Access Control (AT-230) — the demo instance's key into primary.
+     * Spec: .ai/specs/demo-access-control.md §5
+     *
+     * Split into two so they can be granted independently: a key that can only
+     * write telemetry cannot mint or validate access. Only the demo host's key
+     * carries these.
+     */
+    public const SCOPE_DEMO_GATE      = 'demo:gate';
+    public const SCOPE_DEMO_TELEMETRY = 'demo:telemetry';
+
     public const SCOPES = [
         self::SCOPE_LISTINGS_READ      => 'Read listings',
         self::SCOPE_AGENTS_READ        => 'Read agent profiles',
@@ -54,6 +65,8 @@ class AgencyApiKey extends Model implements Authenticatable
         self::SCOPE_ARTICLES_READ      => 'Read published agent articles',
         self::SCOPE_LEADS_WRITE        => 'Submit website leads (enquiries)',
         self::SCOPE_WEBHOOKS_RECEIVE   => 'Receive webhook events',
+        self::SCOPE_DEMO_GATE          => 'Demo: verify access grants & sessions',
+        self::SCOPE_DEMO_TELEMETRY     => 'Demo: record sessions & page views',
     ];
 
     protected $fillable = [

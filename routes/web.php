@@ -13,6 +13,28 @@ use App\Http\Controllers\Admin\DealController;
 use App\Http\Controllers\Agent\DealRegisterController;
 use App\Http\Controllers\Admin\MonthlyGoalController;
 
+// ════════════════════════════════════════════════════════════════
+// Demo Access Control (AT-230) — the gate on demo1.corexos.co.za.
+//
+// UNAUTHENTICATED by necessity: this IS the front door. A prospect arrives with
+// nothing but an emailed email+code, so these routes sit outside auth — they are
+// also on EnsureDemoGrant's exempt list, or the gate would redirect to itself
+// forever.
+//
+// On PRIMARY these 404 (DemoGateController::assertDemo). A sign-in gate for a
+// demo that does not live here would be a dead end, and a surface to probe.
+//
+// Spec: .ai/specs/demo-access-control.md §6.2, §6.3, §6.4
+// ════════════════════════════════════════════════════════════════
+Route::get('/demo/gate',         [\App\Http\Controllers\Demo\DemoGateController::class, 'show'])->name('demo.gate');
+Route::post('/demo/gate',        [\App\Http\Controllers\Demo\DemoGateController::class, 'verify'])->name('demo.gate.verify');
+Route::post('/demo/gate/logout', [\App\Http\Controllers\Demo\DemoGateController::class, 'logout'])->name('demo.gate.logout');
+Route::get('/demo/tnc',          [\App\Http\Controllers\Demo\DemoGateController::class, 'tnc'])->name('demo.tnc');
+Route::post('/demo/tnc',         [\App\Http\Controllers\Demo\DemoGateController::class, 'acceptTnc'])->name('demo.tnc.accept');
+
+// Page-view beacon. Always 204 — never blocks, never errors (fails OPEN, §6.4).
+Route::post('/demo/telemetry',   [\App\Http\Controllers\Demo\DemoTelemetryController::class, 'store'])->name('demo.telemetry');
+
 // ── Seller Live Link (public, no auth) ──
 Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
 Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
@@ -2323,6 +2345,39 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+    });
+
+    // ── Demo Access Control (AT-230) — system-owner sales tooling. ──
+    //
+    // owner_only, and deliberately NO permission key in corex-permissions.php.
+    // This is the list of companies evaluating CoreX — including agencies who
+    // compete with each other. A permission key is GRANTABLE; one mis-click in the
+    // Role Manager and an agency admin is reading it. owner_only has no delegation
+    // path. That is the stronger gate, not a skipped one — see spec §8 for why this
+    // satisfies rather than violates non-negotiable #5.
+    //
+    // Every action ALSO calls abort_unless($user->isOwnerRole(), 403) — belt,
+    // braces, and the sidebar's own owner gate.
+    //
+    // Spec: .ai/specs/demo-access-control.md §8, §9
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-access')->name('admin.demo-access.')->group(function () {
+        // T&C routes come FIRST — otherwise /tnc is swallowed by /{grant}.
+        Route::get('/tnc',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'tnc'])->name('tnc');
+        Route::post('/tnc', [\App\Http\Controllers\Admin\DemoAccessController::class, 'publishTnc'])->name('tnc.publish');
+
+        Route::post('/reset', [\App\Http\Controllers\Admin\DemoAccessController::class, 'reset'])->name('reset');
+
+        Route::get('/',       [\App\Http\Controllers\Admin\DemoAccessController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Admin\DemoAccessController::class, 'create'])->name('create');
+        Route::post('/',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'store'])->name('store');
+
+        Route::get('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'show'])->whereNumber('grant')->name('show');
+        Route::get('/{grant}/edit',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'edit'])->whereNumber('grant')->name('edit');
+        Route::put('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'update'])->whereNumber('grant')->name('update');
+        Route::post('/{grant}/revoke',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'revoke'])->whereNumber('grant')->name('revoke');
+        Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{grant}',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'destroy'])->whereNumber('grant')->name('destroy');
     });
 
     // Developer Users — System Owner / Developer roster, visible across all

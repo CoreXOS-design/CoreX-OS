@@ -322,6 +322,17 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Deal\DealRegistered` | Property transfer registered at Deeds | `deal`, `registeredAt`, `agencyId` | Deal controller (manual trigger) | `CloseProperty` (status → sold), `TriggerCommissionCalc`, audit |
 | `Fica\FicaApproved` | FICA submission marked approved | `submission`, `contact`, `approvedByUserId`, `agencyId` | FICA controller | `EnableDealActions`, audit |
 | `Fica\FicaRejected` | FICA submission rejected with reasons | `submission`, `contact`, `reasons`, `rejectedByUserId`, `agencyId` | FICA controller | `NotifyContact`, audit |
+| `Demo\DemoAccessGranted` | A demo access grant is issued to a prospect company | `grant`, `plaintextCode` (**redacted from `payloadSnapshot()`**) | `DemoAccessService::issue()` (PRIMARY only) | `SendDemoAccessGrantEmail` (queued), audit |
+| `Demo\DemoAccessFirstLogin` | A prospect signs in for the first time and the trial clock starts | `grant` (refreshed — `expires_at` is the real one) | `DemoAccessService::verify()`, **only by the writer that won the conditional `UPDATE … WHERE first_login_at IS NULL`** | audit |
+| `Demo\DemoTncAccepted` | A prospect accepts a specific, immutable T&C version | `grant`, `version` | `DemoAccessService::acceptTnc()`, only on `wasRecentlyCreated` | audit |
+| `Demo\DemoAccessRevoked` | An owner withdraws a grant | `grant` | `DemoAccessService::revoke()`, once on the not-revoked → revoked transition | audit |
+| `Demo\DemoAccessExpired` | The gate turns away a grant whose trial has run out | `grant` | `DemoAccessService::verify()` / `checkSession()` — **observed, not scheduled** | audit |
+
+**Demo events — three things that differ from the rest of the catalogue** (spec: `.ai/specs/demo-access-control.md` §7):
+
+1. **`agencyId` is null.** These are system-owner events about RR Technologies' own sales process, not tenant events. They are not agency-scoped and must never be.
+2. **`DemoAccessGranted` redacts its payload.** It carries the plaintext access code (the listener needs it to send the email — it is the only moment it exists), so it overrides `payloadSnapshot()` to write `[REDACTED]`. A credential in `domain_event_log` is a credential in every backup and log ship of that table, forever.
+3. **`DemoAccessExpired` can fire repeatedly for one grant.** There is no cron that expires grants — status is *derived*, never stored — so the event fires when the gate *notices*, i.e. each time the prospect tries again. Every emission is a distinct, true fact ("a prospect was turned away at this instant"). Nothing downstream may treat it as a once-per-grant transition.
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 

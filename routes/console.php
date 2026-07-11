@@ -337,9 +337,36 @@ Schedule::command('geo:cache-purge')
 
 // Demo reset — wipe [DEMO]-prefixed data and reseed daily at 03:00.
 // Only runs when APP_ENV is local or demo (guarded inside the commands).
+//
+// ⚠ NOTE (AT-230): this block does NOT fire on demo1.corexos.co.za. That host
+// runs APP_ENV=production, so this environment() check is false there — the same
+// trap that makes DemoLoginController::isEnabled() false on the demo box. It is
+// left in place for LOCAL use only. The real demo reset is the
+// Instance::isDemo()-gated schedule below, which does not consult APP_ENV.
 if (in_array(app()->environment(), ['local', 'demo'], true)) {
     Schedule::command('demo:cleanup --force')->dailyAt('03:00')->withoutOverlapping();
     Schedule::command('demo:seed')->dailyAt('03:05')->withoutOverlapping();
+}
+
+// ── AT-230 Demo Access Control — the 3-day reset. ──
+//
+// Gated on Instance::isDemo() (COREX_INSTANCE_ROLE), NOT on APP_ENV: the demo
+// host runs APP_ENV=production, so any environment()-based gate is silently false
+// there. Spec: .ai/specs/demo-access-control.md §6.7
+//
+// Runs DAILY at 03:00 SAST and no-ops unless DemoResetSchedule::isResetDay() —
+// which is the SAME function the countdown banner reads. One computation, so the
+// banner cannot promise a reset the scheduler does not perform.
+//
+// demo:reset itself refuses to run unless Instance::isDemo(), so even a
+// misconfigured scheduler cannot migrate:fresh a real install.
+if (\App\Support\Instance::isDemo()) {
+    Schedule::command('demo:reset --scheduled')
+        ->dailyAt('03:00')
+        ->timezone(\App\Support\DemoResetSchedule::TIMEZONE)
+        ->onOneServer()
+        ->withoutOverlapping()
+        ->name('demo-access.reset');
 }
 
 // Mandate expiry — daily at 01:00. Marks stock properties whose expiry_date

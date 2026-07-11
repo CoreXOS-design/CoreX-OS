@@ -74,6 +74,12 @@
         @stack('head')
     </head>
     <body class="font-sans antialiased">
+        {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
+             NOTHING unless this is a demo instance with a resolved grant.
+             MUST also be in layouts/corex.blade.php (the other ~231 views).
+             Spec: .ai/specs/demo-access-control.md §6.5 --}}
+        @include('partials._demo-watermark')
+
         {{-- Environment column: thin env banner (or nothing on live) above the
              full app. Banner is flex:0 0 auto; the app fills the rest — content
              is pushed down, never overlapped. Empty banner = single flex child

@@ -153,5 +153,22 @@
            class="corex-btn-primary whitespace-nowrap self-start md:self-center">Demo sidebar settings →</a>
     </div>
 
+    {{-- Demo Access Control (AT-230) — who is allowed into demo1.corexos.co.za.
+         Owner-only, no permission key (spec §8).
+         See .ai/specs/demo-access-control.md --}}
+    <div class="rounded-md p-6 flex flex-col md:flex-row md:items-start md:justify-between gap-4 mt-6"
+         style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex-1">
+            <h2 class="font-semibold" style="color: var(--text-primary);">Demo access</h2>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                Issue time-boxed, company-attributed credentials for the demo, emailed to a prospect.
+                Track what they viewed, see which terms they accepted, and revoke access at any time.
+                The demo database resets every 3 days.
+            </p>
+        </div>
+        <a href="{{ route('admin.demo-access.index') }}"
+           class="corex-btn-primary whitespace-nowrap self-start md:self-center">Demo access →</a>
+    </div>
+
 </div>
 @endsection
