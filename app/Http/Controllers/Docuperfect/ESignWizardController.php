@@ -4887,17 +4887,62 @@ class ESignWizardController extends Controller
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
             SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
             SignatureTemplate::STATUS_AWAITING_DEFERRED,
+            // P0-2b — these matched NO group at all, so a document mid-amendment,
+            // or returned to a candidate, or partially signed, simply VANISHED
+            // from this dashboard. Not mislabelled — gone.
+            SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+            SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+            SignatureTemplate::STATUS_PARTIAL,
         ];
+
+        // Terminal-but-not-completed. Previously ungrouped => also invisible.
+        $terminalStatuses = [
+            SignatureTemplate::STATUS_CANCELLED,
+            SignatureTemplate::STATUS_REJECTED,
+            SignatureTemplate::STATUS_DECLINED,
+            SignatureTemplate::STATUS_EXPIRED,
+        ];
+
+        // P0-2b — the agent's approval queue.
+        //
+        // This is where a SALES wet-ink document was lost. `pending_approval` was
+        // ONLY `STATUS_PENDING_AGENT_APPROVAL`, and this dashboard — the one that
+        // actually carries sales documents ("rental exclusion removed") — had no
+        // wet-ink handling whatsoever. So a seller could upload their signed copy
+        // and it would sit under "awaiting signatures" forever, never reaching
+        // the agent's review queue. Under ECTA every sale is wet-ink, so this was
+        // the primary sales path. One canonical predicate now answers it, shared
+        // with the rental dashboard (SignatureService::isAwaitingAgentReview).
+        $signatureService = app(\App\Services\Docuperfect\SignatureService::class);
+        $awaitingAgent    = $allTemplates->filter(fn($t) => $signatureService->isAwaitingAgentReview($t));
+        $awaitingAgentIds = $awaitingAgent->pluck('id')->all();
+
+        // A document in the agent's queue must not ALSO show as "awaiting
+        // signatures" — it is waiting on the agent, not on a party.
+        $notAwaitingAgent = $allTemplates->reject(fn($t) => in_array($t->id, $awaitingAgentIds, true));
 
         // Group templates by status category
         $groups = [
-            'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
-            'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
-            'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
-            'awaiting'         => $allTemplates->whereIn('status', $awaitingStatuses)->values(),
-            'completed'        => $allTemplates->where('status', SignatureTemplate::STATUS_COMPLETED)->values(),
-            'cancelled'        => $allTemplates->where('status', SignatureTemplate::STATUS_CANCELLED)->values(),
+            'pending_approval' => $awaitingAgent->values(),
+            'draft'            => $notAwaitingAgent->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
+            'ready_to_sign'    => $notAwaitingAgent->where('status', SignatureTemplate::STATUS_READY)->values(),
+            'awaiting'         => $notAwaitingAgent->whereIn('status', $awaitingStatuses)->values(),
+            'completed'        => $notAwaitingAgent->where('status', SignatureTemplate::STATUS_COMPLETED)->values(),
+            'cancelled'        => $notAwaitingAgent->whereIn('status', $terminalStatuses)->values(),
         ];
+
+        // Safety net — nothing may silently disappear from an agent's dashboard.
+        // Any template that landed in no bucket is surfaced as in-flight, loudly.
+        $groupedIds = collect($groups)->flatten(1)->pluck('id')->all();
+        $orphans    = $allTemplates->reject(fn($t) => in_array($t->id, $groupedIds, true));
+
+        if ($orphans->isNotEmpty()) {
+            \Illuminate\Support\Facades\Log::warning(
+                'myDocuments: signature templates matched no dashboard group — surfacing as awaiting',
+                ['statuses' => $orphans->pluck('status')->unique()->values()->all()]
+            );
+            $groups['awaiting'] = $groups['awaiting']->concat($orphans)->values();
+        }
 
         // Candidate documents needing authorisation (shared queue for full-status users)
         $candidateService = new \App\Services\CandidatePractitionerService();

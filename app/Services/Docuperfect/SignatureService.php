@@ -2422,6 +2422,54 @@ class SignatureService
     }
 
     // ──────────────────────────────────────────────
+    // Agent queue — the ONE answer to "does the agent owe this document an action?"
+    // ──────────────────────────────────────────────
+
+    /**
+     * True when this document is waiting on the AGENT, not on a party.
+     *
+     * P0-2b — this exists because the wet-ink promotion was gated on a
+     * RENTAL-ONLY status whitelist (`signing`, `awaiting_tenant`,
+     * `awaiting_landlord`). A SALES document sits in `awaiting_seller` /
+     * `awaiting_buyer`, so it never matched: a seller could upload their signed
+     * wet-ink copy and the document would stay filed under "awaiting signatures"
+     * — never surfacing in the agent's approval queue. Under ECTA every sale is
+     * wet-ink, so that was the PRIMARY sales path, silently broken.
+     *
+     * The fix is to delete the whitelist, not extend it. "Is a wet-ink copy
+     * sitting unreviewed?" has nothing to do with WHICH party we happen to be
+     * waiting on — so this predicate asks the question directly, and is correct
+     * for rentals, sales, and any party role added later (BUILD_STANDARD §6 —
+     * fix the class, not the instance).
+     */
+    public function isAwaitingAgentReview(SignatureTemplate $template): bool
+    {
+        // Terminal documents never await anyone.
+        if (in_array($template->status, [
+            SignatureTemplate::STATUS_COMPLETED,
+            SignatureTemplate::STATUS_CANCELLED,
+            SignatureTemplate::STATUS_REJECTED,
+            SignatureTemplate::STATUS_DECLINED,
+            SignatureTemplate::STATUS_EXPIRED,
+        ], true)) {
+            return false;
+        }
+
+        // The agent is explicitly the next actor.
+        if (in_array($template->status, [
+            SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+            SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+        ], true)) {
+            return true;
+        }
+
+        // A party has uploaded a wet-ink copy and it is sitting unreviewed —
+        // whatever party the flow nominally awaits.
+        return $template->requests
+            ->contains(fn ($r) => $r->wet_ink_status === SignatureRequest::WET_INK_UPLOADED_PENDING_REVIEW);
+    }
+
+    // ──────────────────────────────────────────────
     // Rental dashboard data
     // ──────────────────────────────────────────────
 
@@ -2484,15 +2532,11 @@ class SignatureService
                 continue;
             }
 
-            // Check if any request has a wet-ink upload pending agent review
-            $hasWetInkPendingReview = $sigTemplate->requests
-                ->contains(fn($r) => $r->wet_ink_status === 'uploaded_pending_review');
-
-            if ($hasWetInkPendingReview && in_array($sigTemplate->status, [
-                SignatureTemplate::STATUS_SIGNING,
-                SignatureTemplate::STATUS_AWAITING_TENANT,
-                SignatureTemplate::STATUS_AWAITING_LANDLORD,
-            ])) {
+            // P0-2b — the wet-ink promotion no longer depends on a status
+            // whitelist (see isAwaitingAgentReview()). An uploaded, unreviewed
+            // wet-ink copy puts the document in the agent's queue whatever party
+            // the flow nominally awaits.
+            if ($this->isAwaitingAgentReview($sigTemplate)) {
                 $groups['pending_approval']->push($doc);
             } else {
                 match ($sigTemplate->status) {
@@ -2501,17 +2545,37 @@ class SignatureService
                     // Candidate flow: awaiting authorisation goes to pending_approval (shared queue)
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL => $groups['pending_approval']->push($doc),
-                    SignatureTemplate::STATUS_REJECTED => $groups['rejected']->push($doc),
+                    // Terminal-but-not-completed. These previously fell through
+                    // to `default` and were labelled DRAFT — a cancelled or
+                    // expired document showing as "draft" invites an agent to
+                    // pick up a dead document.
+                    SignatureTemplate::STATUS_REJECTED,
+                    SignatureTemplate::STATUS_DECLINED,
+                    SignatureTemplate::STATUS_EXPIRED,
+                    SignatureTemplate::STATUS_CANCELLED => $groups['rejected']->push($doc),
+                    // In-flight, waiting on a party.
                     SignatureTemplate::STATUS_SIGNING,
                     SignatureTemplate::STATUS_AWAITING_TENANT,
                     SignatureTemplate::STATUS_AWAITING_LANDLORD,
                     SignatureTemplate::STATUS_AWAITING_BUYER,
                     SignatureTemplate::STATUS_AWAITING_SELLER,
                     SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                    // P0-2b — amendment_initialing fell to `default` => DRAFT. A
+                    // document whose parties are actively initialing an approved
+                    // amendment is the opposite of a draft; it is in flight and
+                    // waiting on them. Same for a candidate revising a returned
+                    // document.
+                    SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                    SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
                     SignatureTemplate::STATUS_PARTIAL => $groups['awaiting_signatures']->push($doc),
                     SignatureTemplate::STATUS_READY,
                     SignatureTemplate::STATUS_DRAFT => $groups['ready_to_sign']->push($doc),
-                    default => $groups['draft']->push($doc),
+                    // A status we do not know about must never be silently
+                    // mislabelled. Surface it as in-flight and say so loudly.
+                    default => tap($groups['awaiting_signatures'])->push($doc) && Log::warning(
+                        'SignatureService: unmapped signature-template status in rental dashboard',
+                        ['document_id' => $doc->id, 'status' => $sigTemplate->status]
+                    ),
                 };
             }
         }
