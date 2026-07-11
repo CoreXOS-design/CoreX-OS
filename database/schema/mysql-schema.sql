@@ -679,6 +679,29 @@ CREATE TABLE `agency_policies` (
   CONSTRAINT `agency_policies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_service_provider_contacts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_service_provider_contacts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `service_provider_id` bigint unsigned NOT NULL,
+  `attorney_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_person` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `role` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_service_provider_contacts_service_provider_id_foreign` (`service_provider_id`),
+  KEY `aspc_agency_firm_idx` (`agency_id`,`service_provider_id`),
+  CONSTRAINT `agency_service_provider_contacts_service_provider_id_foreign` FOREIGN KEY (`service_provider_id`) REFERENCES `agency_service_providers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_service_providers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -691,6 +714,7 @@ CREATE TABLE `agency_service_providers` (
   `company` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text COLLATE utf8mb4_unicode_ci,
   `is_preferred` tinyint(1) NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
@@ -4361,6 +4385,8 @@ CREATE TABLE `deals` (
   `seller_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `buyer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `attorney_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `attorney_provider_id` bigint unsigned DEFAULT NULL,
+  `attorney_contact_id` bigint unsigned DEFAULT NULL,
   `accepted_status` varchar(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `granted_at` datetime DEFAULT NULL,
   `commission_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -13118,3 +13144,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (981,'2026_07_10_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (982,'2026_07_10_000002_add_dr1_anchor_to_deal_activity_log',224);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (983,'2026_07_11_000001_add_deal_type_to_deals_table',225);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (984,'2026_07_11_000002_pipeline_v11_step_ops_and_comments',226);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (985,'2026_07_11_000002_create_service_provider_contacts_and_deal_attorney_link',227);

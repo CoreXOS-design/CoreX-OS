@@ -202,7 +202,7 @@
                             <div class="space-y-0.5 mt-0.5">
                                 @foreach($dayDeadlines as $grp)
                                     @php $gChip = $ragChip[$grp['worst']] ?? $defaultChip; @endphp
-                                    <div class="cal-layerable relative" data-layer="{{ \App\Services\CommandCenter\Calendar\CalendarLayers::layerForType($grp['group']) }}" x-data="{ dlOpen: false }" @click.outside="dlOpen = false">
+                                    <div class="cal-layerable relative" data-layer="{{ \App\Services\CommandCenter\Calendar\CalendarLayers::layerForType($grp['group']) }}" x-data="{ dlOpen: false }" @click.outside="dlOpen = false" :style="dlOpen ? 'position: relative; z-index: 9999;' : ''">
                                         <button type="button"
                                                 data-deadline-group="{{ $grp['group'] }}"
                                                 @click.stop="dlOpen = !dlOpen"
@@ -214,7 +214,7 @@
                                         </button>
                                         <div x-show="dlOpen" x-cloak @click.stop
                                              class="absolute left-0 mt-1 w-64 max-h-64 overflow-y-auto rounded-lg text-left"
-                                             style="z-index:30; background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
+                                             style="z-index:9999; background:var(--surface,#ffffff); border:1px solid var(--border,#e5e7eb); box-shadow:0 8px 24px rgba(0,0,0,0.18);">
                                             <div class="px-3 py-2 text-[11px] font-semibold" style="border-bottom:1px solid var(--border,#e5e7eb); color:var(--text-muted,#9ca3af);">
                                                 {{ $grp['count'] }} {{ $grp['label'] }} · {{ $cellDate->format('d M') }}
                                             </div>
