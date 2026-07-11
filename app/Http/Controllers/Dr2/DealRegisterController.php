@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Deal;
+use App\Models\DealLog;
+use App\Models\DealSettlement;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\DealMoneyLineRebuilder;
@@ -41,18 +43,199 @@ use Illuminate\View\View;
  */
 class DealRegisterController extends Controller
 {
-    /** DR2 register front page — the same `deals` rows DR1 shows (agency-scoped by BelongsToAgency). */
-    public function index(): View
+    /**
+     * DR2 register list — a FAITHFUL copy of DR1's Admin\DealController::index()
+     * (search, status/commission/branch/agent filters, sort, paid-not-settled
+     * exception, agent scope via visibleTo). Renders the DR1-identical dr2.index.
+     * Read access (deals.view) — admin + BM + agent (agent scoped to own deals).
+     */
+    public function index(Request $request): View
     {
-        $deals = Deal::query()
-            ->with('agents')
-            ->orderByDesc('deal_date')
-            ->limit(50)
-            ->get();
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
 
+        $user = auth()->user();
+        $scope = PermissionService::getDataScope($user, 'deals');
+        $query = Deal::query()->visibleTo($user)->with('agents');
+
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('property_address', 'like', "%{$search}%")
+                  ->orWhere('seller_name', 'like', "%{$search}%")
+                  ->orWhere('buyer_name', 'like', "%{$search}%")
+                  ->orWhere('deal_no', 'like', "%{$search}%")
+                  ->orWhere('file_no', 'like', "%{$search}%");
+            });
+        }
+
+        if ($status = $request->input('status')) {
+            $map = [
+                'Pending'    => ['Pending', 'P'],
+                'Granted'    => ['Granted', 'G'],
+                'Registered' => ['Registered', 'R'],
+                'Declined'   => ['Declined', 'D'],
+            ];
+            if (isset($map[$status])) {
+                $query->whereIn('accepted_status', $map[$status]);
+            } else {
+                $query->where('accepted_status', $status);
+            }
+        }
+
+        if ($commStatus = $request->input('commission')) {
+            $query->where('commission_status', $commStatus);
+        }
+
+        if ($scope === 'all' && ($branchFilter = $request->input('branch'))) {
+            $query->where('branch_id', $branchFilter);
+        }
+
+        if ($agentFilter = $request->input('agent')) {
+            $query->whereHas('agents', fn ($q) => $q->where('users.id', $agentFilter));
+        }
+
+        $sortField = $request->input('sort', 'deal_no');
+        $sortDir = $request->input('direction', 'desc');
+        $allowed = ['deal_no', 'deal_date', 'property_value', 'accepted_status', 'commission_status', 'property_address'];
+        if (! in_array($sortField, $allowed)) {
+            $sortField = 'deal_no';
+        }
+        $query->orderBy($sortField, $sortDir === 'asc' ? 'asc' : 'desc');
+
+        $deals = $query->paginate(20)->withQueryString();
+
+        // PAID_NOT_SETTLED exception report (admin all-scope only) — DR1 parity.
+        $paidNotSettledDeals = collect();
+        if ($scope === 'all') {
+            $allPaidDeals = Deal::query()->visibleTo($user)->where('commission_status', 'Paid')->get();
+            $paidDealIds = $allPaidDeals->pluck('id')->map(fn ($v) => (int) $v)->all();
+
+            $settledPaidDealIds = [];
+            if (count($paidDealIds) > 0) {
+                $settledPaidDealIds = DealSettlement::query()
+                    ->whereIn('deal_id', $paidDealIds)
+                    ->whereNotNull('paid_at')
+                    ->distinct()
+                    ->pluck('deal_id')
+                    ->map(fn ($v) => (int) $v)
+                    ->all();
+            }
+
+            $settledPaidSet = array_flip($settledPaidDealIds);
+            $paidNotSettledDeals = $allPaidDeals->filter(fn ($d) => ! isset($settledPaidSet[(int) $d->id]))->values();
+        }
+
+        $agents = User::orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
-        return view('dr2.index', compact('deals', 'branches'));
+        $branchIdContext = (int) $request->input('branch_id');
+        if ($branchIdContext <= 0 && $scope === 'branch') {
+            $branchIdContext = (int) ($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
+        }
+
+        return view('dr2.index', compact('deals', 'agents', 'branches', 'paidNotSettledDeals', 'branchIdContext'));
+    }
+
+    /**
+     * DR2 deal log — DR1 parity (read the audit trail). deals.view (all three roles;
+     * agents see their own deals' feedback).
+     */
+    public function log(Deal $deal): View
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+
+        $logs = DealLog::query()
+            ->where('deal_id', $deal->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $actors = User::whereIn('id', $logs->pluck('actor_user_id')->filter()->unique()->values())->get()->keyBy('id');
+
+        return view('dr2.log', compact('deal', 'logs', 'actors'));
+    }
+
+    /**
+     * DR2 add remark — FEEDBACK. Per Johan's DR2 permission doctrine, AGENTS may give
+     * feedback (log/remarks), so this gates on deals.view (not deals.create like DR1).
+     * Read-plus-feedback, not deal setup.
+     */
+    public function addRemark(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+
+        $data = $request->validate([
+            'remark' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $remark = trim((string) $data['remark']);
+        if ($remark === '') {
+            return redirect()->route('deals-dr2.log', $deal)->withErrors('Remark cannot be blank.');
+        }
+
+        // Backwards compatibility: keep the latest remark on the deal row (DR1 parity).
+        $deal->remarks = $remark;
+        $deal->save();
+
+        $this->logDealEvent($deal, 'remark_added', null, null, $remark);
+
+        return redirect()->route('deals-dr2.log', $deal)->with('status', 'Remark added.');
+    }
+
+    /**
+     * DR2 quick status update — DR1 parity. Deal STATUS is setup, not feedback, so it
+     * stays deals.edit (admin + BM). Agents' allowed writes are feedback + pipeline
+     * steps, not accepted/commission status.
+     */
+    public function quickUpdate(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $oldAccepted = (string) ($deal->accepted_status ?? '');
+        $oldCommission = (string) ($deal->commission_status ?? '');
+
+        $data = $request->validate([
+            'accepted_status'   => ['nullable', 'string', 'max:1'],
+            'commission_status' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $newAccepted = array_key_exists('accepted_status', $data) ? (string) ($data['accepted_status'] ?? '') : $oldAccepted;
+        $newCommission = array_key_exists('commission_status', $data) ? (string) ($data['commission_status'] ?? '') : $oldCommission;
+
+        $deal->fill([
+            'accepted_status'   => $newAccepted,
+            'commission_status' => $newCommission,
+        ])->save();
+
+        if ($oldAccepted !== $newAccepted) {
+            $this->logDealEvent($deal, 'status_changed', $oldAccepted, $newAccepted);
+        }
+        if ($oldCommission !== $newCommission) {
+            $this->logDealEvent($deal, 'commission_status_changed', $oldCommission, $newCommission);
+        }
+
+        DealMoneyLineRebuilder::rebuildDealId((int) $deal->id);
+        $dealPeriod = (string) ($deal->period ?? '');
+        if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
+            (new RollupService())->refreshPeriod($dealPeriod);
+        }
+
+        return redirect()->route('deals-dr2.index')->with('status', 'Deal updated.');
+    }
+
+    /** DR1-parity audit-trail writer. Never blocks the deal operation on a logging failure. */
+    private function logDealEvent(Deal $deal, string $eventType, ?string $from = null, ?string $to = null, ?string $message = null): void
+    {
+        try {
+            DealLog::create([
+                'deal_id'       => $deal->id,
+                'actor_user_id' => auth()->id(),
+                'event_type'    => $eventType,
+                'from_value'    => $from,
+                'to_value'      => $to,
+                'message'       => $message,
+            ]);
+        } catch (\Throwable $e) {
+            // Never block deal operations because logging failed.
+        }
     }
 
     /**
@@ -142,7 +325,12 @@ class DealRegisterController extends Controller
 
                 $deal->deal_no = (string) ($maxNumeric + 1);
 
-                return $this->persistDeal($deal, $request, true);
+                $resp = $this->persistDeal($deal, $request, true);
+                if ($deal->exists) {
+                    $this->logDealEvent($deal, 'created', null, null, 'Deal created');
+                }
+
+                return $resp;
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;

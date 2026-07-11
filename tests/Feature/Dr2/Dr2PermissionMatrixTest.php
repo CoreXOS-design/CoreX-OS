@@ -68,7 +68,7 @@ final class Dr2PermissionMatrixTest extends TestCase
     public function test_agent_cannot_reach_dr2_capture_but_can_reach_the_register(): void
     {
         // Agent: read + feedback, NO create.
-        $this->seedRole('agent', ['access_deal_register', 'view_deals']);
+        $this->seedRole('agent', ['access_deal_register', 'view_deals', 'deals.view']);
         $agent = $this->user('agent');
 
         $this->withoutVite();
@@ -87,5 +87,48 @@ final class Dr2PermissionMatrixTest extends TestCase
 
         $this->withoutVite();
         $this->actingAs($bm)->get(route('deals-dr2.create'))->assertOk();
+    }
+
+    private function makeDeal(): \App\Models\Deal
+    {
+        return \App\Models\Deal::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'deal_no' => '5001', 'period' => '2026-06', 'deal_date' => '2026-06-10',
+            'deal_type' => 'bond', 'property_value' => 1000000, 'total_commission' => 57500,
+            'accepted_status' => 'P', 'commission_status' => 'Not Paid',
+            'listing_split_percent' => 50, 'selling_split_percent' => 50,
+        ]);
+    }
+
+    public function test_agent_can_give_feedback_but_not_change_status_or_settle(): void
+    {
+        // DR2 doctrine: agent = read + FEEDBACK (log/remarks) + pipeline; NOT setup/settle.
+        $this->seedRole('agent', ['access_deal_register', 'view_deals', 'deals.view']);
+        $agent = $this->user('agent');
+        $deal = $this->makeDeal();
+
+        // FEEDBACK — agent may read the log and add a remark.
+        $this->withoutVite();
+        $this->actingAs($agent)->get(route('deals-dr2.log', $deal))->assertOk();
+        $this->actingAs($agent)->post(route('deals-dr2.remark', $deal), ['remark' => 'Buyer confirmed finance.'])
+            ->assertRedirect(route('deals-dr2.log', $deal));
+        $this->assertDatabaseHas('deal_logs', ['deal_id' => $deal->id, 'event_type' => 'remark_added']);
+
+        // SETUP — agent may NOT change status or settle.
+        $this->actingAs($agent)->post(route('deals-dr2.quickUpdate', $deal), ['accepted_status' => 'G'])->assertForbidden();
+        $this->actingAs($agent)->get(route('deals-dr2.settle', $deal))->assertForbidden();
+    }
+
+    public function test_register_and_log_render_for_admin(): void
+    {
+        $admin = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'role' => 'super_admin', 'is_admin' => true, 'is_active' => true,
+        ]);
+        $deal = $this->makeDeal();
+
+        $this->withoutVite();
+        $this->actingAs($admin)->get(route('deals-dr2.index'))->assertOk()->assertSee((string) $deal->deal_no, false);
+        $this->actingAs($admin)->get(route('deals-dr2.log', $deal))->assertOk();
     }
 }

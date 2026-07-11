@@ -666,7 +666,20 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
 
     Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
-    Route::put('/{deal}',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
+    Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
+
+    // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
+    // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
+    Route::get('/{deal}/log',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'log'])->middleware('permission:view_deals')->name('log');
+    Route::post('/{deal}/remark', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addRemark'])->middleware('permission:view_deals')->name('remark');
+
+    // Settlement — admin + BM only (settle_deals). Faithful DR1 copy on the same tables.
+    Route::get('/{deal}/settle',              [\App\Http\Controllers\Dr2\DealSettlementController::class, 'settle'])->middleware('permission:settle_deals')->name('settle');
+    Route::post('/{deal}/settle',             [\App\Http\Controllers\Dr2\DealSettlementController::class, 'saveSettlement'])->middleware('permission:settle_deals')->name('settle.save');
+    Route::get('/{deal}/settle/print',        [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printSettlement'])->middleware('permission:settle_deals')->name('settle.print');
+    Route::get('/{deal}/settle/print/{user}', [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printAgentPayslip'])->middleware('permission:settle_deals')->name('settle.print.agent');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
