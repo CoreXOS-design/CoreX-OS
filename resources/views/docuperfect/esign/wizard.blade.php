@@ -201,25 +201,47 @@
                         </div>
                         <div class="space-y-2">
                             <template x-for="p in allWebPacks" :key="'pack-' + p.id">
-                                <button @click="selectPack(p)"
-                                        class="w-full text-left p-3 rounded-md transition-all duration-300"
-                                        :style="selectedPackId === p.id
-                                            ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
-                                            : 'background: var(--surface); border: 1px solid var(--border);'">
-                                    <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
-                                        <span x-text="p.name"></span>
-                                        <span class="ds-badge ds-badge-info ml-2">Web</span>
-                                        <span class="ds-badge ds-badge-default ml-1" x-text="p.items.length + ' tpl' + (p.items.length !== 1 ? 's' : '')"></span>
-                                    </div>
-                                    <div x-show="p.items.length > 0" class="mt-1.5 space-y-0.5">
-                                        <template x-for="item in p.items" :key="'pi-' + item.id">
-                                            <div class="text-xs flex items-center gap-1" style="color: var(--text-muted);">
-                                                <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--brand-icon, #0ea5e9);"></span>
-                                                <span x-text="item.template?.name || 'Unknown template'"></span>
+                                <div>
+                                    {{-- P0-1: a pack containing a wet-ink-only document (sale
+                                         agreement / OTP) cannot be e-signed — Alienation of Land
+                                         Act. Eligibility is computed server-side; the pack is
+                                         shown, greyed, WITH the reason (STANDARDS.md "No Silent
+                                         Locks" — say why, and name the offending document). --}}
+                                    <template x-if="p.esign_eligible">
+                                        <button @click="selectPack(p)"
+                                                class="w-full text-left p-3 rounded-md transition-all duration-300"
+                                                :style="selectedPackId === p.id
+                                                    ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
+                                                    : 'background: var(--surface); border: 1px solid var(--border);'">
+                                            <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
+                                                <span x-text="p.name"></span>
+                                                <span class="ds-badge ds-badge-info ml-2">Web</span>
+                                                <span class="ds-badge ds-badge-default ml-1" x-text="p.items.length + ' tpl' + (p.items.length !== 1 ? 's' : '')"></span>
                                             </div>
-                                        </template>
-                                    </div>
-                                </button>
+                                            <div x-show="p.items.length > 0" class="mt-1.5 space-y-0.5">
+                                                <template x-for="item in p.items" :key="'pi-' + item.id">
+                                                    <div class="text-xs flex items-center gap-1" style="color: var(--text-muted);">
+                                                        <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--brand-icon, #0ea5e9);"></span>
+                                                        <span x-text="item.template?.name || 'Unknown template'"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </button>
+                                    </template>
+
+                                    <template x-if="!p.esign_eligible">
+                                        <div class="w-full text-left p-3 rounded-md cursor-not-allowed"
+                                             style="background: var(--surface-2); border: 1px solid var(--border); opacity: 0.65;">
+                                            <div class="font-medium text-sm flex items-center" style="color: var(--text-muted);">
+                                                <span x-text="p.name"></span>
+                                                <span class="ds-badge ds-badge-default ml-2">Web</span>
+                                                <span class="ds-badge ds-badge-default ml-1" x-text="p.items.length + ' tpl' + (p.items.length !== 1 ? 's' : '')"></span>
+                                            </div>
+                                            <div class="text-xs mt-1" style="color: var(--ds-amber);"
+                                                 x-text="p.esign_block_reason || 'Contains a wet ink document — not eligible for e-signature'"></div>
+                                        </div>
+                                    </template>
+                                </div>
                             </template>
                         </div>
                     </div>
@@ -263,7 +285,10 @@
                                                 <span class="ds-badge ds-badge-default ml-2">Pack</span>
                                                 <span class="ds-badge ds-badge-default ml-1" x-text="p.templates.length + ' tpl' + (p.templates.length !== 1 ? 's' : '')"></span>
                                             </div>
-                                            <div class="text-xs mt-1" style="color: var(--ds-amber);">Contains a wet ink document &mdash; not eligible for e-signature</div>
+                                            {{-- P0-1: name the offending document so the agent knows
+                                                 WHICH one to pull out, not merely that the pack is refused. --}}
+                                            <div class="text-xs mt-1" style="color: var(--ds-amber);"
+                                                 x-text="p.esign_block_reason || 'Contains a wet ink document — not eligible for e-signature'"></div>
                                             <div x-show="p.templates.length > 0" class="mt-1.5 space-y-0.5">
                                                 <template x-for="t in p.templates" :key="'ppt-' + t.id">
                                                     <div class="text-xs flex items-center gap-1" style="color: var(--text-muted);">

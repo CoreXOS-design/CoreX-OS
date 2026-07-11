@@ -14,6 +14,7 @@ use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template;
+use App\Services\Docuperfect\EsignEligibilityService;
 use App\Models\Property;
 use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
@@ -71,19 +72,38 @@ class ESignWizardController extends Controller
             ->orderBy('name')
             ->get();
 
+        // P0-1 — pack e-sign eligibility is COMPUTED, for BOTH pack families,
+        // from the legal predicate. Web packs previously had no eligibility test
+        // at all (every web pack was always clickable), and the PDF-pack test
+        // only read the coarse `is_esign` flag — which misses a document that is
+        // legally blocked by its type or name while still carrying is_esign=true.
+        $eligibility = app(EsignEligibilityService::class);
+
         $webPacks = \App\Models\Docuperfect\WebPack::where('agency_id', $user->effectiveAgencyId())
             ->whereNull('deleted_at')
             ->with(['items.template'])
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function ($pack) use ($eligibility) {
+                $templates = $pack->items->map(fn($item) => $item->template)->filter();
+
+                $pack->esign_eligible     = $eligibility->isEligible($templates);
+                $pack->esign_block_reason = $eligibility->blockReason($templates);
+
+                return $pack;
+            });
 
         $pdfPacks = Pack::visibleTo($user)
             ->with(['templates'])
             ->get()
-            ->map(function ($pack) {
-                $pack->esign_eligible = $pack->templates->isNotEmpty() && $pack->templates->every(
+            ->map(function ($pack) use ($eligibility) {
+                $renderable = $pack->templates->isNotEmpty() && $pack->templates->every(
                     fn($t) => $t->is_esign && $t->render_type === 'pdf'
                 );
+
+                $pack->esign_eligible     = $renderable && $eligibility->isEligible($pack->templates);
+                $pack->esign_block_reason = $eligibility->blockReason($pack->templates);
+
                 return $pack;
             });
 
@@ -122,6 +142,99 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * P0-1 — every template that is about to enter this flow, whatever its shape.
+     *
+     * The legal block must see the WHOLE flow, not just its first document: a
+     * pack signs as one ceremony, so one blocked document blocks the pack.
+     */
+    private function templatesEnteringFlow(
+        Request $request,
+        $templateId,
+        $webPackId,
+        $pdfPackId
+    ): \Illuminate\Support\Collection {
+        if ($webPackId) {
+            $pack = \App\Models\Docuperfect\WebPack::with('items.template')->find($webPackId);
+
+            return $pack
+                ? $this->resolveWebPackTemplates($pack, $request->input('resolved_template_ids'))
+                : collect();
+        }
+
+        if ($pdfPackId) {
+            $pack = Pack::with(['templates', 'slots.template'])->find($pdfPackId);
+
+            if (! $pack) {
+                return collect();
+            }
+
+            // Check BOTH the flat pivot and the slot templates — a blocked
+            // document hiding in a selectable slot is still a blocked document.
+            return $pack->templates
+                ->merge($pack->slots->map->template->filter())
+                ->unique('id')
+                ->values();
+        }
+
+        return $templateId
+            ? collect([Template::find($templateId)])->filter()->values()
+            : collect();
+    }
+
+    /**
+     * P0-1 — resolve a web pack's templates, constrained to the pack's OWN items.
+     *
+     * `resolved_template_ids` is client input (slot selection). It previously fed
+     * a bare Template::find(), so any template id — including one that is not a
+     * member of the pack — could be merged into the flow. Ids that are not pack
+     * members are now discarded, not looked up.
+     */
+    private function resolveWebPackTemplates(
+        \App\Models\Docuperfect\WebPack $pack,
+        $resolvedIds
+    ): \Illuminate\Support\Collection {
+        $members = $pack->items->sortBy('sort_order')
+            ->map(fn($item) => $item->template)
+            ->filter()
+            ->values();
+
+        if (empty($resolvedIds) || ! is_array($resolvedIds)) {
+            return $members;
+        }
+
+        $allowed = $members->keyBy('id');
+
+        // Preserve the agent's chosen order, drop anything not in the pack.
+        return collect($resolvedIds)
+            ->map(fn($id) => $allowed->get((int) $id))
+            ->filter()
+            ->values();
+    }
+
+    /**
+     * P0-1 — every template carried by a PERSISTED flow (dispatch-time view).
+     *
+     * A pack flow records its members in step_data.template_ids. The flow's own
+     * `template` is only the pack's FIRST document, so it is not a safe proxy
+     * for what is about to be sent. Falls back to the single template when the
+     * flow is not a pack.
+     */
+    private function templatesInFlow(Flow $flow, ?Template $fallback = null): \Illuminate\Support\Collection
+    {
+        $templateIds = $flow->step_data['template_ids'] ?? null;
+
+        if (is_array($templateIds) && ! empty($templateIds)) {
+            $templates = Template::whereIn('id', $templateIds)->get();
+
+            if ($templates->isNotEmpty()) {
+                return $templates;
+            }
+        }
+
+        return $fallback ? collect([$fallback]) : collect();
+    }
+
+    /**
      * Create a new flow from step 1 and redirect to step 2.
      */
     public function store(Request $request)
@@ -131,16 +244,28 @@ class ESignWizardController extends Controller
 
         $pdfPackId = $request->input('pdf_pack_id');
 
-        // HARD BLOCK: Single template — check if sale agreement / OTP
+        // HARD BLOCK (P0-1): Sale agreements / OTPs cannot enter the e-sign
+        // pipeline — Alienation of Land Act / ECTA s13(1).
+        //
+        // This used to check the SINGLE-template path only (`!$isPackFlow &&
+        // !$pdfPackId`), so an OTP riding inside a pack walked straight past it.
+        // The check now covers every flow shape, over EVERY template in the
+        // flow, via the one canonical predicate.
         $templateId = $request->input('template_id');
-        if ($templateId && !$isPackFlow && !$pdfPackId) {
-            $selectedTemplate = Template::find($templateId);
-            if ($selectedTemplate && $selectedTemplate->isEsignBlocked()) {
-                return response()->json([
-                    'error' => 'Sale agreements must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted.',
-                    'esign_blocked' => true,
-                ], 422);
-            }
+        $eligibility = app(EsignEligibilityService::class);
+
+        $templatesForBlockCheck = $this->templatesEnteringFlow(
+            $request,
+            $templateId,
+            $isPackFlow ? $packId : null,
+            $pdfPackId
+        );
+
+        if ($blockReason = $eligibility->blockReason($templatesForBlockCheck)) {
+            return response()->json([
+                'error'         => $blockReason,
+                'esign_blocked' => true,
+            ], 422);
         }
 
         if ($isPackFlow && $packId) {
@@ -148,18 +273,14 @@ class ESignWizardController extends Controller
             $pack = \App\Models\Docuperfect\WebPack::with('items.template')
                 ->findOrFail($packId);
 
-            // Use resolved template IDs if provided (slot selection)
-            $resolvedIds = $request->input('resolved_template_ids');
-            if (!empty($resolvedIds) && is_array($resolvedIds)) {
-                // Filter and order items by the resolved selection
-                $templates = collect($resolvedIds)
-                    ->map(fn($id) => Template::find($id))
-                    ->filter();
-            } else {
-                $templates = $pack->items->sortBy('sort_order')
-                    ->map(fn($item) => $item->template)
-                    ->filter(); // remove any null templates
-            }
+            // Use resolved template IDs if provided (slot selection).
+            //
+            // P0-1: these ids arrive from the client and were previously looked
+            // up with a bare Template::find() — ANY template id could be
+            // injected into a pack flow, including a legally-blocked one that is
+            // not a member of the pack at all. Resolution is now constrained to
+            // the pack's own items.
+            $templates = $this->resolveWebPackTemplates($pack, $request->input('resolved_template_ids'));
 
             if ($templates->isEmpty()) {
                 return response()->json(['error' => 'This web pack has no templates.'], 422);
@@ -1487,19 +1608,34 @@ class ESignWizardController extends Controller
 
         $template = $flow->template;
 
-        // Auto-flag template as e-sign capable when used via the wizard
-        if (!$template->is_esign) {
-            $template->update(['is_esign' => true]);
-        }
+        // HARD BLOCK (P0-1): Sale agreements / OTPs cannot enter the e-sign
+        // pipeline — Alienation of Land Act / ECTA s13(1).
+        //
+        // This previously tested `$flow->template` ONLY — which for a pack flow
+        // is the pack's FIRST document. An OTP sitting second in the pack was
+        // dispatched for e-signing. Dispatch now tests every document in the
+        // flow, via the one canonical predicate.
+        $eligibility = app(EsignEligibilityService::class);
+        $flowTemplates = $this->templatesInFlow($flow, $template);
 
-        // HARD BLOCK: Sale agreements cannot enter the e-sign pipeline (Alienation of Land Act)
-        if ($template->isEsignBlocked()) {
-            $blockMsg = 'Sale agreements and OTPs must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted for this document type.';
+        if ($blockMsg = $eligibility->blockReason($flowTemplates)) {
             if ($request->expectsJson()) {
                 return response()->json(['ok' => false, 'error' => $blockMsg], 422);
             }
             return redirect()->route('docuperfect.esign.step', [$flowId, 6])
                 ->with('error', $blockMsg);
+        }
+
+        // Auto-flag template as e-sign capable when used via the wizard.
+        //
+        // P0-1: this runs AFTER the legal block, and never for a blocked
+        // template. It used to run first and unconditionally — so a wet-ink-only
+        // document was stamped is_esign=true simply by being carried through the
+        // wizard, which permanently poisoned the very flag pack eligibility
+        // reads. The repair behaviour is kept for ordinary documents; a legally
+        // blocked document is never laundered into an e-signable one.
+        if (! $template->is_esign && $eligibility->mayAutoFlagEsign($template)) {
+            $template->update(['is_esign' => true]);
         }
 
         // This endpoint is exclusively for e-sign delivery mode.
