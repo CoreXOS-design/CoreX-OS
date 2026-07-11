@@ -871,6 +871,9 @@
                 @endpermission
                 @permission('view_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                @endif
                 @endpermission
 
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
@@ -959,6 +962,9 @@
                 @endpermission
                 @permission('view_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                @endif
                 @endpermission
                 @permission('view_listings')
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
@@ -1607,6 +1613,19 @@
             </svg>
             <span>Settings</span>
         </a>
+        @endpermission
+
+        {{-- AT-216 V1.1 — Deal Pipelines (agency config). Re-homed here after the deals-v2
+             prototype nav was retired (AT-219); the salvaged Pipeline Setup lives in Settings. --}}
+        @permission('deals_v2.manage_pipeline')
+        @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
+        <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-item {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+            <span>Deal Pipelines</span>
+        </a>
+        @endif
         @endpermission
 
         {{-- AT-161 — "Email Setup" moved to Communications → Email (as "Email Capture

@@ -324,6 +324,15 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
+        // AT-220 — session-armour token refresh. GET (no CSRF needed) returns the
+        // current CSRF token so long-lived authoring pages (document/template
+        // editor, e-sign wizard) can refresh a stale token in-place AND slide the
+        // session, instead of dying with a 419. Auth-gated → a dead session yields
+        // 401 JSON, which the client turns into the plain "connection lost" banner.
+        Route::get('/csrf-token', function () {
+            return response()->json(['token' => csrf_token()]);
+        })->name('csrf-token');
+
         // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
         // session (components/reminder-toast.blade.php). MUST live in this
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
@@ -636,6 +645,61 @@ Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:ac
     Route::delete('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'destroy'])->name('deposit-interest-calculator.destroy')->middleware('permission:access_deposit_calc_history');
 });
 
+// ===== DEAL REGISTER (DR2) — shared shell (AT-215) =====
+// DR2 rebuilds DR1 on the SAME `deals` tables (spec deal-register-v2-rebuild-spec.md),
+// coexisting with DR1 behind its own nav + permission. Distinct from the abandoned
+// deals-v2 module (URI `deals-v2/*`), which sunsets under AT-219. Reuses DR1's deal
+// permissions (view_deals / create_deals). AT-217 (cc3) builds the capture into create/store.
+Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(function () {
+    Route::get('/',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'index'])->middleware('permission:view_deals')->name('index');
+    Route::get('/create',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'create'])->middleware('permission:create_deals')->name('create');
+    Route::post('/',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'store'])->middleware('permission:create_deals')->name('store');
+
+    // AT-217 §2 capture-enhancement JSON feeds (canonical property picker + linked
+    // seller/buyer contacts + attorney supplier directory). Static paths declared
+    // BEFORE the {deal} wildcards so they never shadow-capture.
+    Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
+    // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
+    // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
+    Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
+    Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
+    // (Johan DR2-walk fix 2) attorney = FIRM + contact person — DR2-specific feeds.
+    Route::get('/attorney/search',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneySearch'])->middleware('permission:create_deals')->name('attorney.search');
+    Route::post('/attorney/inline',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneyInline'])->middleware('permission:create_deals')->name('attorney.inline');
+
+    Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
+    // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
+    Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
+
+    // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
+    // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
+    Route::get('/{deal}/log',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'log'])->middleware('permission:view_deals')->name('log');
+    Route::post('/{deal}/remark', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addRemark'])->middleware('permission:view_deals')->name('remark');
+
+    // Settlement — admin + BM only (settle_deals). Faithful DR1 copy on the same tables.
+    Route::get('/{deal}/settle',              [\App\Http\Controllers\Dr2\DealSettlementController::class, 'settle'])->middleware('permission:settle_deals')->name('settle');
+    Route::post('/{deal}/settle',             [\App\Http\Controllers\Dr2\DealSettlementController::class, 'saveSettlement'])->middleware('permission:settle_deals')->name('settle.save');
+    Route::get('/{deal}/settle/print',        [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printSettlement'])->middleware('permission:settle_deals')->name('settle.print');
+    Route::get('/{deal}/settle/print/{user}', [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printAgentPayslip'])->middleware('permission:settle_deals')->name('settle.print.agent');
+
+    // AT-216 — pipeline tracking overlay on the DR2 register (pure tracking: never mutates
+    // the DR1 deal, only its pipeline steps + pointer). view_deals to see, create_deals to act.
+    Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
+    Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
+    Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
+    // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
+    Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');
+    Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.na');
+    Route::post('/{deal}/pipeline/steps/{step}/remove',    [\App\Http\Controllers\Dr2\PipelineController::class, 'removeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.remove');
+    Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
+    // R2 — due-date edit + restore/reinstate (no permanent stranding)
+    Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
+    Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
+    Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
+});
+
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
 Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
@@ -662,6 +726,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // (DR2 respec) firm → contact persons management.
+    Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // Inline pick-or-create (used by the deal form) — gated to agents working a deal.
     Route::get('/search', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->name('deals-v2.suppliers.search')->middleware('permission:deals_v2.edit');
     Route::post('/inline', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->name('deals-v2.suppliers.inline')->middleware('permission:deals_v2.edit');
