@@ -33,13 +33,14 @@ class PipelineController extends Controller
         $deal->load(['pipelineSteps.comments.user']);
 
         $steps = $deal->pipelineSteps->map(function (DealStepInstance $s) {
-            $rag = $s->status === 'not_applicable' ? 'grey' : $this->pipelines->calculateRag($s); // live, not the stored snapshot
+            $terminal = in_array($s->status, ['completed', 'skipped'], true);
+            $rag = $terminal ? 'grey' : $this->pipelines->calculateRag($s); // live, not the stored snapshot
             return [
                 'model'   => $s,
                 'rag'     => $rag,
                 'colour'  => Dr1PipelineService::ragColour($rag),
                 'blocked' => $s->blockedByLabel(),
-                'na'      => $s->status === 'not_applicable',
+                'na'      => $s->status === 'skipped' && ! empty($s->na_reason),
             ];
         });
 

@@ -329,9 +329,11 @@ class Dr1PipelineService
     public function markNotApplicable(DealStepInstance $step, ?int $userId, ?string $reason): void
     {
         DB::transaction(function () use ($step, $userId, $reason) {
+            // N/A rides the existing 'skipped' status (kept, not deleted) distinguished by a
+            // non-null na_reason — no status-enum change. It resolves the gate like a skip.
             $step->update([
-                'status'      => 'not_applicable',
-                'na_reason'   => $reason,
+                'status'      => 'skipped',
+                'na_reason'   => $reason ?: 'Not applicable',
                 'current_rag' => 'grey',
             ]);
             $this->logActivity($step->dr1Deal, $step, $userId, 'step_not_applicable',
@@ -377,7 +379,7 @@ class Dr1PipelineService
                 'is_custom'     => true,
                 'is_locked'     => false,
                 'is_milestone'  => false,
-                'completion_type' => 'manual',
+                'completion_type' => 'manual_tick',
                 'status'        => 'active',
                 'trigger_type'  => 'manual',
                 'due_date'      => $dueDate ?: null,
