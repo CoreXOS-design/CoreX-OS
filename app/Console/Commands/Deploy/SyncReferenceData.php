@@ -27,11 +27,19 @@ class SyncReferenceData extends Command
 
     protected $description = 'Provision/refresh idempotent GLOBAL reference data that deploys must carry (seeders do not run on git-pull deploys). Run after migrate on every deploy.';
 
-    /** Idempotent, global-scope reference seeders. */
+    /**
+     * Idempotent reference seeders. Most are global-scope; the two DR2 seeders are
+     * per-agency but idempotent + additive (provision only agencies with none yet,
+     * never disturb an agency's own customisation) so they are equally safe to
+     * re-run on every deploy. ORDER MATTERS: the pipeline template must run before
+     * the distribution rules (rules reference the template's steps).
+     */
     private array $seeders = [
         \Database\Seeders\CalendarEventClassSeeder::class, // calendar event classes/types + natures/occupies_time/autofill (AT-162)
         \Database\Seeders\DataDictionarySeeder::class,     // CoreX-standard SA e-sign data dictionary (AT-177 / WS0)
         \Database\Seeders\ReferencePackDictionarySeeder::class, // 6 entries the 116 reference-proof surfaced (AT-177 / WS5)
+        \Database\Seeders\DealPipelineTemplateSeeder::class,   // DR2 default pipeline templates + steps, per agency (AT-225)
+        \Database\Seeders\DealDistributionRuleSeeder::class,   // DR2 §8.1 default distribution matrix, per agency (AT-225) — AFTER the template
     ];
 
     /** Idempotent reference-provisioning commands [name, args]. */
