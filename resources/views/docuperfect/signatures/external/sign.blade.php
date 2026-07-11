@@ -3280,7 +3280,37 @@ function externalSign() {
             this.webTypedSignature = '';
         },
 
-        applyWebSignature() {
+        /**
+         * P0-3 — record this client party's consent for ONE initial surface, at the
+         * moment they place it. Returns false (and tells the signer plainly) if the
+         * consent could not be recorded, so we never show an initial as placed that the
+         * server will later refuse.
+         */
+        async recordInitialConsent(surfaceKey) {
+            try {
+                const resp = await fetch('/sign/' + this.token + '/initial-consent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ surface_key: surfaceKey }),
+                });
+
+                if (!resp.ok) {
+                    this.showNotification('That initial could not be saved. Please check your connection and try again.', 'error');
+                    return false;
+                }
+
+                return true;
+            } catch (err) {
+                this.showNotification('That initial could not be saved. Please check your connection and try again.', 'error');
+                return false;
+            }
+        },
+
+        async applyWebSignature() {
             const canvas = this.$refs.webSigCanvas;
             let sigData;
 
@@ -3313,6 +3343,20 @@ function externalSign() {
             this.webSignatures[sigId] = sigData;
 
             if (isInitial) {
+                // P0-3 — a client party's initial is an individual affirmation of THIS
+                // page, so record the consent for THIS surface before it is placed. The
+                // server refuses, at submit, any initial that has no such event — which
+                // is what stops a scripted client posting every initial at once.
+                // The agent is exempt (professional profile, ceremony §2).
+                if (!this.isAgent) {
+                    const consented = await this.recordInitialConsent(sigId);
+                    if (!consented) {
+                        this.showWebSigCapture = false;
+                        this.applying = false;
+                        return;
+                    }
+                }
+
                 // Update the webInitialElements entry AND the DOM for the clicked initial
                 const entry = (this.webInitialElements || []).find(e => e.initKey === sigId);
                 if (entry) {
