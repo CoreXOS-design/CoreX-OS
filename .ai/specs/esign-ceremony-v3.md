@@ -555,6 +555,104 @@ who let it die and exactly who agreed to bring it back.
 
 ---
 
+## 11-B. Ceremony completion distribution — the signed copies go back to the signers
+
+**Doctrine (Johan, 2026-07-11).** When a ceremony completes, the **signed documents go back to
+the people who signed them.** A seller who signs a mandate expects their signed copy — not a
+link, not a portal login, not "ask your agent". The distribution is part of the ceremony, not an
+afterthought.
+
+### 11-B.1 The trigger — the FINAL AGENT SIGN-OFF, and never the candidate's
+
+Distribution fires on the **final agent sign-off that completes the ceremony** — the last act,
+after every party group and every checkpoint (§4).
+
+**Candidate doctrine applies, and it is absolute.** A **candidate practitioner cannot complete a
+ceremony.** Their final sign-off **routes to a full-status agent for approval**, and **only that
+approving sign-off triggers distribution** — never the candidate's own. A candidate's signature
+is work-in-progress; the full-status practitioner's approval is what makes the document final,
+and only a final document may be distributed.
+
+**As-built:** this is already the shipped behaviour and is *not* a build. On a candidate flow
+(`signature_templates.is_candidate_flow`) the candidate's sign-off calls `advanceToSupervisor()`
+rather than completing; only the `supervisor_final` sign-off calls
+`SignatureService::completeDocument()` — which is what fires distribution
+(`sendCompletionEmails()`). The authoriser is recorded (`authorised_by` / `authorised_at`) and
+audited (`supervisor_final_signoff`). The ceremony inherits this — it does not reinvent it.
+
+### 11-B.2 What distributes — the SIGNED documents only
+
+**Only documents that were signed are distributed.** Supporting and attached documents — pack
+**attachment slots** (§1), juristic **authority documents** (§7), knowledge-base attachments,
+anything that rode along as an *input* to the ceremony — are **never** distributed.
+
+The test is simple: **did a party place a mark on it?** If yes, it is an output of the ceremony
+and it goes back. If no, it was an input, and inputs are not returned. Attaching a party's FICA
+supporting evidence or a trust's letter of authority to an email that goes to *every* signer is a
+POPIA problem, not a courtesy.
+
+**As-built:** this holds today only *by omission* — `sendCompletionEmails()` attaches the signed
+PDF and never touches pack attachments. **It must be made an explicit rule**, because the moment
+distribution iterates the pack's documents (§11-B.3), an attachment slot sitting in that same
+pack becomes one loop away from being emailed to everyone.
+
+### 11-B.3 How it distributes — as MANY documents, never one merged pack
+
+**A pack of four documents distributes as FOUR attachments — never as one merged file.**
+
+This is the **files-as-many doctrine (§1) extended to distributes-as-many.** The pack is the
+*delivery vehicle*, never a merged mega-document — not in the filing cabinet, and not in the
+signer's inbox. The seller receives the Mandate as the Mandate, their FICA as their FICA, the
+Disclosure as the Disclosure. Each is independently legally defensible, independently filed, and
+independently readable. A single fused PDF of four unrelated instruments is not a copy of what
+anyone signed.
+
+**As-built — this is the one real gap in this section.** `sendCompletionEmails()` attaches a
+**single merged client PDF** (`"Signed - {documentName}.pdf"`). But the per-document signed PDFs
+**already exist**: `filePackDocuments()` splits the signed DOM (`splitMergedHtml()`) and writes
+each document to
+`docuperfect/signed-documents/{signatureTemplateId}/individual/{templateId}_client.pdf`. So the
+artefacts are already generated and filed — they are simply **not the ones attached to the
+email**. The build attaches the per-document set that filing already produced.
+
+### 11-B.4 To whom — the parties who signed
+
+Distribution goes to **the parties who signed** — each completed signing party, at the address
+the ceremony used. **Agents receive in-app notification, not email** (the settled rule: agents
+get zero emails; V2 §12).
+
+**As-built:** already correct — `sendCompletionEmails()` iterates the template's requests, sends
+only to those with status `completed`, and skips `party_role === 'agent'`. Each party receives
+the **client copy** (no internal audit trail); the agent's internal copy stays internal.
+
+### 11-B.5 Distribution is an evidence event (cross-reference §6)
+
+**Every distribution is an audit entry.** The tracker is audit-ready evidence (§6, refinement C),
+and "the signed copy was sent to this party, at this address, at this time, and it was this
+document" is exactly the kind of fact the evidence report must be able to prove. A dispute about
+whether a seller ever received their signed mandate is settled by the record, not by memory.
+
+Each distribution records: **which document** (per document, not per ceremony), **which party**,
+**which address**, **when**, and the **delivery outcome**.
+
+**As-built:** the audit action already exists — `SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED` is
+written per recipient in `sendCompletionEmails()`. It must become **per document per recipient**
+once distribution is per-document (§11-B.3), so the evidence timeline can answer *"was the
+Disclosure sent to the purchaser?"* and not merely *"was something sent?"*.
+
+### 11-B.6 What "done" looks like
+
+- A ceremony completing on a **candidate's** sign-off distributes **nothing** until a full-status
+  agent approves; that approval is what sends the copies.
+- A **four-document pack** arrives in the signer's inbox as **four attachments**, each named as
+  its own document.
+- **No supporting or attached document** is ever distributed — only what was signed.
+- Every party who signed receives the documents **they signed**; agents get an in-app notification.
+- Every distribution appears on the **evidence timeline** (§6), per document, per party, with the
+  delivery outcome.
+
+---
+
 ## 12. Agency-configurable thresholds (everything with a knob)
 
 Per the doctrine, everything that has a threshold is agency-configurable. The knobs this chapter
@@ -575,6 +673,7 @@ introduces:
 | Lapse & evidence | whether an evidence report auto-generates on lapse and who may view it (§6, refinement C) | auto-generate on lapse; agent + principal visible |
 | Legal expiry source | which field supplies each document's hard deadline — mandate expiry date, OTP irrevocable date (§11-A) | mandate → mandate expiry; OTP → irrevocable-until date |
 | Extension consent | who may propose an extension and the initialing rule to revive (§11-A) | any party may propose; **all-party initial is fixed, not configurable** (legal integrity) |
+| Completion distribution | whether signed copies auto-send to signers on completion (§11-B) | **auto-send on completion**; signed documents only, one attachment per document |
 | Delivery mode | **computed from the pack's templates, not chosen** — any `is_esign=false` template forces wet-ink/download (§0.1) | computed; wizard greys blocked modes with the reason |
 
 ---
@@ -629,6 +728,10 @@ introduces:
   **revives**. Lapse, extension, revival and re-lapse are all on the evidence timeline.
 - **Fees and such values are editable fields** filled from the deal/mandate (templates ship empty),
   and every **money field** auto-generates its amount-in-words.
+- On completion the signed copies **go back to the parties who signed** — a four-document pack
+  arrives as **four attachments, never one merged file** (§11-B); **no supporting or attached
+  document is ever distributed**; a **candidate's** sign-off distributes nothing until a
+  full-status agent approves; and every distribution is an **evidence event** (§6).
 - Every threshold above is **agency-configurable** (except the all-party extension-initial rule,
   which is fixed for legal integrity); every new screen has a **navigation entry**.
 

@@ -262,12 +262,14 @@ concept. Reconcile.)
 | **P2-1 · Party groups + checkpoint between groups** | #17 | M | Today: strictly one-at-a-time, checkpoint after **every** party — *more* friction than doctrine. Needed for the OTP two-act order. |
 | **P2-2 · Signing Tracker screen + nav** | #29, #38 | M | No tracker exists (only "My Documents"). All substrate present. **Johan named tracker in the launch cut.** |
 | **P2-3 · Evidence report** | #30 | M | Attributed timeline; depends on P0-4. |
+| **P2-4 · Completion distribution — signed copies back to the signers** | #41 | **S–M** | **New (ceremony §11-B, Johan 2026-07-11). High launch value — a seller expects their signed mandate copy.** Three of the four requirements are ALREADY AS-BUILT: the **trigger** (candidate doctrine already holds — a candidate's sign-off calls `advanceToSupervisor()` and completes nothing; only `supervisor_final` calls `completeDocument()`), the **recipients** (completed signers; `agent` skipped — agents get in-app, never email), and **"signed documents only"** (pack attachments are never touched). ⚠️ That last one must become an **explicit rule** — once distribution iterates the pack's documents it is one loop away from emailing a party's FICA evidence to every signer (a POPIA problem, not a courtesy). **The one real gap is HOW:** `sendCompletionEmails()` attaches **one merged** `"Signed - {name}.pdf"`. A four-document pack must arrive as **four attachments** — files-as-many extended to distributes-as-many. **The per-document PDFs already exist** (`filePackDocuments()` writes each to `.../individual/{templateId}_client.pdf`); the build attaches the set filing already produced, and makes `ACTION_SIGNED_PDF_EMAILED` (exists) **per-document per-recipient** so the evidence timeline can answer *"was the Disclosure sent to the purchaser?"* rather than merely *"was something sent?"*. |
 | **P3-1 · OTP two-act + wet-ink pack** | #36 | M | Wet-ink portal/upload/agent-review already **built**. New: two-act order + countdown. |
 | **P3-2 · Strike rendering into the document** | #11a | M | Both branches shown, excluded one struck — for the **printed** OTP. |
 | **P4 · Lapse / extension / revival** | #24–28 | M–L | **The likeliest casualty.** Largest genuinely-new block in the launch cut. Reuse the amendment re-queue engine (after P0-6). If it slips, mandate expiry stays a human discipline — which is what it is today. |
 
 > ### ✂ Cut line
-> **Phase 0 + Phase 1 + P2-2 (minimal tracker) + P3-1** is the honest minimum for a second agency to
+> **Phase 0 + Phase 1 + P2-2 (minimal tracker) + P2-4 (completion distribution) + P3-1** is the honest
+> minimum for a second agency to
 > go live: take mandates with e-signed EATS/FICA/Disclosure, run offers on paper through the existing
 > wet-ink flow, and see where every document sits. **Revised estimate: 4–6 weeks for one lane** vs
 > ~3 weeks of runway. Phase 4 goes first if something must go.
