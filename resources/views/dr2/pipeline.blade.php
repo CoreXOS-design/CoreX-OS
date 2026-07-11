@@ -49,10 +49,15 @@
             @permission('create_deals')
             <form method="POST" action="{{ route('deals-dr2.pipeline.attach', $deal) }}">
                 @csrf
-                <label for="template_id" style="display:block;margin-bottom:.35rem;font-weight:600;">Template</label>
+                <label for="template_id" style="display:block;margin-bottom:.35rem;font-weight:600;">
+                    Template
+                    @if($deal->deal_type)
+                        <span style="font-weight:400;color:var(--corex-text-muted,#6b7280);">— defaulted from deal type "{{ $deal->deal_type }}"; change if needed</span>
+                    @endif
+                </label>
                 <select name="template_id" id="template_id" class="corex-input" required style="width:100%;">
                     @foreach($templates as $t)
-                        <option value="{{ $t->id }}">{{ $t->name }}@if($t->is_default) (default)@endif</option>
+                        <option value="{{ $t->id }}" {{ (isset($defaultTemplateId) && $t->id === $defaultTemplateId) ? 'selected' : '' }}>{{ $t->name }}@if($t->deal_type) · {{ $t->deal_type }}@endif@if($t->is_default) (default)@endif</option>
                     @endforeach
                 </select>
                 <button type="submit" class="corex-btn-primary" style="margin-top:1rem;">Attach pipeline</button>
