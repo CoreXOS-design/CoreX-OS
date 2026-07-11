@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dr2;
 use App\Http\Controllers\Controller;
 use App\Models\Deal;
 use App\Models\DealV2\DealPipelineTemplate;
+use App\Models\DealV2\DealStepComment;
 use App\Models\DealV2\DealStepInstance;
 use App\Services\Deal\Dr1PipelineService;
 use Illuminate\Http\RedirectResponse;
@@ -29,15 +30,16 @@ class PipelineController extends Controller
     /** A deal's pipeline board — steps with LIVE RAG, or the attach form when none is set. */
     public function show(Deal $deal): View
     {
-        $deal->load('pipelineSteps');
+        $deal->load(['pipelineSteps.comments.user']);
 
         $steps = $deal->pipelineSteps->map(function (DealStepInstance $s) {
-            $rag = $this->pipelines->calculateRag($s); // live, not the stored snapshot
+            $rag = $s->status === 'not_applicable' ? 'grey' : $this->pipelines->calculateRag($s); // live, not the stored snapshot
             return [
                 'model'   => $s,
                 'rag'     => $rag,
                 'colour'  => Dr1PipelineService::ragColour($rag),
                 'blocked' => $s->blockedByLabel(),
+                'na'      => $s->status === 'not_applicable',
             ];
         });
 
@@ -96,6 +98,65 @@ class PipelineController extends Controller
 
         return redirect()->route('deals-dr2.pipeline', $deal)
             ->with('info', "Step \"{$step->name}\" completed.");
+    }
+
+    /** V1.1 — mark a step Not Applicable (kept, visibly excused; reason recorded + audited). */
+    public function markNa(Deal $deal, DealStepInstance $step, Request $request): RedirectResponse
+    {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        $reason = trim((string) $request->input('reason', ''));
+        $this->pipelines->markNotApplicable($step, $request->user()?->id, $reason !== '' ? $reason : null);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" marked N/A.");
+    }
+
+    /** V1.1 — remove a step (soft-delete; audited). */
+    public function removeStep(Deal $deal, DealStepInstance $step, Request $request): RedirectResponse
+    {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        $this->pipelines->removeStep($step, $request->user()?->id);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" removed.");
+    }
+
+    /** V1.1 — add a custom step: name + due date + position (relative to an existing step). */
+    public function addStep(Deal $deal, Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'name'          => ['required', 'string', 'max:255'],
+            'due_date'      => ['nullable', 'date'],
+            'after_step_id' => ['nullable', 'integer'],
+        ]);
+
+        $after = ! empty($data['after_step_id'])
+            ? DealStepInstance::where('dr1_deal_id', $deal->id)->find($data['after_step_id'])
+            : null;
+
+        $this->pipelines->addCustomStep($deal, trim($data['name']), $data['due_date'] ?? null, $after, $request->user()?->id);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', 'Step added.');
+    }
+
+    /** V1.1 — add a comment to a step's thread. */
+    public function addComment(Deal $deal, DealStepInstance $step, Request $request): RedirectResponse
+    {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+
+        DealStepComment::create([
+            'agency_id'             => $deal->agency_id,
+            'deal_step_instance_id' => $step->id,
+            'user_id'               => $request->user()?->id,
+            'body'                  => trim($data['body']),
+        ]);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', 'Comment added.');
     }
 
     /** This agency's active pipeline templates (is_default first). */

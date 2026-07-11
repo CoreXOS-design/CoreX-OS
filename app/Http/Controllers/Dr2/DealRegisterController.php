@@ -283,11 +283,26 @@ class DealRegisterController extends Controller
         $deal->accepted_status   = 'P';
         $deal->commission_status = 'Not Paid';
 
+        // AT-216 V1.1 — pipeline auto-attach at capture: offer the agency's active templates,
+        // defaulted per deal_type (agency-configurable is_default), changeable, attached on save.
+        $templates     = \App\Models\DealV2\DealPipelineTemplate::where('is_active', true)
+            ->orderByDesc('is_default')->orderBy('name')->get();
+        $defaultByType = [];
+        foreach (['bond', 'cash', 'sale_of_2nd'] as $t) {
+            $tpl = $templates->first(fn ($x) => $x->deal_type === $t && $x->is_default)
+                ?? $templates->first(fn ($x) => $x->deal_type === $t)
+                ?? $templates->first(fn ($x) => (bool) $x->is_default)
+                ?? $templates->first();
+            $defaultByType[$t] = optional($tpl)->id;
+        }
+
         return view('dr2.create', [
-            'mode'     => 'create',
-            'deal'     => $deal,
-            'agents'   => $agents,
-            'branches' => $branches,
+            'mode'               => 'create',
+            'deal'               => $deal,
+            'agents'             => $agents,
+            'branches'           => $branches,
+            'availableTemplates' => $templates,
+            'defaultByType'      => $defaultByType,
         ]);
     }
 
@@ -341,6 +356,19 @@ class DealRegisterController extends Controller
                 $resp = $this->persistDeal($deal, $request, true);
                 if ($deal->exists) {
                     $this->logDealEvent($deal, 'created', null, null, 'Deal created');
+
+                    // AT-216 V1.1 — auto-attach the selected/defaulted pipeline on save. A bad
+                    // or foreign template must never fail the deal save (nested savepoint).
+                    $templateId = (int) $request->input('pipeline_template_id');
+                    if ($templateId > 0) {
+                        try {
+                            app(\App\Services\Deal\Dr1PipelineService::class)->createPipeline($deal, $templateId);
+                        } catch (\Throwable $e) {
+                            \Log::warning('DR2 pipeline auto-attach skipped', [
+                                'deal_id' => $deal->id, 'template_id' => $templateId, 'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
                 }
 
                 return $resp;
