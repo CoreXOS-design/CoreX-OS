@@ -110,7 +110,15 @@
                                     <div class="mt-0.5 text-xs" style="color: var(--text-muted);">Company + agents (Ex VAT)</div>
                                 </td>
 
-                                <td class="px-4 py-3 text-right">
+                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                    {{-- AT-216 R3 — the pipeline is the agent's working surface: reach it from My Deals --}}
+                                    @if(\Illuminate\Support\Facades\Route::has('deals-dr2.pipeline'))
+                                    <a href="{{ route('deals-dr2.pipeline', $deal) }}"
+                                       class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">
+                                        {{ $deal->deal_pipeline_template_id ? 'Pipeline' : 'Attach pipeline' }}
+                                    </a>
+                                    <span style="color: var(--text-muted); margin: 0 .35rem;">·</span>
+                                    @endif
                                     <a href="{{ route('agent.deals.log', $deal) }}"
                                        @if($loop->first) data-tour="at-agent-deals-log" @endif
                                        class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">

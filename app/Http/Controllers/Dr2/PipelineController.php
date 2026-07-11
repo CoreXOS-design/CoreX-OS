@@ -51,7 +51,13 @@ class PipelineController extends Controller
         $templates        = $deal->deal_pipeline_template_id ? collect() : $this->activeTemplates($deal);
         $defaultTemplateId = $deal->deal_pipeline_template_id ? null : optional($this->defaultTemplateFor($deal, $templates))->id;
 
-        return view('dr2.pipeline', compact('deal', 'steps', 'templates', 'defaultTemplateId'));
+        // R2 — soft-deleted steps, so they can be restored (nobody strands a pipeline).
+        $removedSteps = DealStepInstance::onlyTrashed()
+            ->where('dr1_deal_id', $deal->id)
+            ->orderBy('position')->orderBy('id')
+            ->get();
+
+        return view('dr2.pipeline', compact('deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps'));
     }
 
     /** Attach a template's pipeline to the deal (the service guards against double-attach). */
@@ -140,6 +146,39 @@ class PipelineController extends Controller
         $this->pipelines->addCustomStep($deal, trim($data['name']), $data['due_date'] ?? null, $after, $request->user()?->id);
 
         return redirect()->route('deals-dr2.pipeline', $deal)->with('info', 'Step added.');
+    }
+
+    /** R2 — edit a step's due date inline (audited; RAG recalcs off the edited date). */
+    public function editDue(Deal $deal, DealStepInstance $step, Request $request): RedirectResponse
+    {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        $data = $request->validate(['due_date' => ['nullable', 'date']]);
+        $this->pipelines->updateStepDueDate($step, $data['due_date'] ?? null, $request->user()?->id);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Due date updated for \"{$step->name}\".");
+    }
+
+    /** R2 — restore a removed (soft-deleted) step to its original position. */
+    public function restoreStep(Deal $deal, Request $request): RedirectResponse
+    {
+        $data = $request->validate(['step_id' => ['required', 'integer']]);
+        $step = $this->pipelines->restoreRemovedStep($deal, (int) $data['step_id'], $request->user()?->id);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with($step ? 'info' : 'error', $step ? "Step \"{$step->name}\" restored." : 'That step could not be restored.');
+    }
+
+    /** R2 — reinstate an N/A'd step back to a live step. */
+    public function reinstateStep(Deal $deal, DealStepInstance $step, Request $request): RedirectResponse
+    {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        $this->pipelines->reinstateStep($step, $request->user()?->id);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" reinstated.");
     }
 
     /** V1.1 — add a comment to a step's thread. */

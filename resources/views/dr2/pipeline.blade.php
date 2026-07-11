@@ -47,7 +47,7 @@
                     @else Pipeline Setup. @endif
                 </p>
             @else
-            @permission('create_deals')
+            @permission('view_deals')
             <form method="POST" action="{{ route('deals-dr2.pipeline.attach', $deal) }}">
                 @csrf
                 <label for="template_id" style="display:block;margin-bottom:.35rem;font-weight:600;">
@@ -73,7 +73,7 @@
                 @php($s = $row['model'])
                 @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
                 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
-                <div x-data="{ na:false, cm:false }" style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.65rem .5rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
+                <div x-data="{ na:false, cm:false, due:false }" style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.65rem .5rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
                     <div style="display:flex;align-items:flex-start;gap:.6rem;">
                         <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;margin-top:.35rem;display:inline-block;width:.7rem;height:.7rem;border-radius:50%;background:{{ $row['colour'] }};"></span>
                         <div style="flex:1 1 auto;min-width:0;">
@@ -94,21 +94,31 @@
                     {{-- Action bar --}}
                     <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;padding-left:1.3rem;">
                         @if($s->status === 'active')
-                            @permission('create_deals')
+                            @permission('view_deals')
                             <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
                                 <button type="submit" class="corex-btn-secondary" style="padding:.2rem .6rem;font-size:.78rem;">Mark complete</button>
                             </form>
                             @endpermission
                         @endif
                         @unless($terminal)
-                            @permission('create_deals')
+                            @permission('view_deals')
                             <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="na = !na">N/A</button>
                             @endpermission
                         @endunless
+                        @if($row['na'])
+                            @permission('view_deals')
+                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
+                                <button type="submit" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;">Reinstate</button>
+                            </form>
+                            @endpermission
+                        @endif
+                        @permission('view_deals')
+                        <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="due = !due">Edit due</button>
+                        @endpermission
                         @permission('view_deals')
                         <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
                         @endpermission
-                        @permission('create_deals')
+                        @permission('view_deals')
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
                             <button type="submit" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#b91c1c;">Remove</button>
                         </form>
@@ -124,6 +134,16 @@
                         </form>
                     </div>
                     @endunless
+
+                    {{-- R2 — inline due-date edit (RAG recalcs off the edited date) --}}
+                    @permission('view_deals')
+                    <div x-show="due" x-cloak style="margin:.4rem 0 0 1.3rem;">
+                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
+                            <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input" style="font-size:.8rem;">
+                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save due date</button>
+                        </form>
+                    </div>
+                    @endpermission
 
                     {{-- Comment thread --}}
                     <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.3rem;">
@@ -145,8 +165,28 @@
                 </div>
             @endforeach
 
+            {{-- R2 — Removed steps (soft-deleted) with per-step Restore. No permanent stranding. --}}
+            @if($removedSteps->isNotEmpty())
+            <div x-data="{ rm:false }" style="padding:.65rem .5rem;border-top:2px solid var(--corex-border,#e5e7eb);">
+                <button type="button" class="corex-btn-outline" style="padding:.25rem .7rem;font-size:.8rem;color:#b45309;" @click="rm = !rm">Removed steps ({{ $removedSteps->count() }})</button>
+                <div x-show="rm" x-cloak style="margin-top:.5rem;">
+                    @foreach($removedSteps as $rs)
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.35rem 0;font-size:.85rem;">
+                        <span style="text-decoration:line-through;color:#6b7280;">{{ $rs->name }}</span>
+                        @permission('view_deals')
+                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.restore', $deal) }}">@csrf
+                            <input type="hidden" name="step_id" value="{{ $rs->id }}">
+                            <button type="submit" class="corex-btn-secondary" style="padding:.15rem .6rem;font-size:.75rem;">Restore</button>
+                        </form>
+                        @endpermission
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+
             {{-- Add a custom step --}}
-            @permission('create_deals')
+            @permission('view_deals')
             <div x-data="{ add:false }" style="padding:.65rem .5rem;">
                 <button type="button" class="corex-btn-outline" style="padding:.25rem .7rem;font-size:.8rem;" @click="add = !add">+ Add custom step</button>
                 <div x-show="add" x-cloak style="margin-top:.5rem;">

@@ -143,11 +143,33 @@ class Dr1PipelineService
                 'pipeline_started_at'       => now(),
             ])->save();
 
-            // Activate the on-creation steps.
+            // R2 — anchor the schedule to the DEAL DATE (real life: a bond's 30 days run from
+            // the signature/deal date, not when the DR entry was captured days later). Project
+            // EVERY step's due date from deal_date + its cumulative offset up the trigger chain,
+            // so RAG warnings apply across the whole pipeline from day one. Agents can then edit
+            // any due date inline; activateStep preserves an already-set due_date.
             $deal->load('pipelineSteps');
+            $anchor    = ($fromDate ? Carbon::parse($fromDate) : ($deal->deal_date ? Carbon::parse($deal->deal_date) : now()))->startOfDay();
+            $byId      = $deal->pipelineSteps->keyBy('id');
+            $chainDays = function ($id, $seen = []) use (&$chainDays, $byId) {
+                $s = $byId->get($id);
+                if (! $s || in_array($id, $seen, true)) {
+                    return 0; // missing or cyclic — clamp
+                }
+                $base = (int) $s->days_offset;
+                return $s->trigger_step_instance_id
+                    ? $base + $chainDays($s->trigger_step_instance_id, array_merge($seen, [$id]))
+                    : $base;
+            };
             foreach ($deal->pipelineSteps as $instance) {
+                $due = $anchor->copy()->addDays($chainDays($instance->id));
+                $instance->update(['due_date' => $due, 'current_rag' => $this->calculateRag($instance, $due)]);
+            }
+
+            // Activate the on-creation steps (their projected due_date is preserved by activateStep).
+            foreach ($deal->pipelineSteps->fresh() as $instance) {
                 if ($instance->trigger_type === 'on_creation') {
-                    $this->activateStep($instance, $fromDate);
+                    $this->activateStep($instance, $anchor->toDateString());
                 }
             }
 
@@ -399,6 +421,55 @@ class Dr1PipelineService
 
             return $step;
         });
+    }
+
+    /**
+     * R2 — agent edits a step's due date inline. RAG recomputes off the edited date (accuracy
+     * here drives the warnings). Audited.
+     */
+    public function updateStepDueDate(DealStepInstance $step, ?string $date, ?int $userId): void
+    {
+        $old = optional($step->due_date)->format('Y-m-d');
+        $due = $date ? Carbon::parse($date)->startOfDay() : null;
+        $step->update([
+            'due_date'    => $due,
+            'current_rag' => $due ? $this->calculateRag($step, $due) : 'grey',
+        ]);
+        $this->logActivity($step->dr1Deal, $step, $userId, 'step_due_edited',
+            "Step \"{$step->name}\" due date " . ($old ? "changed from {$old}" : 'set')
+            . ($due ? " to {$due->format('Y-m-d')}" : ' (cleared)'));
+    }
+
+    /**
+     * R2 — restore a soft-deleted (removed) step to its original position. Nobody should be
+     * able to permanently strand a deal's pipeline. Audited.
+     */
+    public function restoreRemovedStep(Deal $deal, int $stepId, ?int $userId): ?DealStepInstance
+    {
+        $step = DealStepInstance::withTrashed()->where('dr1_deal_id', $deal->id)->find($stepId);
+        if (! $step || ! $step->trashed()) {
+            return null;
+        }
+        $step->restore(); // position is preserved on the row → it returns where it was
+        $this->logActivity($deal, $step, $userId, 'step_restored', "Step \"{$step->name}\" restored");
+
+        return $step;
+    }
+
+    /**
+     * R2 — reinstate an N/A'd step (skipped + na_reason) back to a live, workable step.
+     * Audited. Comes back active with its projected/edited due date + fresh RAG.
+     */
+    public function reinstateStep(DealStepInstance $step, ?int $userId): void
+    {
+        $step->update([
+            'status'       => 'active',
+            'na_reason'    => null,
+            'activated_at' => $step->activated_at ?? now(),
+            'current_rag'  => $this->calculateRag($step),
+        ]);
+        $this->logActivity($step->dr1Deal, $step, $userId, 'step_reinstated',
+            "Step \"{$step->name}\" reinstated (was N/A)");
     }
 
     /**
