@@ -4162,7 +4162,7 @@ CREATE TABLE `deal_step_instances` (
   `deal_id` bigint unsigned DEFAULT NULL,
   `dr1_deal_id` bigint unsigned DEFAULT NULL,
   `agency_id` bigint unsigned NOT NULL,
-  `pipeline_step_id` bigint unsigned NOT NULL,
+  `pipeline_step_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `position` int NOT NULL DEFAULT '0',

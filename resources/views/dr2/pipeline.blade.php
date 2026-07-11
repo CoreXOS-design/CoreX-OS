@@ -71,8 +71,8 @@
         <div class="corex-card" style="margin-top:1rem;padding:.5rem;">
             @foreach($steps as $row)
                 @php($s = $row['model'])
-                @php($badge = $statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6'])
-                @php($terminal = in_array($s->status, ['completed', 'not_applicable', 'skipped'], true))
+                @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
+                @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
                 <div x-data="{ na:false, cm:false }" style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.65rem .5rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
                     <div style="display:flex;align-items:flex-start;gap:.6rem;">
                         <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;margin-top:.35rem;display:inline-block;width:.7rem;height:.7rem;border-radius:50%;background:{{ $row['colour'] }};"></span>

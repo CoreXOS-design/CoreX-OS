@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -25,6 +26,10 @@ return new class extends Migration
                 $table->boolean('is_custom')->default(false)->after('is_milestone');
             }
         });
+
+        // A custom (agent-added) step has no template step, so pipeline_step_id must be
+        // nullable. Raw MODIFY keeps the existing nullable FK without a drop/re-add.
+        DB::statement('ALTER TABLE deal_step_instances MODIFY pipeline_step_id BIGINT UNSIGNED NULL');
 
         if (! Schema::hasTable('deal_step_comments')) {
             Schema::create('deal_step_comments', function (Blueprint $table) {
