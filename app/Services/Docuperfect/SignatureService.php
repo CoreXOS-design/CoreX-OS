@@ -3102,76 +3102,64 @@ class SignatureService
     }
 
     /**
-     * Handle the amendment flow: halt forward progress, notify previous signers.
-     * Creates amendment acceptance records for each previous signer.
+     * A party proposed an amendment mid-signing: HALT the flow and hand it to the
+     * agent. Prior signatures are not touched.
+     *
+     * P0-6 — this method used to VOID prior consent.
+     *
+     * It reached back to every party who had already finished, reverted their
+     * SignatureRequest from COMPLETED to PENDING, minted a fresh token and mailed
+     * them — i.e. a full re-sign cascade. That directly contradicts the ceremony
+     * doctrine (esign-ceremony-v3.md §5, refinement B) AND the settled rule
+     * (esign-v3-complete-spec.md §7.5.7): when a term changes, prior marks are
+     * RETAINED and every party initials ONLY the new content — the digital twin of
+     * wet-ink practice, where you send the corrected page round for initialing
+     * rather than tearing up the whole agreement.
+     *
+     * It was not dead code. It is reachable in production from the live
+     * "Other Conditions" amendment-detection path in SigningController (web and
+     * PDF signing), so a recipient typing a condition could un-sign everyone who
+     * had signed before them.
+     *
+     * The correct sequence — and the one the doctrine describes — is:
+     *
+     *     party proposes  →  AGENT APPROVES  →  document re-circulates,
+     *                                            prior marks retained,
+     *                                            all parties initial the new content
+     *
+     * The re-circulation already exists and is already correct:
+     * AmendmentController::approve() calls requeueAllPartiesForInitialing(), which
+     * keeps every prior signer COMPLETED and routes them to a focused initialing
+     * surface ("your original signature stays in place").
+     *
+     * So this method's ONLY job is the first arrow: halt forward progress, put the
+     * document in front of the agent, and leave every existing signature exactly
+     * where it is. Nothing here may write to a prior signer's request.
      */
     public function handleAmendment(SignatureTemplate $template, DocumentAmendment $amendment, SignatureRequest $amendingRequest): void
     {
         DB::transaction(function () use ($template, $amendment, $amendingRequest) {
-            // Put template into amendment review status
+            // Halt forward progress — the agent is now the gatekeeper of the terms.
             $template->update([
                 'status' => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
             ]);
 
-            // Find all PREVIOUS signers (completed before the amending party)
-            $previousSigners = $template->requests()
-                ->where('status', SignatureRequest::STATUS_COMPLETED)
-                ->where('id', '!=', $amendingRequest->id)
-                ->where('signing_order', '<', $amendingRequest->signing_order)
-                ->get();
+            SignatureAuditLog::log(
+                $template,
+                'amendment_proposed',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $amendingRequest->signer_name,
+                metadata: [
+                    'amendment_id'    => $amendment->id,
+                    'proposed_by'     => $amendingRequest->signer_name,
+                    'party_role'      => $amendingRequest->party_role,
+                    'prior_marks'     => 'retained',
+                ],
+            );
 
-            foreach ($previousSigners as $previousRequest) {
-                // Create acceptance record for each previous signer per amendment
-                AmendmentAcceptance::create([
-                    'amendment_id' => $amendment->id,
-                    'signature_request_id' => $previousRequest->id,
-                    'accepted' => false,
-                    'rejected' => false,
-                ]);
-
-                // Generate new token for re-signing
-                $resignToken = $this->generateToken();
-                $previousRequest->update([
-                    'token' => $resignToken,
-                    'token_expires_at' => now()->addDays(14),
-                    'status' => SignatureRequest::STATUS_PENDING,
-                ]);
-
-                // Send notification email
-                try {
-                    $signingUrl = route('signatures.external.amendment-review', $resignToken);
-                    Mail::to($previousRequest->signer_email)->send(
-                        new SigningRequestMail(
-                            signerName: $previousRequest->signer_name,
-                            documentName: $template->document->name ?? 'Document',
-                            signingUrl: $signingUrl,
-                            personalMessage: "{$amendingRequest->signer_name} has added conditions to this document. Please review and initial each amendment to continue.",
-                            expiresAt: $previousRequest->token_expires_at,
-                        )
-                    );
-
-                    SignatureAuditLog::log(
-                        $template,
-                        'amendment_review_sent',
-                        SignatureAuditLog::ACTOR_SYSTEM,
-                        'System',
-                        metadata: [
-                            'amendment_id' => $amendment->id,
-                            'sent_to' => $previousRequest->signer_name,
-                            'sent_to_email' => $previousRequest->signer_email,
-                            'party_role' => $previousRequest->party_role,
-                        ],
-                    );
-                } catch (\Throwable $e) {
-                    Log::error('Failed to send amendment review notification', [
-                        'amendment_id' => $amendment->id,
-                        'request_id' => $previousRequest->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            // Also notify the agent
+            // The agent decides. Prior signers are NOT contacted and NOT reverted
+            // here — they are re-circulated (with their marks intact) only once the
+            // agent approves, via requeueAllPartiesForInitialing().
             $this->sendAgentAmendmentNotification($template, $amendment, $amendingRequest);
         });
     }
