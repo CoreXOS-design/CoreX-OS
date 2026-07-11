@@ -62,7 +62,7 @@ class Dr1PipelineService
         $template = DealPipelineTemplate::with('steps.dependencies')->findOrFail($templateId);
         $fromDate = $opts['from_date'] ?? null;
 
-        return DB::transaction(function () use ($deal, $template, $fromDate) {
+        $attached = DB::transaction(function () use ($deal, $template, $fromDate) {
             $stepMap = []; // template_step_id => instance_id
 
             foreach ($template->steps as $templateStep) {
@@ -178,6 +178,23 @@ class Dr1PipelineService
 
             return $deal->fresh('pipelineSteps');
         });
+
+        // Fire the calendar sync so EVERY deal-side agent's entries appear immediately
+        // (after the outer transaction commits), not only on the next batch run.
+        $this->queueCalendarSync();
+
+        return $attached;
+    }
+
+    /**
+     * Queue a calendar sync (after commit) so pipeline step deadlines materialise onto the
+     * agents' calendars promptly. Async on the queue worker; the command is idempotent.
+     */
+    private function queueCalendarSync(): void
+    {
+        dispatch(function () {
+            \Illuminate\Support\Facades\Artisan::call('deals:sync-calendar');
+        })->afterCommit();
     }
 
     /**
@@ -438,6 +455,8 @@ class Dr1PipelineService
         $this->logActivity($step->dr1Deal, $step, $userId, 'step_due_edited',
             "Step \"{$step->name}\" due date " . ($old ? "changed from {$old}" : 'set')
             . ($due ? " to {$due->format('Y-m-d')}" : ' (cleared)'));
+
+        $this->queueCalendarSync(); // reflect the edited date on the agents' calendars
     }
 
     /**
