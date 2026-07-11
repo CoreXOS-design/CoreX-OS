@@ -1409,15 +1409,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
-            $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
-            // buyer_portal_links.agency_id is NOT NULL and this is a raw insert
-            // (no BelongsToAgency auto-stamp) — derive it from the contact pillar.
-            $agencyId = \App\Models\Contact::withoutGlobalScopes()->whereKey($request->contact_id)->value('agency_id');
-            // Revoke existing active links
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            $request->validate(['contact_id' => 'required|integer']);
+            // Resolve the contact through its global scopes (agency + branch), so a
+            // contact outside the caller's agency/branch 404s here instead of
+            // minting a public portal link that leaks another tenant's buyer.
+            // findOrFail is what enforces isolation — do NOT use withoutGlobalScopes.
+            $contact  = \App\Models\Contact::findOrFail($request->integer('contact_id'));
+            $agencyId = $contact->agency_id;
+            // Revoke existing active links (scoped to this contact, now proven ours).
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $contact->id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
             $token = bin2hex(random_bytes(32));
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
-                'contact_id' => $request->contact_id, 'agency_id' => $agencyId, 'token' => $token,
+                'contact_id' => $contact->id, 'agency_id' => $agencyId, 'token' => $token,
                 'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
                 'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
@@ -1425,7 +1428,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         })->name('command-center.buyers.portal-links.generate');
 
         Route::post('/buyers/portal-links/{id}/revoke', function (int $id) {
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('id', $id)->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            // Scope the revoke to the caller's agency — buyer_portal_links has no
+            // model/global scope, so a raw id would otherwise let one agency revoke
+            // another's links. abort 404 when the id isn't ours.
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            abort_unless($agencyId, 403);
+            $updated = \Illuminate\Support\Facades\DB::table('buyer_portal_links')
+                ->where('id', $id)->where('agency_id', $agencyId)
+                ->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            abort_if($updated === 0, 404);
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
 
