@@ -42,8 +42,12 @@ class DealCalendarSource implements CalendarSourceContract
      * AT-216 V1.1 — DR2 pipeline step deadlines anchored to a DR1 `deals` row (dr1_deal_id).
      * FEEDS THE EXISTING deal-step calendar layer (same source_type + category as the
      * deals_v2 steps above) — no second event system. DR1 `deals` carries agency_id +
-     * property_address directly (no branches join); the representative agent comes from the
-     * deal_user pivot so the step lands on that agent's calendar + My Deals tile.
+     * property_address directly (no branches join).
+     *
+     * Defect fix (Barbara): a deal can have MORE THAN ONE deal-side agent (listing + selling,
+     * or multiple per side). The step deadline must appear on EVERY agent's calendar — so we
+     * JOIN deal_user and emit one payload per (step, agent), not a single representative. The
+     * sync keys events on (source_type, source_id, user_id), so each agent gets their own.
      */
     private function dr1DealStepDeadline(): Collection
     {
@@ -54,6 +58,7 @@ class DealCalendarSource implements CalendarSourceContract
             ->whereIn('dsi.status', self::ACTIVE_STEP_STATUSES)
             ->join('deals as d', 'd.id', '=', 'dsi.dr1_deal_id')
             ->whereNull('d.deleted_at')
+            ->join('deal_user as du', 'du.deal_id', '=', 'd.id') // one row per deal-side agent
             ->select(
                 'dsi.id',
                 'dsi.due_date',
@@ -64,7 +69,7 @@ class DealCalendarSource implements CalendarSourceContract
                 'd.agency_id',
                 'd.property_id',
                 'd.property_address',
-                DB::raw('(select du.user_id from deal_user du where du.deal_id = d.id order by du.id limit 1) as agent_id'),
+                'du.user_id as agent_id',
             )
             ->get()
             ->map(fn ($r) => [
