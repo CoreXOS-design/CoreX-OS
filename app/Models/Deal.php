@@ -84,6 +84,7 @@ class Deal extends Model
 
         'period',
         'deal_date',
+        'deal_type',
 
         'property_value',
         'total_commission',

@@ -144,34 +144,79 @@
                 <input type="date" name="deal_date" value="{{ old('deal_date', optional($deal->deal_date)->format('Y-m-d')) }}" required>
             </div>
 
+            {{-- (Enhancement 6) Deal Type — compulsory radios, NO default (silent default = silent wrong data) --}}
             <div class="field-full">
-                <label class="ds-label block mb-1">Property Address</label>
-                <input type="text" name="property_address" class="w-full" value="{{ old('property_address', $deal->property_address) }}">
+                <label class="ds-label block mb-1">Deal Type <span style="color:#dc2626;">*</span></label>
+                @php $dt = old('deal_type', $deal->deal_type); @endphp
+                <div class="flex flex-wrap gap-4 pt-1">
+                    @foreach(['bond' => 'Bond Sale', 'cash' => 'Cash Sale', 'sale_of_2nd' => 'Sale of 2nd Property'] as $val => $lbl)
+                    <label class="inline-flex items-center gap-2">
+                        <input type="radio" name="deal_type" value="{{ $val }}" {{ $dt === $val ? 'checked' : '' }} required>
+                        <span>{{ $lbl }}</span>
+                    </label>
+                    @endforeach
+                </div>
             </div>
 
+            {{-- (Enhancement 1) Property — rich searchable picker matching the PDF splitter --}}
+            <div class="field-full" id="dr2-prop">
+                <label class="ds-label block mb-1">Property</label>
+                <input type="hidden" name="property_id" id="dr2_property_id" value="{{ old('property_id', $deal->property_id) }}">
+                <div style="position:relative;">
+                    <input type="text" id="dr2_property_search" class="w-full" autocomplete="off"
+                           placeholder="Search a property by address, reference, complex…"
+                           value="{{ old('property_address', ($deal->property ? $deal->property->buildDisplayAddress() : $deal->property_address)) }}">
+                    <div id="dr2_property_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                </div>
+                <input type="hidden" name="property_address" id="dr2_property_address" value="{{ old('property_address', $deal->property_address) }}">
+                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline text-gray-500 ml-1">unlink</button></div>
+                <div class="text-xs text-gray-400 mt-1">No CoreX match? Type the address — the deal still saves.</div>
+            </div>
+
+            {{-- (Enhancement 2) Seller — auto-offered from the property's linked SELLER role --}}
             <div>
                 <label class="ds-label block mb-1">Seller</label>
-                <input type="text" name="seller_name" value="{{ old('seller_name', $deal->seller_name) }}">
+                <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}">
+                <div id="dr2_seller_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
             </div>
 
+            {{-- (Enhancement 2) Buyer — auto-offered from the property's linked BUYER role --}}
             <div>
                 <label class="ds-label block mb-1">Buyer</label>
-                <input type="text" name="buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}">
+                <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}">
+                <div id="dr2_buyer_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
             </div>
 
-            <div class="field-full">
+            {{-- (Enhancement 3) Attorney — supplier search + real add-new contact modal --}}
+            <div class="field-full" id="dr2-att">
                 <label class="ds-label block mb-1">Attorney</label>
-                <input type="text" name="attorney_name" class="w-full" value="{{ old('attorney_name', $deal->attorney_name) }}">
+                <input type="hidden" name="attorney_name" id="dr2_attorney_name" value="{{ old('attorney_name', $deal->attorney_name) }}">
+                <div style="position:relative;">
+                    <input type="text" id="dr2_attorney_search" class="w-full" autocomplete="off" placeholder="Search transfer attorneys / conveyancers…" value="{{ old('attorney_name', $deal->attorney_name) }}">
+                    <div id="dr2_attorney_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                </div>
+                <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney</button>
             </div>
 
+            {{-- (Enhancement 7) Financials sub-heading over the money fields --}}
+            <div class="field-full"><h3 class="ds-label" style="margin-top:.35rem;font-weight:700;color:#0b2a4a;">Financials</h3></div>
+
+            {{-- (Enhancement 4) Selling Price — prefilled from the advertised price, overridable --}}
             <div>
                 <label class="ds-label block mb-1">Selling Price</label>
-                <input type="number" step="0.01" class="input-base money-input" name="property_value" value="{{ old('property_value', $deal->property_value) }}" required>
+                <input type="number" step="0.01" class="input-base money-input" name="property_value" id="dr2_property_value" value="{{ old('property_value', $deal->property_value) }}" required>
+            </div>
+
+            {{-- (Enhancement 5) Commission % — prefilled from the property; drives the amount (calc on load) --}}
+            <div>
+                <label class="ds-label block mb-1">Commission %</label>
+                <input type="number" step="0.01" class="input-base" name="commission_percent_display" id="dr2_commission_percent" value="{{ old('commission_percent_display') }}">
+                <div class="mt-1 text-xs text-gray-400">Prefills from the property; drives the amount.</div>
             </div>
 
             <div>
                 <label class="ds-label block mb-1">Total Commission (Incl VAT)</label>
-                <input type="number" step="0.01" class="input-base money-input" name="total_commission" value="{{ old('total_commission', $deal->total_commission) }}" required>
+                <input type="number" step="0.01" class="input-base money-input" name="total_commission" id="dr2_total_commission" value="{{ old('total_commission', $deal->total_commission) }}" required>
                 <div class="mt-1 text-xs text-gray-500">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
             </div>
                 </div>
@@ -468,4 +513,213 @@
     </div>
 
 </div>
+
+{{-- (Enhancement 3) Add-new-attorney inline modal — modelled on the contact-create fields --}}
+<div id="dr2_att_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
+        <h3 class="font-bold mb-3" style="color:#0b2a4a">Add a new attorney</h3>
+        <div class="deal-grid">
+            <div class="field-full"><label class="ds-label block mb-1">Firm / Name *</label><input type="text" id="dr2_na_name" class="w-full"></div>
+            <div><label class="ds-label block mb-1">Contact person</label><input type="text" id="dr2_na_company" class="w-full"></div>
+            <div><label class="ds-label block mb-1">Phone</label><input type="text" id="dr2_na_phone" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_na_email" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Notes</label><input type="text" id="dr2_na_notes" class="w-full"></div>
+        </div>
+        <div id="dr2_na_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div class="flex items-center justify-end gap-2 mt-4">
+            <button type="button" id="dr2_na_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_na_save" class="corex-btn-primary px-4 py-2 text-sm">Save attorney</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const csrf = document.querySelector('input[name="_token"]')?.value
+              || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const R = {
+        properties: @json(route('deals-dr2.search.properties')),
+        propertyContacts: @json(route('deals-dr2.search.property-contacts', ['property' => '__ID__'])),
+        suppliers: @json(route('deals-dr2.suppliers.search')),
+        supplierInline: @json(route('deals-dr2.suppliers.inline')),
+    };
+    const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+    const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
+    const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+
+    // ---------- Enhancement 1: property picker (splitter-parity rich rows) ----------
+    const pSearch = document.getElementById('dr2_property_search');
+    const pResults = document.getElementById('dr2_property_results');
+    const pId = document.getElementById('dr2_property_id');
+    const pAddr = document.getElementById('dr2_property_address');
+    const pLinked = document.getElementById('dr2_property_linked');
+    const pLinkedId = document.getElementById('dr2_property_linked_id');
+    const priceEl = document.getElementById('dr2_property_value');
+    const pctEl = document.getElementById('dr2_commission_percent');
+    const commEl = document.getElementById('dr2_total_commission');
+
+    const closeProp = () => { pResults.style.display = 'none'; pResults.innerHTML = ''; };
+    pSearch.addEventListener('input', () => { pAddr.value = pSearch.value; });
+
+    const runProp = debounce(() => {
+        const q = pSearch.value.trim();
+        if (q.length < 2) { closeProp(); return; }
+        fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+            .then(r => r.ok ? r.json() : [])
+            .then(rows => {
+                if (!Array.isArray(rows) || !rows.length) {
+                    pResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match — type the address to save without a link.</div>';
+                    pResults.style.display = 'block'; return;
+                }
+                pResults.innerHTML = rows.map(row => {
+                    const addr = row.address || row.label || ('Property #' + row.id);
+                    const sub = [row.ref ? ('Ref ' + row.ref) : '', row.seller ? ('Seller: ' + row.seller) : '', row.agent ? ('Agent: ' + row.agent) : ''].filter(Boolean).join(' · ');
+                    const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
+                    return '<div class="dr2-prow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                        + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
+                        + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + sub + '</div>' : '')
+                        + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
+                }).join('');
+                pResults.style.display = 'block';
+                pResults.querySelectorAll('.dr2-prow').forEach(el => {
+                    el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
+                    el.addEventListener('mouseout', () => el.style.background = '#fff');
+                    el.addEventListener('click', () => pickProp(el.dataset));
+                });
+            }).catch(closeProp);
+    }, 220);
+    pSearch.addEventListener('input', runProp);
+    pSearch.addEventListener('focus', runProp);
+    document.addEventListener('click', e => { if (!e.target.closest('#dr2-prop')) closeProp(); });
+
+    function pickProp(d) {
+        pId.value = d.id; pAddr.value = d.address; pSearch.value = d.address;
+        pLinkedId.textContent = '#' + d.id; pLinked.style.display = '';
+        closeProp();
+        // Enhancement 4: price prefill (only when empty or still prefilled)
+        if (d.price && (!priceEl.value || priceEl.dataset.prefilled === '1')) {
+            priceEl.value = Number(d.price); priceEl.dataset.prefilled = '1';
+        }
+        // Enhancement 5: commission % prefill + amount calc-on-pick (never half-filled)
+        if (d.comm && parseFloat(d.comm) > 0 && (!pctEl.value || pctEl.dataset.prefilled === '1')) {
+            pctEl.value = parseFloat(d.comm); pctEl.dataset.prefilled = '1';
+        }
+        calcComm();
+        loadPropContacts(d.id);
+    }
+    priceEl.addEventListener('input', () => { priceEl.dataset.prefilled = '0'; calcComm(); });
+    pctEl.addEventListener('input', () => { pctEl.dataset.prefilled = '0'; calcComm(); });
+    commEl.addEventListener('input', () => { commEl.dataset.manual = '1'; });
+
+    // Enhancement 5: amount = price × %/100. Never leave a lone % with no amount.
+    function calcComm() {
+        const price = parseFloat(priceEl.value), pct = parseFloat(pctEl.value);
+        if (price > 0 && pct > 0) {
+            if (commEl.dataset.manual !== '1' || !commEl.value) {
+                commEl.value = (Math.round(price * (pct / 100) * 100) / 100).toFixed(2);
+            }
+        }
+    }
+    document.getElementById('dr2_property_unlink').addEventListener('click', () => {
+        pId.value = ''; pLinked.style.display = 'none';
+        document.getElementById('dr2_seller_offer').style.display = 'none';
+        document.getElementById('dr2_buyer_offer').style.display = 'none';
+    });
+
+    // ---------- Enhancement 2: seller/buyer offered from PROPERTY-LINK ROLES ----------
+    const sellerEl = document.getElementById('dr2_seller_name');
+    const buyerEl = document.getElementById('dr2_buyer_name');
+    const sellerOffer = document.getElementById('dr2_seller_offer');
+    const buyerOffer = document.getElementById('dr2_buyer_offer');
+
+    function chip(name, targetEl) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'text-xs whitespace-nowrap px-2 py-0.5 rounded';
+        b.style.cssText = 'border:1px solid #cbd5e1;color:#0b2a4a;background:#f8fafc;';
+        b.textContent = '+ ' + name;
+        b.addEventListener('click', () => {
+            const cur = targetEl.value.trim();
+            const parts = cur ? cur.split(/\s*,\s*/) : [];
+            if (!parts.includes(name)) { parts.push(name); targetEl.value = parts.join(', '); }
+        });
+        return b;
+    }
+    function loadPropContacts(pid) {
+        fetch(R.propertyContacts.replace('__ID__', pid), { headers: { Accept: 'application/json' } })
+            .then(r => r.ok ? r.json() : { sellers: [], buyers: [] })
+            .then(data => {
+                const sellers = data.sellers || [], buyers = data.buyers || [];
+                // Seller: auto-fill when empty (never clobber a typed name), and offer chips.
+                if (sellers.length && !sellerEl.value.trim()) sellerEl.value = sellers.map(s => s.name).filter(Boolean).join(', ');
+                sellerOffer.innerHTML = '';
+                if (sellers.length) { sellerOffer.style.display = ''; sellers.forEach(s => s.name && sellerOffer.appendChild(chip(s.name, sellerEl))); }
+                else sellerOffer.style.display = 'none';
+                // Buyer: offer the property's linked buyers as chips (tick to fill).
+                buyerOffer.innerHTML = '';
+                if (buyers.length) { buyerOffer.style.display = ''; buyers.forEach(b => b.name && buyerOffer.appendChild(chip(b.name, buyerEl))); }
+                else buyerOffer.style.display = 'none';
+            }).catch(() => {});
+    }
+    if (pId.value) loadPropContacts(pId.value);
+
+    // ---------- Enhancement 3: attorney supplier search + add-new modal ----------
+    const aSearch = document.getElementById('dr2_attorney_search');
+    const aResults = document.getElementById('dr2_attorney_results');
+    const aName = document.getElementById('dr2_attorney_name');
+    const closeAtt = () => { aResults.style.display = 'none'; aResults.innerHTML = ''; };
+    aSearch.addEventListener('input', () => { aName.value = aSearch.value; });
+    const runAtt = debounce(() => {
+        const q = aSearch.value.trim();
+        if (q.length < 2) { closeAtt(); return; }
+        fetch(R.suppliers + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+            .then(r => r.ok ? r.json() : { results: [] })
+            .then(data => {
+                const rows = (data && data.results) || [];
+                if (!rows.length) { closeAtt(); return; }
+                aResults.innerHTML = rows.map(row => {
+                    const sub = [row.company, row.email, row.phone].filter(Boolean).join(' · ');
+                    return '<div class="dr2-arow" data-name="' + esc(row.name) + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + (row.name || '') + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + sub + '</div>' : '') + '</div>';
+                }).join('');
+                aResults.style.display = 'block';
+                aResults.querySelectorAll('.dr2-arow').forEach(el => {
+                    el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
+                    el.addEventListener('mouseout', () => el.style.background = '#fff');
+                    el.addEventListener('click', () => { aName.value = el.dataset.name; aSearch.value = el.dataset.name; closeAtt(); });
+                });
+            }).catch(closeAtt);
+    }, 220);
+    aSearch.addEventListener('input', runAtt);
+    aSearch.addEventListener('focus', runAtt);
+    document.addEventListener('click', e => { if (!e.target.closest('#dr2-att')) closeAtt(); });
+
+    const modal = document.getElementById('dr2_att_modal');
+    const mName = document.getElementById('dr2_na_name'), mCompany = document.getElementById('dr2_na_company');
+    const mEmail = document.getElementById('dr2_na_email'), mPhone = document.getElementById('dr2_na_phone');
+    const mNotes = document.getElementById('dr2_na_notes'), mErr = document.getElementById('dr2_na_error');
+    document.getElementById('dr2_attorney_addnew').addEventListener('click', () => {
+        mName.value = aSearch.value.trim(); mCompany.value = mEmail.value = mPhone.value = mNotes.value = '';
+        mErr.style.display = 'none'; modal.style.display = 'flex'; mName.focus();
+    });
+    document.getElementById('dr2_na_cancel').addEventListener('click', () => modal.style.display = 'none');
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    document.getElementById('dr2_na_save').addEventListener('click', function () {
+        const name = mName.value.trim();
+        if (!name) { mErr.textContent = 'A firm / name is required.'; mErr.style.display = 'block'; return; }
+        this.disabled = true;
+        fetch(R.supplierInline, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf },
+            body: JSON.stringify({ name, company: mCompany.value.trim() || null, email: mEmail.value.trim() || null, phone: mPhone.value.trim() || null, notes: mNotes.value.trim() || null, specialty: 'transfer_attorney' }),
+        }).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
+            if (!ok) { mErr.textContent = (j && j.message) || 'Could not save the attorney.'; mErr.style.display = 'block'; return; }
+            const prov = (j && j.provider) || {};
+            aName.value = prov.name || name; aSearch.value = prov.name || name; modal.style.display = 'none';
+        }).catch(() => { mErr.textContent = 'Network error — please try again.'; mErr.style.display = 'block'; })
+          .finally(() => { this.disabled = false; });
+    });
+
+    // Enhancement 5: calc on load if price + % already present (edit / repopulate) — never half-filled.
+    if (parseFloat(priceEl.value) > 0 && parseFloat(pctEl.value) > 0) calcComm();
+})();
+</script>
 </x-app-layout>

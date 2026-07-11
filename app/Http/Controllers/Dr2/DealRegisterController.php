@@ -188,6 +188,9 @@ class DealRegisterController extends Controller
         $data = $request->validate([
             'period'           => ['required'],
             'deal_date'        => ['required', 'date'],
+            // (Enhancement 6) deal type is COMPULSORY — explicit choice, no silent
+            // default. Additive column on `deals`; DR1 ignores it (legacy rows NULL).
+            'deal_type'        => ['required', 'in:bond,cash,sale_of_2nd'],
             'property_value'   => ['required', 'numeric'],
             'total_commission' => ['required', 'numeric'],
 
@@ -300,6 +303,7 @@ class DealRegisterController extends Controller
         $deal->fill([
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
+            'deal_type'        => $data['deal_type'],
             'property_value'   => $data['property_value'],
             'total_commission' => $data['total_commission'],
 
@@ -428,19 +432,31 @@ class DealRegisterController extends Controller
             return response()->json([]);
         }
 
+        // (Enhancement 1) Rich results matching the PDF splitter's property search
+        // exactly (PdfSplitterController::searchProperties): each row carries EXTRA
+        // identifying info — reference + seller/owner name + listing agent — not just
+        // the address, so two similar-address properties can't be confused. Same
+        // `visibleTo` scope + canonical `searchAddress` clarity rules. One pattern.
         $properties = Property::query()
+            ->visibleTo($request->user())
             ->searchAddress($search)
             ->with('agent')
             ->latest()
             ->limit(15)
             ->get()
-            ->map(fn (Property $p) => $p->toSearchResult([
-                'address'            => $p->buildDisplayAddress(),
-                'price'              => $p->listing_price ?? $p->price ?? null,
-                'commission_percent' => $p->commission_percent,
-                'listing_agent_id'   => $p->agent_id,
-                'listing_agent_name' => $p->agent?->name,
-            ]));
+            ->map(function (Property $p) {
+                $seller = $p->sellerOwnerContact();
+
+                return $p->toSearchResult([
+                    'address'            => $p->buildDisplayAddress(),
+                    'ref'                => $p->property_number,
+                    'seller'             => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                    'price'              => $p->listing_price ?? $p->price ?? null,
+                    'commission_percent' => $p->commission_percent,
+                    'listing_agent_id'   => $p->agent_id,
+                    'listing_agent_name' => $p->agent?->name,
+                ]);
+            });
 
         return response()->json($properties);
     }

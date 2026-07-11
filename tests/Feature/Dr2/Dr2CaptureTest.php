@@ -33,6 +33,7 @@ class Dr2CaptureTest extends TestCase
         return array_merge([
             'period'                => '2026-06',
             'deal_date'             => '2026-06-10',
+            'deal_type'             => 'bond',
             'property_value'        => 1000000,
             'total_commission'      => 57500,
             'listing_split_percent' => 50,
@@ -64,7 +65,10 @@ class Dr2CaptureTest extends TestCase
         $this->actingAs($admin)
             ->get(route('deals-dr2.create'))
             ->assertOk()
-            ->assertSee('Add Deal (DR2)', false);
+            // DR1-faithful header (visual parity), plus the DR2 capture enhancements.
+            ->assertSee('Add Deal', false)
+            ->assertSee('Deal Type', false)      // enhancement 6 (compulsory radios)
+            ->assertSee('Commission %', false);  // enhancement 5 (calc-on-load)
     }
 
     public function test_dr2_store_persists_a_real_deals_row(): void
@@ -87,9 +91,26 @@ class Dr2CaptureTest extends TestCase
             'agency_id'        => $agency->id,
             'branch_id'        => $branch->id,
             'period'           => '2026-06',
+            'deal_type'        => 'bond',
             'property_address' => '12 Marine Drive, Uvongo',
             'seller_name'      => 'A Seller',
         ]);
+    }
+
+    public function test_dr2_deal_type_is_compulsory(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-dealtype');
+
+        $before = DB::table('deals')->count();
+
+        $this->actingAs($admin)
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+                'branch_id' => $branch->id,
+                'deal_type' => '', // no deal type chosen
+            ]))
+            ->assertSessionHasErrors('deal_type');
+
+        $this->assertSame($before, DB::table('deals')->count(), 'No deal may be stored without a deal type.');
     }
 
     public function test_dr2_store_links_the_picked_property_with_manual_exact_provenance(): void
