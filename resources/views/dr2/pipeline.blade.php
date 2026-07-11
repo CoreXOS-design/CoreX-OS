@@ -160,6 +160,12 @@
                             <input type="text" name="body" placeholder="Add a note for this step…" required class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
                             <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Post</button>
                         </form>
+                        {{-- AT-225/226 — attach a document to THIS step (gas CoC → gas step); files to deal+property+contacts too. --}}
+                        <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;">@csrf
+                            <input type="hidden" name="pipeline_step_id" value="{{ $s->id }}">
+                            <input type="file" name="file" required class="corex-input" style="flex:1 1 240px;font-size:.78rem;">
+                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Attach document to this step</button>
+                        </form>
                         @endpermission
                     </div>
                 </div>
@@ -209,5 +215,10 @@
             @endpermission
         </div>
     @endif
+
+    {{-- DR2 deal documents (AT-225/226) — upload files itself to deal + property + contacts --}}
+    <div style="margin-top:1rem;">
+        @include('dr2._deal-documents', ['deal' => $deal])
+    </div>
 </div>
 @endsection
