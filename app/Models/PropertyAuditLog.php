@@ -5,10 +5,18 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 
 class PropertyAuditLog extends Model
 {
-    use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    /** A child's branch is its parent's branch, never the acting user's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
+    }
 
     protected $table = 'property_audit_log';
 

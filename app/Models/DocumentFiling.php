@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Carbon\Carbon;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 class DocumentFiling extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $table = 'document_filing_register';
 

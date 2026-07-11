@@ -113,7 +113,54 @@ which is why the coverage could rot silently.
 
 ---
 
-## 4. Recommendation
+## 3d. WHAT WAS FIXED (2026-07-11, Johan's call: "test first, then the safe 10")
+
+**Result: 7 isolated → 17 isolated. 15 leaking → 5 leaking.** Re-verified with the same
+harness; 0 inconclusive.
+
+**The decay-stopper (written first):** `tests/Feature/Branches/BranchSplitIsolationTest.php`.
+Every model whose table carries `branch_id` must be branch-scoped, or listed in
+`SHARED_BY_DESIGN` (spec §7 — configuration/directory data), or listed in
+`PENDING_DECISION` (the debt register). A new model that forgets the trait lands in none of
+the three and **fails the suite**. This is what stops the coverage rotting again — the
+original failure was structural, not a one-off mistake. Plus behavioural tests: Split ON
+hides another branch's property from a plain agent; Split OFF leaves the scope completely
+inert.
+
+**Branch scope attached to the 10 unambiguous models:** `DealV2`, `CommandTask`, `Rental`,
+`DocumentFiling`, `Docuperfect\Document`, `DealMoneyLine`, `CalendarEventFeedback`,
+`PropertyAuditLog`, `CommercialEvaluation`, `ListingStock`.
+
+**A defect found while fixing it — child records.** `BelongsToBranch` auto-stamps `branch_id`
+from the **acting user**. That is correct for a record a user creates in their own right, but
+wrong for a child whose parent lives in another branch: a principal in Margate (who holds
+`branches.view_all`, so may legitimately edit a Port Shepstone deal) would stamp the money
+line "Margate" — and the Shepstone agents whose deal it is could then **not see their own
+money line**. New trait `App\Models\Concerns\InheritsBranchFromParent` makes a child take its
+parent's branch instead. Applied to `DealMoneyLine` (→ Deal), `CalendarEventFeedback`
+(→ CalendarEvent) and `PropertyAuditLog` (→ Property). Proven: the money line stamps
+Shepstone, not Margate, and the Shepstone agent can read it.
+
+This is the same defect class as the `CommissionLedger` risk below — which is why that one
+was **not** touched.
+
+### Still leaking — awaiting Johan's call (`PENDING_DECISION` in the test)
+
+| Model | The question |
+|---|---|
+| **`CommissionLedger`** | **Money, and the delicate one.** It cannot simply take `BelongsToBranch`: commission rows are written from queue/console context where there is no authenticated user, so the auto-stamp would no-op to NULL — and under Split, a NULL-branch row is invisible to anyone without `branches.view_all`. That would **hide agents' own commission from them.** It needs the **earning agent's** branch, set explicitly at write time. Needs a deliberate fix, not a trait. |
+| `Target`, `ActivityTarget`, `MonthlyTargetGoal`, `DailyActivity`, `DailyActivityEntry` | Performance data — plausibly *meant* to be agency-wide so a principal can compare branches. Scoping them could hide data people rely on. |
+| `AgentApplication` | Recruitment — agency-wide or branch? |
+| `WhistleblowComplaint`, `AgencyComplianceProvision` | Compliance — plausibly officer-only by design, in which case branch scoping is the wrong axis entirely. |
+| `ToolHistoryEntry`, `TvAccessCode`, `TvMessage`, `ListingImportRun`, `ListingSnapshot` | Low-stakes; classify and move on. |
+
+Whichever way each goes, the answer belongs in the spec's shared-scope allowlist (§7) so the
+next audit does not re-litigate it. The `PENDING_DECISION` list must only ever **shrink** —
+there is a test asserting it does not grow.
+
+---
+
+## 4. Recommendation (original — items 1 and 2 now done)
 
 **Do not let any agency turn Split Branches on until §2 is closed.** The wizard's step 3 now
 actively offers the toggle, so this is reachable today.
