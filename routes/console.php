@@ -335,11 +335,29 @@ Schedule::command('geo:cache-purge')
     ->withoutOverlapping()
     ->name('geo-cache-purge');
 
-// Demo reset — wipe [DEMO]-prefixed data and reseed daily at 03:00.
-// Only runs when APP_ENV is local or demo (guarded inside the commands).
+// Demo refresh — full wipe + rebuild of the demo database every 3 days, 03:00 SAST.
+//
+// This REPLACES the previous pair:
+//     Schedule::command('demo:cleanup --force')->dailyAt('03:00');
+//     Schedule::command('demo:seed')->dailyAt('03:05');      // <-- no --force
+// which was silently destroying the demo every night: DemoDataSeeder refuses any
+// non-local environment without --force, and the demo box is APP_ENV=demo. The
+// cleanup deleted all [DEMO] data; the reseed then refused. Nightly, for months.
+//
+// demo:refresh is one atomic gated operation (back up → wipe → migrate → seed →
+// VERIFY → roll back on any failure). It is scheduled DAILY on purpose but only
+// acts once per DEMO_REFRESH_INTERVAL_DAYS (default 3), so a night that is missed
+// or that fails self-heals on the next tick rather than waiting a full cycle.
+//
+// It is safe to register unconditionally: the command no-ops unless
+// DEMO_REFRESH_ENABLED=true, which only the demo box sets. The environment check
+// is kept as defence in depth — live and staging run this same file.
 if (in_array(app()->environment(), ['local', 'demo'], true)) {
-    Schedule::command('demo:cleanup --force')->dailyAt('03:00')->withoutOverlapping();
-    Schedule::command('demo:seed')->dailyAt('03:05')->withoutOverlapping();
+    Schedule::command('demo:refresh')
+        ->dailyAt('03:00')
+        ->timezone('Africa/Johannesburg')
+        ->withoutOverlapping()
+        ->name('demo-refresh');
 }
 
 // Mandate expiry — daily at 01:00. Marks stock properties whose expiry_date

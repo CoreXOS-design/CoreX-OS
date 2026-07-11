@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\ContactMatch;
 use App\Models\Docuperfect\Document;
+use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\FicaSubmission;
 use App\Models\Presentation;
 use App\Models\User;
@@ -54,6 +55,49 @@ class DemoDataSeeder extends Seeder
     private const DEMO_LOGIN_PASSWORD = 'CoreXDemo!2026';
     private const RNG_SEED = 20260518;
 
+    // ───────────────────────────────────────────────────────────────────
+    //  DEMO IDENTITY — single source of truth.
+    //
+    //  The demo dataset is customer-facing. NOTHING belonging to Home
+    //  Finders Coastal may appear in it: not the trading name, not the real
+    //  company reg / VAT / FFC / FIC numbers, not the real office address or
+    //  phone, not real staff names, and above all not real ID numbers. Those
+    //  values are legitimate for the LIVE agency, so the seeders that own
+    //  them (HfcRmcpMasterSeeder, PerformanceSettingsSeeder) are left intact
+    //  for production — the demo instead pre-seeds these values so those
+    //  seeders' "already exists" guards short-circuit, and then asserts in
+    //  stageV_verifyDemoIntegrity() that not one HFC string survived.
+    //
+    //  Every identifier below is deliberately fake and cannot collide with a
+    //  real CIPC / SARS / PPRA / FIC registry entry.
+    // ───────────────────────────────────────────────────────────────────
+    private const DEMO_AGENCY_NAME    = 'CoreX Demo Realty';
+    private const DEMO_AGENCY_TRADING = 'CoreX Demo Realty (Pty) Ltd';
+    private const DEMO_AGENCY_REG     = '2020/123456/07';
+    private const DEMO_AGENCY_VAT     = '4999999999';
+    private const DEMO_AGENCY_FFC     = 'DEMO2026001';
+    private const DEMO_AGENCY_FIC     = 'DEMO/000000/0000019';
+    private const DEMO_AGENCY_ADDRESS = '1 Demo Boulevard, Shelly Beach';
+    private const DEMO_AGENCY_TEL     = '(039) 000 0000';
+    private const DEMO_EMAIL_DOMAIN   = 'demo.corexos.co.za';
+
+    /** Fictional compliance officer — replaces the real person + real SA ID. */
+    private const DEMO_CO_NAME = 'Thandi Mokoena';
+    private const DEMO_CO_ID   = '0001010000080'; // structurally valid, registry-impossible
+
+    /**
+     * Non-negotiable demo inventory: EVERY agent must own at least this many
+     * properties, so no demo agent's My Listings / dashboard is ever empty.
+     * Enforced by stage5b_guaranteeMinPerAgent() and asserted in stageV.
+     */
+    private const MIN_PROPERTIES_PER_AGENT = 5;
+
+    /** Strings that must NEVER appear anywhere in the seeded demo dataset. */
+    private const FORBIDDEN_IN_DEMO = [
+        'hfcoastal', 'Home Finders', 'HFC Coastal', 'Reichel', 'Elize',
+        '2017/431318', '4630287821', '2023116041', 'AI/180629', '7012310053085',
+    ];
+
     /** Real KZN South Coast towns → suburbs. */
     private const TOWN_SUBURBS = [
         'Margate'        => ['Margate', 'Uvongo', 'Manaba Beach', 'Ramsgate'],
@@ -67,6 +111,10 @@ class DemoDataSeeder extends Seeder
     private array $bmIds = [];
     private int $adminId = 0;
     private array $agentByBranch = [];
+    /** agentId => branchId — reverse of agentByBranch; drives the per-agent inventory guarantee. */
+    private array $branchByAgent = [];
+    /** Round-robin cursor so property ownership is spread evenly, never randomly clumped. */
+    private int $agentCursor = 0;
     /** Spine tracked-property ids that thread the full lifecycle. */
     private array $spine = [];
 
@@ -149,6 +197,7 @@ class DemoDataSeeder extends Seeder
         $this->stageViewingFeedback_demoShowcase();
         $this->stageSpine_threadFullLifecycle();
         $this->stageZ_demoPresenterCoherence();
+        $this->stageV_verifyDemoIntegrity();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
             . ' / ' . self::DEMO_LOGIN_PASSWORD);
@@ -205,8 +254,13 @@ class DemoDataSeeder extends Seeder
      * `migrate:fresh --seed --seeder=DemoDataSeeder` against 'nexus_os' once
      * wiped real local data — this is the hard stop. Demo work belongs in
      * the 'demo' connection (nexus_os_demo).
+     *
+     * hfc_staging is listed for the same reason: it is a real working database
+     * that happens to carry a demo-flagged agency alongside its real one, so a
+     * content check alone ("does this DB contain a demo agency?") is NOT enough
+     * to keep it safe. Name it, and refuse it outright.
      */
-    public const PROTECTED_DATABASES = ['nexus_os'];
+    public const PROTECTED_DATABASES = ['nexus_os', 'hfc_staging'];
 
     /**
      * Returns NULL when the target database is safe for destructive demo
@@ -349,6 +403,11 @@ class DemoDataSeeder extends Seeder
         $this->backfillDocumentLibraryTypes();
         $this->backfillPropertyTypeOptions();
 
+        // PerformanceSettingsSeeder (above) is correct for the LIVE agency but
+        // stamps HFC's real name / address / phone / FFC into the global
+        // performance_settings table. Replace with the demo identity.
+        $this->overwriteDemoPerformanceSettings();
+
         $this->command->info('  Stage 0: reference data + permissions seeded');
     }
 
@@ -436,15 +495,23 @@ class DemoDataSeeder extends Seeder
             ['name' => 'For Sale — Raised Price',    'sort_order' => 5,  'is_default' => 1],
             ['name' => 'To Let',                     'sort_order' => 14, 'is_default' => 0],
         ];
+        // property_setting_items is AGENCY-SCOPED: agency_id is NOT NULL with no
+        // default. Omitting it only ever "worked" against a database where the
+        // rows already existed (so the exists() check short-circuited); on a
+        // genuinely fresh schema the insert dies with "Field 'agency_id' doesn't
+        // have a default value". The scope belongs on the duplicate check too —
+        // otherwise one agency's row would suppress the insert for another.
         $added = 0;
         foreach ($rows as $r) {
             $existing = DB::table('property_setting_items')
+                ->where('agency_id', self::AGENCY_ID)
                 ->where('group', 'property_status')
                 ->where('name', $r['name'])
                 ->whereNull('deleted_at')
                 ->exists();
             if ($existing) continue;
             DB::table('property_setting_items')->insert([
+                'agency_id'  => self::AGENCY_ID,
                 'group'      => 'property_status',
                 'name'       => $r['name'],
                 'sort_order' => $r['sort_order'],
@@ -456,6 +523,101 @@ class DemoDataSeeder extends Seeder
             $added++;
         }
         $this->command->info("    property_setting_items backfill: +{$added} status items");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE V — VERIFY. The demo is only "seeded" if it is actually populated
+    //  and actually free of Home Finders Coastal data. Both were silently false
+    //  before: stages are wrapped in safeSeed(), so a broken stage only warns —
+    //  demo:seed could report success while leaving 0 properties behind. This
+    //  stage turns that into a hard failure.
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stageV_verifyDemoIntegrity(): void
+    {
+        $failures = [];
+
+        // 1. Inventory floor — every agent has a populated My Listings.
+        foreach ($this->agentIds as $agentId) {
+            $count = DB::table('properties')
+                ->where('agency_id', self::AGENCY_ID)
+                ->where('agent_id', $agentId)
+                ->whereNull('deleted_at')
+                ->count();
+
+            if ($count < self::MIN_PROPERTIES_PER_AGENT) {
+                $name = DB::table('users')->where('id', $agentId)->value('name');
+                $failures[] = "agent '{$name}' (#{$agentId}) owns {$count} propert"
+                    . ($count === 1 ? 'y' : 'ies') . ', need >= ' . self::MIN_PROPERTIES_PER_AGENT;
+            }
+        }
+
+        // 2. Core pillars are actually populated — catches a silently-skipped stage.
+        //
+        //    `deals` is the LIVE register (DR1 /admin/deals + the new DR2 both read
+        //    it). deals_v2 is the prototype AT-219 retired — its register redirects
+        //    away, so rows there are invisible to a demo. Assert BOTH: the live
+        //    register must not be empty, which is the assertion that caught the demo
+        //    seeding 40 deals into a dead table and none into the real one.
+        $mustHave = [
+            'properties'         => 1,
+            'contacts'           => 1,
+            'deals'              => 1,   // DR1/DR2 — what the demo actually shows
+            'deals_v2'           => 1,
+            'deal_user'          => 1,   // agent commission splits
+            'tracked_properties' => 1,
+            'branches'           => 3,
+            'users'              => 10,
+            'calendar_events'    => 1,
+            'presentations'      => 1,
+        ];
+
+        foreach ($mustHave as $table => $min) {
+            $count = DB::table($table)->count();
+            if ($count < $min) {
+                $failures[] = "table '{$table}' has {$count} row(s), expected >= {$min}";
+            }
+        }
+
+        // 3. Zero Home Finders Coastal data anywhere customer-visible.
+        $scan = [
+            'agencies'                  => ['name', 'trading_name', 'reg_no', 'vat_no', 'ffc_no', 'fic_no'],
+            'users'                     => ['name', 'email'],
+            'performance_settings'      => ['value'],
+            'rmcp_variables'            => ['value'],
+            'fica_officer_appointments' => ['full_name', 'id_number'],
+            'prospecting_listings'      => ['agency_name'],
+        ];
+
+        foreach ($scan as $table => $columns) {
+            if (!\Schema::hasTable($table)) {
+                continue;
+            }
+
+            foreach ($columns as $column) {
+                if (!\Schema::hasColumn($table, $column)) {
+                    continue;
+                }
+
+                foreach (self::FORBIDDEN_IN_DEMO as $needle) {
+                    $hit = DB::table($table)->where($column, 'like', '%' . $needle . '%')->count();
+                    if ($hit > 0) {
+                        $failures[] = "HFC data leaked: {$table}.{$column} contains '{$needle}' ({$hit} row(s))";
+                    }
+                }
+            }
+        }
+
+        if ($failures) {
+            throw new \RuntimeException(
+                "Demo seed FAILED verification — the dataset is not fit to demo:\n  - "
+                . implode("\n  - ", $failures)
+            );
+        }
+
+        $props = DB::table('properties')->where('agency_id', self::AGENCY_ID)->count();
+        $this->command->info('  Stage V: verified — ' . count($this->agentIds) . ' agents, each with >= '
+            . self::MIN_PROPERTIES_PER_AGENT . ' properties (' . $props . ' total); no HFC data present');
     }
 
     private function safeSeed(string $label, \Closure $fn): void
@@ -474,18 +636,18 @@ class DemoDataSeeder extends Seeder
 
     private function stage1_agencyBranchesUsers(): void
     {
-        // Reuse agency 1 (created by migrate:fresh). Mark it a demo agency
-        // AND correct the stale "Mandate Company"-era letterhead data so the
-        // shared, data-driven company-header component renders HFC's real
-        // details on every web template. Values verified from
-        // resources/docs/source/HFC_Marketing_Permission_V6.docx.
+        // Reuse agency 1 (the base migration creates it as "HFC Coastal") and
+        // OVERWRITE it into the fictional demo agency. fic_no is set here on
+        // purpose: HfcRmcpMasterSeeder only stamps the real FIC number when
+        // agencies.fic_no is empty, so filling it now makes that seeder's
+        // guard short-circuit instead of writing HFC's real registration.
         DB::table('agencies')->where('id', self::AGENCY_ID)->update([
-            'name'         => 'HFC Coastal',
-            'trading_name' => 'Johan and Elize Properties T/A Home Finders Coastal',
-            'reg_no'       => '2017/431318/07',
-            'vat_no'       => '4630287821',
-            'ffc_no'       => '2023116041',
-            'fic_no'       => 'AI/180629/0000019',
+            'name'         => self::DEMO_AGENCY_NAME,
+            'trading_name' => self::DEMO_AGENCY_TRADING,
+            'reg_no'       => self::DEMO_AGENCY_REG,
+            'vat_no'       => self::DEMO_AGENCY_VAT,
+            'ffc_no'       => self::DEMO_AGENCY_FFC,
+            'fic_no'       => self::DEMO_AGENCY_FIC,
             'is_demo'      => 1,
             'is_active'    => 1,
             'updated_at'   => now(),
@@ -507,11 +669,13 @@ class DemoDataSeeder extends Seeder
             ->update(['default_branch_id' => $this->branchIds[0]]);
 
         // Users: 1 admin (demo login), 3 BMs (one per branch), 3 agents per
-        // branch, 1 viewer = 14 users. Agents/BMs on the company domain so
-        // the e-sign agent-FROM path is exercised.
-        $firstNames = ['Johan', 'Lerato', 'Pieter', 'Anele', 'Michelle', 'Sipho', 'Karen',
+        // branch, 1 viewer = 14 users. Agents/BMs on the demo domain so the
+        // e-sign agent-FROM path is exercised without touching a real mailbox.
+        // Name pools are wholly fictional — no real HFC staff (see
+        // FORBIDDEN_IN_DEMO; 'Johan'/'Reichel' previously leaked in here).
+        $firstNames = ['Thabo', 'Lerato', 'Pieter', 'Anele', 'Michelle', 'Sipho', 'Karen',
             'Bongani', 'Tanya', 'Mandla', 'Nomsa', 'Grant', 'Ayanda', 'Wendy'];
-        $lastNames = ['Reichel', 'Ndlovu', 'van der Merwe', 'Dlamini', 'Botha', 'Mkhize',
+        $lastNames = ['Mahlangu', 'Ndlovu', 'van der Merwe', 'Dlamini', 'Botha', 'Mkhize',
             'Joubert', 'Khumalo', 'Pretorius', 'Nkosi', 'Steyn', 'du Plessis', 'Pillay', 'Venter'];
 
         // Admin / demo login.
@@ -531,8 +695,8 @@ class DemoDataSeeder extends Seeder
             // Branch manager.
             $bmId = $this->createUser(
                 $firstNames[$n] . ' ' . $lastNames[$n],
-                'bm.' . Str::slug($town, '') . '@hfcoastal.co.za',
-                'CoreXDemo!2026',
+                'bm.' . Str::slug($town, '') . '@' . self::DEMO_EMAIL_DOMAIN,
+                self::DEMO_LOGIN_PASSWORD,
                 'branch_manager',
                 $bid,
                 false
@@ -545,20 +709,21 @@ class DemoDataSeeder extends Seeder
             for ($a = 0; $a < 3; $a++) {
                 $aid = $this->createUser(
                     $firstNames[$n] . ' ' . $lastNames[$n],
-                    'agent.' . Str::slug($town, '') . ($a + 1) . '@hfcoastal.co.za',
-                    'CoreXDemo!2026',
+                    'agent.' . Str::slug($town, '') . ($a + 1) . '@' . self::DEMO_EMAIL_DOMAIN,
+                    self::DEMO_LOGIN_PASSWORD,
                     'agent',
                     $bid,
                     false
                 );
                 $this->agentIds[] = $aid;
                 $this->agentByBranch[$bid][] = $aid;
+                $this->branchByAgent[$aid] = $bid;
                 $n++;
             }
         }
 
         // One viewer (read-only role) for completeness.
-        $this->createUser('Demo Viewer', 'viewer@hfcoastal.co.za', 'CoreXDemo!2026',
+        $this->createUser('Demo Viewer', 'viewer@' . self::DEMO_EMAIL_DOMAIN, self::DEMO_LOGIN_PASSWORD,
             'viewer', $this->branchIds[0], false);
 
         // DealPipelineTemplateSeeder needs ≥1 user — run it now.
@@ -596,14 +761,100 @@ class DemoDataSeeder extends Seeder
         // Requires branches to exist — runs after the stage-1 branch
         // creation block. Idempotent keyed (branch_id, key).
         $this->safeSeed('BranchSettingsSeeder', fn () => $this->call([BranchSettingsSeeder::class]));
-        // HFC RMCP master (rmcp_versions + sections + variables + officer
-        // appointment if missing). Resolves the agency by slug='hfc-coastal'
-        // (set by base migration on agency 1). Self-skipping if already
-        // seeded; safeSeed-wrapped so any future schema drift is contained.
+        // RMCP master (rmcp_versions + sections + variables + officer
+        // appointment if missing). The section BODIES are generic compliance
+        // text worth having in the demo, but the seeder also writes HFC's real
+        // compliance officer — including a REAL South African ID number — and
+        // HFC's real legal name. Both are gated behind "if not already set",
+        // so we seed the fictional demo officer FIRST: the seeder then finds
+        // an appointment present and skips that branch entirely. agencies.fic_no
+        // was likewise already filled above. The manual RMCP variables it writes
+        // unconditionally are overwritten immediately after.
+        $this->seedDemoComplianceOfficer();
         $this->safeSeed('HfcRmcpMasterSeeder', fn () => $this->call([HfcRmcpMasterSeeder::class]));
+        $this->overwriteRmcpDemoVariables();
 
         $this->command->info('  Stage 1: 1 agency + ' . count($this->branchIds)
             . ' branches + ' . (count($this->agentIds) + count($this->bmIds) + 2) . ' users');
+    }
+
+    /**
+     * Fictional FICA compliance officer for the demo agency.
+     *
+     * Seeded BEFORE HfcRmcpMasterSeeder so its `if (!$coExists)` guard sees an
+     * existing primary appointment and never inserts the real officer (whose
+     * row carries a real, live South African ID number). Idempotent.
+     */
+    private function seedDemoComplianceOfficer(): void
+    {
+        $exists = DB::table('fica_officer_appointments')
+            ->where('agency_id', self::AGENCY_ID)
+            ->where('role', FicaOfficerAppointment::ROLE_PRIMARY)
+            ->whereNull('ended_on')
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        DB::table('fica_officer_appointments')->insert([
+            'agency_id'    => self::AGENCY_ID,
+            'role'         => FicaOfficerAppointment::ROLE_PRIMARY,
+            'user_id'      => $this->adminId ?: null,
+            'full_name'    => self::DEMO_CO_NAME,
+            'id_number'    => self::DEMO_CO_ID,
+            'email'        => self::DEMO_LOGIN_EMAIL,
+            'title'        => 'FICA Compliance Officer',
+            'appointed_on' => '2026-03-01',
+            'notes'        => 'Demo appointment — fictional officer.',
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+    }
+
+    /**
+     * HfcRmcpMasterSeeder writes its manual RMCP variables with updateOrCreate
+     * (unconditional), so they cannot be pre-empted by a guard the way the
+     * officer and fic_no can — they are overwritten here instead. agency.region
+     * is left as-is: it is public geography, not HFC information.
+     */
+    private function overwriteRmcpDemoVariables(): void
+    {
+        $demoVars = [
+            'agency.legal_name' => self::DEMO_AGENCY_TRADING,
+            'rmcp.prepared_by'  => self::DEMO_CO_NAME,
+        ];
+
+        foreach ($demoVars as $key => $value) {
+            DB::table('rmcp_variables')
+                ->where('agency_id', self::AGENCY_ID)
+                ->where('variable_key', $key)
+                ->update(['value' => $value, 'updated_at' => now()]);
+        }
+    }
+
+    /**
+     * performance_settings is GLOBAL (no agency_id) and PerformanceSettingsSeeder
+     * — correct for the live agency — stamps HFC's real trading name, office
+     * address, phone and FFC number into it during Stage 0. Overwrite with the
+     * demo identity. Keyed by `key`, matching that seeder's own upsert.
+     */
+    private function overwriteDemoPerformanceSettings(): void
+    {
+        $demo = [
+            'company_name'     => self::DEMO_AGENCY_NAME,
+            'company_address'  => self::DEMO_AGENCY_ADDRESS,
+            'company_tel'      => self::DEMO_AGENCY_TEL,
+            'company_ffc'      => self::DEMO_AGENCY_FFC,
+            'company_logo_url' => '/storage/company/demo-logo.jpg',
+        ];
+
+        foreach ($demo as $key => $value) {
+            DB::table('performance_settings')->updateOrInsert(
+                ['key' => $key],
+                ['value' => $value, 'updated_at' => now(), 'created_at' => now()]
+            );
+        }
     }
 
     private function createUser(string $name, string $email, string $password,
@@ -647,7 +898,7 @@ class DemoDataSeeder extends Seeder
             'Vacant Land', 'Commercial'];
         $portals = ['p24', 'pp'];
         $agencies = ['Pam Golding', 'RE/MAX Coastal', 'Seeff South Coast', 'Just Property',
-            'Harcourts', 'Chas Everitt', 'HFC Coastal'];
+            'Harcourts', 'Chas Everitt', self::DEMO_AGENCY_NAME];
 
         $created = 0;
         $townList = array_keys(self::TOWN_SUBURBS);
@@ -1104,8 +1355,11 @@ class DemoDataSeeder extends Seeder
 
         $ok = 0;
         foreach ($tps as $idx => $tpId) {
-            $branchId = $this->pick($this->branchIds);
-            $agentId = $this->agentForBranch($branchId);
+            // Round-robin, NOT random: a random pick per property leaves the
+            // distribution to chance, and with 9 agents an agent can easily end
+            // up with nothing. Every agent must demo a populated My Listings.
+            $agentId = $this->nextAgentRoundRobin();
+            $branchId = $this->branchByAgent[$agentId];
 
             // Intended status decided BEFORE any risky call (FIX 4) so a later
             // failure can never leave the property at promoteToStock's 'draft'.
@@ -1188,16 +1442,79 @@ class DemoDataSeeder extends Seeder
         // + to give buyer-activity something to point at.
         $this->seedExtraDemoProperties(14);
 
+        // Promotion is best-effort: promoteToStock() can legitimately decline a
+        // tracked property (dedupe/match), so round-robin alone does not
+        // GUARANTEE the floor. Count what actually landed and top up.
+        $this->stage5b_guaranteeMinPerAgent();
+
         $total = DB::table('properties')->where('agency_id', self::AGENCY_ID)->count();
         $this->command->info("  Stage 5: {$ok} promoted to stock, {$total} properties total");
     }
 
-    private function seedExtraDemoProperties(int $n): void
+    /**
+     * Hard floor: every agent owns >= MIN_PROPERTIES_PER_AGENT properties.
+     *
+     * Reads the REAL post-stage counts rather than assuming the loops above
+     * worked, then seeds the exact shortfall per agent. Idempotent and safe to
+     * re-run. stageV_verifyDemoIntegrity() asserts the floor held.
+     */
+    private function stage5b_guaranteeMinPerAgent(): void
+    {
+        $topUp = 0;
+
+        foreach ($this->agentIds as $agentId) {
+            $have = DB::table('properties')
+                ->where('agency_id', self::AGENCY_ID)
+                ->where('agent_id', $agentId)
+                ->whereNull('deleted_at')
+                ->count();
+
+            $short = self::MIN_PROPERTIES_PER_AGENT - $have;
+            if ($short <= 0) {
+                continue;
+            }
+
+            $this->seedExtraDemoProperties($short, $agentId);
+            $topUp += $short;
+        }
+
+        if ($topUp > 0) {
+            $this->command->info("  Stage 5b: topped up {$topUp} propert"
+                . ($topUp === 1 ? 'y' : 'ies') . ' to hold the >='
+                . self::MIN_PROPERTIES_PER_AGENT . '/agent floor');
+        }
+    }
+
+    /**
+     * Even, deterministic spread of property ownership across all agents.
+     */
+    private function nextAgentRoundRobin(): int
+    {
+        $agentId = $this->agentIds[$this->agentCursor % count($this->agentIds)];
+        $this->agentCursor++;
+
+        return $agentId;
+    }
+
+    /**
+     * @param int|null $forceAgentId When given, every property is assigned to
+     *                               this agent (and their branch) instead of a
+     *                               town-derived one — used by the per-agent
+     *                               inventory top-up.
+     */
+    private function seedExtraDemoProperties(int $n, ?int $forceAgentId = null): void
     {
         for ($i = 0; $i < $n; $i++) {
-            $town = $this->pick(array_keys(self::TOWN_SUBURBS));
-            $branchId = $this->branchByTown[$town];
-            $agentId = $this->agentForBranch($branchId);
+            if ($forceAgentId !== null) {
+                $agentId = $forceAgentId;
+                $branchId = $this->branchByAgent[$agentId];
+                $town = array_search($branchId, $this->branchByTown, true)
+                    ?: $this->pick(array_keys(self::TOWN_SUBURBS));
+            } else {
+                $town = $this->pick(array_keys(self::TOWN_SUBURBS));
+                $branchId = $this->branchByTown[$town];
+                $agentId = $this->agentForBranch($branchId);
+            }
             $suburb = $this->pick(self::TOWN_SUBURBS[$town]);
             $beds = $this->rngInt(2, 5);
             $price = $this->priceFor($beds, 'House');
@@ -1633,9 +1950,13 @@ class DemoDataSeeder extends Seeder
                 $count++;
             }
 
-            // Pick any random agent (HEAD doesn't keep a flat $agentIds list;
-            // derive via agentForBranch on a random branch).
-            $randomAgentId = $this->agentForBranch(array_rand($this->branchByTown));
+            // Pick any random agent. The old form was
+            //     agentForBranch(array_rand($this->branchByTown))
+            // which passes a KEY of branchByTown — a TOWN NAME (string) — into
+            // agentForBranch(int $branchId), a fatal TypeError. It never fired
+            // because the seeder had never run to completion. $this->agentIds is
+            // the flat list the stale comment claimed did not exist.
+            $randomAgentId = $this->pick($this->agentIds);
 
             DB::table('buyer_activity_log')->insert([
                 'contact_id'        => $contactId,
@@ -1724,6 +2045,138 @@ class DemoDataSeeder extends Seeder
             }
         }
         $this->command->info("  Stage 11: {$made} deals ({$registered} driven to registered)");
+
+        $this->stage11b_dealRegister();
+    }
+
+    /**
+     * STAGE 11b — the deal register the demo actually SHOWS.
+     *
+     * Stage 11 above seeds deals_v2, which AT-219 retired: its register now
+     * redirects away. Both live registers — DR1 (/admin/deals) and the new DR2 —
+     * read the `deals` table, and nothing in this seeder ever wrote to it. The
+     * demo's Deal Register therefore rendered EMPTY while 40 deals sat in a dead
+     * prototype. (stageV caught exactly this and it was briefly mistaken for a
+     * false alarm — it was not.)
+     *
+     * Shape mirrors the canonical writer (Admin\DealController::persistDeal and
+     * its DR2 twin Dr2\DealRegisterController::persistDeal): a `deals` row plus
+     * `deal_user` pivot rows carrying the listing/selling agent split. Both
+     * controllers write the same two tables, so the demo does too.
+     */
+    private function stage11b_dealRegister(): void
+    {
+        $properties = DB::table('properties')
+            ->where('agency_id', self::AGENCY_ID)
+            ->whereNull('deleted_at')
+            ->whereNotNull('agent_id')
+            ->orderBy('id')          // deterministic, like the rest of the seed
+            ->limit(30)
+            ->get();
+
+        if ($properties->isEmpty()) {
+            return;
+        }
+
+        $contacts = DB::table('contacts')
+            ->where('agency_id', self::AGENCY_ID)
+            ->orderBy('id')
+            ->limit(80)
+            ->get(['first_name', 'last_name']);
+
+        $name = function (int $i) use ($contacts): string {
+            if ($contacts->isEmpty()) {
+                return '[DEMO] Client';
+            }
+            $c = $contacts[$i % $contacts->count()];
+
+            return trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''));
+        };
+
+        // deal_type only exists once 2026_07_11_000001 has run (DR2 capture).
+        $hasDealType = \Schema::hasColumn('deals', 'deal_type');
+        $attorneys = ['Nkosi & Partners Inc', 'Van Wyk Attorneys', 'Coastal Conveyancers',
+            'Pillay Naidoo Inc', 'Botha & Steyn Attorneys'];
+
+        $made = 0;
+
+        foreach ($properties as $idx => $p) {
+            $listingAgent = (int) $p->agent_id;
+            // Selling side is a DIFFERENT agent where possible — a same-agent deal
+            // on every row makes the commission split screens look broken.
+            $sellingAgent = $this->pick(array_values(array_filter(
+                $this->agentIds,
+                fn ($a) => $a !== $listingAgent
+            )) ?: $this->agentIds);
+
+            $dealDate = now()->subDays($this->rngInt(5, 300));
+            $value = (float) ($p->price ?: $this->priceFor(3, 'House'));
+            $commission = round($value * 0.06, 2);   // 6% — inside the 5–7.5% SA norm
+
+            // A realistic spread across the register: most accepted, some pending,
+            // roughly a third already paid out.
+            $accepted = $idx % 7 === 0 ? 'P' : 'A';
+            $registered = $accepted === 'A' && $idx % 3 === 0;
+
+            $row = [
+                'agency_id'                 => self::AGENCY_ID,
+                'branch_id'                 => $p->branch_id,
+                'property_id'               => $p->id,
+                'deal_no'                   => 1000 + $idx,
+                'file_no'                   => 'DEMO-' . str_pad((string) (1000 + $idx), 5, '0', STR_PAD_LEFT),
+                'period'                    => $dealDate->format('Y-m'),
+                'deal_date'                 => $dealDate->toDateString(),
+                'property_address'          => $p->address,
+                'seller_name'               => $name($idx),
+                'buyer_name'                => $name($idx + 40),
+                'attorney_name'             => $this->pick($attorneys),
+                'accepted_status'           => $accepted,
+                'commission_status'         => $registered ? 'Paid' : 'Not Paid',
+                'registration_date'         => $registered ? $dealDate->copy()->addDays(60)->toDateString() : null,
+                'property_value'            => $value,
+                'sale_price'                => (int) $value,
+                'total_commission'          => $commission,
+                'listing_split_percent'     => 50.00,
+                'selling_split_percent'     => 50.00,
+                'listing_our_share_percent' => 100.00,
+                'selling_our_share_percent' => 100.00,
+                'listing_external'          => 0,
+                'selling_external'          => 0,
+                'is_demo'                   => 1,
+                'created_at'                => $dealDate,
+                'updated_at'                => now(),
+            ];
+
+            if ($hasDealType) {
+                $row['deal_type'] = $this->pick(['bond', 'cash', 'sale_of_2nd']);
+            }
+
+            $dealId = DB::table('deals')->insertGetId($row);
+
+            // deal_user — the agent commission split. Each side sums to 100%.
+            DB::table('deal_user')->insert([
+                [
+                    'deal_id'             => $dealId,
+                    'user_id'             => $listingAgent,
+                    'side'                => 'listing',
+                    'agent_split_percent' => 100.00,
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ],
+                [
+                    'deal_id'             => $dealId,
+                    'user_id'             => $sellingAgent,
+                    'side'                => 'selling',
+                    'agent_split_percent' => 100.00,
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ],
+            ]);
+
+            $made++;
+        }
+
+        $this->command->info("  Stage 11b: {$made} deals on the LIVE register (DR1/DR2 `deals` + agent splits)");
     }
 
     /**
@@ -2108,7 +2561,7 @@ class DemoDataSeeder extends Seeder
                     'suburb' => $suburb, 'district' => $town, 'price' => $price,
                     'bedrooms' => $beds, 'bathrooms' => $beds - 1, 'garages' => 2,
                     'property_type' => 'House', 'agent_name' => 'Demo Source',
-                    'agency_name' => 'HFC Coastal',
+                    'agency_name' => self::DEMO_AGENCY_NAME,
                     'first_seen_at' => now()->subDays(60), 'last_seen_at' => now(),
                     'is_active' => 1, 'created_at' => now()->subDays(60), 'updated_at' => now(),
                 ]);
