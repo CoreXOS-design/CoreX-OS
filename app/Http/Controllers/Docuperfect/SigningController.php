@@ -30,6 +30,13 @@ class SigningController extends Controller
 {
     protected SignatureService $signatureService;
 
+    /**
+     * P0-3 — the audit action that records a client party consenting to ONE initial
+     * surface, at the moment they place it. completeWeb() will not accept an initial
+     * without a matching event (see guardInitialConsent()).
+     */
+    private const ACTION_INITIAL_CONSENT = 'initial_consent';
+
     public function __construct(SignatureService $signatureService)
     {
         $this->signatureService = $signatureService;
@@ -1022,6 +1029,158 @@ class SigningController extends Controller
     }
 
     /**
+     * P0-3 — record a client party's consent for ONE initial surface, at the moment
+     * they place it.
+     *
+     * An initial is legally meaningful because it is an individual affirmation of THAT
+     * page. Until now that rule was enforced only by hiding the "Apply to All" button in
+     * Alpine — the write path accepted whatever arrived, so a crafted client on a
+     * recipient token could still post every initial in one go.
+     *
+     * This endpoint is what makes the gate real: each initial a client party places
+     * writes its own timestamped, IP-stamped consent event into the append-only audit
+     * trail, and completeWeb() then REFUSES any initial that does not have one
+     * (see guardInitialConsent()).
+     *
+     * The agent is exempt by doctrine — professional profile, adopt-once/apply-all
+     * (ceremony §2). That is deliberate, not a gap.
+     */
+    public function recordInitialConsent(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template')
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet.'], 403);
+        }
+
+        if (!session("signing_verified_{$token}")) {
+            return response()->json(['ok' => false, 'error' => 'Identity not verified.'], 403);
+        }
+
+        $validated = $request->validate([
+            'surface_key' => 'required|string|max:255',
+        ]);
+
+        SignatureAuditLog::create([
+            'signature_template_id' => $signingRequest->template->id,
+            'action' => self::ACTION_INITIAL_CONSENT,
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => [
+                'surface_key' => $validated['surface_key'],
+                'party_role'  => $signingRequest->party_role,
+                'placed_at'   => now()->toIso8601String(),
+            ],
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * The server-side half of the per-page initial consent gate.
+     *
+     * Returns a rejection response when a CLIENT party submits an initial for a surface
+     * they never individually consented to — i.e. a bulk/scripted apply-all. Returns
+     * null when the submission is clean and signing may proceed.
+     *
+     * Why it is shaped this way: completeWeb() legitimately receives ALL of a signer's
+     * initials in ONE payload (the recipient initials each page in the browser, then
+     * submits once). So counting initials proves nothing — a genuine signer and a
+     * scripted loop send an identical payload. The only thing that distinguishes them is
+     * whether each initial was individually placed and recorded AT THE TIME. That is the
+     * consent event this checks for.
+     */
+    private function guardInitialConsent(
+        Request $request,
+        SignatureRequest $signingRequest
+    ): ?\Illuminate\Http\JsonResponse {
+        // Professional profile — the agent adopts once and applies to every surface they
+        // own. Doctrine (ceremony §2), not a bug. Only client parties are gated.
+        if (strtolower((string) $signingRequest->party_role) === 'agent') {
+            return null;
+        }
+
+        $submitted = $this->initialSurfaceKeysFromPayload($request);
+        if ($submitted === []) {
+            return null;
+        }
+
+        $consented = SignatureAuditLog::query()
+            ->where('signature_request_id', $signingRequest->id)
+            ->where('action', self::ACTION_INITIAL_CONSENT)
+            ->pluck('metadata_json')
+            ->map(fn ($meta) => is_array($meta) ? ($meta['surface_key'] ?? null) : null)
+            ->filter()
+            ->unique()
+            ->all();
+
+        $unconsented = array_values(array_diff($submitted, $consented));
+        if ($unconsented === []) {
+            return null;
+        }
+
+        SignatureAuditLog::create([
+            'signature_template_id' => $signingRequest->template->id,
+            'action' => 'initial_consent_denied',
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => [
+                'party_role'           => $signingRequest->party_role,
+                'submitted_surfaces'   => $submitted,
+                'unconsented_surfaces' => $unconsented,
+                'reason'               => 'Initials submitted for surfaces with no individual consent event — bulk initial write refused.',
+            ],
+        ]);
+
+        return response()->json([
+            'ok' => false,
+            'error' => 'Each page has to be initialled on its own. Please go back to the document and initial each page — initials cannot be applied to every page at once.',
+            'unconsented_surfaces' => $unconsented,
+        ], 422);
+    }
+
+    /**
+     * The initial surfaces a payload is trying to write — matched exactly the way
+     * completeWeb() persists them (keys carrying `-init-` in `signatures`, plus every
+     * key of the separate `initials` input), so the gate cannot be walked around by
+     * sending the initials through the other input.
+     *
+     * @return list<string>
+     */
+    private function initialSurfaceKeysFromPayload(Request $request): array
+    {
+        $keys = [];
+
+        foreach ((array) $request->input('signatures', []) as $key => $_value) {
+            if (is_string($key) && str_contains($key, '-init-')) {
+                $keys[] = $key;
+            }
+        }
+
+        foreach (array_keys((array) $request->input('initials', [])) as $key) {
+            if (is_string($key) && $key !== '') {
+                $keys[] = $key;
+            }
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    /**
      * Save signer-completed field values back to the document.
      * Only allows updating fields assigned to the signer's party role.
      */
@@ -1343,6 +1502,14 @@ class SigningController extends Controller
         // Validate consent
         if (!$request->input('consented')) {
             return response()->json(['message' => 'Consent is required to sign electronically.'], 422);
+        }
+
+        // P0-3 — per-page initial consent gate. A client party may only submit initials
+        // for surfaces they individually consented to; the agent's apply-all stands
+        // (professional profile, ceremony §2). This runs BEFORE anything is written, so
+        // a refused bulk submission leaves no partial state behind.
+        if ($rejection = $this->guardInitialConsent($request, $signingRequest)) {
+            return $rejection;
         }
 
         $template = $signingRequest->template;
