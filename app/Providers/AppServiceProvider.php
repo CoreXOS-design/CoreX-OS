@@ -200,6 +200,19 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
 
         // ─────────────────────────────────────────────────────────────────
+        // DR2 Wave 2 — Deal → Property → Portal status sync (agency-configurable,
+        // OFF by default). Cross-pillar reactivity via the domain-event catalogue
+        // (non-negotiable #9): subscribe to existing Deal events; each listener sets
+        // the property's EXISTING settled status, which flows to portals through the
+        // existing syndication and is audit-logged by PropertyObserver.
+        //   (a) DealCreated      → flag linked property UNDER OFFER   [default OFF]
+        //   (b) DealStageAdvanced→ mark SOLD at the agency milestone  [default OFF]
+        //   (c) DealClosed(lost) → revert to prior on-market status   [default ON]
+        Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\FlagPropertyUnderOfferOnDealCreated::class);
+        Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\MarkPropertySoldOnDealMilestone::class);
+        Event::listen(\App\Events\Deal\DealClosed::class,        \App\Listeners\Deal\RevertPropertyStatusOnDealDeclined::class);
+
+        // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
         // agent_activity_events. Spec §14.6: ONE listener for now;
         // additional listeners (points engine, etc.) hook into the same
