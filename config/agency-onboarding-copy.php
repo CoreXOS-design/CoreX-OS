@@ -332,6 +332,30 @@ return [
         ],
     ],
 
+    'roles' => [
+        'title' => 'Who can do what — roles & permissions',
+        'intro' => 'Nothing to fill in here. This step explains how CoreX decides what each person '
+            . 'in your agency is allowed to see and do, so that when you start adding your team you '
+            . 'already know which role to give them.',
+        'what' => [
+            'title' => 'Roles, in one paragraph',
+            'body'  => 'You never grant permissions to a person in CoreX. You grant them to a ROLE, and then '
+                . 'you give the person that role. "Agent" is a role. "Branch Manager" is a role. Each one is a '
+                . 'saved set of answers to about three hundred yes/no questions — can this person delete a '
+                . 'deal, see another agent\'s commission, publish to Property24, approve a FICA pack. Hire a '
+                . 'new agent and you don\'t configure anything: you pick "Agent" and they inherit the lot. '
+                . 'Change your mind about what agents may do, and you change it once, on the role — and it '
+                . 'applies to every agent you have, immediately. That last point is the one that catches '
+                . 'people out, so it is worth reading twice.',
+        ],
+        // Explainer only — no savers, no controls. The Role Manager is a large,
+        // permission-gated matrix (344 permissions × N roles) that cannot be
+        // sensibly inlined, and nothing here needs saving. The step's job is to
+        // make sure nobody meets roles for the first time on the day they are
+        // trying to onboard an agent.
+        'partial' => 'agency-setup.steps.roles',
+    ],
+
     'access' => [
         'title' => 'Access & finish',
         'intro' => 'One last decision, then you are set up.',

@@ -90,6 +90,24 @@ class AgencySetupWizardController extends Controller
             'notifications' => [
                 'dashboard' => \App\Models\CommandCenter\AgencyDashboardSetting::firstOrNew(['agency_id' => $agency->id]),
             ],
+            // Explainer step — show the agency's REAL roles and how many people
+            // hold each, so the example is their agency and not a mock-up. Owner
+            // roles are excluded: they are the CoreX platform team, not staff.
+            'roles' => [
+                'roleRows' => collect(\App\Models\Role::allRoles($agency->id))
+                    ->reject(fn ($r) => $r->is_owner)
+                    ->map(fn ($r) => [
+                        'name'  => $r->name,
+                        'label' => $r->label ?: \Illuminate\Support\Str::headline($r->name),
+                        'count' => \App\Models\User::withoutGlobalScopes()
+                            ->where('agency_id', $agency->id)
+                            ->where('role', $r->name)
+                            ->count(),
+                    ])
+                    ->values()->all(),
+                'permissionCount' => collect(config('corex-permissions.permissions', []))->count(),
+                'splitOn'         => (bool) $agency->split_branches_enabled,
+            ],
             'compliance' => [
                 'whistleblow' => [
                     'officer_email' => $agency->whistleblow_compliance_officer_email ?? null,

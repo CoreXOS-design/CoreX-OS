@@ -427,7 +427,8 @@ class AgencySetupWizardTest extends TestCase
         $this->setupFor($agency);
 
         $this->assertNotContains('team', \App\Models\AgencyOnboardingSetup::STEPS);
-        $this->assertSame(11, \App\Models\AgencyOnboardingSetup::totalSteps());
+        // 11 original steps + the 'roles' explainer inserted before 'access'.
+        $this->assertSame(12, \App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()
