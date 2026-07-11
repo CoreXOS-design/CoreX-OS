@@ -533,6 +533,22 @@ CREATE TABLE `agency_dashboard_settings` (
   CONSTRAINT `agency_dashboard_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_deal_sync_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_deal_sync_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `flag_property_under_offer_on_deal` tinyint(1) NOT NULL DEFAULT '0',
+  `sold_milestone` enum('granted','registered') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `revert_property_on_deal_declined` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_deal_sync_settings_agency_id_unique` (`agency_id`),
+  CONSTRAINT `agency_deal_sync_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_document_type_compliance`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -8860,6 +8876,7 @@ CREATE TABLE `properties` (
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `pre_deal_offer_status` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
   `status_label` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
   `images_json` json DEFAULT NULL,
   `dawn_images_json` json DEFAULT NULL,
@@ -13145,3 +13162,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (982,'2026_07_10_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (983,'2026_07_11_000001_add_deal_type_to_deals_table',225);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (984,'2026_07_11_000002_pipeline_v11_step_ops_and_comments',226);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (985,'2026_07_11_000002_create_service_provider_contacts_and_deal_attorney_link',227);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (986,'2026_07_11_000003_create_agency_deal_sync_settings_and_property_pre_offer_status',228);
