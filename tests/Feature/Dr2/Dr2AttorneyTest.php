@@ -80,6 +80,25 @@ final class Dr2AttorneyTest extends TestCase
         $this->assertTrue((bool) array_filter($labels, fn ($l) => str_contains($l, 'Attorney Y')));
     }
 
+    public function test_supplier_setup_manages_firm_contacts(): void
+    {
+        $firm = AgencyServiceProvider::create(['agency_id' => $this->agencyId, 'name' => 'BBB Inc', 'specialty' => 'transfer_attorney', 'is_active' => true]);
+
+        // Add a contact via the setup page endpoint.
+        $this->actingAs($this->admin)->post(route('deals-v2.suppliers.contacts.store', $firm), [
+            'attorney_name' => 'Attorney X', 'contact_person' => 'His Assistant', 'email' => 'x@bbb.example',
+        ])->assertRedirect();
+        $this->assertDatabaseHas('agency_service_provider_contacts', [
+            'service_provider_id' => $firm->id, 'attorney_name' => 'Attorney X', 'contact_person' => 'His Assistant',
+        ]);
+
+        $contact = AgencyServiceProviderContact::withoutGlobalScopes()->where('service_provider_id', $firm->id)->first();
+
+        // Deactivate = soft delete (historic deals keep resolving).
+        $this->actingAs($this->admin)->post(route('deals-v2.suppliers.contacts.deactivate', $contact))->assertRedirect();
+        $this->assertSoftDeleted('agency_service_provider_contacts', ['id' => $contact->id]);
+    }
+
     public function test_deal_persists_firm_and_contact_link(): void
     {
         $firm = AgencyServiceProvider::create(['agency_id' => $this->agencyId, 'name' => 'BBB Inc', 'specialty' => 'transfer_attorney', 'is_active' => true]);

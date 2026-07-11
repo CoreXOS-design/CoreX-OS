@@ -214,10 +214,21 @@ class DealRegisterController extends Controller
             $this->logDealEvent($deal, 'commission_status_changed', $oldCommission, $newCommission);
         }
 
+        // The deal row + its money lines are updated SYNCHRONOUSLY above (the register's
+        // status column + money lines are correct the instant this returns).
         DealMoneyLineRebuilder::rebuildDealId((int) $deal->id);
+
+        // (Johan DR2-walk fix 3) The slow part of a quick status save is the PERIOD-WIDE
+        // finance rollup — RollupService::refreshPeriod recomputes finance_computed_values
+        // across every deal/agent/branch in the period (O(period), not O(this deal)). It
+        // feeds reports/dashboards, NOT the register, so DEFER it until after the response:
+        // the save returns snappy, the rollup still runs the same request cycle (no queue
+        // worker needed). Nothing is failing/retrying — it was just heavy work run inline.
         $dealPeriod = (string) ($deal->period ?? '');
         if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
-            (new RollupService())->refreshPeriod($dealPeriod);
+            dispatch(function () use ($dealPeriod) {
+                (new RollupService())->refreshPeriod($dealPeriod);
+            })->afterResponse();
         }
 
         return redirect()->route('deals-dr2.index')->with('status', 'Deal updated.');

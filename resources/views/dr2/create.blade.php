@@ -201,7 +201,9 @@
                 <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney (firm &amp; contact)</button>
             </div>
 
-            {{-- (Enhancement 7) Financials sub-heading over the money fields --}}
+            {{-- (Enhancement 7 / walk fix 1+2) Financials — commission with a VAT basis toggle
+                 and live two-way % ↔ amount binding. Stored truth stays DR1's (Incl-VAT total);
+                 Excl + VAT are DERIVED for display, not forked into storage. --}}
             <div class="field-full"><h3 class="ds-label" style="margin-top:.35rem;font-weight:700;color:#0b2a4a;">Financials</h3></div>
 
             {{-- (Enhancement 4) Selling Price — prefilled from the advertised price, overridable --}}
@@ -210,17 +212,39 @@
                 <input type="number" step="0.01" class="input-base money-input" name="property_value" id="dr2_property_value" value="{{ old('property_value', $deal->property_value) }}" required>
             </div>
 
-            {{-- (Enhancement 5) Commission % — prefilled from the property; drives the amount (calc on load) --}}
+            {{-- VAT basis — what the amount you enter means (agency VAT rate from config) --}}
+            <div>
+                <label class="ds-label block mb-1">Commission basis</label>
+                <select class="input-base" id="dr2_vat_mode">
+                    <option value="incl">VAT-inclusive</option>
+                    <option value="excl">VAT-exclusive</option>
+                </select>
+                <div class="mt-1 text-xs text-gray-400">Both figures are shown below either way.</div>
+            </div>
+
+            {{-- Commission % — of the selling price; two-way with the amount --}}
             <div>
                 <label class="ds-label block mb-1">Commission %</label>
                 <input type="number" step="0.01" class="input-base" name="commission_percent_display" id="dr2_commission_percent" value="{{ old('commission_percent_display') }}">
-                <div class="mt-1 text-xs text-gray-400">Prefills from the property; drives the amount.</div>
+                <div class="mt-1 text-xs text-gray-400">Prefills from the property; two-way with the amount.</div>
             </div>
 
+            {{-- Commission amount in the selected basis — two-way with % --}}
             <div>
-                <label class="ds-label block mb-1">Total Commission (Incl VAT)</label>
-                <input type="number" step="0.01" class="input-base money-input" name="total_commission" id="dr2_total_commission" value="{{ old('total_commission', $deal->total_commission) }}" required>
-                <div class="mt-1 text-xs text-gray-500">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
+                <label class="ds-label block mb-1"><span id="dr2_comm_amount_label">Commission (Incl VAT)</span></label>
+                <input type="number" step="0.01" class="input-base money-input" id="dr2_commission_amount" value="">
+                <div class="mt-1 text-xs text-gray-400">Fill either % or amount — the other populates live.</div>
+            </div>
+
+            {{-- Derived figures + the stored Incl-VAT total (DR1 truth) --}}
+            <div class="field-full">
+                <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm" style="color:#374151;">
+                    <span>Incl VAT: <strong>R <span id="dr2_comm_incl_disp">0.00</span></strong></span>
+                    <span>Excl VAT: <strong>R <span id="dr2_comm_excl_disp">0.00</span></strong></span>
+                    <span>VAT (<span id="dr2_vat_pct_disp">15</span>%): <strong>R <span id="dr2_comm_vat_disp">0.00</span></strong></span>
+                </div>
+                <div class="mt-1 text-xs text-gray-500">Stored as the <span class="font-semibold">Incl-VAT total</span> (as DR1 stores it); pools/allocations compute Ex VAT.</div>
+                <input type="hidden" name="total_commission" id="dr2_total_commission" value="{{ old('total_commission', $deal->total_commission) }}">
             </div>
                 </div>
             </div>
@@ -583,7 +607,15 @@
     const pLinkedId = document.getElementById('dr2_property_linked_id');
     const priceEl = document.getElementById('dr2_property_value');
     const pctEl = document.getElementById('dr2_commission_percent');
-    const commEl = document.getElementById('dr2_total_commission');
+    const amtEl = document.getElementById('dr2_commission_amount');      // primary, in the selected basis
+    const totalEl = document.getElementById('dr2_total_commission');     // hidden = Incl-VAT total (DR1 stored truth)
+    const modeEl = document.getElementById('dr2_vat_mode');
+    const vatRate = @json((float) \App\Models\PerformanceSetting::get('vat_rate', 15));
+    const inclDisp = document.getElementById('dr2_comm_incl_disp');
+    const exclDisp = document.getElementById('dr2_comm_excl_disp');
+    const vatDisp = document.getElementById('dr2_comm_vat_disp');
+    const amtLabel = document.getElementById('dr2_comm_amount_label');
+    document.getElementById('dr2_vat_pct_disp').textContent = vatRate;
 
     const closeProp = () => { pResults.style.display = 'none'; pResults.innerHTML = ''; };
     pSearch.addEventListener('input', () => { pAddr.value = pSearch.value; });
@@ -627,25 +659,41 @@
         if (d.price && (!priceEl.value || priceEl.dataset.prefilled === '1')) {
             priceEl.value = Number(d.price); priceEl.dataset.prefilled = '1';
         }
-        // Enhancement 5: commission % prefill + amount calc-on-pick (never half-filled)
+        // Enhancement 5: commission % prefill; the amount + Incl/Excl/VAT derive from it.
         if (d.comm && parseFloat(d.comm) > 0 && (!pctEl.value || pctEl.dataset.prefilled === '1')) {
             pctEl.value = parseFloat(d.comm); pctEl.dataset.prefilled = '1';
+            recompute('pct');
+        } else {
+            recompute(pctEl.value ? 'pct' : 'amount');
         }
-        calcComm();
         loadPropContacts(d.id);
     }
-    priceEl.addEventListener('input', () => { priceEl.dataset.prefilled = '0'; calcComm(); });
-    pctEl.addEventListener('input', () => { pctEl.dataset.prefilled = '0'; calcComm(); });
-    commEl.addEventListener('input', () => { commEl.dataset.manual = '1'; });
+    priceEl.addEventListener('input', () => { priceEl.dataset.prefilled = '0'; recompute(pctEl.value ? 'pct' : 'amount'); });
+    pctEl.addEventListener('input', () => { pctEl.dataset.prefilled = '0'; recompute('pct'); });
+    amtEl.addEventListener('input', () => recompute('amount'));
+    modeEl.addEventListener('change', () => recompute('mode'));
 
-    // Enhancement 5: amount = price × %/100. Never leave a lone % with no amount.
-    function calcComm() {
-        const price = parseFloat(priceEl.value), pct = parseFloat(pctEl.value);
-        if (price > 0 && pct > 0) {
-            if (commEl.dataset.manual !== '1' || !commEl.value) {
-                commEl.value = (Math.round(price * (pct / 100) * 100) / 100).toFixed(2);
-            }
-        }
+    // (walk fix 1+2) Two-way commission binding with a VAT basis. `primary` is the amount
+    // in the selected basis; % is of the selling price; Incl/Excl/VAT all derive; the HIDDEN
+    // total_commission always carries the Incl-VAT figure (DR1's stored truth — not forked).
+    const fmt = n => (Math.round((parseFloat(n) || 0) * 100) / 100).toFixed(2);
+    const zar = n => Number(fmt(n)).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    function recompute(source) {
+        const price = parseFloat(priceEl.value) || 0;
+        const mode = modeEl.value; // 'incl' | 'excl'
+        amtLabel.textContent = mode === 'incl' ? 'Commission (Incl VAT)' : 'Commission (Excl VAT)';
+        let primary = parseFloat(amtEl.value) || 0;
+        let pct = parseFloat(pctEl.value) || 0;
+        if (source === 'pct') { primary = price > 0 ? price * (pct / 100) : 0; }
+        else { pct = price > 0 ? (primary / price) * 100 : 0; }   // 'amount' or 'mode'
+        let incl, excl;
+        if (mode === 'incl') { incl = primary; excl = incl / (1 + vatRate / 100); }
+        else { excl = primary; incl = excl * (1 + vatRate / 100); }
+        const vat = incl - excl;
+        if (source !== 'amount') { amtEl.value = primary > 0 ? fmt(primary) : ''; }
+        if (source !== 'pct') { pctEl.value = pct > 0 ? fmt(pct) : ''; }
+        totalEl.value = incl > 0 ? fmt(incl) : '';   // stored Incl-VAT total (DR1 truth)
+        inclDisp.textContent = zar(incl); exclDisp.textContent = zar(excl); vatDisp.textContent = zar(vat);
     }
     document.getElementById('dr2_property_unlink').addEventListener('click', () => {
         pId.value = ''; pLinked.style.display = 'none';
@@ -755,8 +803,18 @@
           .finally(() => { this.disabled = false; });
     });
 
-    // Enhancement 5: calc on load if price + % already present (edit / repopulate) — never half-filled.
-    if (parseFloat(priceEl.value) > 0 && parseFloat(pctEl.value) > 0) calcComm();
+    // On load: in EDIT mode the stored total_commission is the Incl-VAT figure (DR1 truth)
+    // but %/amount are UI-only (not persisted) — seed the basis=incl, amount=stored total, and
+    // derive % + Excl/VAT. On a fresh create, derive from a prefilled % if present.
+    if (parseFloat(totalEl.value) > 0) {
+        modeEl.value = 'incl';
+        amtEl.value = fmt(totalEl.value);
+        recompute('amount');
+    } else if (parseFloat(priceEl.value) > 0 && parseFloat(pctEl.value) > 0) {
+        recompute('pct');
+    } else {
+        recompute('mode'); // set the amount label + zeroed display
+    }
 })();
 </script>
 </x-app-layout>

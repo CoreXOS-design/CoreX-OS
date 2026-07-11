@@ -137,6 +137,41 @@
                                 @endif
                             </td>
                         </tr>
+
+                        {{-- (DR2 respec) A firm holds MULTIPLE contact persons (attorney + working
+                             contact). List them + add/remove inline. Soft-delete keeps history. --}}
+                        @if($p->is_active)
+                        <tr style="background: var(--surface-2, #f8fafc);">
+                            <td colspan="5" class="px-4 py-3">
+                                <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
+                                @forelse($p->serviceContacts as $c)
+                                    <div class="flex items-center justify-between py-1 text-xs" style="color: var(--text-secondary);">
+                                        <span>
+                                            <span class="font-medium" style="color: var(--text-primary);">{{ $c->attorney_name ?: '—' }}</span>
+                                            @if($c->contact_person)<span> (via {{ $c->contact_person }})</span>@endif
+                                            @if($c->email)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->email }}</span>@endif
+                                            @if($c->phone)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->phone }}</span>@endif
+                                        </span>
+                                        <form method="POST" action="{{ route('deals-v2.suppliers.contacts.deactivate', $c) }}" class="inline"
+                                              onsubmit="return confirm('Remove this contact? Historic deals keep resolving.');">
+                                            @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson, #c41e3a);">Remove</button>
+                                        </form>
+                                    </div>
+                                @empty
+                                    <div class="text-xs mb-2" style="color: var(--text-muted);">No contacts yet — add the attorney and the person you deal with.</div>
+                                @endforelse
+
+                                <form method="POST" action="{{ route('deals-v2.suppliers.contacts.store', $p) }}" class="mt-2 flex flex-wrap items-end gap-2">
+                                    @csrf
+                                    <input type="text" name="attorney_name" placeholder="Attorney" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="text" name="contact_person" placeholder="Contact (assistant/paralegal)" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="email" name="email" placeholder="Email" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">+ Add contact</button>
+                                </form>
+                            </td>
+                        </tr>
+                        @endif
                     @empty
                         <tr>
                             <td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
