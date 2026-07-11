@@ -602,6 +602,16 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
     Route::post('/rows/confirm-all', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmAllFiltered'])->name('rows.confirm-all');
 });
 
+// ===== PUBLIC AGENCY-SETUP GATE (token landing + real-login gate) =====
+// Distinct prefix from onboarding/{token} (P24) to avoid route shadowing.
+// The token authenticates the emailed link and logs the Admin in; the wizard
+// itself runs under normal auth (see the corex.agency-setup.* group below).
+// Spec: .ai/specs/agency-onboarding-setup.md §3.2–3.3.
+Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name('agency-setup.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'show'])->name('show');
+    Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
+});
+
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
 // /listings (admin browse) and /import (POST upload trigger) stay mounted
@@ -2118,6 +2128,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
+
+    // Agency Onboarding Setup Wizard (authenticated; token gate handed off here
+    // after login). Reuses the settings save paths. Spec: agency-onboarding-setup.md
+    Route::middleware(['permission:agency_setup.run', 'agency.required'])->group(function () {
+        Route::get('/agency-setup', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'index'])->name('corex.agency-setup.index');
+        Route::get('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'show'])->name('corex.agency-setup.step');
+        Route::post('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'save'])->name('corex.agency-setup.step.save');
+        Route::post('/agency-setup/step/{step}/skip', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'skip'])->name('corex.agency-setup.step.skip');
+        Route::post('/agency-setup/finish', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'finish'])->name('corex.agency-setup.finish');
+        // Inline list editors (property types/statuses/mandate/condition, contact sources)
+        Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
+        Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
+    });
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -2355,6 +2378,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
+
+    // Agency Setup Progress board — platform-owner cross-agency tracking of the
+    // onboarding wizard. Owner-only. Spec: agency-onboarding-setup.md §7.4.
+    Route::middleware('owner_only')->get('/admin/agency-setup-progress', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'index'])
+        ->name('admin.agency-setup-progress');
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

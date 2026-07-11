@@ -322,8 +322,15 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Deal\DealRegistered` | Property transfer registered at Deeds | `deal`, `registeredAt`, `agencyId` | Deal controller (manual trigger) | `CloseProperty` (status → sold), `TriggerCommissionCalc`, audit |
 | `Fica\FicaApproved` | FICA submission marked approved | `submission`, `contact`, `approvedByUserId`, `agencyId` | FICA controller | `EnableDealActions`, audit |
 | `Fica\FicaRejected` | FICA submission rejected with reasons | `submission`, `contact`, `reasons`, `rejectedByUserId`, `agencyId` | FICA controller | `NotifyContact`, audit |
+| `AgencyCreated` | A new LIVE agency + its first Admin are created (demo agencies excluded) | `agency`, `adminUser`, `adminEmail`, `createdByUserId`, `agencyId` | `AgencyController@store()` (explicit, post-commit, `if ($adminPayload)`) | `Onboarding\CreateAgencySetupPortal` (creates guided-setup record + emails Admin), audit |
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
+
+> **Note on `AgencyCreated`:** the domain event (`App\Events\AgencyCreated`) is distinct
+> from the Eloquent `Agency::created` boot hook that already fans role provisioning to
+> `RoleProvisioningService`. Different mechanism, no collision. The domain event fires
+> explicitly from the controller (once, post-commit, live-create only) so the Admin's
+> email is in scope for onboarding. Spec: `.ai/specs/agency-onboarding-setup.md`.
 
 ---
 

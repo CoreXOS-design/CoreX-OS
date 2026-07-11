@@ -135,11 +135,12 @@ class AgencyController extends Controller
 
         // Atomic: live agency + first Admin must succeed together. Demo agencies
         // skip the admin requirement entirely. See spec R1.
-        $agency = DB::transaction(function () use ($data, $adminPayload) {
+        $adminUser = null;
+        $agency = DB::transaction(function () use ($data, $adminPayload, &$adminUser) {
             $agency = Agency::create($data);
 
             if ($adminPayload) {
-                User::create([
+                $adminUser = User::create([
                     'name'      => $adminPayload['name'],
                     'email'     => $adminPayload['email'],
                     'password'  => Hash::make($adminPayload['password']),
@@ -152,6 +153,20 @@ class AgencyController extends Controller
 
             return $agency;
         });
+
+        // Fire the AgencyCreated domain event AFTER the transaction commits, and
+        // ONLY for live agencies with an Admin (demo agencies get no onboarding
+        // wizard, no email). A listener creates the guided-setup record and
+        // emails the Admin the link. Non-negotiable #9 (domain events, not an
+        // ad-hoc hook). Spec: .ai/specs/agency-onboarding-setup.md §3.4.
+        if ($adminPayload && $adminUser) {
+            event(new \App\Events\AgencyCreated(
+                agency: $agency,
+                adminUser: $adminUser,
+                adminEmail: $adminUser->email,
+                createdByUserId: auth()->id(),
+            ));
+        }
 
         // Seed default marketing-compliance required document types (mandate,
         // FICA, disclosure) so a new agency has sensible gating out of the box.
