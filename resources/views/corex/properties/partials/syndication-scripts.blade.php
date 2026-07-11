@@ -9,9 +9,65 @@
     Included by every page that renders the panel. Include it ONCE per page.
 --}}
 <script>
+// Copy a listing URL to the clipboard.
+//
+// navigator.clipboard exists only in a secure context (https, or localhost).
+// CoreX runs over plain http on some internal hosts, where it is undefined —
+// hence the execCommand fallback. Returns true only when the text really landed.
+async function corexCopyListingUrl(text) {
+    if (!text) return false;
+
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) { /* fall through to the legacy path */ }
+    }
+
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+}
+
+// Mixin: the copy-link button on every portal panel. `copied` flips the icon to
+// a tick for two seconds; `copyError` renders inline on failure.
+//
+// It does NOT route failure through showMessage(): every panel renders that slot
+// with `messageType === 'success'`, so an error there would be invisible.
+function corexCopyLinkMixin() {
+    return {
+        copied: false,
+        copyError: '',
+        copyTimer: null,
+        async copyLink(url) {
+            this.copyError = '';
+            if (!url || url === '#') {
+                this.copyError = 'No public link for this listing yet';
+                return;
+            }
+            if (!await corexCopyListingUrl(url)) {
+                this.copyError = 'Could not copy the link';
+                return;
+            }
+            this.copied = true;
+            clearTimeout(this.copyTimer);
+            this.copyTimer = setTimeout(() => { this.copied = false; }, 2000);
+        },
+    };
+}
+
 // Private Property Syndication Alpine component
 function ppSyndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId,
         enabled: config.enabled,
         status: config.status || '',
@@ -62,6 +118,7 @@ function ppSyndication(config) {
                 'submitted': 'Submitted',
                 'active': 'Active',
                 'error': 'Error',
+                'rejected': 'Rejected',
                 'deactivated': 'Deactivated',
             };
             if (!this.enabled) return 'Disabled';
@@ -75,6 +132,7 @@ function ppSyndication(config) {
                 'submitted': 'background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber);',
                 'active': 'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);',
                 'error': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
+                'rejected': 'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent); color:var(--ds-crimson);',
                 'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
             };
             if (!this.enabled) return styles[''];
@@ -353,6 +411,7 @@ function ppSyndication(config) {
 
 function p24Syndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
         p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
         lastError: config.lastError || '', csrfToken: config.csrfToken, isSandbox: config.isSandbox ?? true,
@@ -366,12 +425,15 @@ function p24Syndication(config) {
             return new Date(this.ppDelayUntilRaw) > new Date();
         },
         statusLabel() {
-            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
+            // 'sold'/'rented' are terminal market states that P24 KEEPS on the
+            // portal — the listing is still publicly visible, so never label them
+            // 'Deactivated'. Only 'deactivated' means the portal dropped it.
+            const labels = {'':'Disabled','pending':'Pending','submitting':'Syncing…','submitted':'Submitted','active':'Active','sold':'Sold — still on P24','rented':'Rented — still on P24','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
             if (!this.enabled) return 'Disabled';
             return labels[this.status] || 'Disabled';
         },
         statusBadgeStyle() {
-            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','submitting':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','submitted':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','active':'background:color-mix(in srgb, var(--brand-button) 14%, transparent);color:var(--brand-button);','sold':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','rented':'background:color-mix(in srgb, var(--ds-amber) 14%, transparent);color:var(--ds-amber);','error':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','rejected':'background:color-mix(in srgb, var(--ds-crimson) 14%, transparent);color:var(--ds-crimson);','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled) return styles[''];
             return styles[this.status] || styles[''];
         },
@@ -512,6 +574,7 @@ function p24Syndication(config) {
 // header toggle activates/deactivates directly.
 function websiteSyndication(config) {
     return {
+        ...corexCopyLinkMixin(),
         propertyId: config.propertyId,
         name: config.name || 'Website',
         enabled: config.enabled,

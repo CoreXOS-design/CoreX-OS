@@ -118,6 +118,37 @@ final class RotateImageTest extends TestCase
         $this->assertSame(100, $nh);
     }
 
+    /**
+     * The original may only be unlinked once the new URL is committed. If the
+     * image is not in the gallery the swap matches nothing, so deleting it would
+     * strand the listing on a missing file — which is precisely the state that
+     * made PrivateProperty reject every update of property 6060 (PP120 404).
+     * The rotated copy is discarded and the original survives.
+     */
+    public function test_rotation_that_cannot_be_persisted_leaves_the_original_intact(): void
+    {
+        if (! function_exists('imagerotate')) {
+            $this->markTestSkipped('GD imagerotate() not available in this PHP CLI.');
+        }
+
+        $p = $this->makeProperty();
+        // File exists on disk, but is NOT referenced by the gallery.
+        [$orphanRel, $orphanUrl] = $this->storeJpeg($p->id, 100, 60, 'orphan.jpg');
+        $p->update(['gallery_images_json' => []]);
+
+        $before = Storage::disk('public')->files("properties/{$p->id}");
+
+        $this->actingAs($this->user)
+            ->postJson("/corex/properties/{$p->id}/rotate-image", ['image_url' => $orphanUrl, 'degrees' => 90])
+            ->assertStatus(409)
+            ->assertJsonPath('ok', false);
+
+        // Original still there, and no rotated leftover was created.
+        $this->assertTrue(Storage::disk('public')->exists($orphanRel));
+        $this->assertSame($before, Storage::disk('public')->files("properties/{$p->id}"));
+        $this->assertSame([], $p->fresh()->gallery_images_json);
+    }
+
     public function test_rejects_image_url_outside_this_property_directory(): void
     {
         $p = $this->makeProperty();

@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 /**
  * 4-step wizard for creating a property.
@@ -55,12 +56,62 @@ class PropertyWizardController extends Controller
                 ?: $draftsQuery->latest('updated_at')->first();
         }
 
+        // When resuming, hydrate the wizard from the draft's own saved values so
+        // the form CONTINUES the same record (AT-210). Without this the resumed
+        // draft rendered with blank step-1/3 fields, so any step-1 submit either
+        // failed validation or — once re-filled — minted a *second* draft and
+        // orphaned the first. The prefill feeds both the Alpine step state and
+        // the P24 location picker's initial selection.
+        $draftPrefill = $draft ? [
+            // Step 1
+            'listing_type'       => $draft->listing_type,
+            'title'              => $draft->title,
+            'property_type'      => $draft->property_type,
+            'price'              => $draft->price,
+            'beds'               => $draft->beds,
+            'baths'              => $draft->baths,
+            'half_baths'         => $draft->half_baths,
+            'garages'            => $draft->garages,
+            'suburb'             => $draft->suburb,
+            'city'               => $draft->city,
+            'province'           => $draft->province,
+            'p24_province_id'    => (int) ($draft->p24_province_id ?? 0),
+            'p24_city_id'        => (int) ($draft->p24_city_id ?? 0),
+            'p24_suburb_id'      => (int) ($draft->p24_suburb_id ?? 0),
+            'street_number'      => $draft->street_number,
+            'street_name'        => $draft->street_name,
+            'unit_number'        => $draft->unit_number,
+            'floor_number'       => $draft->floor_number,
+            'unit_section_block' => $draft->unit_section_block,
+            'complex_name'       => $draft->complex_name,
+            'property_number'    => $draft->property_number,
+            'stand_number'       => $draft->stand_number,
+            'zone_type'          => $draft->zone_type,
+            'district'           => $draft->district,
+            'region'             => $draft->region,
+            'address_internal_note' => $draft->address_internal_note,
+            // Step 3
+            'description'        => $draft->description,
+            'mandate_type'       => $draft->mandate_type,
+            'branch_id'          => $draft->branch_id,
+            'agent_id'           => $draft->agent_id,
+            'size_m2'            => $draft->size_m2,
+            'erf_size_m2'        => $draft->erf_size_m2,
+            'rental_amount'      => $draft->rental_amount,
+            'deposit_amount'     => $draft->deposit_amount,
+            'lease_start_date'   => optional($draft->lease_start_date)->format('Y-m-d'),
+            'lease_end_date'     => optional($draft->lease_end_date)->format('Y-m-d'),
+        ] : null;
+
         $settingItems = [
             'types'        => PropertySettingItem::group('property_type')->where('active', true)->get(),
             'mandateTypes' => PropertySettingItem::group('mandate_type')->get(),
         ];
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList($user);
+        // Step-3 agent picker default — a valid agent, never the acting owner
+        // (who cannot be a property agent). Mirrors createDraft's attribution.
+        $defaultAgentId = $this->defaultCaptureAgentId($user);
 
         // Unique suburb list for autocomplete (agent's scope)
         $suburbs = Property::query()
@@ -99,8 +150,8 @@ class PropertyWizardController extends Controller
         }
 
         return view('corex.properties.wizard', compact(
-            'draft', 'settingItems', 'branches', 'agents', 'suburbs',
-            'preLinkedContact', 'contactPrefill'
+            'draft', 'draftPrefill', 'settingItems', 'branches', 'agents', 'suburbs',
+            'preLinkedContact', 'contactPrefill', 'defaultAgentId'
         ));
     }
 
@@ -112,6 +163,7 @@ class PropertyWizardController extends Controller
         abort_unless($user->hasPermission('properties.create'), 403);
 
         $data = $request->validate([
+            'property_id'     => 'nullable|integer',   // set when resuming/editing an existing draft (AT-210)
             'listing_type'    => 'required|string|in:sale,rental',
             'property_type'   => 'required|string|max:50',
             'suburb'          => 'nullable|string|max:100',
@@ -144,24 +196,61 @@ class PropertyWizardController extends Controller
         $contactId = $data['contact_id'] ?? null;
         unset($data['contact_id']);
 
+        $draftId = $data['property_id'] ?? null;
+        unset($data['property_id']);
+
         // Verify P24 chain and overwrite text columns with canonical names.
         $data = $this->applyP24Location($data);
 
-        // Smart defaults — Observer will set agency_id via BelongsToAgency
-        $data['agent_id']  = $user->id;
-        $data['branch_id'] = $user->effectiveBranchId();
-        $data['status']    = 'draft';
+        // AT-210 — idempotent step 1. When the wizard already holds a draft
+        // (resume, or "back → edit step 1"), UPDATE that row in place instead of
+        // minting a second draft and orphaning the first. Ownership + draft state
+        // are enforced, so a published or other-agent property is never mutated.
+        $existing = $draftId
+            ? Property::where('id', $draftId)
+                ->where('agent_id', $user->id)   // own draft only — mirrors start()'s ?resume scope
+                ->where('status', 'draft')
+                ->whereNull('published_at')
+                ->first()
+            : null;
 
-        // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
-        $property = Property::create($data);
+        if ($existing) {
+            $previousSuburbId = (int) ($existing->p24_suburb_id ?? 0);
 
-        if ($property->p24_suburb_id) {
-            event(new \App\Events\Property\PropertySuburbLinked(
-                property: $property,
-                previousP24SuburbId: null,
-                newP24SuburbId: (int) $property->p24_suburb_id,
-                actorUserId: $user->id,
-            ));
+            // Preserve owner/branch/status; only the step-1 fields change.
+            $existing->update($data);
+            $property = $existing;
+
+            if ($property->p24_suburb_id && (int) $property->p24_suburb_id !== $previousSuburbId) {
+                event(new \App\Events\Property\PropertySuburbLinked(
+                    property: $property,
+                    previousP24SuburbId: $previousSuburbId ?: null,
+                    newP24SuburbId: (int) $property->p24_suburb_id,
+                    actorUserId: $user->id,
+                ));
+            }
+        } else {
+            // The listing follows its agent (AT-211). Attribute the new draft to a
+            // VALID agent — the actor if they can be one, else an active agency
+            // member — and derive agency + branch from that agent. A System Owner
+            // can NEVER be the property agent (PropertyObserver::saving rejects it),
+            // so stamping the actor 500'd the wizard for admins/owners. agency_id is
+            // set explicitly rather than left to BelongsToAgency, which cannot infer
+            // it for an owner with no home agency.
+            [$data['agent_id'], $data['agency_id'], $data['branch_id']] = $this->resolveDraftAttribution($user);
+            $data['status'] = 'draft';
+
+            // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
+            $property = Property::create($data);
+
+            if ($property->p24_suburb_id) {
+                event(new \App\Events\Property\PropertySuburbLinked(
+                    property: $property,
+                    previousP24SuburbId: null,
+                    newP24SuburbId: (int) $property->p24_suburb_id,
+                    actorUserId: $user->id,
+                ));
+            }
         }
 
         // Link the originating contact as the seller side of the listing
@@ -344,6 +433,61 @@ class PropertyWizardController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * The agent a NEW draft is attributed to for this actor: the actor themselves
+     * when they can be a property agent, otherwise the first active agency member
+     * in their effective agency (an owner/admin capturing on an agent's behalf).
+     * Returns null when the actor is an owner and no agency member is available.
+     */
+    private function defaultCaptureAgentId(User $user): ?int
+    {
+        // A real (non-owner) agent lists under their own name.
+        if (!in_array($user->role, User::ownerRoleNames(), true)) {
+            return $user->id;
+        }
+
+        // Owner/system account: pick a valid, non-owner member of the active
+        // agency (agencyMembers() already excludes owner roles).
+        return User::agencyMembers()
+            ->where('is_active', 1)
+            ->when($user->effectiveAgencyId(), fn ($q, $agencyId) => $q->where('agency_id', $agencyId))
+            ->orderBy('name')
+            ->value('id');
+    }
+
+    /**
+     * Resolve [agent_id, agency_id, branch_id] for a new draft — the listing
+     * follows its agent. Throws a clean 422 (never a 500) when the actor cannot
+     * be an agent and no agency member is available to assign.
+     *
+     * @return array{0:int,1:?int,2:int}
+     */
+    private function resolveDraftAttribution(User $user): array
+    {
+        $agentId = $this->defaultCaptureAgentId($user);
+        if (!$agentId) {
+            throw ValidationException::withMessages([
+                'agent_id' => 'Your account cannot be listed as the property agent, and no active agency member is available to assign. Add an agent to this agency first, or pick one before saving.',
+            ]);
+        }
+
+        $agent    = User::find($agentId);
+        $agencyId = $agent->agency_id ?? $user->effectiveAgencyId();
+        $branchId = $agent->effectiveBranchId() ?? $agent->branch_id;
+
+        // branch_id is NOT NULL — fall back to the agency's first branch.
+        if (!$branchId && $agencyId) {
+            $branchId = Branch::where('agency_id', $agencyId)->orderBy('id')->value('id');
+        }
+        if (!$branchId) {
+            throw ValidationException::withMessages([
+                'branch_id' => 'No branch is available to list this property under. Create a branch for the agency first.',
+            ]);
+        }
+
+        return [$agentId, $agencyId, $branchId];
+    }
 
     private function agentList(User $user): \Illuminate\Support\Collection
     {

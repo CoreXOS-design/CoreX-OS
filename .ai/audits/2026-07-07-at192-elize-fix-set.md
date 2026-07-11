@@ -119,12 +119,41 @@ Register shows the **Deal number** (`deal_no`), not the internal id.
 | **Stamped branch** | **Southbroom (3)** |
 | Agents | Elize Reichel — selling 100% (home branch: none) · Shalan Du Bois — listing 100% (home branch: **Shelly Beach**) |
 
-**Why they're flagged:** both are stamped **Southbroom (3)** but neither carries a
-Southbroom agent — the listing agent on each is a **Shelly Beach** agent, and
-Elize (selling) has no home branch. So the Southbroom stamp looks like a
-mis-selection at capture (Elize was acting-as Southbroom each time). 147 is
-already Declined so it never counted. **No change made** — reassignment is
-Johan/Elize's call from the register.
+**VERIFIED CORRECT by Johan (2026-07-07) — no reassignment.** Business rule,
+verbatim: *"Deals sit with the SELLING agent and office."* On both deals Elize
+is the **selling** agent acting as **Southbroom**; Shawn/Shalan are the
+**listing** side (Shelly Beach). A deal keyed to the selling side's acting
+office → both are correctly-captured **Southbroom** deals. The earlier
+"possible mis-stamp" flag used a wrong heuristic (it looked for *any* agent
+whose HOME branch matched the deal branch; the true rule keys the deal to the
+selling side's acting office). Doctrine now recorded in `STANDARDS.md`
+(Architectural Laws → Deal Branch Attribution) and `deal-register-v2-spec.md` §1.
+
+---
+
+## Topology — RATIFIED by Johan (2026-07-07)
+
+Live stays as-is, **no rollback**. The `Merge branch 'Staging'` (`45bc135a`,
+Andre, 2026-07-06 19:16) folded the held Staging pile onto main; a full main→live
+promotion that evening carried it to live (`6c36b017`) — all before this session.
+Johan's ruling:
+
+- **Calendar (AT-164) live = RATIFIED** (he'd approved it on QA1; agents are using it — 7 saved cockpit prefs).
+- **E-sign = fine** — agents only use the PDF/legacy side; `compiled_serving=1` on **0/64** templates (legacy serving); Compile Studio nav is `esign.compiler.view` = admin-only. Untouched.
+- **DR2 visible-but-empty = fine** — only Johan + the machine work DR2; Elize & Falan work DR1. Nav shows for HFC roles but `deals_v2`=0 and `deal_pipeline_templates`=0, so it's inert. **Do NOT backfill live twins.**
+
+**Held-from-live CLEARED** for calendar / DR2-code / e-sign-code. The remaining
+**true gates are DATA-level, still Johan's word only:** (1) e-sign
+`compiled_serving` flip, (2) DR2 live twins backfill + cutover.
+
+### Andre-session agenda (release-protocol discipline)
+- Root cause of the leak: a full `git merge Staging` into main collapses the whole
+  superset branch (which carries conversation-level holds) into a live-bound line.
+- **Agree ONE of:** (a) a single ordered **gate to live** — promote to live *only*
+  by scoped cherry-pick of the intended commits, never `merge Staging`; or (b) a
+  visible **HOLDS register** (a checked-in file listing "held from live" SHAs/features)
+  that must be reconciled *before* any Staging→main merge, so conversation-level holds
+  are visible to Andre. Recommend (b) backing (a).
 
 ---
 

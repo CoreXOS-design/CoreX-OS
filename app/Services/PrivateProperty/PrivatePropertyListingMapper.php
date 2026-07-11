@@ -5,6 +5,7 @@ namespace App\Services\PrivateProperty;
 use App\Models\Agency;
 use App\Models\PpSuburb;
 use App\Models\Property;
+use App\Services\Images\PropertyImageGuard;
 use App\Services\Syndication\Concerns\ResolvesPropertyFeatures;
 use Illuminate\Support\Facades\Log;
 
@@ -990,6 +991,37 @@ class PrivatePropertyListingMapper
         }
 
         $allImages = array_slice($galleryImages, 0, $maxPhotos);
+
+        // PP downloads every URL inside its SOAP transaction and fails the ENTIRE
+        // UpdateListing if a single one 404s (PP120 — "Image server returned N
+        // failures"). One dangling reference therefore blocks all further updates
+        // to the portal, silently, until someone reads the log. Property24 embeds
+        // bytes and skips missing files, so it never surfaces the fault.
+        //
+        // Never hand PP a CoreX-hosted URL we cannot serve. Externally-hosted
+        // images (portal mirrors) are passed through — we cannot stat them.
+        //
+        // Dropping to an EMPTY set is refused upstream (submitListing), because
+        // an empty photo set can clear the images on the live portal listing.
+        $servable  = $property->servableSyndicationImages();
+        $missing   = array_values(array_diff($allImages, $servable));
+        $allImages = array_values(array_intersect($allImages, $servable));
+
+        if ($missing) {
+            try {
+                Log::channel('private_property')->error(
+                    'PP submission dropped image references with no file on disk',
+                    [
+                        'property_id' => $property->id,
+                        'dropped'     => count($missing),
+                        'urls'        => array_slice($missing, 0, 10),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                // never block syndication on a log write
+            }
+        }
+
         // Use PP_IMAGE_BASE_URL if set (for local dev against sandbox), otherwise APP_URL
         $override  = PrivatePropertyConfig::forProperty($property)['image_base_url'];
         $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');

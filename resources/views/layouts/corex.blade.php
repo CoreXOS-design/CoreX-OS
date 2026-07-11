@@ -66,6 +66,13 @@
         @endauth
     </head>
     <body class="font-sans antialiased">
+        {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
+             NOTHING unless this is a demo instance with a resolved grant.
+             This layout backs ~231 views — MORE than corex-app.blade.php. Leaving
+             it out here would leave the majority of CoreX unmarked.
+             Spec: .ai/specs/demo-access-control.md §6.5 --}}
+        @include('partials._demo-watermark')
+
         {{-- Environment column: thin env banner (or nothing on live) above the
              full app. Banner is flex:0 0 auto; the app fills the rest — content
              is pushed down, never overlapped. Empty banner = single flex child

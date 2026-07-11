@@ -71,6 +71,45 @@ class Property extends Model
     }
 
     /**
+     * The one value of p24_syndication_status / pp_syndication_status that means
+     * "the portal no longer carries this listing". Every other value — including
+     * the terminal-but-still-listed 'sold' / 'rented' — means the listing may
+     * still be visible, so a delist must be attempted.
+     */
+    public const PORTAL_OFF_STATUS = 'deactivated';
+
+    /**
+     * P24 statuses that are terminal on the market but leave the listing ON the
+     * portal. Written by PropertyObserver's status auto-sync; recognised here so
+     * the delist guards and the portal-link builder agree on what "still live"
+     * means. See Property24ListingMapper::removesFromPortal().
+     */
+    public const P24_ON_PORTAL_TERMINAL_STATUSES = ['sold', 'rented'];
+
+    /**
+     * True when P24 may still be showing this listing. The ONLY safe basis for a
+     * delist guard: we hold a portal reference and nothing has told us the
+     * listing left the portal. Anything else — 'sold', 'rented', 'pending',
+     * 'error', 'submitting' — is a listing we must still try to withdraw.
+     *
+     * Deliberately NOT gated on p24_syndication_enabled: that flag is a "should
+     * CoreX sync" switch, and a listing toggled off while live is exactly the
+     * case that stranded property #2142 on the portal.
+     */
+    public function mayBeLiveOnP24(): bool
+    {
+        return ! empty($this->p24_ref)
+            && $this->p24_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /** Private Property mirror of mayBeLiveOnP24(). */
+    public function mayBeLiveOnPp(): bool
+    {
+        return ! empty($this->pp_ref)
+            && $this->pp_syndication_status !== self::PORTAL_OFF_STATUS;
+    }
+
+    /**
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical
@@ -1028,13 +1067,15 @@ class Property extends Model
     /**
      * P24 slug-composed direct listing URL. Returns null unless we have an
      * activated p24_ref. Sandbox vs production picked from p24_syndication_status
-     * to stay consistent with the legacy inline JS — only 'active' listings
-     * earn a real URL; in-flight states (submitted, pending) don't yet point
-     * at a live page on P24.
+     * to stay consistent with the legacy inline JS — in-flight states (submitted,
+     * pending) don't yet point at a live page on P24. 'sold' / 'rented' listings
+     * DO have a live page: P24 keeps terminal-but-not-removed stock on the portal.
      */
     private function buildP24Url(): ?string
     {
-        if (empty($this->p24_ref) || $this->p24_syndication_status !== 'active') {
+        $onPortal = array_merge(['active'], self::P24_ON_PORTAL_TERMINAL_STATUSES);
+
+        if (empty($this->p24_ref) || ! in_array((string) $this->p24_syndication_status, $onPortal, true)) {
             return null;
         }
         $slugify = static function (?string $s): string {
@@ -1348,6 +1389,61 @@ class Property extends Model
         )));
 
         return !empty($gallery) ? $gallery : $this->allImages();
+    }
+
+    /**
+     * The syndication gallery minus any CoreX-hosted photo whose file is not on
+     * disk. Externally-hosted images (portal mirrors) are kept — we cannot stat
+     * another host.
+     *
+     * PrivateProperty downloads every photo BY URL and rejects the ENTIRE
+     * UpdateListing when one 404s (PP120), so a dangling reference silently
+     * blocks all further updates of that listing. Publishing only what we can
+     * actually serve means a bad reference costs one photo, never the listing.
+     *
+     * @return string[]
+     */
+    public function servableSyndicationImages(): array
+    {
+        return array_values(array_filter(
+            $this->syndicationImages(),
+            fn ($url) => !\App\Services\Images\PropertyImageGuard::isLocal($url)
+                || \App\Services\Images\PropertyImageGuard::existsOnDisk($url)
+        ));
+    }
+
+    /**
+     * True when this property has photos on paper but none we can actually
+     * serve. Such a listing must NOT be pushed to a portal: it would submit an
+     * empty photo set, which can clear the images on the live portal listing.
+     * Refuse and surface it instead.
+     */
+    public function hasGalleryButNothingServable(): bool
+    {
+        return !empty($this->syndicationImages()) && empty($this->servableSyndicationImages());
+    }
+
+    /**
+     * Fingerprint of the gallery AS THE BROWSER LAST SAW IT. Handed to the page
+     * at render and echoed back on save, so the server can tell a save built on
+     * the current gallery from one built on a stale copy.
+     *
+     * Why this exists: the gallery save posts the client's ENTIRE image array as
+     * the new truth. Two tabs open on the same property means last-write-wins —
+     * the older tab silently reverts anything the newer one did. That is how the
+     * property 6060 dangling reference was created: a tab loaded before a photo
+     * rotation re-posted its pre-rotation array, resurrecting the URL of the file
+     * the rotation had already deleted, and PrivateProperty then 404'd on it.
+     *
+     * Compare with `===` against the value the client sends; a mismatch means
+     * "your copy is out of date" and the save must be refused, not merged.
+     */
+    public function galleryFingerprint(): string
+    {
+        return sha1(json_encode([
+            $this->gallery_images_json ?? [],
+            $this->gallery_categories_json ?? [],
+        ]));
     }
 
     /**

@@ -88,16 +88,16 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     }
 
     /**
-     * Property24. Skipped when already 'deactivated' — PropertyObserver's
-     * status-sync normally sets the per-status P24 value (Sold/Withdrawn/Expired)
-     * and marks the local status 'deactivated'. This is the safety net for when
-     * that path did not run (e.g. p24_syndication_enabled off but a live p24_ref
-     * remains) and the retry path for a previous failed attempt ('error').
+     * Property24. Skipped only when the listing is known to be off the portal
+     * ('deactivated'). PropertyObserver's status-sync normally pushes the
+     * per-status P24 value; this is the safety net for when that path did not run
+     * (e.g. p24_syndication_enabled toggled off while a live p24_ref remains, or a
+     * Sold push that left the listing on the portal) and the retry path for a
+     * previous failed attempt ('error'). A repeat Withdrawn is harmless.
      */
     private function delistProperty24(Property $property, array &$failures): void
     {
-        if (empty($property->p24_ref)
-            || ! in_array($property->p24_syndication_status, ['active', 'submitted', 'pending', 'error'], true)) {
+        if (! $property->mayBeLiveOnP24()) {
             return;
         }
 
@@ -113,13 +113,13 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
     }
 
     /**
-     * Private Property. Mirrors the controller's "is live" definition
-     * (submitted/active), plus 'error' so a previously failed attempt retries.
+     * Private Property. Mirrors the controller's "is live" definition: we hold a
+     * pp_ref and nothing has told us the listing left the portal. Includes 'error'
+     * and 'pending' so a previously failed or in-flight attempt still retries.
      */
     private function delistPrivateProperty(Property $property, array &$failures): void
     {
-        if (! $property->pp_syndication_enabled
-            || ! in_array($property->pp_syndication_status, ['submitted', 'active', 'error'], true)) {
+        if (! $property->pp_syndication_enabled || ! $property->mayBeLiveOnPp()) {
             return;
         }
 

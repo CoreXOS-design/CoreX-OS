@@ -22,6 +22,14 @@ final class PropertyWizardDraftResumeTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // The wizard renders the full corex layout (@vite); stub the manifest so
+        // these tests exercise the controller, not the frontend build.
+        $this->withoutVite();
+    }
+
     public function test_new_property_visit_does_not_resume_an_existing_draft(): void
     {
         [$agent, $suburbId] = $this->seedAgencyAgent();
@@ -88,6 +96,183 @@ final class PropertyWizardDraftResumeTest extends TestCase
             ->get(route('corex.properties.wizard', ['resume' => 1]))
             ->assertOk()
             ->assertSee('draftId: null', false);
+    }
+
+    // ---- AT-210: step 1 is idempotent — resuming/editing updates in place ----
+
+    public function test_step1_with_property_id_updates_the_draft_in_place_not_a_duplicate(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        $draft  = $this->makeDraft($agent, $suburbId);
+        $before = Property::where('agent_id', $agent->id)->count();
+
+        $resp = $this->actingAs($agent)->postJson(
+            route('corex.properties.wizard.draft'),
+            $this->step1Payload($suburbId, [
+                'property_id' => $draft->id,
+                'title'       => 'Updated Headline',
+                'price'       => 2_750_000,
+            ])
+        );
+
+        $resp->assertOk()->assertJsonPath('property.id', $draft->id);
+        // No second row minted, and the SAME draft carries the edits.
+        $this->assertSame($before, Property::where('agent_id', $agent->id)->count());
+        $this->assertSame('Updated Headline', $draft->fresh()->title);
+        $this->assertEquals(2_750_000, $draft->fresh()->price);
+    }
+
+    public function test_step1_without_property_id_still_mints_a_fresh_draft(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        $before = Property::where('agent_id', $agent->id)->count();
+
+        $this->actingAs($agent)
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($suburbId))
+            ->assertOk();
+
+        $this->assertSame($before + 1, Property::where('agent_id', $agent->id)->count());
+    }
+
+    public function test_step1_property_id_never_mutates_a_published_or_foreign_listing(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        $published = $this->makeDraft($agent, $suburbId);
+        $published->update(['status' => 'active', 'published_at' => now(), 'title' => 'LIVE LISTING']);
+        $before = Property::where('agent_id', $agent->id)->count();
+
+        // A tampered property_id pointing at a published (non-draft) listing must
+        // never be mutated — the wizard falls back to minting a new draft.
+        $this->actingAs($agent)->postJson(
+            route('corex.properties.wizard.draft'),
+            $this->step1Payload($suburbId, ['property_id' => $published->id, 'title' => 'HIJACKED'])
+        )->assertOk();
+
+        $this->assertSame('LIVE LISTING', $published->fresh()->title);
+        $this->assertSame($before + 1, Property::where('agent_id', $agent->id)->count());
+    }
+
+    public function test_step1_property_id_of_another_agents_draft_mints_own_new_draft(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        [$other] = $this->seedAgencyAgent();
+        $foreign     = $this->makeDraft($other, $suburbId);
+        $foreignName = $foreign->title;
+        $mineBefore  = Property::where('agent_id', $agent->id)->count();
+
+        // A tampered id belonging to ANOTHER agent's draft must never be mutated;
+        // the caller gets their own fresh draft instead.
+        $this->actingAs($agent)->postJson(
+            route('corex.properties.wizard.draft'),
+            $this->step1Payload($suburbId, ['property_id' => $foreign->id, 'title' => 'HIJACK'])
+        )->assertOk();
+
+        $this->assertSame($foreignName, $foreign->fresh()->title);
+        $this->assertSame($mineBefore + 1, Property::where('agent_id', $agent->id)->count());
+    }
+
+    public function test_resume_preloads_the_draft_fields_for_in_place_editing(): void
+    {
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+        $draft = $this->makeDraft($agent, $suburbId);
+
+        $this->actingAs($agent)
+            ->get(route('corex.properties.wizard', ['resume' => $draft->id]))
+            ->assertOk()
+            ->assertSee('draftPrefill', false)
+            ->assertSee($draft->title, false);
+    }
+
+    // ---- AT-211: a draft follows its agent; an owner is never stamped as the agent ----
+
+    public function test_owner_draft_is_attributed_to_a_valid_agent_not_the_owner(): void
+    {
+        $this->seedRolesOnce();
+        [$agent, $suburbId, $agencyId] = $this->seedAgencyAgent();
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+        $before = \App\Models\Property::count();
+
+        // Owner reaches the wizard with a switcher-selected agency (RequireAgencyContext).
+        $resp = $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $agencyId])
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($suburbId));
+
+        $resp->assertOk();
+        $this->assertSame($before + 1, \App\Models\Property::count());
+        $draft = \App\Models\Property::latest('id')->first();
+        // Attributed to the AGENT, never the owner; agency + branch follow the agent.
+        $this->assertSame($agent->id, (int) $draft->agent_id);
+        $this->assertSame($agencyId, (int) $draft->agency_id);
+        $this->assertNotNull($draft->branch_id);
+    }
+
+    public function test_real_agent_draft_is_attributed_to_themselves(): void
+    {
+        $this->seedRolesOnce();
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+
+        $this->actingAs($agent)
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($suburbId))
+            ->assertOk();
+
+        $this->assertSame($agent->id, (int) \App\Models\Property::latest('id')->first()->agent_id);
+    }
+
+    public function test_owner_with_no_agency_agent_gets_a_clean_422_not_a_500(): void
+    {
+        $this->seedRolesOnce();
+        $this->seedP24Once();
+        // An agency with a branch but NO agents.
+        $agencyId = (int) DB::table('agencies')->insertGetId([
+            'name' => 'Empty ' . Str::random(6), 'slug' => 'empty-' . Str::random(8),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('branches')->insert([
+            'agency_id' => $agencyId, 'name' => 'Main', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $agencyId])
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($this->suburbId))
+            ->assertStatus(422);   // graceful, NOT a 500 from PropertyObserver
+    }
+
+    private bool $rolesSeeded = false;
+
+    /** Seed the two global roles the owner-guard needs: an owner role + a plain agent role. */
+    private function seedRolesOnce(): void
+    {
+        if ($this->rolesSeeded) {
+            return;
+        }
+        foreach ([['super_admin', 1], ['agent', 0]] as [$name, $isOwner]) {
+            if (!DB::table('roles')->where('name', $name)->whereNull('agency_id')->exists()) {
+                DB::table('roles')->insert([
+                    'name' => $name, 'label' => ucfirst($name), 'is_owner' => $isOwner,
+                    'agency_id' => null, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+        }
+        \App\Models\Role::clearCache();
+        $this->rolesSeeded = true;
+    }
+
+    /** Valid step-1 payload keyed to the seeded P24 chain. */
+    private function step1Payload(int $suburbId, array $over = []): array
+    {
+        return array_merge([
+            'listing_type'    => 'sale',
+            'property_type'   => 'House',
+            'title'           => 'Fresh ' . Str::random(4),
+            'price'           => 2_000_000,
+            'beds'            => 3,
+            'baths'           => 2,
+            'garages'         => 1,
+            'p24_province_id' => $this->provinceId,
+            'p24_city_id'     => $this->cityId,
+            'p24_suburb_id'   => $suburbId,
+        ], $over);
     }
 
     private function makeDraft(User $agent, int $suburbId): Property

@@ -187,10 +187,21 @@ final class PresentationReviewController extends Controller
         $importSummary = app(\App\Services\Presentations\PresentationImportSummaryService::class)
             ->build($presentation);
 
+        // AT-214 — the "N of M comps used" denominator M is the CANONICAL count of
+        // comparable sales AVAILABLE for the subject property (same source as the
+        // property-page Intelligence card + the CMA coverage badge), not the size
+        // of this presentation's own pulled set (which made it read "N of N",
+        // implying every available comp was used). N stays the comps actually used.
+        $canonicalCompCount = $presentation->property
+            ? (int) (app(\App\Services\Presentations\CmaCoverageService::class)
+                ->scoreForProperty($presentation->property)['comp_count'] ?? 0)
+            : 0;
+
         return view('presentations.review', [
             'version'              => $version,
             'presentation'         => $presentation,
             'compRows'             => $compRows,
+            'canonicalCompCount'   => $canonicalCompCount,
             'importSummary'        => $importSummary,
             'subjectTitleType'     => $subjectTitleType,
             'isLockedByOther'      => $isLockedByOther,

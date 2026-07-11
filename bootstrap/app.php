@@ -33,9 +33,43 @@ return Application::configure(basePath: dirname(__DIR__))
         // System Owners and every other agency pass straight through. This is
         // deliberately a TENANT-level gate, not a platform-wide one: the CoreX
         // login always stays reachable. Spec: .ai/specs/maintenance-mode.md
+        // AT-230 Demo Access Control — EnsureDemoGrant gates EVERY web page on a
+        // demo host behind a live, T&C-accepted grant. It must be global: a single
+        // ungated route on demo1.corexos.co.za is an open door, and remembering to
+        // decorate each new route is not a security model.
+        //
+        // INERT on primary — Instance::isDemo() is false there and the middleware
+        // returns immediately, so live/staging/local are untouched.
+        //
+        // It FAILS CLOSED: if primary is unreachable, nobody enters the demo.
+        // Spec: .ai/specs/demo-access-control.md §6.3
         $middleware->web(append: [
             \App\Http\Middleware\AgencyMaintenanceGate::class,
+            \App\Http\Middleware\EnsureDemoGrant::class,
         ]);
+
+        // EnsureDemoGrant MUST run BEFORE Authenticate.
+        //
+        // Appending it to the web group is not enough: Laravel's middleware
+        // PRIORITY list hoists Authenticate ahead of any appended group middleware
+        // that is not itself in that list. Without this, an unauthenticated visitor
+        // to demo1.corexos.co.za is bounced to /login by `auth` before the gate
+        // ever runs — and /login on the demo host renders the demo-role sign-in
+        // buttons. The gate would be guarding a door the visitor never has to walk
+        // through. (Caught by DemoGateTest::test_no_session_cookie_redirects_to_the_gate,
+        // which saw a redirect to /login instead of /demo/gate.)
+        //
+        // It still runs AFTER EncryptCookies + StartSession, which it needs in
+        // order to read the signed corex_demo_session cookie.
+        //
+        // NB the anchor is the CONTRACT (AuthenticatesRequests), not the concrete
+        // Authenticate class. Laravel's default priority list names the interface —
+        // anchoring on Authenticate::class silently matches nothing and this whole
+        // call becomes a no-op, with no error to tell you.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            prepend: \App\Http\Middleware\EnsureDemoGrant::class,
+        );
 
         $middleware->alias([
             'auth.nocache' => \App\Http\Middleware\PreventAuthPageCaching::class,
@@ -57,6 +91,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 // Agency Public API (website API)
                 'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
                 'website.scope' => \App\Http\Middleware\EnsureWebsiteApiScope::class,
+                // Demo Access Control (AT-230) — authenticates THE demo instance to
+                // primary with the single universal connector. Not agency-scoped.
+                'demo.connector' => \App\Http\Middleware\EnsureDemoConnector::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

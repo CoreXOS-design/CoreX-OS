@@ -6,8 +6,9 @@
  * Each entry is pure DATA merged by App\Support\Tours\TourRegistry::all().
  * Keys are namespaced with the `pres-` prefix to stay globally unique.
  *
- * NOTE: the presentations.create tour lives in TourRegistry::core() and is
- * intentionally NOT duplicated here.
+ * NOTE: the old presentations.create ("New Presentation" form) tour was REMOVED
+ * with the AT-17 standalone-presentation retirement (2026-07-10) — presentations
+ * are property-first only. No create tour lives here or in TourRegistry::core().
  *
  * Every step anchors on a real [data-tour="..."] element added to the live
  * Blade view, so a markup refactor can never silently drop a step.

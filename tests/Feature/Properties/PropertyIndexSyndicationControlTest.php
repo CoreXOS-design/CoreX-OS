@@ -111,6 +111,34 @@ final class PropertyIndexSyndicationControlTest extends TestCase
         $this->assertStringContainsString('Live preview', $html);
     }
 
+    /** Every shareable URL in the panel can be copied, not just opened. */
+    public function test_panel_offers_a_copy_button_for_each_portal_and_the_live_preview(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $p = $this->property($agencyId, $admin, 'ZZZ-Copy-House', [
+            'compliance_snapshot_at' => now(),
+        ]);
+        // The Websites section renders one panel per agency API key; without a
+        // key there is no website panel at all.
+        $this->agencyApiKey($agencyId);
+
+        $html = $this->getJson(route('api.v1.properties.syndication-panel', $p))->assertOk()->json('html');
+
+        // Website, Private Property, Property24.
+        $this->assertStringContainsString('copyLink(publicUrl)', $html);
+        $this->assertStringContainsString('copyLink(ppListingUrl())', $html);
+        $this->assertStringContainsString('copyLink(p24ListingUrl())', $html);
+
+        // Both live-preview variants — each row owns its own copy state, so one
+        // tick cannot light up the other.
+        $preview = route('corex.properties.preview', [$p, Str::slug($p->title)]);
+        $this->assertStringContainsString("copyLink('{$preview}?agent=me')", $html);
+        $this->assertStringContainsString("copyLink('{$preview}?agent=listing')", $html);
+        $this->assertSame(2, substr_count($html, 'x-data="corexCopyLinkMixin()"'));
+    }
+
     public function test_panel_endpoint_refuses_a_listing_that_may_not_be_marketed(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
@@ -214,13 +242,7 @@ final class PropertyIndexSyndicationControlTest extends TestCase
 
         $this->assertFalse($p->isLiveOnAnyPortal());
 
-        $keyId = (int) DB::table('agency_api_keys')->insertGetId([
-            'agency_id' => $agencyId,
-            'name'        => 'Main site',
-            'key_prefix'  => Str::random(8),
-            'secret_hash' => hash('sha256', Str::random(16)),
-            'created_at'  => now(), 'updated_at' => now(),
-        ]);
+        $keyId = $this->agencyApiKey($agencyId);
         DB::table('property_website_syndication')->insert([
             'agency_id'         => $agencyId,
             'property_id'       => $p->id,
@@ -325,6 +347,18 @@ final class PropertyIndexSyndicationControlTest extends TestCase
             'city'          => 'Margate',
             'province'      => 'KwaZulu-Natal',
         ], $attrs));
+    }
+
+    /** One agency website. The Websites section renders one panel per key. */
+    private function agencyApiKey(int $agencyId, string $name = 'Main site'): int
+    {
+        return (int) DB::table('agency_api_keys')->insertGetId([
+            'agency_id'   => $agencyId,
+            'name'        => $name,
+            'key_prefix'  => Str::random(8),
+            'secret_hash' => hash('sha256', Str::random(16)),
+            'created_at'  => now(), 'updated_at' => now(),
+        ]);
     }
 
     private function makeAgency(): int

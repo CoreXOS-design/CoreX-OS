@@ -38,9 +38,32 @@ The original draft chose in-place; during build the URL-as-key coupling (`galler
 New service `app/Services/Images/PropertyImageRotator.php` (BUILT):
 - `rotate(Property $property, string $imageUrl, int $degrees): string` — `$degrees ∈ {90, -90, 180}`.
 - Resolves the storage path from the public URL, asserts the file belongs to this property's directory (`properties/{id}/…`) — reject path-traversal / cross-property / cross-agency / externally-hosted paths.
-- Loads via GD, `imagerotate()` with the requested angle, re-encodes preserving format (JPEG q90, PNG/WebP alpha-preserved), writes a **new filename**, deletes the original.
-- Returns the new public URL.
+- Loads via GD, `imagerotate()` with the requested angle, re-encodes preserving format (JPEG q90, PNG/WebP alpha-preserved), writes a **new filename**.
+- Returns the new public URL. **It does NOT delete the original** — see §5.1.
 - Fails loudly (throws) if GD is unavailable so the controller returns a real error — never silently no-ops.
+
+### 5.1 Ordering: commit the reference, then unlink the file (2026-07-09)
+
+The original build deleted the original inside `rotate()`, before the URL swap was persisted. That ordering is unsafe: if the swap matches nothing, the JSON still names a file that no longer exists. PrivateProperty fetches every photo **by URL** and rejects the ENTIRE `UpdateListing` when one 404s (`PP120 - Image server returned N failures`), so one dangling reference silently blocks all further updates of that listing to the portal. Property24 embeds bytes and skips missing files, so it hides the fault entirely.
+
+This happened to property 6060 on 2026-07-06: a photo was rotated, and a **stale browser tab** then re-posted its pre-rotation image array through `reorder-images` (which accepted the client's array verbatim), resurrecting the URL of the file the rotation had already deleted. PP failed four times before it was noticed.
+
+The contract is now:
+
+1. `PropertyImageRotator::rotate()` writes the rotated copy and returns its URL. Nothing is deleted.
+2. `PropertyController::rotateImage()` calls `swapImageUrl()`, which returns **`true` only if at least one reference was rewritten**.
+3. On `true` → the original is unlinked. On `false` → the rotated copy is discarded, the original is kept, and the endpoint returns **409** ("that photo is no longer part of this gallery").
+
+`deleteImage()` follows the same rule: update the JSON first, unlink second, and strip the URL from `gallery_categories_json` as well.
+
+Two further guards, both enforced by `App\Services\Images\PropertyImageGuard`:
+
+- **Optimistic concurrency.** The gallery save posts the client's whole array as the new truth, so two open tabs mean last-write-wins. `Property::galleryFingerprint()` is rendered into the page and echoed back on save; a mismatch returns **409** instead of letting a stale tab revert newer work. Successful saves and rotations return the fresh fingerprint so the acting tab stays in sync.
+- **Reference validation.** `reorder-images` refuses any CoreX-hosted URL that does not exist on disk or lives outside this property's directory. Externally-hosted URLs (portal mirrors) pass through — we cannot stat another host. Dropped references are logged, never silently truncated.
+
+`PrivatePropertyListingMapper::buildPhotoUrls()` filters missing local files as a final backstop, so a bad reference can cost at most one photo, never the whole listing.
+
+Repair tool: `php artisan properties:repair-gallery-references [--property=N] [--apply]`. Dry-run by default. For each dangling reference it looks for an unreferenced file in the same directory matching the dangling reference's surviving thumbnail (across all four right-angle orientations) and **repoints** to it; only when no match exists is the reference removed. Properties whose images are *all* missing (legacy imports whose files were never on this host) are skipped unless `--include-empty`.
 
 Endpoint (BUILT — **web route**, not `/api/v1`):
 - `POST /corex/properties/{property}/rotate-image` → `name('corex.properties.rotate-image')`

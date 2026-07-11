@@ -220,6 +220,45 @@ Route::prefix('v1/website')
     });
 
 // ════════════════════════════════════════════════════════════════
+// Demo Access Control (AT-230) — the demo host's control API.
+// SERVED BY PRIMARY. Called by demo1.corexos.co.za, whose own database is
+// destroyed every 3 days and therefore cannot hold the durable records.
+//
+// Authenticated by the UNIVERSAL DEMO CONNECTOR (demo.connector middleware), not
+// by the agency-api guard. There is exactly ONE demo instance, so there is exactly
+// one credential — minted on Live at Dev Settings → Demo Access → Connection, and
+// pasted into the demo's own Demo Connection page.
+//
+// NOT an AgencyApiKey: that guard resolves an AGENCY from the key and hands it to
+// AgencyScope as the tenant. Correct for an agency's public website; wrong here —
+// demo access grants are RR Technologies' sales data, not tenant data. Hanging
+// them off an arbitrary agency would be a lie in the data model, and would put a
+// grantable "demo:*" scope in the agency key UI.
+//
+// PREFIX IS v1/demo-access, NOT v1/demo — v1/demo is already taken by the
+// mobile app's demo-login group above (api.demo.status / api.demo.login).
+//
+// Spec: .ai/specs/demo-access-control.md §5, §5.1
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/demo-access')
+    ->middleware(['demo.connector', 'throttle:website-api'])
+    ->group(function () {
+        // Reachability probe. Powers the "Test connection" button on the demo's
+        // Demo Connection page, so a misconfigured token is caught THERE — at the
+        // moment someone pastes it — rather than by a prospect hitting a gate that
+        // (correctly) fails closed and looks like an outage.
+        Route::get('/ping', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'ping'])->name('v1.demo-access.ping');
+
+        // Gate: verify a credential, re-check a session, record acceptance.
+        Route::post('/verify',         [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
+        Route::get('/session/{token}', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
+        Route::post('/accept-tnc',     [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
+
+        // Telemetry.
+        Route::post('/page-view', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
+    });
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 Route::middleware('auth:sanctum')->group(function () {
@@ -429,11 +468,11 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/today',           [CommandCenterApiController::class, 'today'])->name('v1.command-center.today');
             Route::post('/today/refresh',  [CommandCenterApiController::class, 'todayRefresh'])->name('v1.command-center.today.refresh');
 
-            // ── Event reminders (AT-178) — global popup toast feed + actions.
-            // Self-scoped: each user only sees/acts on their own due reminders.
-            Route::get('/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('v1.command-center.reminders.due');
-            Route::post('/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('v1.command-center.reminders.read');
-            Route::post('/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('v1.command-center.reminders.snooze');
+            // ── Event reminders (AT-178) MOVED to routes/web.php's session-authenticated
+            // api/v1 group (browser-visible XHR). They are polled by the reminder-toast
+            // blade component from the browser session, which this auth:sanctum
+            // (token-only, stateful session disabled here) group rejected with 401.
+            // See routes/web.php `api.v1.command-center.reminders.*`.
 
             Route::get('/calendar',                                       [CommandCenterApiController::class, 'calendarIndex'])->name('v1.command-center.calendar.index');
             Route::post('/calendar',                                      [CommandCenterApiController::class, 'calendarStore'])->name('v1.command-center.calendar.store');

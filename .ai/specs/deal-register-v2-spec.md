@@ -27,6 +27,7 @@ v1.1 was written **before** the code existed and before the 4 decisions. Three t
 - **Server-authoritative.** Status changes, RAG, visibility scoping, distribution eligibility, and access verification are decided server-side. The client is a skin.
 - **Cross-pillar reactivity via domain events** (non-negotiable #9), not ad-hoc cross-table writes. Deal events already exist (`DealCreated`, `DealRegistered`, `DealStageAdvanced`, `DealStatusChanged`, …).
 - **Data scoping** (existing pattern): Agent = own, BM = branch, Admin = all, via `DealV2::scopeVisibleTo()` + `PermissionService::getDataScope()`.
+- **Branch attribution = the selling agent's acting office (AT-192, Johan doctrine).** A deal belongs to the SELLING agent's acting office; that office's branch is the deal's branch. Listing-side agents from another branch are normal and are **never** a mis-stamp signal. Capture takes the branch by the capturer's effective branch (home OR the managed-branch office they are acting as) or an **explicit** selection — **never** `Branch::first()`, and never a home-branch-match heuristic (AT-192 d). Any future auto-derivation derives from the **selling side**.
 
 ---
 
