@@ -1894,6 +1894,42 @@ class SignatureService
     }
 
     /**
+     * P0-5 — tell the agent that a signed pack was NOT filed.
+     *
+     * Failure-contained: an alert that itself throws must not take down the
+     * post-completion pipeline (the signing is already committed and valid).
+     */
+    private function notifyPackFilingFailed(SignatureTemplate $template, $document): void
+    {
+        try {
+            $agent = $template->creator ?? User::find($template->created_by);
+
+            if (! $agent) {
+                return;
+            }
+
+            $agent->notify(SignatureActivityNotification::packFilingNeedsAttention(
+                $document->name ?? 'Document',
+                $document->id,
+                url("/docuperfect/documents/{$document->id}/signatures/audit"),
+            ));
+
+            SignatureAuditLog::log(
+                $template,
+                'pack_filing_refused',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: ['document_id' => $document->id],
+            );
+        } catch (\Throwable $e) {
+            Log::error('Auto-file pack: failed to notify agent of refused filing', [
+                'signature_template_id' => $template->id,
+                'error'                 => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * File individual documents for each template in a web pack.
      * Splits the merged HTML, generates individual PDFs, creates one Document record per template.
      */
@@ -1908,14 +1944,38 @@ class SignatureService
     ): void {
         $htmlFragments = $this->splitMergedHtml($mergedHtml, count($templateIds));
 
+        // P0-5 — a fragment-count mismatch is a HARD STOP, not a fallback.
+        //
+        // This used to quietly fall back to fileSingleDocument(), which files the
+        // whole pack as ONE Document carrying the FIRST template's
+        // document_type_id. So a four-document mandate pack filed as a single
+        // "Mandate" — and the FICA and the Mandatory Disclosure were never filed
+        // at all. Nothing failed visibly: the agent saw a completed signing, and
+        // compliance saw missing documents that had in fact been signed. The only
+        // trace was a log warning nobody reads.
+        //
+        // This has bitten before: stampDisclosureDocKeys() injects an attribute
+        // between `<div` and `class=`, which broke the old literal-string split
+        // and produced ZERO fragments — silently mis-filing every pack.
+        //
+        // Silent wrong-filing is worse than a visible stop. We now file NOTHING
+        // (a mismatch means we cannot trust which fragment belongs to which
+        // template — mis-mapping would file the Disclosure under the Mandate's
+        // type, which is worse than not filing), log at ERROR, and put an
+        // actionable alert in front of the agent. The signed PDF itself is safe
+        // and already generated; only the automatic split-and-file is refused.
         if (count($htmlFragments) !== count($templateIds)) {
-            Log::warning('Auto-file pack: HTML fragment count does not match template_ids count, filing merged PDF as fallback', [
-                'template_id' => $template->id,
-                'template_ids' => $templateIds,
-                'fragments' => count($htmlFragments),
-                'expected' => count($templateIds),
+            Log::error('Auto-file pack: HTML fragment count does not match template_ids — REFUSING to file', [
+                'signature_template_id' => $template->id,
+                'document_id'           => $document->id,
+                'template_ids'          => $templateIds,
+                'fragments'             => count($htmlFragments),
+                'expected'              => count($templateIds),
+                'consequence'           => 'no documents auto-filed; agent notified for manual filing',
             ]);
-            $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+
+            $this->notifyPackFilingFailed($template, $document);
+
             return;
         }
 

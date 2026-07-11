@@ -100,6 +100,23 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    /**
+     * P0-5 — the signed pack could not be split into its individual documents,
+     * so NOTHING was auto-filed. The agent must know, because compliance will
+     * otherwise believe the FICA / Disclosure were never signed.
+     */
+    public static function packFilingNeedsAttention(string $documentName, int $documentId, string $viewUrl): self
+    {
+        return new self(
+            type: 'pack_filing_needs_attention',
+            message: "Signed, but not filed automatically: {$documentName}. "
+                . 'The documents in this pack could not be separated, so none were filed. '
+                . 'The signed copy is safe — please file the documents manually and report this.',
+            url: $viewUrl,
+            documentId: $documentId,
+        );
+    }
+
     public static function sectionRejected(string $signerName, string $documentName, int $documentId, string $reviewUrl): self
     {
         return new self(
