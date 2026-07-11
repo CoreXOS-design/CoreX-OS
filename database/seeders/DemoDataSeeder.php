@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\ContactMatch;
+use App\Models\DevSetting;
 use App\Models\Docuperfect\Document;
 use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\FicaSubmission;
@@ -579,6 +580,13 @@ class DemoDataSeeder extends Seeder
             }
         }
 
+        // 2b. Demo mode must be ON — dev_settings is dropped by migrate:fresh, so a
+        //     regression here would silently leave the demo behind a password login.
+        if (!DevSetting::bool('demo_mode_enabled')) {
+            $failures[] = "dev_settings 'demo_mode_enabled' is not set — the demo would "
+                . 'present a normal password login instead of the role picker';
+        }
+
         // 3. Zero Home Finders Coastal data anywhere customer-visible.
         $scan = [
             'agencies'                  => ['name', 'trading_name', 'reg_no', 'vat_no', 'ffc_no', 'fic_no'],
@@ -725,6 +733,15 @@ class DemoDataSeeder extends Seeder
         // One viewer (read-only role) for completeness.
         $this->createUser('Demo Viewer', 'viewer@' . self::DEMO_EMAIL_DOMAIN, self::DEMO_LOGIN_PASSWORD,
             'viewer', $this->branchIds[0], false);
+
+        // DEMO MODE — the passwordless role-picker login page (auth.demo-login),
+        // gated by DemoLoginController::isEnabled() = non-production env AND
+        // DevSetting 'demo_mode_enabled'. It lives in dev_settings, which
+        // migrate:fresh DROPS — so setting it by hand would silently switch demo
+        // mode OFF at the next 3-day demo:refresh. It is seeded here so it
+        // survives every rebuild. isEnabled() still refuses on production
+        // regardless of this row, so seeding it cannot expose a live login.
+        DevSetting::set('demo_mode_enabled', '1');
 
         // DealPipelineTemplateSeeder needs ≥1 user — run it now.
         $this->safeSeed('DealPipelineTemplateSeeder', fn () => $this->call([DealPipelineTemplateSeeder::class]));
