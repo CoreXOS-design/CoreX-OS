@@ -225,7 +225,7 @@ The wizard writes to the **existing** backing stores only (§6). No new settings
 
 Steps mirror the real settings sections (`$railGroups` in
 `resources/views/corex/settings.blade.php`). Must-configure-first things come early.
-`TOTAL_STEPS = 9`.
+`TOTAL_STEPS = 12`.
 
 | # | key | Step | Backing store(s) |
 |---|-----|------|------------------|
@@ -233,13 +233,25 @@ Steps mirror the real settings sections (`$railGroups` in
 | 2 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`) |
 | 3 | `branches` | Branches / offices | `branches`, `agencies.split_branches_enabled` |
 | 4 | `commission` | Commission & revenue share | `commission_settings` |
-| 5 | `properties` | Properties & listings | `performance_settings`, `agencies` sort fields, `property_setting_items` |
+| 5 | `properties` | Properties & listings | `performance_settings`, `property_setting_items`, `agencies` portal-credential columns |
 | 6 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 7 | `matches` | Matches | `performance_settings` (`matches_*`) |
 | 8 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
 | 9 | `compliance` | Compliance | whistleblow columns on `agencies` |
 | 10 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
-| 11 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+| 11 | `team` | Invite your team | `users` (via `UserManagementController@store` + `UserInviteMail`) |
+| 12 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
+
+**Step 11 — Invite your team (added 2026-07-11).** An agency that finished the wizard with
+zero agents could not list a property or run a deal — every preceding step configured a
+system nobody could use. The step lists the current roster and adds members inline through
+the canonical `UserManagementController@store`, which creates the user with an
+`INVITE_PENDING` sentinel password (cast `hashed`) and emails `UserInviteMail` so the person
+sets their own password — the admin never handles it. **Edit / deactivate / delete stay on
+the User Management page**, which the step links to: deleting an agent reroutes their printed
+QR codes and needs that page's confirmation UI. `COLLECTIONS['user']` is therefore marked
+`'removable' => false`, and `removeCollectionItem` aborts 404 for it rather than falling
+through and flashing a "Removed." that never happened.
 
 **Step 3 — Branches.** Mirrors Company Settings → Branches: inline add (name + code), list, and
 archive, delegating to the canonical `BranchAssignmentController::createBranch` /
@@ -322,6 +334,38 @@ lift the validation+`updateOrCreate` bodies of the touched methods into
 `App\Services\Settings\*` service methods and have BOTH the settings controller and the
 wizard controller call them — so they can never diverge. Each lifted method keeps its
 existing validation ranges verbatim (BUILD_STANDARD §2 input-space contract preserved).
+
+### 6.1 The saver-precondition rule (MANDATORY — added 2026-07-11)
+
+Reusing the canonical saver is right, but it carries a cost nobody accounted for: **a wizard
+step's form carries a SUBSET of its saver's fields.** Several savers were written on the
+assumption that *"my form always carries this field"*, and therefore coerce an absent
+checkbox to `false`. The wizard became a second caller and broke that precondition —
+silently disabling `weekend_visible`, `open_hours_enabled` and `ss_show_complex_section` on
+any agency that re-opened the guide from Settings. (`updatePresentations` stated the false
+assumption in a comment, verbatim.)
+
+**The rule, for every saver the wizard reuses:**
+
+1. A boolean write MUST be guarded by `$request->has($field)` — never a bare
+   `$request->boolean($field)`. Forms that own a toggle post a hidden `"0"` companion, so
+   *rendered-but-unchecked* still arrives and still saves `false`; **absent means "leave it
+   alone"**, not "off".
+2. Before wiring a step to a saver, **read that saver for force-defaults on absence** —
+   `?? false`, `?? '#0ea5e9'`, `required` rules the step won't post. If it has any, either
+   guard them or write a narrow saver instead.
+3. `CompanySettingsController@update` is the reference implementation — `_present` hidden
+   markers + `$request->has()` guards, explicitly so sibling forms cannot wipe each other.
+
+**`Admin\AgencyController@update` is a booby trap — do NOT reuse it.** It requires `name`
+and force-defaults `is_active`, all four brand colours and six feature flags. A partial post
+would **deactivate the agency and reset its branding**. Portal credentials therefore go
+through `SettingsController@updatePortalCredentials` (a narrow saver touching only the six
+portal columns, gated on the same `manage_performance_settings` permission the agency-edit
+route already required — widening *where* credentials are entered, never *who* may enter
+them). A blank password field means **keep the stored secret**, never erase it.
+
+Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.php`.
 
 ---
 

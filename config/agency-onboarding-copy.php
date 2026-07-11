@@ -167,6 +167,12 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
             ['controller' => SettingsController::class, 'method' => 'updateMarketingEnabled'],
             ['controller' => SettingsController::class, 'method' => 'updateSyndicationPortals'],
+            // Narrow portal-credentials saver — closes the dead-end where the step
+            // told the admin their credentials had to be "saved against the agency"
+            // and then gave them nowhere to type them. A 403 here (Admin lacks
+            // manage_performance_settings) is absorbed by the wizard, exactly as
+            // it is for every other saver.
+            ['controller' => SettingsController::class, 'method' => 'updatePortalCredentials'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
@@ -186,7 +192,17 @@ return [
              'explain' => 'The same as above, for the Private Property portal.',
              'affects' => 'Whether your stock appears on Private Property. Needs your PP credentials saved against the agency first.'],
         ],
-        'aux_partial' => 'agency-setup.steps.properties-collections',
+        'partial_after' => 'agency-setup.steps.properties-portals',
+        'aux_partial'   => 'agency-setup.steps.properties-collections',
+        'links' => [
+            [
+                'route'   => 'agencies.edit',
+                'params'  => ['agency' => 'CURRENT_AGENCY'],
+                'label'   => 'Advanced portal settings',
+                'explain' => 'Sandbox mode, photo limits, lead and stats pull, webhook secrets. You only need '
+                    . 'these if your portal account was set up with something other than the defaults.',
+            ],
+        ],
     ],
 
     'presentations' => [
@@ -328,6 +344,33 @@ return [
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateDashboardMode'],
             ['controller' => SettingsController::class, 'method' => 'updateAgencyDashboardSettings'],
+        ],
+    ],
+
+    'team' => [
+        'title' => 'Invite your team',
+        'intro' => 'Everything you have just configured is for the people who will actually use it. '
+            . 'Add them now and CoreX emails each one an invitation to set their own password.',
+        'what' => [
+            'title' => 'What happens when you add someone',
+            'body'  => 'CoreX creates the person\'s account and emails them an invitation link. They set their '
+                . 'own password — you never see it and never need to. From that moment their listings, deals and '
+                . 'commission are tracked against them, which is what makes the performance dashboards and the '
+                . 'commission engine you set up earlier mean anything. An agency with no agents is an empty '
+                . 'system: this is the step that switches CoreX on.',
+        ],
+        // No `savers` — the step writes exclusively through the inline collection
+        // editor below, which calls the canonical UserManagementController@store
+        // (it creates the user with an INVITE_PENDING password and sends
+        // UserInviteMail). Nothing on this step posts through the main form.
+        'aux_partial' => 'agency-setup.steps.team',
+        'links' => [
+            [
+                'route'   => 'admin.users',
+                'label'   => 'Open the full User Management page',
+                'explain' => 'To edit someone, change their role or commission split, deactivate them, or resend '
+                    . 'an invitation. Adding a person here is enough to get them working — everything else lives there.',
+            ],
         ],
     ],
 
