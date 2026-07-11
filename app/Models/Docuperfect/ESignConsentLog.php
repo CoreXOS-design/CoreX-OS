@@ -67,6 +67,28 @@ class ESignConsentLog extends Model
         );
     }
 
+    /**
+     * P0-4 — close the same hole found on SignatureAuditLog. Overriding update() does
+     * NOT stop `$log->consent_text = '…'; $log->save();` — save() on an existing model
+     * calls performUpdate() directly and never routes through update(). Without these
+     * event guards a FICA consent record (5-year retention) was still quietly editable.
+     *
+     * Creation is unaffected: `new ESignConsentLog(); … ->save()` fires `creating`,
+     * not `updating` (that is how SigningController writes consent today).
+     */
+    protected static function booted(): void
+    {
+        static::updating(function () {
+            throw new \RuntimeException('Consent log records are immutable.');
+        });
+
+        static::deleting(function () {
+            throw new \RuntimeException(
+                'Consent log records cannot be deleted. FICA requires 5-year retention.'
+            );
+        });
+    }
+
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class, 'flow_id');
