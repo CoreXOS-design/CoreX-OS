@@ -72,6 +72,45 @@ class SignatureTemplate extends Model
     const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * The signing session is live and we are waiting on an EXTERNAL SIGNER to act.
+     *
+     * This is the canonical list. Anything that asks "are we still waiting on a
+     * signer?" — the reminder ladder, an escalation, a chase list — MUST use this
+     * constant (or scopeAwaitingSigner()) rather than hand-rolling a subset.
+     *
+     * A hand-rolled subset is exactly what broke: SendSignatureReminders listed
+     * only signing / awaiting_tenant / awaiting_landlord, so every SALES signing
+     * (awaiting_buyer, awaiting_seller) went un-nudged in production and no team
+     * alert ever fired for one.
+     *
+     * DELIBERATELY EXCLUDED — we are waiting on someone INTERNAL, so chasing the
+     * external signer would be wrong: draft, ready, pending_agent_approval,
+     * awaiting_supervisor, awaiting_supervisor_final, returned_to_candidate,
+     * amendment_review (the agent still has to approve the proposed change).
+     * Also excluded, being terminal: completed, expired, declined, rejected,
+     * cancelled.
+     */
+    public const AWAITING_SIGNER_STATUSES = [
+        self::STATUS_SIGNING,
+        self::STATUS_AWAITING_TENANT,
+        self::STATUS_AWAITING_LANDLORD,
+        self::STATUS_AWAITING_BUYER,
+        self::STATUS_AWAITING_SELLER,
+        self::STATUS_AWAITING_DEFERRED,
+        self::STATUS_PARTIAL,
+        // Amendment doctrine (ceremony §5): once the agent approves a change, every
+        // party must place an amendment-initial on the new content. They are external
+        // signers we are waiting on, so they get chased like any other.
+        self::STATUS_AMENDMENT_INITIALING,
+    ];
+
+    /** Rental-side awaiting statuses — the team-alert dashboard link differs by side. */
+    public const RENTAL_AWAITING_STATUSES = [
+        self::STATUS_AWAITING_TENANT,
+        self::STATUS_AWAITING_LANDLORD,
+    ];
+
     // amendment_status (the secondary column, varchar(255)) carries finer
     // amendment-phase state.
     const AMENDMENT_STATUS_PENDING_REVIEW = 'pending_review';
@@ -159,7 +198,27 @@ class SignatureTemplate extends Model
         return $query->where('created_by', $user->id);
     }
 
+    // --- Scopes ---
+
+    /** Signing sessions still waiting on an external signer. @see AWAITING_SIGNER_STATUSES */
+    public function scopeAwaitingSigner($query)
+    {
+        return $query->whereIn('status', self::AWAITING_SIGNER_STATUSES);
+    }
+
     // --- Helpers ---
+
+    /** True while we are waiting on an external signer to act. */
+    public function isAwaitingSigner(): bool
+    {
+        return in_array($this->status, self::AWAITING_SIGNER_STATUSES, true);
+    }
+
+    /** True when this signing is a rental-side flow (drives the team-alert link). */
+    public function isRentalSideSigning(): bool
+    {
+        return in_array($this->status, self::RENTAL_AWAITING_STATUSES, true);
+    }
 
     public function isComplete(): bool
     {
