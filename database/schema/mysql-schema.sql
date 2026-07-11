@@ -4440,11 +4440,11 @@ DROP TABLE IF EXISTS `demo_access_grants`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `demo_access_grants` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `company_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contact_email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contact_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
-  `credential_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `credential_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expiry_hours` int unsigned NOT NULL,
   `first_login_at` timestamp NULL DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
@@ -4452,7 +4452,7 @@ CREATE TABLE `demo_access_grants` (
   `revoked_by_user_id` bigint unsigned DEFAULT NULL,
   `archived_at` timestamp NULL DEFAULT NULL,
   `issued_by_user_id` bigint unsigned NOT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4466,15 +4466,35 @@ CREATE TABLE `demo_access_grants` (
   CONSTRAINT `demo_grants_revoker_fk` FOREIGN KEY (`revoked_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `demo_connectors`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `demo_connectors` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Demo connector',
+  `key_prefix` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `secret_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `demo_connectors_key_prefix_unique` (`key_prefix`),
+  KEY `demo_connectors_revoked_idx` (`revoked_at`),
+  KEY `demo_connectors_creator_fk` (`created_by`),
+  CONSTRAINT `demo_connectors_creator_fk` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `demo_page_views`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `demo_page_views` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `demo_session_id` bigint unsigned NOT NULL,
-  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `route_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `route_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `viewed_at` timestamp NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -4489,11 +4509,11 @@ DROP TABLE IF EXISTS `demo_sessions`;
 CREATE TABLE `demo_sessions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `demo_access_grant_id` bigint unsigned NOT NULL,
-  `session_token` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `session_token` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `started_at` timestamp NOT NULL,
   `last_seen_at` timestamp NOT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4510,8 +4530,8 @@ CREATE TABLE `demo_tnc_acceptances` (
   `demo_access_grant_id` bigint unsigned NOT NULL,
   `demo_tnc_version_id` bigint unsigned NOT NULL,
   `accepted_at` timestamp NOT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4527,7 +4547,7 @@ DROP TABLE IF EXISTS `demo_tnc_versions`;
 CREATE TABLE `demo_tnc_versions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `version` int unsigned NOT NULL,
-  `body` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `published_at` timestamp NOT NULL,
   `published_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13188,3 +13208,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (982,'2026_07_11_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (983,'2026_07_11_100003_create_demo_tnc_acceptances_table',224);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (984,'2026_07_11_100004_create_demo_sessions_table',224);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (985,'2026_07_11_100005_create_demo_page_views_table',224);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (986,'2026_07_11_100006_create_demo_connectors_table',225);

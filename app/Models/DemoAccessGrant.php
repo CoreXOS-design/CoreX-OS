@@ -17,8 +17,8 @@ use Illuminate\Support\Str;
  * Spec: .ai/specs/demo-access-control.md §4.2
  *
  * Lives on PRIMARY. Not tenant-scoped (no BelongsToAgency) — a grant belongs to
- * RR Technologies' sales process, not to an agency. It is reached only through
- * the owner_only surface (§8) and the demo:gate API scope.
+ * RR Technologies' sales process, not to an agency. It is reached only through the
+ * owner_only admin surface (§8) and the universal DemoConnector API (§5.1).
  *
  * NOT SoftDeletes — see the migration docblock. "Delete" sets archived_at and
  * the row stays.

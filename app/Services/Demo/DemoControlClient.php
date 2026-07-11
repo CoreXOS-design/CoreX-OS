@@ -36,6 +36,18 @@ class DemoControlClient
     private const TIMEOUT         = 8;    // read: the gate sits in front of a page load
     private const CONNECT_TIMEOUT = 15;   // fast-fail a dead host, per the house pattern
 
+    /**
+     * "Is this connection wired up correctly?" — powers the Test-connection button.
+     *
+     * The one call in this client whose failure a HUMAN is waiting to read, so its
+     * result is rendered verbatim rather than swallowed. Every other call fails
+     * closed (the gate) or open (telemetry) without anyone watching.
+     */
+    public function ping(): array
+    {
+        return $this->get('/api/v1/demo-access/ping');
+    }
+
     /** Exchange email + code for a session. */
     public function verify(string $email, string $code, ?string $ip, ?string $userAgent): array
     {

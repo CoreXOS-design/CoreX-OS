@@ -46,15 +46,48 @@ class EnsureDemoGrant
     public const COOKIE = 'corex_demo_session';
 
     /**
-     * Paths the gate must never guard, or it redirects to itself forever.
-     * Everything else on a demo host is behind the gate.
+     * Paths the gate must never guard.
+     *
+     * TWO KINDS OF EXEMPTION HERE, and the distinction matters:
+     *
+     * 1. The gate's OWN pages. Guarding /demo/gate would redirect it to itself
+     *    forever.
+     *
+     * 2. THE STAFF DOOR — `demo-owner-login`, and the password-authenticated login
+     *    routes generally. This is the escape hatch that makes a UI-configured
+     *    connector safe: if the stored token is wrong, revoked, or points at the
+     *    wrong host, the gate FAILS CLOSED and nobody gets in — including the System
+     *    Owner who needs to reach Dev Settings → Demo Connection to fix it. Without
+     *    this exemption a bad paste bricks the demo until someone SSHes in.
+     *
+     *    Exempting them is safe because they are protected by a PASSWORD, and
+     *    demo-owner-login additionally refuses anyone who is not an owner. A
+     *    password-protected login page being publicly reachable is not a leak — it
+     *    is exactly as exposed as the live CoreX login page already is.
+     *
+     *    What must NOT be exempt is the PASSWORDLESS demo-role login
+     *    (`demo-login/{role}`), which signs you in as a real demo user with no
+     *    credential at all. That is the door prospects walk through, and
+     *    DemoLoginController::login() checks for a live grant cookie itself (it sits
+     *    in the `guest` group, outside this middleware's reach).
      */
     private const EXEMPT = [
+        // The gate itself.
         'demo/gate',
         'demo/gate/*',
         'demo/tnc',
         'demo/tnc/*',
         'demo/telemetry',
+
+        // The staff door — password-protected, and the only way back in when the
+        // connector is misconfigured. NOT 'demo-login/*' (passwordless).
+        'demo-owner-login',
+        'login',
+        'logout',
+        'forgot-password',
+        'reset-password',
+        'reset-password/*',
+
         'up',                 // Laravel's health endpoint
         'build/*',
         'storage/*',
@@ -73,6 +106,22 @@ class EnsureDemoGrant
         }
 
         if ($request->is(self::EXEMPT)) {
+            return $next($request);
+        }
+
+        // THE STAFF BYPASS. A signed-in System Owner is us, not a prospect.
+        //
+        // This is the other half of what makes a UI-configured connector safe: an
+        // owner must be able to reach Dev Settings → Demo Connection to FIX a broken
+        // connector, and the gate cannot verify anything while the connector is
+        // broken. Gating the owner on a working gate would be a deadlock — the only
+        // way to repair the demo would be SSH.
+        //
+        // It is a LOCAL check (the role on the authenticated session), so it holds
+        // even when primary is unreachable. It costs nothing: reaching this state
+        // requires a password on demo-owner-login, which additionally refuses
+        // non-owners.
+        if ($request->user()?->isOwnerRole()) {
             return $next($request);
         }
 

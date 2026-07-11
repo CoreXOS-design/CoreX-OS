@@ -2,6 +2,10 @@
 
 namespace App\Support;
 
+use App\Models\DevSetting;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
+
 /**
  * Which half of the codebase is live on this host.
  *
@@ -54,20 +58,85 @@ final class Instance
         return self::role() === self::PRIMARY;
     }
 
-    /** Base URL of the primary instance, as seen from a demo host. */
+    /**
+     * Base URL of the primary instance, as seen from a demo host.
+     *
+     * DB FIRST, .env as fallback. The connection is configured through the demo's
+     * own "Demo Connection" page (Dev Settings, owner-only) — a System Owner can
+     * repoint or re-token the demo from a browser, without a deploy and without SSH.
+     * The env keys remain honoured so an instance can still be bootstrapped from a
+     * .env alone, and so an existing deployment keeps working after this change.
+     */
     public static function controlUrl(): ?string
     {
-        $url = trim((string) config('corex.instance.control_url', ''));
+        $url = trim((string) DevSetting::get('demo_control_url', ''));
+
+        if ($url === '') {
+            $url = trim((string) config('corex.instance.control_url', ''));
+        }
 
         return $url === '' ? null : rtrim($url, '/');
     }
 
-    /** The AgencyApiKey bearer token a demo host presents to primary. */
+    /**
+     * The DemoConnector bearer token this demo presents to primary.
+     *
+     * Stored ENCRYPTED in dev_settings (Crypt::encryptString), because unlike a hash
+     * it must be replayable — the demo has to send the real thing on every call — so
+     * it cannot be one-way. Encrypted-at-rest means a DB dump of the demo box (which
+     * is a disposable, frequently-rebuilt machine) does not hand someone a working
+     * credential into primary's control API.
+     */
     public static function controlToken(): ?string
     {
+        $stored = (string) DevSetting::get('demo_control_token_encrypted', '');
+
+        if ($stored !== '') {
+            try {
+                return Crypt::decryptString($stored);
+            } catch (\Throwable) {
+                // A key rotation (or a token copied between installs) makes the
+                // ciphertext undecryptable. Fall through to .env rather than throw —
+                // but this WILL fail the gate closed, and the Demo Connection page
+                // reports it as "not configured" so it is fixable in the browser.
+                Log::warning('[demo-access] Stored demo control token could not be decrypted — has APP_KEY changed? Re-paste the token on the Demo Connection page.');
+            }
+        }
+
         $token = trim((string) config('corex.instance.control_token', ''));
 
         return $token === '' ? null : $token;
+    }
+
+    /** Persist the connection from the demo's Demo Connection page. */
+    public static function setControlUrl(?string $url): void
+    {
+        DevSetting::set('demo_control_url', $url ? rtrim(trim($url), '/') : '');
+    }
+
+    public static function setControlToken(?string $token): void
+    {
+        $token = $token ? trim($token) : '';
+
+        DevSetting::set(
+            'demo_control_token_encrypted',
+            $token === '' ? '' : Crypt::encryptString($token)
+        );
+    }
+
+    /**
+     * The public half of the stored token (e.g. "cx_demo_a1b2c3d4"), for display.
+     * Never render the secret half — there is no reason to, and every reason not to.
+     */
+    public static function controlTokenPrefix(): ?string
+    {
+        $token = self::controlToken();
+
+        if (! $token || ! str_contains($token, '.')) {
+            return null;
+        }
+
+        return explode('.', $token, 2)[0];
     }
 
     /**

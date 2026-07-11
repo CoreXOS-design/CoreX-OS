@@ -20,7 +20,7 @@ is cheap to change *before* the migrations run; expensive after.
 |---|----------|--------------|-----|
 | D1 | **API namespace** | `/api/v1/demo-access/*` | `/api/v1/demo/*` is **already taken** by the mobile-app group at `routes/api.php:109-115` (`api.demo.status`, `api.demo.login`). Colliding would break the mobile demo login. |
 | D2 | **Credential shape** | `email` + `access_code` (16 chars, base32, shown once) | The prompt says "emailed credentials" and "`credential_hash` is a bcrypt hash" (singular secret). Email identifies the grant; the code is the secret. No password to choose, no reset flow, nothing to forget. |
-| D3 | **Scope constants** | `demo:gate` and `demo:telemetry` | Two scopes, per the prompt. Gate = verify/consume; telemetry = write sessions/page-views. Split so a leaked telemetry key cannot mint access. |
+| D3 | **Demo→primary auth** | **A universal `DemoConnector`, NOT an `AgencyApiKey`** — see §5.1 | *(Revised 2026-07-11 on Johan's instruction; the original build used two `AgencyApiKey` scopes.)* An `AgencyApiKey` is **agency-scoped**: it resolves an agency as the tenant for `AgencyScope`. But demo grants are **not tenant data** — they are RR Technologies' sales data. Pinning them to an arbitrary agency was a lie in the data model, and it put a grantable `demo:*` scope in the per-agency key UI. There is exactly **one** demo instance, so there is exactly **one** credential. Configured through the UI, not `.env` — see §5.2. |
 | D4 | **Event names** | `DemoAccessGranted`, `DemoAccessFirstLogin`, `DemoTncAccepted`, `DemoAccessRevoked`, `DemoAccessExpired` | Past-tense facts per domain-events spec E1. |
 | D5 | **Default grant length** | `DevSetting('demo_default_expiry_hours', 72)` — 72h from first login | A 3-day trial matches the 3-day reset cadence. Per-grant override on the create form; the chosen value is **copied** onto the grant. |
 | D6 | **Reset anchor** | `DevSetting('demo_reset_anchor_date')`, ISO date; next reset = anchor + 3n days at **03:00 SAST** | Pure function, per the prompt. Anchor is a setting so the cadence can be re-phased without a migration. |
@@ -221,45 +221,116 @@ INDEX demo_page_views_session_idx (demo_session_id, viewed_at)
 Bearer-token routes → **`routes/api.php`**. (Browser/session XHR would have to go in
 `routes/web.php:323`; these are machine-to-machine, so `api.php` is correct.)
 
-Reuse the existing machine-auth layer — `AgencyApiKey` + the `agency-api` guard
-(`config/auth.php:50-51`, driver wired at `AppServiceProvider.php:593-594`) + the
-`website.scope` middleware. **Do NOT build a new auth layer. Do NOT put these behind
-`website.live`** — that middleware 403s unless `agency.website_enabled`, which is
-unrelated to the demo.
-
-Two new scope constants on `AgencyApiKey`:
-
-```php
-public const SCOPE_DEMO_GATE      = 'demo:gate';
-public const SCOPE_DEMO_TELEMETRY = 'demo:telemetry';
-```
-
 ```php
 Route::prefix('v1/demo-access')                    // NOT v1/demo — that is taken
-    ->middleware(['auth:agency-api', 'throttle:website-api'])
+    ->middleware(['demo.connector', 'throttle:website-api'])
     ->group(function () {
-        Route::middleware('website.scope:demo:gate')->group(function () {
-            // Verify email + code. Stamps first_login_at (race-safe) and computes
-            // expires_at. Returns the grant, its status, and the current T&C version.
-            Route::post('/verify',  [DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
+        // Reachability probe. Powers the demo's "Test connection" button.
+        Route::get('/ping', [DemoAccessApiController::class, 'ping'])->name('v1.demo-access.ping');
 
-            // Re-check an established session. Called by the demo gate middleware
-            // on every request (cached 60s). This is what makes revoke bite.
-            Route::get('/session/{token}', [DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
+        // Verify email + code. Stamps first_login_at (race-safe), computes expires_at.
+        Route::post('/verify',         [DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
 
-            // Clickwrap acceptance.
-            Route::post('/accept-tnc', [DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
-        });
+        // Re-check an established session. The demo gate calls this on every request
+        // (cached 60s its side). This round trip is what makes revoke bite.
+        Route::get('/session/{token}', [DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
 
-        Route::middleware('website.scope:demo:telemetry')->group(function () {
-            Route::post('/page-view', [DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
-        });
+        Route::post('/accept-tnc',     [DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
+        Route::post('/page-view',      [DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
     });
 ```
 
-All four appear automatically in the Admin → API catalogue (non-negotiable #7 — the
+All five appear automatically in the Admin → API catalogue (non-negotiable #7 — the
 catalogue is generated from the route table and these carry the `api/` prefix + a
 `->name()`).
+
+---
+
+## §5.1 — The universal connector (LIVE side)
+
+**One credential, platform-wide.** `demo_connectors` + `App\Models\DemoConnector` +
+`demo.connector` middleware (`EnsureDemoConnector`).
+
+```
+demo_connectors
+  id
+  name          string   -- "CoreX Demo Host"
+  key_prefix    string UNIQUE   -- cx_demo_xxxxxxxx (public, displayable)
+  secret_hash   string          -- sha256(secret). The token is NEVER stored.
+  last_used_at  timestamp nullable
+  revoked_at    timestamp nullable
+  created_by    FK → users nullable
+```
+
+Token presented to the demo: `<key_prefix>.<48-char secret>`. Shown **once**, at mint.
+
+**Why NOT an `AgencyApiKey`.** That model is agency-scoped — it exists to authenticate
+one agency's public website and to resolve that agency as the tenant for `AgencyScope`.
+Demo access grants are **not tenant data**; they are RR Technologies' sales data. Hanging
+the demo's credential off an arbitrary agency would be a lie in the data model, and it
+would put a `demo:*` scope in the per-agency key UI, one mis-click from an agency admin.
+And there will only ever be **one** demo instance — a per-agency key is a one-to-many
+answer to a one-to-one question.
+
+**Rotation is INSERT + revoke-the-old, never UPDATE.** So the table doubles as the audit
+trail of every credential the demo has ever held, and who minted it. **At most one row is
+un-revoked**, and minting revokes its predecessor in the same breath — a rotation that
+left the old token working would achieve nothing, and rotating in response to a leak is
+the only reason to rotate.
+
+`DemoConnector::resolve()` returns **null on every failure** — malformed, unknown prefix,
+revoked, wrong secret. The middleware 401s with one message for all of them. A 401 that
+says *which part* was wrong is an oracle.
+
+**UI:** Dev Settings → Demo Access → **Demo connection**. Issue / replace / revoke, with
+`last_used_at` shown — "Never" is the single most useful diagnostic on the page, because
+it distinguishes *"the demo isn't calling us"* (wrong URL, token not pasted, role not
+flipped) from *"the demo is calling and being refused"*.
+
+## §5.2 — The connection page (DEMO side)
+
+The demo's URL + token are configured **in the browser**, not in `.env`:
+Dev Settings → **Demo Connection** (`DemoConnectionController`, owner-only, 404 on primary).
+
+- Stored in `dev_settings` — the URL plain, the **token encrypted** (`Crypt::encryptString`).
+  Unlike a hash it must be replayable, so it cannot be one-way; encrypted-at-rest means a
+  DB dump of the demo box — a disposable, frequently-rebuilt machine — does not hand
+  someone a working credential into primary's control API.
+- `Instance::controlUrl()` / `controlToken()` read **DB first, `.env` as fallback**, so an
+  instance can still be bootstrapped from a `.env` alone.
+- **A blank token field means "leave it alone", not "clear it."** The form never renders
+  the secret back (only its prefix), so treating blank as clear would wipe the token every
+  time someone edited only the URL.
+- **Test connection** calls `/ping` and reports the result in a sentence. It deliberately
+  reports "connected, but CoreX has no published T&C" as a **failure** — a live connection
+  with no terms still hard-blocks every prospect at the clickwrap, and calling that a pass
+  would be a lie by omission.
+
+### The two escape hatches (this is why UI config is safe)
+
+The gate **fails closed**. If the stored token is wrong, revoked, or points at the wrong
+host, nobody gets into the demo — **including the owner who needs to fix it.** That would
+make the connection its own prerequisite, and the only repair path would be SSH. Two
+things prevent it:
+
+1. **`demo-owner-login` is exempt from the gate** (along with `login` / `logout` /
+   password reset). Safe because it is **password-protected** and additionally refuses
+   anyone who is not an owner. A password-protected login page being publicly reachable is
+   not a leak — it is exactly as exposed as the live CoreX login page already is.
+2. **A signed-in System Owner bypasses the gate**, on a **local** role check that does not
+   consult primary — so it holds precisely when primary is unreachable.
+
+**What is NOT exempt:** `demo-login/{role}` — the **passwordless** demo-role login. That
+is the door prospects walk through: hitting it signs you in as a real demo user with no
+credential at all. It is guarded by `EnsureDemoGrant` like everything else, and
+`DemoLoginController::login()` re-checks for a grant cookie itself as a second layer.
+
+### `DemoLoginController::isEnabled()` — fixed
+
+It required `!app()->environment('production')`, but **the demo host runs
+`APP_ENV=production`** — so every demo-mode surface, including the System Owner login,
+silently 404'd on the very box they exist for. It now gates on `Instance::isDemo()`,
+keeping the non-production clause so local/staging dev boxes still get demo mode.
 
 **Response envelope** — every endpoint, success or failure:
 
@@ -603,16 +674,38 @@ database/schema/mysql-schema.sql        — schema:dump (non-negotiable #12a)
 
 ---
 
-## §15 — Deployment (NOT in this session)
+## §15 — Deployment
 
-**Ordering constraint that will bite:** primary must be deployed **and the `AgencyApiKey`
-minted** BEFORE demo is flipped to `COREX_INSTANCE_ROLE=demo`. Otherwise the gate fails
-closed (correctly) and **locks everyone out of the demo**.
+**The ordering constraint is now soft, not fatal.** The connector is configured in the
+browser, and a signed-in System Owner **bypasses the demo gate** (§5.2), so flipping the
+role before the token exists no longer bricks anything — the owner can still sign in at
+`/demo-owner-login` and finish the job. Prospects are simply blocked until the connection
+is live, which is the correct fail-closed behaviour.
 
-1. Deploy **primary**: `git pull` → `migrate --force` → `deploy:sync-reference-data`
-   (carries T&C v1) → clears → reload php-fpm → restart worker.
-2. Mint an `AgencyApiKey` on primary with scopes `demo:gate` + `demo:telemetry`.
-3. Put it in **demo's** `.env` as `COREX_DEMO_CONTROL_TOKEN`, with
-   `COREX_DEMO_CONTROL_URL` → primary.
-4. **Only now** set `COREX_INSTANCE_ROLE=demo` on demo. `config:clear`.
-5. Verify: gate appears, a test grant logs in, a page view lands on primary.
+**On LIVE (primary):**
+
+1. `git pull` → `php artisan migrate --force` → **`php artisan deploy:sync-reference-data`**
+   (carries T&C **v1** — without it every prospect is hard-blocked at the clickwrap) →
+   `view:clear` + `route:clear` + `config:clear` → reload php-fpm → restart the worker.
+2. **Dev Settings → Demo Access → Demo connection → Issue token.** Copy it — it is shown
+   once (the row holds sha256 only).
+3. Publish **Terms & Conditions v1** if the seeder did not (the page tells you).
+
+**On the DEMO host:**
+
+4. `git pull` → `migrate --force` → clears → reload php-fpm.
+5. Set **`COREX_INSTANCE_ROLE=demo`** in `.env` → `php artisan config:clear`.
+   *(This is the only env key that must be set by hand.)*
+6. Sign in at **`/demo-owner-login`** as a System Owner.
+7. **Dev Settings → Demo Connection** → paste the CoreX address + the token → Save →
+   **Test connection**. It must say *Connected*, and it will tell you if CoreX has no
+   published terms.
+
+**Verify:** issue a grant to yourself on live → the email arrives → sign in at the demo's
+gate → accept the terms → the page carries your company watermark → back on live, the
+grant shows your session and page views.
+
+**If nobody can get into the demo,** the first thing to look at is `last_used_at` on the
+live connector page. "Never" means the demo is not reaching us at all (wrong address,
+token not pasted, role not flipped). A timestamp means it is reaching us and being
+refused — check whether the token was rotated on live without being re-pasted into demo.

@@ -224,34 +224,38 @@ Route::prefix('v1/website')
 // SERVED BY PRIMARY. Called by demo1.corexos.co.za, whose own database is
 // destroyed every 3 days and therefore cannot hold the durable records.
 //
-// Reuses the EXISTING machine-auth layer: agency-api guard resolves the
-// AgencyApiKey from the bearer token; website.scope authorises it. No new auth
-// layer was built for this.
+// Authenticated by the UNIVERSAL DEMO CONNECTOR (demo.connector middleware), not
+// by the agency-api guard. There is exactly ONE demo instance, so there is exactly
+// one credential — minted on Live at Dev Settings → Demo Access → Connection, and
+// pasted into the demo's own Demo Connection page.
 //
-// Deliberately NOT behind `website.live` — that middleware 403s unless
-// agency.website_enabled, which gates the public agency website and has nothing
-// to do with the demo. Putting the gate behind it would mean flipping an
-// unrelated switch to let prospects into the demo.
+// NOT an AgencyApiKey: that guard resolves an AGENCY from the key and hands it to
+// AgencyScope as the tenant. Correct for an agency's public website; wrong here —
+// demo access grants are RR Technologies' sales data, not tenant data. Hanging
+// them off an arbitrary agency would be a lie in the data model, and would put a
+// grantable "demo:*" scope in the agency key UI.
 //
 // PREFIX IS v1/demo-access, NOT v1/demo — v1/demo is already taken by the
 // mobile app's demo-login group above (api.demo.status / api.demo.login).
 //
-// Spec: .ai/specs/demo-access-control.md §5
+// Spec: .ai/specs/demo-access-control.md §5, §5.1
 // ════════════════════════════════════════════════════════════════
 Route::prefix('v1/demo-access')
-    ->middleware(['auth:agency-api', 'throttle:website-api'])
+    ->middleware(['demo.connector', 'throttle:website-api'])
     ->group(function () {
-        // Gate: verify a credential, re-check a session, record acceptance.
-        Route::middleware('website.scope:demo:gate')->group(function () {
-            Route::post('/verify',           [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
-            Route::get('/session/{token}',   [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
-            Route::post('/accept-tnc',       [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
-        });
+        // Reachability probe. Powers the "Test connection" button on the demo's
+        // Demo Connection page, so a misconfigured token is caught THERE — at the
+        // moment someone pastes it — rather than by a prospect hitting a gate that
+        // (correctly) fails closed and looks like an outage.
+        Route::get('/ping', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'ping'])->name('v1.demo-access.ping');
 
-        // Telemetry: separate scope, so a leaked telemetry key cannot mint access.
-        Route::middleware('website.scope:demo:telemetry')->group(function () {
-            Route::post('/page-view', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
-        });
+        // Gate: verify a credential, re-check a session, record acceptance.
+        Route::post('/verify',         [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'verify'])->name('v1.demo-access.verify');
+        Route::get('/session/{token}', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'session'])->name('v1.demo-access.session');
+        Route::post('/accept-tnc',     [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'acceptTnc'])->name('v1.demo-access.accept-tnc');
+
+        // Telemetry.
+        Route::post('/page-view', [\App\Http\Controllers\Api\V1\DemoAccessApiController::class, 'pageView'])->name('v1.demo-access.page-view');
     });
 
 // ════════════════════════════════════════════════════════════════

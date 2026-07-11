@@ -90,6 +90,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 // Agency Public API (website API)
                 'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
                 'website.scope' => \App\Http\Middleware\EnsureWebsiteApiScope::class,
+                // Demo Access Control (AT-230) — authenticates THE demo instance to
+                // primary with the single universal connector. Not agency-scoped.
+                'demo.connector' => \App\Http\Middleware\EnsureDemoConnector::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

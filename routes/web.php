@@ -2361,9 +2361,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     //
     // Spec: .ai/specs/demo-access-control.md §8, §9
     Route::middleware('owner_only')->prefix('admin/dev-settings/demo-access')->name('admin.demo-access.')->group(function () {
-        // T&C routes come FIRST — otherwise /tnc is swallowed by /{grant}.
+        // T&C + connection routes come FIRST — otherwise they are swallowed by /{grant}.
         Route::get('/tnc',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'tnc'])->name('tnc');
         Route::post('/tnc', [\App\Http\Controllers\Admin\DemoAccessController::class, 'publishTnc'])->name('tnc.publish');
+
+        // The universal connector — minted HERE (on live), pasted into the demo.
+        Route::get('/connection',         [\App\Http\Controllers\Admin\DemoAccessController::class, 'connection'])->name('connection');
+        Route::post('/connection',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'mintConnector'])->name('connection.mint');
+        Route::post('/connection/revoke', [\App\Http\Controllers\Admin\DemoAccessController::class, 'revokeConnector'])->name('connection.revoke');
 
         Route::post('/reset', [\App\Http\Controllers\Admin\DemoAccessController::class, 'reset'])->name('reset');
 
@@ -2378,6 +2383,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
         // "Delete" archives. The row is never removed (non-negotiable #1).
         Route::delete('/{grant}',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'destroy'])->whereNumber('grant')->name('destroy');
+    });
+
+    // ── Demo Connection (AT-230) — the DEMO side of the link. ──
+    //
+    // Where a System Owner signed in on demo1.corexos.co.za pastes the CoreX URL +
+    // the connector token minted on live. 404s on primary (nothing to configure
+    // there — the connector is minted there instead).
+    //
+    // Reachable even when the connector is BROKEN: EnsureDemoGrant exempts
+    // demo-owner-login and bypasses any signed-in owner on a local role check, so a
+    // bad paste can always be undone from the browser. Without that, the fail-closed
+    // gate would make the connection its own prerequisite.
+    //
+    // Spec: .ai/specs/demo-access-control.md §5.2
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-connection')->name('admin.demo-connection.')->group(function () {
+        Route::get('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'edit'])->name('edit');
+        Route::put('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'update'])->name('update');
+        Route::post('/test', [\App\Http\Controllers\Admin\DemoConnectionController::class, 'test'])->name('test');
     });
 
     // Developer Users — System Owner / Developer roster, visible across all

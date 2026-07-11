@@ -33,8 +33,33 @@ class DemoAccessApiController extends Controller
     }
 
     /**
+     * GET /api/v1/demo-access/ping — "is this token wired up correctly?"
+     *
+     * Powers the Test-connection button on the demo's Demo Connection page. Getting
+     * a clear yes/no HERE, at the moment someone pastes a token, is the difference
+     * between a 10-second fix and a prospect hitting a gate that correctly fails
+     * closed and looks indistinguishable from an outage.
+     */
+    public function ping(Request $request): JsonResponse
+    {
+        $this->assertPrimary();
+
+        $connector = $request->attributes->get('demo_connector');
+
+        return response()->json([
+            'ok'            => true,
+            'instance'      => Instance::role(),
+            'connector'     => $connector?->name,
+            'tnc_version'   => DemoTncVersion::current()?->version,
+            // Surfaced because a live connection with NO published terms still means
+            // every prospect is hard-blocked at the clickwrap. Better to say so on
+            // the Test-connection result than to let it read as a clean pass.
+            'tnc_published' => DemoTncVersion::current() !== null,
+        ]);
+    }
+
+    /**
      * POST /api/v1/demo-access/verify — exchange email + code for a session.
-     * Scope: demo:gate
      */
     public function verify(Request $request): JsonResponse
     {
@@ -76,7 +101,6 @@ class DemoAccessApiController extends Controller
 
     /**
      * GET /api/v1/demo-access/session/{token} — re-check a live session.
-     * Scope: demo:gate
      *
      * The demo gate calls this on every request (cached 60s its side). This is the
      * round trip that makes revoke and expiry actually bite.
@@ -105,7 +129,6 @@ class DemoAccessApiController extends Controller
 
     /**
      * POST /api/v1/demo-access/accept-tnc — record clickwrap acceptance.
-     * Scope: demo:gate
      */
     public function acceptTnc(Request $request): JsonResponse
     {
@@ -154,7 +177,6 @@ class DemoAccessApiController extends Controller
 
     /**
      * POST /api/v1/demo-access/page-view — telemetry.
-     * Scope: demo:telemetry
      *
      * FAILS OPEN. An unknown session token is a 204, never an error: by the time
      * this is called the prospect has already been served their page, and there is

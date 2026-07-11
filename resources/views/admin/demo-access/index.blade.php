@@ -22,6 +22,15 @@
         </div>
 
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <a href="{{ route('admin.demo-access.connection') }}"
+               style="padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600;
+                      text-decoration:none;
+                      border:1px solid {{ $connector ? 'var(--border, rgba(0,0,0,0.14))' : 'var(--ds-crimson, #dc2626)' }};
+                      color:var(--text-primary, #111827);
+                      background:var(--surface, #ffffff);">
+                Demo connection
+                @unless ($connector) <span style="color:var(--ds-crimson, #dc2626);">— not set up</span> @endunless
+            </a>
             <a href="{{ route('admin.demo-access.tnc') }}"
                style="padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600;
                       text-decoration:none;

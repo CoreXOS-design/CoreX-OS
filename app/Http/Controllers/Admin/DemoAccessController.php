@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\DemoAccessGrant;
+use App\Models\DemoConnector;
 use App\Models\DemoTncVersion;
 use App\Services\Demo\DemoAccessService;
 use App\Support\DemoResetSchedule;
+use App\Support\Instance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
@@ -77,6 +79,9 @@ class DemoAccessController extends Controller
             'showArchived' => $request->boolean('archived'),
             'tncVersion'   => DemoTncVersion::current(),
             'nextReset'    => DemoResetSchedule::next(),
+            // No connector = the demo cannot reach us = nobody can sign in to it.
+            // Surfaced on the list page so it is impossible to miss.
+            'connector'    => DemoConnector::current(),
         ]);
     }
 
@@ -265,6 +270,82 @@ class DemoAccessController extends Controller
         return redirect()
             ->route('admin.demo-access.tnc')
             ->with('status', "Published version {$version->version}. Everyone will be asked to accept it again — earlier acceptances are kept against the version they signed.");
+    }
+
+    // ---- The connector (LIVE side) -----------------------------------------
+
+    /**
+     * GET /admin/dev-settings/demo-access/connection
+     *
+     * The single universal credential the demo instance uses to reach this one.
+     * Rotating mints a new row and revokes the old, so this page also shows the
+     * history of every connector the demo has ever held.
+     */
+    public function connection()
+    {
+        $this->assertOwner();
+
+        return view('admin.demo-access.connection', [
+            'connector'  => DemoConnector::current(),
+            'history'    => DemoConnector::with('creator')->orderByDesc('id')->limit(10)->get(),
+            // Flashed exactly once, straight after minting.
+            'plainToken' => session('demo_connector_token'),
+            'apiBase'    => rtrim(config('app.url'), '/'),
+            'isDemoHost' => Instance::isDemo(),
+        ]);
+    }
+
+    /**
+     * POST /admin/dev-settings/demo-access/connection
+     *
+     * Mint (or rotate) the connector. The plaintext is shown ONCE — the row holds
+     * sha256 only, so it cannot be recovered afterwards.
+     *
+     * Rotation revokes the previous token in the same transaction as minting the new
+     * one. That means rotating IMMEDIATELY breaks the running demo until the new
+     * token is pasted into it — which is the correct behaviour for a credential you
+     * are rotating because it leaked, and the page says so before you click.
+     */
+    public function mintConnector(Request $request)
+    {
+        $this->assertOwner();
+
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        [$connector, $plaintext] = DemoConnector::mint(
+            $data['name'] ?? 'CoreX Demo Host',
+            Auth::id()
+        );
+
+        return redirect()
+            ->route('admin.demo-access.connection')
+            ->with('demo_connector_token', $plaintext)
+            ->with('status', "Connector '{$connector->name}' created. Paste the token into the demo's Demo Connection page.");
+    }
+
+    /**
+     * POST /admin/dev-settings/demo-access/connection/revoke
+     *
+     * Kills the demo's access to this instance. Because the gate FAILS CLOSED, this
+     * locks every prospect out of the demo within the cache TTL — which is exactly
+     * what you want if the token leaked, and a disaster if you clicked it by mistake.
+     * The confirm dialog says which.
+     */
+    public function revokeConnector()
+    {
+        $this->assertOwner();
+
+        $connector = DemoConnector::current();
+
+        if (! $connector) {
+            return back()->withErrors(['connector' => 'There is no active connector to revoke.']);
+        }
+
+        $connector->revoke();
+
+        return back()->with('status', 'Connector revoked. The demo can no longer reach this instance — nobody can sign in to the demo until a new connector is issued and pasted in.');
     }
 
     // ---- Reset -------------------------------------------------------------
