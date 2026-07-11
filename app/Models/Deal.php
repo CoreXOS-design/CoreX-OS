@@ -167,7 +167,7 @@ class Deal extends Model
 
     public function pipelineSteps()
     {
-        return $this->hasMany(\App\Models\DealV2\DealStepInstance::class, 'dr1_deal_id')->orderBy('position');
+        return $this->hasMany(\App\Models\DealV2\DealStepInstance::class, 'dr1_deal_id')->orderBy('position')->orderBy('id');
     }
 
     /** Phase 3i — the presentation that led to this deal, when known. */

@@ -265,7 +265,10 @@ class Dr1PipelineService
         if ($preds->isEmpty()) {
             return [false, null];
         }
-        if ($preds->contains(fn ($p) => $p->status !== 'completed')) {
+        // A predecessor is "resolved" when it's completed, marked N/A, or skipped — any of
+        // these clears the gate (an excused step must not block its successors). Removed
+        // steps are soft-deleted, so they never appear here at all.
+        if ($preds->contains(fn ($p) => ! self::isResolved($p->status))) {
             return [false, null];
         }
 
@@ -310,6 +313,90 @@ class Dr1PipelineService
             'green'   => '#10b981',
             default   => '#9ca3af',
         };
+    }
+
+    /** A step whose outcome no longer blocks its successors. */
+    public static function isResolved(?string $status): bool
+    {
+        return in_array($status, ['completed', 'not_applicable', 'skipped'], true);
+    }
+
+    /**
+     * V1.1 — mark a step Not Applicable: it's KEPT (visibly excused, e.g. gas CoC on a
+     * property with no gas) with a recorded reason, and no longer blocks its successors.
+     * Audited on the step.
+     */
+    public function markNotApplicable(DealStepInstance $step, ?int $userId, ?string $reason): void
+    {
+        DB::transaction(function () use ($step, $userId, $reason) {
+            $step->update([
+                'status'      => 'not_applicable',
+                'na_reason'   => $reason,
+                'current_rag' => 'grey',
+            ]);
+            $this->logActivity($step->dr1Deal, $step, $userId, 'step_not_applicable',
+                "Step \"{$step->name}\" marked N/A" . ($reason ? " — {$reason}" : ''));
+
+            // Successors gated on this step can now proceed.
+            $this->activateDownstreamSteps($step);
+        });
+    }
+
+    /**
+     * V1.1 — remove a step (soft-delete per no-hard-delete doctrine). Audited on the step;
+     * any successors gated on it are re-evaluated so removal never strands the chain.
+     */
+    public function removeStep(DealStepInstance $step, ?int $userId): void
+    {
+        DB::transaction(function () use ($step, $userId) {
+            $this->logActivity($step->dr1Deal, $step, $userId, 'step_removed',
+                "Step \"{$step->name}\" removed");
+            // Advance anything that was waiting on this step BEFORE it disappears from queries.
+            $this->activateDownstreamSteps($step);
+            $step->delete(); // soft-delete
+        });
+    }
+
+    /**
+     * V1.1 — add a custom (agent-authored) step to an attached pipeline: name + due date +
+     * position (insert after $afterStep, or at the end). Immediately active + RAG-tracked.
+     */
+    public function addCustomStep(Deal $deal, string $name, ?string $dueDate, ?DealStepInstance $afterStep, ?int $userId): DealStepInstance
+    {
+        return DB::transaction(function () use ($deal, $name, $dueDate, $afterStep, $userId) {
+            $position = $afterStep
+                ? $afterStep->position
+                : ((int) DealStepInstance::where('dr1_deal_id', $deal->id)->max('position') + 1);
+
+            $step = DealStepInstance::create([
+                'agency_id'     => $deal->agency_id,
+                'deal_id'       => null,
+                'dr1_deal_id'   => $deal->id,
+                'name'          => $name,
+                'position'      => $position,
+                'is_custom'     => true,
+                'is_locked'     => false,
+                'is_milestone'  => false,
+                'completion_type' => 'manual',
+                'status'        => 'active',
+                'trigger_type'  => 'manual',
+                'due_date'      => $dueDate ?: null,
+                'activated_at'  => now(),
+                'rag_green_days' => 7,
+                'rag_amber_days' => 3,
+                'rag_red_days'   => 1,
+                'current_rag'   => 'grey',
+                'notify_agent'  => true,
+                'approval_status' => 'not_required',
+            ]);
+            $step->update(['current_rag' => $this->calculateRag($step)]);
+
+            $this->logActivity($deal, $step, $userId, 'step_added',
+                "Custom step \"{$name}\" added" . ($dueDate ? " (due {$dueDate})" : '')
+                . ($afterStep ? " after \"{$afterStep->name}\"" : ''));
+
+            return $step;
+        });
     }
 
     /**

@@ -25,10 +25,12 @@ class DealStepInstance extends Model
         'position',
         'is_locked',
         'is_milestone',
+        'is_custom',
         'is_suspensive',
         'completion_type',
         'completion_config',
         'status',
+        'na_reason',
         'trigger_type',
         'trigger_step_instance_id',
         'days_offset',
@@ -58,6 +60,7 @@ class DealStepInstance extends Model
     protected $casts = [
         'is_locked' => 'boolean',
         'is_milestone' => 'boolean',
+        'is_custom' => 'boolean',
         'is_suspensive' => 'boolean',
         'notify_agent' => 'boolean',
         'notify_bm' => 'boolean',
@@ -90,6 +93,12 @@ class DealStepInstance extends Model
     public function pipelineStep(): BelongsTo
     {
         return $this->belongsTo(DealPipelineStep::class, 'pipeline_step_id');
+    }
+
+    /** AT-216 V1.1 — per-step comment thread (newest last). */
+    public function comments()
+    {
+        return $this->hasMany(DealStepComment::class, 'deal_step_instance_id')->orderBy('created_at');
     }
 
     public function triggerStepInstance(): BelongsTo

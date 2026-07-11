@@ -1686,11 +1686,19 @@ class CalendarController extends Controller
         if ($calendarEvent->source_type === \App\Models\DealV2\DealStepInstance::class && $calendarEvent->source_id) {
             $step = \App\Models\DealV2\DealStepInstance::find($calendarEvent->source_id);
             if ($step && in_array($step->status, ['active', 'not_started'])) {
-                $pipelineService = app(\App\Services\DealV2\DealPipelineService::class);
-                $pipelineService->completeStep($step, $request->user(), [
-                    'outcome' => 'positive',
-                    'notes' => $request->input('notes', 'Completed from calendar'),
-                ]);
+                // AT-216 V1.1 — a DR1-anchored step (dr1_deal_id) rides the pure-tracking
+                // overlay, not the deals_v2 engine; route it to the right service.
+                if ($step->dr1_deal_id) {
+                    app(\App\Services\Deal\Dr1PipelineService::class)->completeStep(
+                        $step, $request->user()?->id,
+                        ['notes' => $request->input('notes', 'Completed from calendar')]
+                    );
+                } else {
+                    app(\App\Services\DealV2\DealPipelineService::class)->completeStep($step, $request->user(), [
+                        'outcome' => 'positive',
+                        'notes' => $request->input('notes', 'Completed from calendar'),
+                    ]);
+                }
 
                 $msg = "Deal step \"{$step->name}\" completed — deal pipeline advanced.";
                 return $request->wantsJson()

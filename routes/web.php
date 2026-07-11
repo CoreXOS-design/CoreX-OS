@@ -689,6 +689,11 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
     Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.attach');
     Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:create_deals')->name('pipeline.step.complete');
+    // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
+    Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.step.add');
+    Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:create_deals')->name('pipeline.step.na');
+    Route::post('/{deal}/pipeline/steps/{step}/remove',    [\App\Http\Controllers\Dr2\PipelineController::class, 'removeStep'])->whereNumber(['deal', 'step'])->middleware('permission:create_deals')->name('pipeline.step.remove');
+    Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
