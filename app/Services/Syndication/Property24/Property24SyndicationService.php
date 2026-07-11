@@ -111,6 +111,19 @@ class Property24SyndicationService
         $this->bindClientForProperty($property);
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
 
+        // LAYER 2 (AT-221) — run Property24's own content rules BEFORE we send.
+        // Belt-and-braces for legacy stock edited before capture-time validation
+        // (Layer 1) existed. A content rejection (e.g. a phone number in the
+        // description) is recorded as a clear reason and the listing is NEVER
+        // sent — no pointless round-trip, no re-submit storm, no false "Active".
+        $contentViolations = app(\App\Services\Syndication\PortalContentValidator::class)
+            ->violationsFor($property, \App\Services\Syndication\PortalContentValidator::P24);
+        if (!empty($contentViolations)) {
+            $reason = implode(' ', array_column($contentViolations, 'message'));
+            $property->update(['p24_syndication_status' => 'rejected', 'p24_last_error' => $reason]);
+            return ['success' => false, 'message' => $reason, 'rejected' => true, 'status' => 'rejected'];
+        }
+
         // Resolve the P24 agency ID up-front so agent registration and the
         // listing payload go to the same profile. If the property's
         // branch/agency is not configured, fail fast with a readable error.
@@ -172,6 +185,29 @@ class Property24SyndicationService
             // Permanent failure (4xx validation etc.) — surface the real error.
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => $result['message'] ?? 'Unknown API error']);
             return ['success' => false, 'message' => $result['message'] ?? 'Unknown API error'];
+        }
+
+        // LAYER 3 (AT-221) — HTTP 200 is NOT "on the portal". P24 accepts the call
+        // but the BODY can say isOnPortal:false with a reason (content rule, etc.).
+        // The truth is isOnPortal, not the status code — reflect it honestly as
+        // 'rejected: <reason>' instead of a false 'Active'. (Absent isOnPortal =
+        // older/other responses → unchanged behaviour below.)
+        $data = $result['data'] ?? [];
+        $isOnPortal = $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null;
+        if ($isOnPortal === false || $isOnPortal === 'false' || $isOnPortal === 'False') {
+            $reasons = $data['reasons'] ?? $data['Reasons'] ?? [];
+            $reason  = is_array($reasons) ? implode(' ', array_map('strval', $reasons)) : (string) $reasons;
+            $reason  = trim($reason) !== '' ? $reason : 'Property24 did not publish the listing.';
+            $ref     = $data['listingNumber'] ?? $data['ListingNumber'] ?? $property->p24_ref;
+            $property->update([
+                'p24_syndication_status'     => 'rejected',
+                'p24_last_error'             => $reason,
+                'p24_last_submitted_at'      => now(),
+                'p24_listing_last_synced_at' => now(),
+                'p24_ref'                    => $ref ? (string) $ref : $property->p24_ref,
+            ]);
+            $this->log('warning', "Listing rejected by Property24 for property #{$property->id}", ['reason' => $reason]);
+            return ['success' => false, 'message' => $reason, 'rejected' => true, 'status' => 'rejected'];
         }
 
         $updateData = [
