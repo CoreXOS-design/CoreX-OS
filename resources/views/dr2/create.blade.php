@@ -187,15 +187,18 @@
                 <div id="dr2_buyer_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
             </div>
 
-            {{-- (Enhancement 3) Attorney — supplier search + real add-new contact modal --}}
+            {{-- (Enhancement 3 / walk fix 2) Attorney = FIRM + contact person. Search a
+                 firm's people, or add a new firm+contact inline. The deal links both. --}}
             <div class="field-full" id="dr2-att">
-                <label class="ds-label block mb-1">Attorney</label>
+                <label class="ds-label block mb-1">Attorney (firm &amp; contact)</label>
                 <input type="hidden" name="attorney_name" id="dr2_attorney_name" value="{{ old('attorney_name', $deal->attorney_name) }}">
+                <input type="hidden" name="attorney_provider_id" id="dr2_attorney_provider_id" value="{{ old('attorney_provider_id', $deal->attorney_provider_id) }}">
+                <input type="hidden" name="attorney_contact_id" id="dr2_attorney_contact_id" value="{{ old('attorney_contact_id', $deal->attorney_contact_id) }}">
                 <div style="position:relative;">
-                    <input type="text" id="dr2_attorney_search" class="w-full" autocomplete="off" placeholder="Search transfer attorneys / conveyancers…" value="{{ old('attorney_name', $deal->attorney_name) }}">
+                    <input type="text" id="dr2_attorney_search" class="w-full" autocomplete="off" placeholder="Search a firm or attorney (e.g. BBB Inc, or the attorney's name)…" value="{{ old('attorney_name', $deal->attorney_name) }}">
                     <div id="dr2_attorney_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
-                <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney</button>
+                <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney (firm &amp; contact)</button>
             </div>
 
             {{-- (Enhancement 7) Financials sub-heading over the money fields --}}
@@ -277,14 +280,11 @@
             <div>
                 <h3 class="font-bold" style="color:#0b2a4a">Listing Side</h3>
 
-                <div class="flex items-center gap-3">
-                    <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}>
-                        External
-                    </label>
-
-                    <input type="number" step="0.01" name="listing_our_share_percent" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" class="w-36" placeholder="Our Share %">
-                    <div class="w-64">
+                {{-- (Johan DR2-walk fix 1) External-agency layout relaid as a non-colliding
+                     responsive stack. The old single flex row crammed the checkbox + our-share
+                     + split + agency name together and the labels collided. --}}
+                <div class="mt-2 space-y-3">
+                    <div>
                         <div class="flex items-center justify-between">
                             <div class="ds-label">Listing split %</div>
                             <div class="text-xs text-gray-500"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
@@ -297,7 +297,22 @@
                                    class="flex-1" value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}">
                         </div>
                     </div>
-                    <input type="text" name="listing_external_agency" placeholder="External Agency (if external)" class="flex-1" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}>
+                        <span>External agency handled this side</span>
+                    </label>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="ds-label block mb-1">Our Share %</label>
+                            <input type="number" step="0.01" name="listing_our_share_percent" class="w-full" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" placeholder="Our Share %">
+                        </div>
+                        <div>
+                            <label class="ds-label block mb-1">External Agency</label>
+                            <input type="text" name="listing_external_agency" class="w-full" placeholder="External agency name" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-3 space-y-3">
@@ -321,14 +336,9 @@
             <div>
                 <h3 class="font-bold" style="color:#0b2a4a">Selling Side</h3>
 
-                <div class="flex items-center gap-3">
-                    <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}>
-                        External
-                    </label>
-
-                    <input type="number" step="0.01" name="selling_our_share_percent" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" class="w-36" placeholder="Our Share %">
-                    <div class="w-64">
+                {{-- (Johan DR2-walk fix 1) External-agency layout — non-colliding responsive stack, selling side. --}}
+                <div class="mt-2 space-y-3">
+                    <div>
                         <div class="ds-label">Selling split %</div>
                         <div class="mt-2 flex items-center gap-3">
                             <input id="selling_split_percent" type="number" step="0.01" name="selling_split_percent"
@@ -338,7 +348,22 @@
                                    class="flex-1" value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}">
                         </div>
                     </div>
-                    <input type="text" name="selling_external_agency" placeholder="External Agency (if external)" class="flex-1" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}>
+                        <span>External agency handled this side</span>
+                    </label>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="ds-label block mb-1">Our Share %</label>
+                            <input type="number" step="0.01" name="selling_our_share_percent" class="w-full" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" placeholder="Our Share %">
+                        </div>
+                        <div>
+                            <label class="ds-label block mb-1">External Agency</label>
+                            <input type="text" name="selling_external_agency" class="w-full" placeholder="External agency name" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-3 space-y-3">
@@ -514,16 +539,18 @@
 
 </div>
 
-{{-- (Enhancement 3) Add-new-attorney inline modal — modelled on the contact-create fields --}}
+{{-- (walk fix 2) Add-new attorney inline modal — a FIRM + a contact person.
+     Field order per Johan: Firm, Attorney, Contact, Email, Address. --}}
 <div id="dr2_att_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
     <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
-        <h3 class="font-bold mb-3" style="color:#0b2a4a">Add a new attorney</h3>
+        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new attorney</h3>
+        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the attorney and the person you actually deal with.</p>
         <div class="deal-grid">
-            <div class="field-full"><label class="ds-label block mb-1">Firm / Name *</label><input type="text" id="dr2_na_name" class="w-full"></div>
-            <div><label class="ds-label block mb-1">Contact person</label><input type="text" id="dr2_na_company" class="w-full"></div>
-            <div><label class="ds-label block mb-1">Phone</label><input type="text" id="dr2_na_phone" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_na_firm" class="w-full" placeholder="e.g. BBB Inc"></div>
+            <div><label class="ds-label block mb-1">Attorney</label><input type="text" id="dr2_na_attorney" class="w-full" placeholder="the attorney"></div>
+            <div><label class="ds-label block mb-1">Contact</label><input type="text" id="dr2_na_contact" class="w-full" placeholder="assistant / paralegal"></div>
             <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_na_email" class="w-full"></div>
-            <div class="field-full"><label class="ds-label block mb-1">Notes</label><input type="text" id="dr2_na_notes" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_na_address" class="w-full"></div>
         </div>
         <div id="dr2_na_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
@@ -540,8 +567,8 @@
     const R = {
         properties: @json(route('deals-dr2.search.properties')),
         propertyContacts: @json(route('deals-dr2.search.property-contacts', ['property' => '__ID__'])),
-        suppliers: @json(route('deals-dr2.suppliers.search')),
-        supplierInline: @json(route('deals-dr2.suppliers.inline')),
+        attorneySearch: @json(route('deals-dr2.attorney.search')),
+        attorneyInline: @json(route('deals-dr2.attorney.inline')),
     };
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
@@ -662,29 +689,38 @@
     }
     if (pId.value) loadPropContacts(pId.value);
 
-    // ---------- Enhancement 3: attorney supplier search + add-new modal ----------
+    // ---------- Fix 2: attorney = FIRM + contact person (search + add-new) ----------
     const aSearch = document.getElementById('dr2_attorney_search');
     const aResults = document.getElementById('dr2_attorney_results');
     const aName = document.getElementById('dr2_attorney_name');
+    const aProvId = document.getElementById('dr2_attorney_provider_id');
+    const aContactId = document.getElementById('dr2_attorney_contact_id');
     const closeAtt = () => { aResults.style.display = 'none'; aResults.innerHTML = ''; };
-    aSearch.addEventListener('input', () => { aName.value = aSearch.value; });
+    // Typing free-text keeps the display name but clears the firm/contact link until a pick.
+    aSearch.addEventListener('input', () => { aName.value = aSearch.value; aProvId.value = ''; aContactId.value = ''; });
     const runAtt = debounce(() => {
         const q = aSearch.value.trim();
         if (q.length < 2) { closeAtt(); return; }
-        fetch(R.suppliers + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+        fetch(R.attorneySearch + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
             .then(r => r.ok ? r.json() : { results: [] })
             .then(data => {
                 const rows = (data && data.results) || [];
                 if (!rows.length) { closeAtt(); return; }
-                aResults.innerHTML = rows.map(row => {
-                    const sub = [row.company, row.email, row.phone].filter(Boolean).join(' · ');
-                    return '<div class="dr2-arow" data-name="' + esc(row.name) + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + (row.name || '') + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + sub + '</div>' : '') + '</div>';
+                aResults.innerHTML = rows.map((row, i) => {
+                    const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
+                    const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
+                    return '<div class="dr2-arow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
                 }).join('');
                 aResults.style.display = 'block';
                 aResults.querySelectorAll('.dr2-arow').forEach(el => {
+                    const row = rows[parseInt(el.dataset.i, 10)];
                     el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
                     el.addEventListener('mouseout', () => el.style.background = '#fff');
-                    el.addEventListener('click', () => { aName.value = el.dataset.name; aSearch.value = el.dataset.name; closeAtt(); });
+                    el.addEventListener('click', () => {
+                        aName.value = row.label; aSearch.value = row.label;
+                        aProvId.value = row.provider_id || ''; aContactId.value = row.contact_id || '';
+                        closeAtt();
+                    });
                 });
             }).catch(closeAtt);
     }, 220);
@@ -693,27 +729,28 @@
     document.addEventListener('click', e => { if (!e.target.closest('#dr2-att')) closeAtt(); });
 
     const modal = document.getElementById('dr2_att_modal');
-    const mName = document.getElementById('dr2_na_name'), mCompany = document.getElementById('dr2_na_company');
-    const mEmail = document.getElementById('dr2_na_email'), mPhone = document.getElementById('dr2_na_phone');
-    const mNotes = document.getElementById('dr2_na_notes'), mErr = document.getElementById('dr2_na_error');
+    const mFirm = document.getElementById('dr2_na_firm'), mAttorney = document.getElementById('dr2_na_attorney');
+    const mContact = document.getElementById('dr2_na_contact'), mEmail = document.getElementById('dr2_na_email');
+    const mAddress = document.getElementById('dr2_na_address'), mErr = document.getElementById('dr2_na_error');
     document.getElementById('dr2_attorney_addnew').addEventListener('click', () => {
-        mName.value = aSearch.value.trim(); mCompany.value = mEmail.value = mPhone.value = mNotes.value = '';
-        mErr.style.display = 'none'; modal.style.display = 'flex'; mName.focus();
+        mFirm.value = aSearch.value.trim(); mAttorney.value = mContact.value = mEmail.value = mAddress.value = '';
+        mErr.style.display = 'none'; modal.style.display = 'flex'; mFirm.focus();
     });
     document.getElementById('dr2_na_cancel').addEventListener('click', () => modal.style.display = 'none');
     modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
     document.getElementById('dr2_na_save').addEventListener('click', function () {
-        const name = mName.value.trim();
-        if (!name) { mErr.textContent = 'A firm / name is required.'; mErr.style.display = 'block'; return; }
+        const firm = mFirm.value.trim();
+        if (!firm) { mErr.textContent = 'A firm is required.'; mErr.style.display = 'block'; return; }
         this.disabled = true;
-        fetch(R.supplierInline, {
+        fetch(R.attorneyInline, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf },
-            body: JSON.stringify({ name, company: mCompany.value.trim() || null, email: mEmail.value.trim() || null, phone: mPhone.value.trim() || null, notes: mNotes.value.trim() || null, specialty: 'transfer_attorney' }),
+            body: JSON.stringify({ firm, attorney: mAttorney.value.trim() || null, contact: mContact.value.trim() || null, email: mEmail.value.trim() || null, address: mAddress.value.trim() || null }),
         }).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
             if (!ok) { mErr.textContent = (j && j.message) || 'Could not save the attorney.'; mErr.style.display = 'block'; return; }
-            const prov = (j && j.provider) || {};
-            aName.value = prov.name || name; aSearch.value = prov.name || name; modal.style.display = 'none';
+            aName.value = j.label || firm; aSearch.value = j.label || firm;
+            aProvId.value = j.provider_id || ''; aContactId.value = j.contact_id || '';
+            modal.style.display = 'none';
         }).catch(() => { mErr.textContent = 'Network error — please try again.'; mErr.style.display = 'block'; })
           .finally(() => { this.disabled = false; });
     });

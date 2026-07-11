@@ -184,6 +184,8 @@ CREATE TABLE `agencies` (
   `p24_locations_synced_at` timestamp NULL DEFAULT NULL,
   `p24_last_sync_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pp_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `pp_lead_pull_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `pp_stats_pull_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `pp_username` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `pp_password` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pp_branch_guid` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -677,6 +679,29 @@ CREATE TABLE `agency_policies` (
   CONSTRAINT `agency_policies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_service_provider_contacts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_service_provider_contacts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `service_provider_id` bigint unsigned NOT NULL,
+  `attorney_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_person` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `role` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_service_provider_contacts_service_provider_id_foreign` (`service_provider_id`),
+  KEY `aspc_agency_firm_idx` (`agency_id`,`service_provider_id`),
+  CONSTRAINT `agency_service_provider_contacts_service_provider_id_foreign` FOREIGN KEY (`service_provider_id`) REFERENCES `agency_service_providers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_service_providers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -689,6 +714,7 @@ CREATE TABLE `agency_service_providers` (
   `company` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `is_preferred` tinyint(1) NOT NULL DEFAULT '0',
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
@@ -1736,7 +1762,7 @@ CREATE TABLE `calendar_event_class_settings` (
   `completion_behaviour` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'freeform',
   `feedback_mode` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'per_contact',
   `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4323,10 +4349,13 @@ CREATE TABLE `deals` (
   `managed_by_user_id` bigint unsigned DEFAULT NULL,
   `period` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `deal_date` date NOT NULL,
+  `deal_type` enum('bond','cash','sale_of_2nd') COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'DR2 capture: cash/bond/sale-of-2nd. Nullable — legacy DR1 rows stay NULL.',
   `property_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `seller_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `buyer_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `attorney_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `attorney_provider_id` bigint unsigned DEFAULT NULL,
+  `attorney_contact_id` bigint unsigned DEFAULT NULL,
   `accepted_status` varchar(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `granted_at` datetime DEFAULT NULL,
   `commission_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7803,7 +7832,7 @@ DROP TABLE IF EXISTS `portal_leads`;
 CREATE TABLE `portal_leads` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `portal` enum('p24','pp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `portal` enum('p24','pp','website') COLLATE utf8mb4_unicode_ci NOT NULL,
   `lead_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `listing_id` bigint unsigned DEFAULT NULL,
   `listing_portal_ref` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -8844,6 +8873,7 @@ CREATE TABLE `properties` (
   `rental_price_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_syndication_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `p24_syndication_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_stats_synced_at` timestamp NULL DEFAULT NULL,
   `p24_ref` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_last_submitted_at` timestamp NULL DEFAULT NULL,
   `p24_activated_at` timestamp NULL DEFAULT NULL,
@@ -8887,6 +8917,7 @@ CREATE TABLE `properties` (
   KEY `idx_properties_address_key` (`agency_id`,`suburb_normalised`,`street_name_normalised`,`street_number`,`unit_number`),
   KEY `properties_condition_level_idx` (`condition_level_id`),
   KEY `properties_title_type_idx` (`title_type`),
+  KEY `properties_p24_stats_synced_at_idx` (`p24_stats_synced_at`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
@@ -13071,3 +13102,10 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (971,'2026_07_23_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (972,'2026_07_23_000003_create_compiled_template_field_bindings_table',215);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (973,'2026_07_23_000004_add_compiled_serving_to_docuperfect_templates',215);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (974,'2026_07_24_000001_dr2_twin_backfill_relax_and_marker',215);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (975,'2026_07_06_000001_add_website_to_portal_leads_portal_enum',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (976,'2026_07_06_180000_widen_event_class_description_to_text',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (977,'2026_07_07_000001_add_pp_lead_pull_enabled_to_agencies',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (978,'2026_07_07_100001_add_p24_stats_synced_at_to_properties',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (979,'2026_07_07_100002_add_pp_stats_pull_enabled_to_agencies',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (980,'2026_07_11_000001_add_deal_type_to_deals_table',216);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (981,'2026_07_11_000002_create_service_provider_contacts_and_deal_attorney_link',216);

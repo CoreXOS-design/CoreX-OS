@@ -664,6 +664,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
     Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
     Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
+    // (Johan DR2-walk fix 2) attorney = FIRM + contact person — DR2-specific feeds.
+    Route::get('/attorney/search',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneySearch'])->middleware('permission:create_deals')->name('attorney.search');
+    Route::post('/attorney/inline',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneyInline'])->middleware('permission:create_deals')->name('attorney.inline');
 
     Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
     // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.

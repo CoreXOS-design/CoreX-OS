@@ -8,6 +8,8 @@ use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\DealLog;
 use App\Models\DealSettlement;
+use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\DealV2\AgencyServiceProviderContact;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\DealMoneyLineRebuilder;
@@ -394,6 +396,9 @@ class DealRegisterController extends Controller
             'seller_name'      => ['nullable', 'string', 'max:255'],
             'buyer_name'       => ['nullable', 'string', 'max:255'],
             'attorney_name'    => ['nullable', 'string', 'max:255'],
+            // (fix 2) attorney = firm + contact person; the deal links both.
+            'attorney_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -506,6 +511,8 @@ class DealRegisterController extends Controller
             'seller_name'      => $data['seller_name'] ?? null,
             'buyer_name'       => $data['buyer_name'] ?? null,
             'attorney_name'    => $data['attorney_name'] ?? null,
+            'attorney_provider_id' => ! empty($data['attorney_provider_id']) ? (int) $data['attorney_provider_id'] : null,
+            'attorney_contact_id'  => ! empty($data['attorney_contact_id']) ? (int) $data['attorney_contact_id'] : null,
             'accepted_status'  => $data['accepted_status'] ?? null,
             'commission_status' => $data['commission_status'] ?? null,
             'registration_date' => $data['registration_date'] ?? null,
@@ -684,5 +691,117 @@ class DealRegisterController extends Controller
             'sellers' => $sellers,
             'buyers'  => $buyers,
         ]);
+    }
+
+    /**
+     * (Johan DR2-walk fix 2) Attorney = a FIRM with MULTIPLE contact persons.
+     * Search attorney firms (agency-scoped, active) and flatten each firm × its
+     * contacts into pick options, so the capture can attach FIRM + the specific
+     * contact person (BBB Inc → attorney X via his assistant, attorney Y via his
+     * paralegal). A firm with no contacts yet is still offerable (firm-only).
+     */
+    public function attorneySearch(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json(['results' => []]);
+        }
+
+        $firms = AgencyServiceProvider::query()
+            ->where('is_active', true)
+            ->where('specialty', 'transfer_attorney')
+            ->where(function ($w) use ($q) {
+                $w->where('name', 'like', "%{$q}%")
+                  ->orWhereHas('serviceContacts', fn ($c) => $c->where('attorney_name', 'like', "%{$q}%")->orWhere('contact_person', 'like', "%{$q}%"));
+            })
+            ->with(['serviceContacts' => fn ($c) => $c->where('is_active', true)])
+            ->limit(10)
+            ->get();
+
+        $results = [];
+        foreach ($firms as $firm) {
+            if ($firm->serviceContacts->isEmpty()) {
+                $results[] = [
+                    'firm' => $firm->name, 'provider_id' => $firm->id, 'contact_id' => null,
+                    'attorney' => null, 'contact' => null, 'email' => $firm->email,
+                    'label' => $firm->name,
+                ];
+                continue;
+            }
+            foreach ($firm->serviceContacts as $c) {
+                $results[] = [
+                    'firm' => $firm->name, 'provider_id' => $firm->id, 'contact_id' => $c->id,
+                    'attorney' => $c->attorney_name, 'contact' => $c->contact_person, 'email' => $c->email,
+                    'label' => $this->attorneyLabel($firm->name, $c->attorney_name, $c->contact_person),
+                ];
+            }
+        }
+
+        return response()->json(['results' => $results]);
+    }
+
+    /**
+     * (Johan DR2-walk fix 2) Add-new attorney inline. Modal field order per Johan:
+     * Firm, Attorney, Contact, Email, Address. Find-or-create the FIRM (agency-scoped,
+     * by name) then create a CONTACT person under it. Returns the firm + contact ids
+     * the deal links, plus the display label. Soft-delete rules + agency scope apply.
+     */
+    public function attorneyInline(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $data = $request->validate([
+            'firm'     => ['required', 'string', 'max:191'],
+            'attorney' => ['nullable', 'string', 'max:191'],
+            'contact'  => ['nullable', 'string', 'max:191'],
+            'email'    => ['nullable', 'email', 'max:191'],
+            'address'  => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $userId = $request->user()->id;
+
+        $firm = AgencyServiceProvider::query()
+            ->where('name', $data['firm'])
+            ->where('specialty', 'transfer_attorney')
+            ->first();
+
+        if (! $firm) {
+            $firm = AgencyServiceProvider::create([
+                'agency_id'     => $agencyId,
+                'name'          => $data['firm'],
+                'specialty'     => 'transfer_attorney',
+                'address'       => $data['address'] ?? null,
+                'is_active'     => true,
+                'created_by_id' => $userId,
+            ]);
+        } elseif (! empty($data['address']) && empty($firm->address)) {
+            $firm->update(['address' => $data['address']]);
+        }
+
+        $contact = AgencyServiceProviderContact::create([
+            'agency_id'           => $agencyId,
+            'service_provider_id' => $firm->id,
+            'attorney_name'       => $data['attorney'] ?? null,
+            'contact_person'      => $data['contact'] ?? null,
+            'email'               => $data['email'] ?? null,
+            'is_active'           => true,
+            'created_by_id'       => $userId,
+        ]);
+
+        return response()->json([
+            'provider_id' => $firm->id,
+            'contact_id'  => $contact->id,
+            'label'       => $this->attorneyLabel($firm->name, $contact->attorney_name, $contact->contact_person),
+        ], 201);
+    }
+
+    private function attorneyLabel(?string $firm, ?string $attorney, ?string $contact): string
+    {
+        return trim(($firm ?? '')
+            . ($attorney ? ' — ' . $attorney : '')
+            . ($contact ? ' (via ' . $contact . ')' : ''));
     }
 }
