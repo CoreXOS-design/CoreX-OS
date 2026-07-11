@@ -217,6 +217,7 @@ class Property extends Model
         'mandate_type',
         'listing_type',
         'status',
+        'pre_deal_offer_status',
         'status_label',
         'features_json',
         'features_json_meta',

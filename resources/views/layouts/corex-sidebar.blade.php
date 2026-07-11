@@ -1599,6 +1599,9 @@
                 @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
                 <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Distribution Rules</a>
                 @endif
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
+                <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">Deal → Property Sync</a>
+                @endif
                 @endpermission
             </div>
         </div>

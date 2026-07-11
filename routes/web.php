@@ -985,6 +985,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
+    // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
+    Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');
+    Route::put('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'update'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.update');
+
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
 
