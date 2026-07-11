@@ -2,16 +2,37 @@
 
 namespace App\Models\Docuperfect;
 
+use DomainException;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * P0-4 — the signing audit trail is EVIDENCE, not a convenience log.
+ *
+ * Ceremony §6: the tracker is an audit-ready attribution record — the thing we put in
+ * front of a principal or the Ombud to prove who held a document and for how long. An
+ * evidence record that the application can quietly edit or delete is not evidence.
+ *
+ * It used to be append-only by CONVENTION only: the model carried SoftDeletes and
+ * overrode nothing, so any caller could have updated or deleted a row. The SoftDeletes
+ * came from a blanket sweep (2026_03_11_100002_add_soft_deletes_to_docuperfect_and_
+ * rental_tables) that added the trait to every docuperfect table — the audit log was
+ * caught in the net, it was never a deliberate decision.
+ *
+ * Now enforced, mirroring the canonical CoreX immutable-audit pattern
+ * (CommsAccessAuditLog): update() and delete() throw, AND the Eloquent events are
+ * guarded too. The event guards are not belt-and-braces — they are load-bearing:
+ * overriding update() does NOT stop `$log->action = 'x'; $log->save();`, because save()
+ * on an existing model goes straight to performUpdate() and never routes through
+ * update(). Without the `updating` guard the log would still be quietly editable.
+ *
+ * Nothing in the codebase mutates or deletes an audit row (traced: every call site is
+ * ::log() or ::create(), plus reads), so this closes the hole without breaking a caller.
+ */
 class SignatureAuditLog extends Model
 {
-    use SoftDeletes;
-
     protected $table = 'signature_audit_log';
 
-    // Immutable — no updated_at
+    // Append-only — a row is written once and never touched again.
     const UPDATED_AT = null;
 
     protected $fillable = [
@@ -55,6 +76,44 @@ class SignatureAuditLog extends Model
     const ACTOR_SYSTEM = 'system';
     const ACTOR_USER = 'user';
     const ACTOR_SIGNER = 'signer';
+
+    // --- Immutability (the evidence guarantee) ---
+
+    public function update(array $attributes = [], array $options = [])
+    {
+        throw new DomainException(
+            'The signing audit trail is append-only — an audit row cannot be changed.'
+        );
+    }
+
+    public function delete()
+    {
+        throw new DomainException(
+            'The signing audit trail is append-only — an audit row cannot be deleted. '
+            . 'It is the evidence of who held a document and for how long.'
+        );
+    }
+
+    /**
+     * Also block the paths that bypass the overrides above:
+     *  - `$log->x = 1; $log->save();` → performUpdate(), never touches update()
+     *  - `SignatureAuditLog::destroy($id)` → calls delete() on a fresh instance
+     *  - a mutating relationship/cascade
+     */
+    protected static function booted(): void
+    {
+        static::updating(function () {
+            throw new DomainException(
+                'The signing audit trail is append-only — an audit row cannot be changed.'
+            );
+        });
+
+        static::deleting(function () {
+            throw new DomainException(
+                'The signing audit trail is append-only — an audit row cannot be deleted.'
+            );
+        });
+    }
 
     // --- Relationships ---
 
