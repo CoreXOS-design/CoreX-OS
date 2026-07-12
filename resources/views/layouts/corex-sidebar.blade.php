@@ -1653,6 +1653,33 @@
         @endif
         @endpermission
 
+        {{-- AT-219 salvage (Wave 2) — Deal → Property Sync + Distribution Rules were
+             stranded in the same hidden deals-v2 group (route alive, no nav = orphaned).
+             Re-homed here beside the other deal-config doors. Each nav gate matches its
+             ROUTE's permission (sync = access_settings; rules = manage_distribution_rules)
+             so anyone who can open the page sees the door. --}}
+        @permission('access_settings')
+        @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
+        <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-item {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+            </svg>
+            <span>Deal → Property Sync</span>
+        </a>
+        @endif
+        @endpermission
+
+        @permission('deals_v2.manage_distribution_rules')
+        @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+        <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-item {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+            </svg>
+            <span>Distribution Rules</span>
+        </a>
+        @endif
+        @endpermission
+
         {{-- AT-161 — "Email Setup" moved to Communications → Email (as "Email Capture
              Setup"). URL unchanged (settings/email-setup); only the nav home moved. --}}
         @endif
