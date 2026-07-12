@@ -37,6 +37,12 @@ class QaConfigSeeder extends Seeder
         // 2. DR2 distribution matrix (stage × doc-type × party defaults).
         $this->call(DealStageDocumentRuleSeeder::class);
 
+        // AT-227 — type-level document distribution matrix (null-stage rules). Guarded so
+        // this branch stays runnable before AT-227 merges to Staging.
+        if (class_exists(\Database\Seeders\DocumentDistributionMatrixSeeder::class)) {
+            $this->call(\Database\Seeders\DocumentDistributionMatrixSeeder::class);
+        }
+
         // 3. Deal-property-sync settings — pre-warm the firstOrCreate default per agency
         //    so the settings surface never has to create-on-first-view mid-walkthrough.
         foreach (DB::table('agencies')->pluck('id') as $agencyId) {
