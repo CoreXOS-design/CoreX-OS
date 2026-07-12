@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Middleware\EnsureDemoGrant;
 use App\Services\Demo\DemoControlClient;
 use App\Support\Instance;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -79,11 +80,60 @@ class DemoGateController extends Controller
             ? route('dashboard')
             : route('demo.tnc');
 
-        // Signed, httpOnly, SameSite=Lax. 8h — long enough for a demo session, short
-        // enough that a shared machine does not stay logged in overnight.
+        // Signed, httpOnly, SameSite=Lax. REMEMBER THE DEVICE FOR THE LIFE OF THE
+        // GRANT — see cookieLifetime().
         return redirect($target)->withCookie(
-            cookie(EnsureDemoGrant::COOKIE, $token, 480, null, null, true, true, false, 'lax')
+            cookie(
+                EnsureDemoGrant::COOKIE,
+                $token,
+                $this->cookieLifetime($body['grant']['expires_at'] ?? null),
+                null, null, true, true, false, 'lax'
+            )
         );
+    }
+
+    /**
+     * How long the browser keeps the session token.
+     *
+     * This used to be a hardcoded 480 (8h), on the reasoning that a shared machine
+     * should not stay signed in overnight. In practice that just made an INVITED
+     * prospect re-type an emailed code every working day, and it bought nothing:
+     * the cookie is only a bearer of the session token. EnsureDemoGrant re-checks
+     * that token against primary on EVERY non-exempt request (60s cache), so a
+     * revoked grant, an expired grant or a new T&C version closes the gate within a
+     * minute no matter how long the browser has held the cookie. Expiry is enforced
+     * on the server, where it belongs — the cookie clock was never the control.
+     *
+     * So: remember the device for exactly as long as the grant is good for, and let
+     * the cookie die with it. A prospect redeems the code once and stays in for the
+     * whole trial; the day the grant lapses, so does the cookie.
+     *
+     * `expires_at` is primary's, ISO8601, and is only set once the grant has been
+     * redeemed — which has just happened, on this very request. The fallback covers
+     * a primary that returns null (older payload, or a grant whose clock has not
+     * been stamped), and the clamp keeps us out of the two states a raw diff can
+     * produce: a negative lifetime, which Laravel reads as "delete this cookie", and
+     * an absurd one from a malformed date.
+     */
+    private function cookieLifetime(?string $expiresAt): int
+    {
+        $fallback = 72 * 60;          // the default grant window
+        $ceiling  = 90 * 24 * 60;     // 90 days — a grant should never outlive this
+
+        if (! $expiresAt) {
+            return $fallback;
+        }
+
+        try {
+            $minutes = (int) ceil(now()->diffInMinutes(Carbon::parse($expiresAt), false));
+        } catch (\Throwable) {
+            return $fallback;
+        }
+
+        // Already lapsed: primary will refuse the next request anyway. Give a short
+        // real lifetime rather than a negative one (which would drop the cookie and
+        // bounce them to the gate with no explanation).
+        return max(1, min($minutes, $ceiling));
     }
 
     /** GET /demo/tnc — the clickwrap. */

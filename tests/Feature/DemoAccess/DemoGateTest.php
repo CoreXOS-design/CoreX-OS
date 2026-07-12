@@ -4,6 +4,7 @@ namespace Tests\Feature\DemoAccess;
 
 use App\Http\Middleware\EnsureDemoGrant;
 use App\Models\DemoPageView;
+use App\Models\DevSetting;
 use App\Models\DemoSession;
 use App\Models\User;
 use App\Services\Demo\DemoAccessService;
@@ -279,5 +280,72 @@ class DemoGateTest extends TestCase
             1,
             DemoPageView::whereIn('demo_session_id', DemoSession::where('demo_access_grant_id', $grant->id)->pluck('id'))->count()
         );
+    }
+
+    // ── The persona buttons live BEHIND the gate ────────────────────────────
+
+    /**
+     * /login is on EnsureDemoGrant::EXEMPT (the staff door), so it is one of the few
+     * pages an uninvited prospect can reach on the demo host. It must not greet them
+     * with four passwordless "Sign in as …" buttons.
+     */
+    public function test_the_persona_buttons_are_not_shown_before_the_gate(): void
+    {
+        $this->asDemoInstance();
+        DevSetting::set('demo_mode_enabled', '1');
+
+        $response = $this->get('/login');
+
+        $response->assertOk();
+        $response->assertDontSee('Pick a role to enter the demo');
+        $response->assertDontSee('Sign in as Admin');
+
+        // The staff door stays open — a password-holder can still get in.
+        $response->assertSee('password', false);
+    }
+
+    /** Once the gate has been redeemed, the persona buttons are the way in. */
+    public function test_the_persona_buttons_are_shown_once_the_gate_is_passed(): void
+    {
+        $this->asDemoInstance();
+        DevSetting::set('demo_mode_enabled', '1');
+
+        [, $session] = $this->issueAndOpenSession();
+
+        $response = $this->withCookie(EnsureDemoGrant::COOKIE, $session->session_token)->get('/login');
+
+        $response->assertOk();
+        $response->assertSee('Pick a role to enter the demo');
+        $response->assertSee('Sign in as Admin');
+    }
+
+    // ── Remember the device for the life of the grant ───────────────────────
+
+    /**
+     * The gate cookie used to be a hardcoded 8h, which made an invited prospect
+     * re-type their emailed code every working day. It now expires with the grant.
+     * Safe because EnsureDemoGrant re-verifies the token against primary on every
+     * request — the cookie clock was never what enforced expiry.
+     */
+    public function test_the_gate_cookie_is_remembered_for_the_life_of_the_grant(): void
+    {
+        $ctrl   = app(\App\Http\Controllers\Demo\DemoGateController::class);
+        $method = new \ReflectionMethod($ctrl, 'cookieLifetime');
+        $method->setAccessible(true);
+
+        // A live 72h grant → the device is remembered for the whole trial, not 8h.
+        $this->assertSame(4320, $method->invoke($ctrl, now()->addHours(72)->toIso8601String()));
+        $this->assertGreaterThan(480, $method->invoke($ctrl, now()->addHours(72)->toIso8601String()));
+
+        // No expiry from primary → fall back to the default grant window.
+        $this->assertSame(4320, $method->invoke($ctrl, null));
+        $this->assertSame(4320, $method->invoke($ctrl, 'not-a-date'));
+
+        // A lapsed grant must NEVER produce a negative lifetime: Laravel reads that
+        // as "delete this cookie", which would bounce the user with no explanation.
+        $this->assertSame(1, $method->invoke($ctrl, now()->subDay()->toIso8601String()));
+
+        // And a malformed far-future date is clamped rather than trusted.
+        $this->assertSame(90 * 24 * 60, $method->invoke($ctrl, now()->addYears(5)->toIso8601String()));
     }
 }

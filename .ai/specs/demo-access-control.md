@@ -390,9 +390,40 @@ primary; the event fires on primary; the mail leaves through primary's mailer.
    silently extending the trial. Exactly one writer must win. A conditional `UPDATE …
    WHERE first_login_at IS NULL` is atomic in MySQL; the read-then-write is not.
 6. Creates a `demo_sessions` row, returns the session token.
-7. Demo sets the signed `corex_demo_session` cookie.
+7. Demo sets the signed `corex_demo_session` cookie. **The device is remembered for the
+   life of the grant** — the cookie's lifetime is computed from the `expires_at` primary
+   just stamped (`DemoGateController::cookieLifetime()`), not a fixed window.
+
+   This was a hardcoded 480 minutes (8h), on the reasoning that a shared machine should
+   not stay signed in overnight. In practice it made an *invited* prospect re-type an
+   emailed code every working day, and it bought nothing: the cookie is only a bearer of
+   the session token. `EnsureDemoGrant` re-checks that token against primary on every
+   non-exempt request (60s cache), so a revoked grant, an expired grant, or a new T&C
+   version closes the gate within a minute regardless of how long the browser holds the
+   cookie. **Expiry is enforced on the server. The cookie clock was never the control.**
+
+   Clamped both ways: a lapsed grant yields 1 minute, never a negative lifetime (Laravel
+   reads negative as "delete this cookie", which would bounce the user with no
+   explanation), and a malformed date is capped at 90 days rather than trusted.
 8. If the grant has not accepted the **current** T&C version → redirect to `/demo/tnc`.
 9. On accept → `POST /api/v1/demo-access/accept-tnc` → `DemoTncAccepted` → into the demo.
+
+### §6.2a The persona buttons live BEHIND the gate
+
+`/login` renders `auth.demo-login` — four passwordless "Sign in as …" buttons and nothing
+else. `login` is on `EnsureDemoGrant::EXEMPT` (the staff door), so on a demo host it is
+one of the few pages an **uninvited** visitor can reach.
+
+`AuthenticatedSessionController::create()` therefore shows the persona buttons only to a
+visitor who already holds a grant cookie. Ungated, it falls back to the ordinary password
+form — *not* a redirect to the gate, because `login` is exempt precisely so a
+password-holding human can always get in, and a redirect would take that door away.
+
+This was never an auth bypass — `DemoLoginController::login()` re-checks the grant cookie
+and bounces the POST to the gate — but the page *disclosed the demo surface* to anyone who
+guessed the URL, and it read like a way in. Cookie **presence** is the right test here
+(the cookie is signed, and the middleware re-verifies the token against primary on every
+non-exempt request); it mirrors `DemoLoginController::login()`'s own guard exactly.
 
 ### §6.3 The gate — FAILS CLOSED
 
