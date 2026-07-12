@@ -391,6 +391,41 @@ class PropertyObserver
             }
         }
 
+        // ── AT-68 — Private Property status auto-sync ────────────────────────
+        //
+        // This MUST sit ABOVE the P24 guard below. That guard returns early for
+        // any property that is not on P24 — so putting PP after it would skip
+        // PP entirely for every PP-only listing.
+        //
+        // Trigger on `status` OR `status_label`. CoreX models listing status in
+        // two tiers, and under-offer normally lives in the SUB-LABEL on a
+        // for-sale base ("For Sale" + "Under Offer"). A trigger that watches only
+        // the base status never fires for the most common under-offer case.
+        //
+        // getChanges(), not getDirty() — saved()'s first call runs a nested save
+        // that calls syncOriginal(), so getDirty() is already empty by the time
+        // we get here (the same trap that silently killed all P24 auto-sync;
+        // .ai/audits/mandate-expiry-desyndication-2026-06-20.md).
+        $ppChanges = $property->getChanges();
+
+        // The `pp_ref` guard is also what keeps a brand-new property out of here:
+        // PP assigns the reference on first submission, so a property that has
+        // never been syndicated has no ref and cannot be status-synced. (Do NOT
+        // use wasRecentlyCreated for this — it stays true for the rest of the
+        // model instance's life, so it would also suppress a legitimate status
+        // change made later in the same request.)
+        if (
+            (isset($ppChanges['status']) || isset($ppChanges['status_label']))
+            && $property->pp_syndication_enabled
+            && $property->pp_ref
+        ) {
+            try {
+                \App\Jobs\PrivateProperty\SyncPpListingStatusJob::dispatch($property->id);
+            } catch (\Throwable $e) {
+                Log::warning("PP status sync dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // P24 syndication auto-sync
         if (!$property->p24_syndication_enabled || !$property->p24_ref) {
             return;
@@ -406,8 +441,17 @@ class PropertyObserver
         // check in saved(). Audit: .ai/audits/mandate-expiry-desyndication-2026-06-20.md
         $dirty = $property->getChanges();
 
-        // If status changed, send a lightweight status update to P24
-        if (isset($dirty['status'])) {
+        // If status changed, send a lightweight status update to P24.
+        //
+        // AT-68 — `status_label` added to the trigger. This block already resolved
+        // the sub-label correctly (getP24Status reads it, and treats it as the
+        // authoritative lifecycle signal) — but it only ever RAN when the BASE
+        // status changed. So a property flipped to under-offer via the sub-label
+        // ("For Sale" + "Under Offer"), which is the common case, never fired a
+        // status push to P24 at all. The mapper knew; the trigger never asked it.
+        // Same defect the PP block above fixes; fixed here in the same pass rather
+        // than left as a known bug in a second portal (BUILD_STANDARD §6).
+        if (isset($dirty['status']) || isset($dirty['status_label'])) {
             $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref, $property->status_label);
 
             try {

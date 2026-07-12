@@ -230,6 +230,119 @@ class PrivatePropertySyndicationService
     }
 
     /**
+     * AT-68 (WS2 + WS3) — push this property's CURRENT lifecycle status to PP,
+     * then PROVE it landed.
+     *
+     * This is the wire that did not exist. A status change fanned out to P24 only
+     * (PropertyObserver had zero PrivateProperty references), so a property that
+     * went under offer kept advertising on PP as plainly For Sale until an agent
+     * happened to refresh it by hand.
+     *
+     * ⚠️ WS3 — the read-back is NOT optional, and this is why:
+     *
+     *   A live probe pushed PropertyStatus=Sold to a listing and PP answered
+     *   `ListingStatusUpdateResult: "Successful"`. Reading the status back showed
+     *   it had not moved at all. PP's "Successful" means "I received your call",
+     *   not "I did what you asked" — the identical bug-class to AT-221, where P24
+     *   returned HTTP 200 with isOnPortal:false for a rejected listing.
+     *
+     *   So we push, we read back, and we only record success when PP's own answer
+     *   matches what we sent. A status we cannot verify is recorded as an error,
+     *   not as done. (.ai/audits/2026-07-11-at68-pp-status-parity.md §7.1)
+     */
+    public function syncStatus(Property $property): array
+    {
+        if (! $property->pp_ref) {
+            return ['success' => false, 'message' => 'Property is not on Private Property.'];
+        }
+
+        $this->client->forAgency($property->agency);
+
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
+        $desired     = PrivatePropertyListingMapper::statusFor($property, $listingType);
+
+        $result = $this->client->setListingStatus((string) $property->id, $listingType, $desired);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => 'Status sync failed: ' . ($result['message'] ?? 'Unknown error'),
+            ]);
+
+            return ['success' => false, 'message' => $result['message'] ?? 'Status sync failed'];
+        }
+
+        // ── WS3: PP said "Successful". Now make it prove it. ──
+        $verified = $this->verifyStatus($property, $desired);
+
+        if (! $verified['ok']) {
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => sprintf(
+                    'Private Property reported success but did not apply the status. Asked for "%s", it still reports "%s".',
+                    $desired,
+                    $verified['actual'] ?? 'unknown'
+                ),
+            ]);
+
+            $this->log('error', sprintf(
+                'PP status NOT applied for property #%s — asked "%s", portal reports "%s" (PP answered Successful)',
+                $property->id,
+                $desired,
+                $verified['actual'] ?? 'unknown'
+            ));
+
+            return [
+                'success' => false,
+                'message' => 'Private Property accepted the update but did not apply it.',
+                'desired' => $desired,
+                'actual'  => $verified['actual'] ?? null,
+            ];
+        }
+
+        // Terminal-vs-removed (the property #2142 stranding class): only a status
+        // that actually takes the listing OFF the portal may be recorded as
+        // 'deactivated' — that value is what every delist guard reads as "already
+        // off the portal". 'PendingOffer' keeps the listing live and MUST NOT be
+        // written as deactivated, or the next delist would skip it.
+        $property->update([
+            'pp_syndication_status' => $desired === 'Inactive' || $desired === 'Archived'
+                ? Property::PORTAL_OFF_STATUS
+                : 'active',
+            'pp_last_error'         => null,
+        ]);
+
+        $this->log('info', "PP status synced for property #{$property->id}: {$desired} (verified)");
+
+        return ['success' => true, 'status' => $desired, 'verified' => true];
+    }
+
+    /**
+     * Read the status back from PP and compare it with what we asked for.
+     *
+     * A read-back that ERRORS is not a failed status — we simply could not check.
+     * Treat that as unverified-but-not-wrong: log it, do not mark the property as
+     * broken on the strength of a flaky read.
+     */
+    private function verifyStatus(Property $property, string $expected): array
+    {
+        $read = $this->client->getListingStatus((string) $property->id);
+
+        if (isset($read['error']) && $read['error'] === true) {
+            $this->log('warning', "PP status read-back unavailable for property #{$property->id}; status not verified");
+
+            return ['ok' => true, 'actual' => null, 'unverified' => true];
+        }
+
+        $actual = $read['GetListingStatusResult'] ?? null;
+
+        return [
+            'ok'     => is_string($actual) && strcasecmp($actual, $expected) === 0,
+            'actual' => $actual,
+        ];
+    }
+
+    /**
      * Deactivate a listing on Private Property.
      */
     public function deactivateListing(Property $property): array

@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\PpSuburb;
 use App\Models\Property;
 use App\Services\Images\PropertyImageGuard;
+use App\Services\Syndication\ListingLifecycle;
 use App\Services\Syndication\Concerns\ResolvesPropertyFeatures;
 use Illuminate\Support\Facades\Log;
 
@@ -747,24 +748,63 @@ class PrivatePropertyListingMapper
     /**
      * Map the CoreX property status to a PP PropertyStatus enum.
      *
-     * Previously this was hardcoded to ForSale/ToLet, so a Sold/Withdrawn/Expired
-     * listing was re-published as actively on-market on every UpdateListing (incl.
-     * the agent "Refresh to portal" button). Off-market statuses now map to
-     * 'Inactive' — the only off-market PropertyStatus PP's submission contract
-     * documents (ForSale, ToLet, Inactive). The active de-listing path is the
-     * ListingStatusUpdate SOAP call (see DesyndicatePropertyFromPortalsJob); this
-     * mapping is the safety net so a stray submit can never re-advertise a dead
-     * listing. Under-offer/pending stays advertised (still on-market, just flagged).
-     * See .ai/audits/syndication-bug-sweep-2026-06-20.md (PP-1).
+     * AT-68 — this is the fix for a mapping built on a WRONG BELIEF.
+     *
+     * The previous version's docblock asserted that 'Inactive' was *"the only
+     * off-market PropertyStatus PP's submission contract documents (ForSale,
+     * ToLet, Inactive)"*. That is false. The live WSDL
+     * (storage/pp-agentimport.wsdl) declares SIX:
+     *
+     *     ForSale · ToLet · PendingOffer · Sold · Inactive · Archived
+     *
+     * So PP has supported under-offer all along; we simply never sent it. A
+     * property with an accepted offer kept advertising on PP as plainly FOR SALE
+     * while P24 correctly showed it as Pending. That is the AT-68 headline gap.
+     *
+     * Two further things this fixes:
+     *
+     *  - It now reads the TWO-TIER status. Under-offer normally lives in the
+     *    `status_label` SUB-LABEL on a for-sale base ("For Sale" + "Under Offer"),
+     *    and the old mapping read only `$property->status` — so under-offer was
+     *    structurally INVISIBLE to PP. Resolution is delegated to the shared
+     *    ListingLifecycle so PP and P24 cannot drift apart again.
+     *
+     *  - Off-market still maps to 'Inactive', including SOLD. That is a deliberate
+     *    decision, not an oversight (Johan, 2026-07-11): a live probe could not
+     *    establish whether PP keeps a 'Sold' listing ON the portal (like P24) or
+     *    removes it, and getting that wrong re-opens the terminal-vs-removed
+     *    stranding bug that stranded property #2142 on P24. Sold stays 'Inactive'
+     *    — no behaviour change, no stranding risk — until PP's sandbox is back and
+     *    the question is settled empirically.
+     *    See .ai/audits/2026-07-11-at68-pp-status-parity.md §6, §7.
      */
     private function mapPropertyStatus(Property $property, string $listingType): string
     {
-        $status = strtolower(trim($property->status ?? ''));
+        return self::statusFor($property, $listingType);
+    }
 
-        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $offMarket) {
-            if (str_contains($status, $offMarket)) {
-                return 'Inactive';
-            }
+    /**
+     * The PP PropertyStatus for this property — ONE source of truth.
+     *
+     * Public + static because two callers need it: the full listing payload (via
+     * mapPropertyStatus above) and the status-only push
+     * (PrivatePropertySyndicationService::syncStatus). If those two ever disagreed,
+     * a "Refresh to portal" would silently undo a status sync.
+     */
+    public static function statusFor(Property $property, string $listingType): string
+    {
+        $lifecycle = ListingLifecycle::resolve($property->status, $property->status_label);
+
+        // An offer is in hand. The listing STAYS on the portal — it is still
+        // advertised, just flagged — so there is no delist/stranding question here.
+        if ($lifecycle === ListingLifecycle::UNDER_OFFER) {
+            return 'PendingOffer';
+        }
+
+        // Off the market (incl. sold — see docblock). The safety net so a stray
+        // submit can never re-advertise a dead listing.
+        if (in_array($lifecycle, ListingLifecycle::OFF_MARKET, true)) {
+            return 'Inactive';
         }
 
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';

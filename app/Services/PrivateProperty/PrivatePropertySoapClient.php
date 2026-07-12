@@ -273,18 +273,49 @@ class PrivatePropertySoapClient
     }
 
     /**
-     * Reactivate a listing on PP (set status back to active).
+     * AT-68 — set ANY PropertyStatus on a listing. The general form of the call
+     * that deactivateListing()/reactivateListing() were hardcoded special cases of.
+     *
+     * PP's PropertyStatus enum (live WSDL): ForSale · ToLet · PendingOffer · Sold ·
+     * Inactive · Archived. We previously only ever sent three of the six.
+     *
+     * ⚠️ The result string is NOT proof. PP answers
+     * `ListingStatusUpdateResult: "Successful"` even when it applies nothing — a
+     * live probe pushed Sold to an Inactive listing, got "Successful", and the
+     * status did not move (.ai/audits/2026-07-11-at68-pp-status-parity.md §7.1;
+     * same bug-class as AT-221 on P24, where HTTP 200 + isOnPortal:false meant
+     * rejected). ALWAYS verify with getListingStatus() — the syndication service
+     * does exactly that. Never treat a successful call as a successful change.
+     *
      * WSDL: ListingStatusUpdate { guid BranchId, string PropertyId, ListingType ListingType, PropertyStatus PropertyStatus, SecurityToken Token }
      */
-    public function reactivateListing(string $propertyId, string $listingType = 'Sale'): array
+    public function setListingStatus(string $propertyId, string $listingType, string $propertyStatus): array
     {
         return $this->call('ListingStatusUpdate', [
             'BranchId'       => $this->branchGuid(),
             'PropertyId'     => $propertyId,
             'ListingType'    => $listingType,
-            'PropertyStatus' => 'ForSale',
+            'PropertyStatus' => $propertyStatus,
             'Token'          => $this->buildToken(),
         ]);
+    }
+
+    /**
+     * Reactivate a listing on PP (set status back to on-market).
+     *
+     * AT-68: this used to hardcode 'ForSale' regardless of listing type — so
+     * reactivating a RENTAL pushed it back onto PP as a property FOR SALE. The
+     * on-market status now follows the listing type.
+     *
+     * WSDL: ListingStatusUpdate { guid BranchId, string PropertyId, ListingType ListingType, PropertyStatus PropertyStatus, SecurityToken Token }
+     */
+    public function reactivateListing(string $propertyId, string $listingType = 'Sale'): array
+    {
+        return $this->setListingStatus(
+            $propertyId,
+            $listingType,
+            $listingType === 'Rental' ? 'ToLet' : 'ForSale'
+        );
     }
 
     /**
