@@ -99,6 +99,63 @@ final class RoleBlockDetectionService
     }
 
     /**
+     * Resolve a field ELEMENT's role — reading BOTH naming conventions.
+     *
+     * There are two, and only one of them was ever understood:
+     *
+     *   1. Role-anchored name  — `data-field="seller_1_name"`.  parseFieldName() reads it.
+     *   2. CDS / pillar name   — `data-field="contact.first_name"` with the role in a
+     *      SIBLING attribute, `data-contact-type="Seller"`.
+     *
+     * Shape 2 is what the CDS importer ACTUALLY produces, for every document, and always
+     * has (DocumentTemplateGenerator writes `{source_type}.{source_column}` and puts the
+     * party in `data-contact-type`; the AI that names the fields is specified the same way).
+     * Shape 1 is what the role-block engine expected. Because nothing bridged them,
+     * parseFieldName() returned null for every imported field: the normalizer stamped
+     * nothing, the renderer re-indexed nothing, and every template in every database fell
+     * through to legacy clustering. That was the P1-0 RED verdict.
+     *
+     * This is the bridge, and it is deliberately the ONLY one — both the normalizer
+     * (stamping) and the expansion service (per-clone identity + prefill) resolve through
+     * here, so the two halves cannot drift apart again.
+     *
+     * @return array{role_base: ?string, instance_index: int, sub_name: ?string, pattern: string}
+     */
+    public function resolveFieldElement(\DOMElement $field): array
+    {
+        $name   = $field->getAttribute('data-field');
+        $parsed = $this->parseFieldName($name);
+
+        // Shape 1 — the role is in the name. Nothing to bridge.
+        if ($parsed['role_base'] !== null) {
+            return $parsed;
+        }
+
+        // Shape 2 — the role lives in data-contact-type ("Seller" / "Lessee" / …).
+        $contactType = strtolower(trim($field->getAttribute('data-contact-type')));
+        if ($contactType === '' || !in_array($contactType, self::ROLE_BASES, true)) {
+            return $parsed; // genuinely party-less (manual./property.) — leave it alone
+        }
+
+        // The segment signal is the column half: `contact.id_number` → `id_number`.
+        $subName = null;
+        if (str_contains($name, '.')) {
+            $column  = strtolower(substr($name, strpos($name, '.') + 1));
+            $subName = $column !== '' ? $column : null;
+        }
+
+        return [
+            'role_base'      => $contactType,
+            // The CDS shape carries no instance index — one field per party per blank.
+            // Multi-party instances come from CLONING the role block per recipient, so the
+            // index is assigned at clone time, not read from the name.
+            'instance_index' => 1,
+            'sub_name'       => $subName,
+            'pattern'        => 'cds_contact_type',
+        ];
+    }
+
+    /**
      * Parse a snake_case field name into role-base + instance-index + sub-name.
      *
      * @return array{
