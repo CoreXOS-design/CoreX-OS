@@ -1036,6 +1036,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
+    // AT-227 — Document-type distribution matrix (TYPE-level, null-stage): per type → party roles.
+    // The single source of truth AT-228 send-buttons + m6 e-sign completion both consume.
+    Route::get('/admin/settings/document-distribution',  [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution');
+    Route::post('/admin/settings/document-distribution', [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'save'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution.save');
+
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
 
