@@ -131,7 +131,9 @@ class ProformaInvoiceTest extends TestCase
         Mail::fake();
         ['deal' => $deal, 'agent' => $agent] = $this->makeDeal();
 
+        // One active per deal → each new one needs the prior voided first (void → generate).
         $a = $this->service()->generate($deal, $agent);
+        app(ProformaAdminService::class)->void($a, $agent, 'redo');
         $b = $this->service()->generate($deal, $agent);
         $this->assertSame($a->sequence_no + 1, $b->sequence_no, 'consecutive sequence');
         $this->assertNotSame($a->number, $b->number);
@@ -198,5 +200,47 @@ class ProformaInvoiceTest extends TestCase
         $this->assertDatabaseHas('proforma_invoice_audit', ['proforma_invoice_id' => $invoice->id, 'event' => 'generated']);
         app(ProformaAdminService::class)->void($invoice, $agent, 'kept');
         $this->assertDatabaseHas('proforma_invoices', ['id' => $invoice->id, 'status' => 'voided']);
+    }
+
+    public function test_only_one_active_proforma_per_deal_until_voided(): void
+    {
+        Storage::fake('local');
+        Mail::fake();
+        ['deal' => $deal, 'agent' => $agent] = $this->makeDeal();
+
+        $first = $this->service()->generate($deal, $agent);
+        $this->assertTrue($this->service()->hasActiveProforma($deal));
+
+        // Second attempt blocked at the SERVICE layer (a race/API call must also refuse).
+        try {
+            $this->service()->generate($deal, $agent);
+            $this->fail('a second active proforma should be refused');
+        } catch (\DomainException $e) {
+            $this->assertStringContainsString('active proforma', $e->getMessage());
+        }
+        $this->assertSame(1, ProformaInvoice::withoutGlobalScopes()->where('deal_id', $deal->id)->count());
+
+        // The only path to a new one: admin void → generate succeeds with the NEXT number.
+        app(ProformaAdminService::class)->void($first, $agent, 'redo');
+        $this->assertFalse($this->service()->hasActiveProforma($deal));
+        $second = $this->service()->generate($deal, $agent);
+        $this->assertSame($first->sequence_no + 1, $second->sequence_no, 'new number, never reused');
+        $this->assertSame('voided', $first->fresh()->status);
+        $this->assertSame('issued', $second->status);
+    }
+
+    public function test_generate_endpoint_refuses_a_second_proforma(): void
+    {
+        Storage::fake('local');
+        Mail::fake();
+        ['deal' => $deal, 'agent' => $agent] = $this->makeDeal();
+        $this->service()->generate($deal, $agent);
+
+        // HTTP layer: the endpoint re-checks and flashes an error, minting nothing new.
+        $this->actingAs($agent)
+            ->post(route('deals-dr2.proforma.generate', $deal))
+            ->assertRedirect()
+            ->assertSessionHas('error');
+        $this->assertSame(1, ProformaInvoice::withoutGlobalScopes()->where('deal_id', $deal->id)->count());
     }
 }
