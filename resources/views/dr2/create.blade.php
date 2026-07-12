@@ -173,18 +173,38 @@
                 <div class="text-xs text-gray-400 mt-1">No CoreX match? Type the address — the deal still saves.</div>
             </div>
 
-            {{-- (Enhancement 2) Seller — auto-offered from the property's linked SELLER role --}}
-            <div>
+            {{-- (Enhancement 2 + DR2 party picker) Seller — property tick-list (fast
+                 path) + full contact search + add-new. Linking here also creates the
+                 property↔contact SELLER link (one action, both records). --}}
+            <div id="dr2-seller">
                 <label class="ds-label block mb-1">Seller</label>
-                <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}">
+                <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids') }}">
+                <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}" placeholder="Seller name(s)">
+                <div id="dr2_seller_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
+                <div style="position:relative;">
+                    <input type="text" id="dr2_seller_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as seller…">
+                    <div id="dr2_seller_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                </div>
                 <div id="dr2_seller_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline text-gray-500" data-kind="seller">＋ Add a new contact</button></div>
+                <div id="dr2_seller_newform" class="mt-1" style="display:none;"></div>
             </div>
 
-            {{-- (Enhancement 2) Buyer — auto-offered from the property's linked BUYER role --}}
-            <div>
+            {{-- (Enhancement 2 + DR2 party picker) Buyer — same component as the seller;
+                 the tick-list is the fast path, search is the universal path. Linking
+                 creates the property↔contact BUYER link. --}}
+            <div id="dr2-buyer">
                 <label class="ds-label block mb-1">Buyer</label>
-                <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}">
+                <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids') }}">
+                <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}" placeholder="Buyer name(s)">
+                <div id="dr2_buyer_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
+                <div style="position:relative;">
+                    <input type="text" id="dr2_buyer_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as buyer…">
+                    <div id="dr2_buyer_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                </div>
                 <div id="dr2_buyer_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline text-gray-500" data-kind="buyer">＋ Add a new contact</button></div>
+                <div id="dr2_buyer_newform" class="mt-1" style="display:none;"></div>
             </div>
 
             {{-- (Enhancement 3 / walk fix 2) Attorney = FIRM + contact person. Search a
@@ -591,6 +611,8 @@
     const R = {
         properties: @json(route('deals-dr2.search.properties')),
         propertyContacts: @json(route('deals-dr2.search.property-contacts', ['property' => '__ID__'])),
+        contacts: @json(route('deals-dr2.search.contacts')),
+        contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
     };
@@ -697,42 +719,164 @@
     }
     document.getElementById('dr2_property_unlink').addEventListener('click', () => {
         pId.value = ''; pLinked.style.display = 'none';
-        document.getElementById('dr2_seller_offer').style.display = 'none';
-        document.getElementById('dr2_buyer_offer').style.display = 'none';
+        sellerField.setOffer([]); buyerField.setOffer([]);
     });
 
-    // ---------- Enhancement 2: seller/buyer offered from PROPERTY-LINK ROLES ----------
-    const sellerEl = document.getElementById('dr2_seller_name');
-    const buyerEl = document.getElementById('dr2_buyer_name');
-    const sellerOffer = document.getElementById('dr2_seller_offer');
-    const buyerOffer = document.getElementById('dr2_buyer_offer');
+    // ---------- Enhancement 2 + DR2 party picker: buyer/seller = tick-list (fast
+    //            path) + full contact search + add-new. Selecting a contact captures
+    //            its id (hidden CSV) so the SAVE creates the property↔contact link
+    //            with the right role. Reusable component for both parties. ----------
+    function partyField(kind) {
+        const idsEl    = document.getElementById('dr2_' + kind + '_ids');
+        const nameEl   = document.getElementById('dr2_' + kind + '_name');
+        const tokensEl = document.getElementById('dr2_' + kind + '_tokens');
+        const searchEl = document.getElementById('dr2_' + kind + '_search');
+        const resultsEl= document.getElementById('dr2_' + kind + '_results');
+        const offerEl  = document.getElementById('dr2_' + kind + '_offer');
+        const newFormEl= document.getElementById('dr2_' + kind + '_newform');
 
-    function chip(name, targetEl) {
-        const b = document.createElement('button');
-        b.type = 'button'; b.className = 'text-xs whitespace-nowrap px-2 py-0.5 rounded';
-        b.style.cssText = 'border:1px solid #cbd5e1;color:#0b2a4a;background:#f8fafc;';
-        b.textContent = '+ ' + name;
-        b.addEventListener('click', () => {
-            const cur = targetEl.value.trim();
-            const parts = cur ? cur.split(/\s*,\s*/) : [];
-            if (!parts.includes(name)) { parts.push(name); targetEl.value = parts.join(', '); }
-        });
-        return b;
+        let tokens = [];   // [{id, name}] — contacts to link on save
+        let offered = [];  // [{id, name}] — property's already-linked party (fast path)
+
+        const syncIds  = () => { idsEl.value = tokens.map(t => t.id).join(','); };
+        const parts    = () => { const c = nameEl.value.trim(); return c ? c.split(/\s*,\s*/).filter(Boolean) : []; };
+        const addName  = n => { const p = parts(); if (n && !p.includes(n)) { p.push(n); nameEl.value = p.join(', '); } };
+        const dropName = n => { nameEl.value = parts().filter(x => x !== n).join(', '); };
+
+        function renderTokens() {
+            tokensEl.innerHTML = '';
+            tokens.forEach(t => {
+                const chip = document.createElement('span');
+                chip.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded';
+                chip.style.cssText = 'border:1px solid #34d399;background:#ecfdf5;color:#065f46;';
+                chip.appendChild(document.createTextNode('🔗 ' + t.name));
+                const x = document.createElement('button');
+                x.type = 'button'; x.textContent = '×'; x.style.cssText = 'font-weight:700;line-height:1;margin-left:.15rem;';
+                x.addEventListener('click', () => { tokens = tokens.filter(z => z.id !== t.id); dropName(t.name); syncIds(); renderTokens(); renderOffer(); });
+                chip.appendChild(x);
+                tokensEl.appendChild(chip);
+            });
+        }
+        function addToken(id, name) {
+            id = parseInt(id, 10);
+            if (!id || tokens.some(t => t.id === id)) return;
+            tokens.push({ id, name: name || ('Contact #' + id) });
+            addName(name); syncIds(); renderTokens(); renderOffer();
+        }
+        function renderOffer() {
+            offerEl.innerHTML = '';
+            const remaining = offered.filter(o => o.name && !tokens.some(t => t.id === o.id));
+            if (!remaining.length) { offerEl.style.display = 'none'; return; }
+            offerEl.style.display = '';
+            remaining.forEach(o => {
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'text-xs whitespace-nowrap px-2 py-0.5 rounded';
+                b.style.cssText = 'border:1px solid #cbd5e1;color:#0b2a4a;background:#f8fafc;';
+                b.textContent = '+ ' + o.name;
+                b.addEventListener('click', () => addToken(o.id, o.name));
+                offerEl.appendChild(b);
+            });
+        }
+
+        // --- contact search (universal path) ---
+        const closeRes = () => { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; };
+        const runSearch = debounce(() => {
+            const q = searchEl.value.trim();
+            if (q.length < 2) { closeRes(); return; }
+            fetch(R.contacts + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : [])
+                .then(rows => {
+                    if (!Array.isArray(rows) || !rows.length) {
+                        resultsEl.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No contact match — use “Add a new contact”.</div>';
+                        resultsEl.style.display = 'block'; return;
+                    }
+                    resultsEl.innerHTML = rows.map(row => {
+                        const nm = row.name || row.label || ('Contact #' + row.id);
+                        const sub = [row.phone, row.email, row.type].filter(Boolean).join(' · ');
+                        return '<div class="dr2-crow" role="button" tabindex="0" data-id="' + row.id + '" data-name="' + esc(nm) + '" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                            + '<div style="font-weight:600;color:#0b2a4a;">' + esc(nm) + '</div>'
+                            + (sub ? '<div style="font-size:.75rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                    }).join('');
+                    resultsEl.style.display = 'block';
+                    resultsEl.querySelectorAll('.dr2-crow').forEach(el => {
+                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
+                        el.addEventListener('mouseout', () => el.style.background = '#fff');
+                        el.addEventListener('click', () => { addToken(el.dataset.id, el.dataset.name); searchEl.value = ''; closeRes(); });
+                    });
+                }).catch(closeRes);
+        }, 220);
+        searchEl.addEventListener('input', runSearch);
+        searchEl.addEventListener('focus', runSearch);
+        document.addEventListener('click', e => { if (!e.target.closest('#dr2-' + kind)) closeRes(); });
+
+        // --- add-new contact inline (Match-or-Create on the server) ---
+        let formBuilt = false;
+        function buildForm() {
+            newFormEl.innerHTML = ''
+                + '<div style="border:1px solid #e5e7eb;border-radius:.5rem;padding:.6rem;background:#f8fafc;">'
+                + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;">'
+                + '<input type="text"  class="nf-first" placeholder="First name*">'
+                + '<input type="text"  class="nf-last"  placeholder="Last name">'
+                + '<input type="text"  class="nf-phone" placeholder="Phone">'
+                + '<input type="email" class="nf-email" placeholder="Email">'
+                + '</div>'
+                + '<div class="nf-msg" style="font-size:.75rem;color:#b91c1c;margin-top:.3rem;display:none;"></div>'
+                + '<div style="margin-top:.4rem;display:flex;gap:.4rem;">'
+                + '<button type="button" class="nf-save text-xs px-3 py-1 rounded" style="background:#0b2a4a;color:#fff;">Create &amp; link</button>'
+                + '<button type="button" class="nf-cancel text-xs px-3 py-1 rounded" style="border:1px solid #cbd5e1;">Cancel</button>'
+                + '</div></div>';
+            const q = s => newFormEl.querySelector(s);
+            const msg = q('.nf-msg');
+            const show = m => { msg.textContent = m; msg.style.display = ''; };
+            q('.nf-cancel').addEventListener('click', () => { newFormEl.style.display = 'none'; });
+            q('.nf-save').addEventListener('click', () => {
+                msg.style.display = 'none';
+                const payload = { first_name: q('.nf-first').value.trim(), last_name: q('.nf-last').value.trim(), phone: q('.nf-phone').value.trim(), email: q('.nf-email').value.trim() };
+                if (!payload.first_name) { show('First name is required.'); return; }
+                postContact(payload, false, show);
+            });
+            formBuilt = true;
+        }
+        function postContact(payload, bypass, show) {
+            fetch(R.contactInline, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, Accept: 'application/json' },
+                body: JSON.stringify(Object.assign({}, payload, { bypass_duplicate_check: bypass ? 1 : 0 })),
+            }).then(async r => {
+                const body = await r.json().catch(() => ({}));
+                if ((r.status === 201 || r.ok) && body.id) { addToken(body.id, body.name); newFormEl.style.display = 'none'; return; }
+                if (r.status === 409 && body.duplicate_detected) {
+                    const first = (body.duplicate_detected.duplicates || [])[0];
+                    if (first && confirm('A matching contact already exists: ' + first.name + '. Link that existing contact instead?')) { addToken(first.id, first.name); newFormEl.style.display = 'none'; return; }
+                    if (body.duplicate_detected.can_override && confirm('Create a NEW contact anyway (override the duplicate)?')) { postContact(payload, true, show); return; }
+                    if (show) show('A matching contact exists — search for it above, or override.');
+                    return;
+                }
+                if (show) show(body.message || 'Could not add the contact.');
+            }).catch(() => { if (show) show('Network error — please retry.'); });
+        }
+
+        return {
+            setOffer(list) { offered = (list || []).filter(o => o && o.id && o.name); renderOffer(); },
+            openNew() { if (!formBuilt) buildForm(); newFormEl.style.display = newFormEl.style.display === 'none' ? '' : 'none'; },
+        };
     }
+
+    const sellerField = partyField('seller');
+    const buyerField  = partyField('buyer');
+    document.querySelectorAll('.dr2-addnew').forEach(btn =>
+        btn.addEventListener('click', () => (btn.dataset.kind === 'seller' ? sellerField : buyerField).openNew()));
+
     function loadPropContacts(pid) {
         fetch(R.propertyContacts.replace('__ID__', pid), { headers: { Accept: 'application/json' } })
             .then(r => r.ok ? r.json() : { sellers: [], buyers: [] })
             .then(data => {
                 const sellers = data.sellers || [], buyers = data.buyers || [];
-                // Seller: auto-fill when empty (never clobber a typed name), and offer chips.
-                if (sellers.length && !sellerEl.value.trim()) sellerEl.value = sellers.map(s => s.name).filter(Boolean).join(', ');
-                sellerOffer.innerHTML = '';
-                if (sellers.length) { sellerOffer.style.display = ''; sellers.forEach(s => s.name && sellerOffer.appendChild(chip(s.name, sellerEl))); }
-                else sellerOffer.style.display = 'none';
-                // Buyer: offer the property's linked buyers as chips (tick to fill).
-                buyerOffer.innerHTML = '';
-                if (buyers.length) { buyerOffer.style.display = ''; buyers.forEach(b => b.name && buyerOffer.appendChild(chip(b.name, buyerEl))); }
-                else buyerOffer.style.display = 'none';
+                // Seller: auto-fill the name when empty (never clobber a typed name).
+                const sName = document.getElementById('dr2_seller_name');
+                if (sellers.length && !sName.value.trim()) sName.value = sellers.map(s => s.name).filter(Boolean).join(', ');
+                sellerField.setOffer(sellers.map(s => ({ id: s.id, name: s.name })));
+                buyerField.setOffer(buyers.map(b => ({ id: b.id, name: b.name })));
             }).catch(() => {});
     }
     if (pId.value) loadPropContacts(pId.value);

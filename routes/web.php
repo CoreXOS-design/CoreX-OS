@@ -660,6 +660,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // BEFORE the {deal} wildcards so they never shadow-capture.
     Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
     Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
+    Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
+    Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
     // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
     // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
     Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
