@@ -315,6 +315,38 @@ class DemoAccessGrantTest extends TestCase
     }
 
     /**
+     * The invitation comes FROM CoreX, over CoreX's own SMTP account.
+     *
+     * The default mailer authenticates as system@hfcoastal.co.za — the agency's
+     * mailbox. This email is a CoreX product invitation to a corexos.co.za demo,
+     * so it must go out as mail@corexos.co.za on the `corex` mailer. Two things
+     * have to hold together, and both fail silently if they drift:
+     *
+     *  - the mailer, or the SMTP account is wrong;
+     *  - the From, or it no longer matches the authenticated account and SPF bins
+     *    the mail at the recipient with no error raised our side.
+     */
+    public function test_the_invitation_is_sent_from_the_corex_account_over_the_corex_mailer(): void
+    {
+        Mail::fake();
+
+        $this->service->issue([
+            'company_name'  => 'Shelly Beach Properties',
+            'contact_email' => 'nomsa@shellybeach.co.za',
+        ], $this->owner->id);
+
+        // $mail->mailer is stamped by the queueing mailer itself, so it reflects
+        // what the CALL SITE selected — exactly the thing worth asserting. The
+        // From is read off the envelope directly: Mail::fake() collects the
+        // mailable without hydrating it, so hasFrom() would be empty here even
+        // when the envelope is right.
+        Mail::assertQueued(DemoAccessGrantMail::class, function (DemoAccessGrantMail $mail) {
+            return $mail->mailer === 'corex'
+                && $mail->envelope()->from?->address === 'mail@corexos.co.za';
+        });
+    }
+
+    /**
      * The emailed link points at the GATE, on the DEMO's domain.
      *
      * Two ways this goes wrong, both silent:
