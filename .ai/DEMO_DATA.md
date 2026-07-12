@@ -68,6 +68,31 @@ every rebuild**. It is email+password only: `super_admin` is deliberately absent
 from `DemoLoginController::ALLOWED_ROLES`, so the passwordless persona buttons on
 the demo login screen can never sign anyone in as the owner.
 
+## The demo host MUST set `COREX_INSTANCE_ROLE=demo`
+
+Not in `.env` → `Instance::role()` silently defaults to `primary`, and **the box
+behaves as if it were live**. This is not loud: nothing errors, so it looks fine.
+What actually breaks (found on demo1, 2026-07-12 — the line had never been added):
+
+- `Dev Settings → Demo Connection` (`/corex/admin/dev-settings/demo-connection`) —
+  the page where the connector token is pasted — **404s**, and its sidebar entry is
+  hidden. Both gate on `Instance::isDemo()`. There is then no way to connect the
+  demo to live from the browser, which is the whole point of AT-230.
+- The demo access gate (`EnsureDemoGrant`, and the grant check in
+  `DemoLoginController::login()`) is **inert** — the demo is wide open to anyone
+  with the URL, ungated and unwatermarked.
+- Confusingly, the box instead offers `Demo Access → Connection`
+  (`/demo-access/connection`), which is the **live-side minting** page. Two similar
+  URLs, opposite ends of the link:
+
+| Page | Side | What it does |
+|------|------|--------------|
+| `/corex/admin/dev-settings/demo-access/connection` | **live** | *Mints* the connector token |
+| `/corex/admin/dev-settings/demo-connection` | **demo** | *Pastes* the URL + token |
+
+After setting it: `php artisan config:clear` and reload php-fpm (demo1 runs
+`php8.2-fpm`). Verify with `Instance::isDemo() === true`.
+
 ---
 
 ## What it creates (per-module volume, fresh-DB)
