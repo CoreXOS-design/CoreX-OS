@@ -5066,7 +5066,11 @@
                     @if($marketPosition)
                         <div class="rounded-md p-3 mb-3 grid grid-cols-3 gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div>
-                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price'] ?? 0) }}</div>
+                                @if(!empty($marketPosition['recommended_price']))
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price']) }}</div>
+                                @else
+                                    <div class="text-sm font-bold" style="color: var(--text-muted);" title="No profile-matched comparable sales in this suburb yet — showing a price would be misleading.">—</div>
+                                @endif
                                 <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
                             </div>
                             <div>
