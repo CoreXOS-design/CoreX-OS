@@ -110,13 +110,23 @@ class DealSyncService
                 $dirty = [];
 
                 [$accepted, $regDate, $grantedAt] = $this->v2StatusToV1($v2, $v1);
-                if ($v1->accepted_status !== $accepted) {
+                // Wave 2 granted-uniqueness — the twin sync must not QUIETLY create
+                // a second granted deal on a property that already carries one.
+                // Skip the grant write (keep the rest of the sync) and log it so
+                // it is surfaced, not silently swallowed.
+                $grantBlocked = $accepted === 'G' && $v1->accepted_status !== 'G'
+                    && app(\App\Services\Deal\DealPropertyStatusService::class)->existingCommittedDeal($v1) !== null;
+                if ($grantBlocked) {
+                    \Log::warning('DealSync: blocked duplicate grant on property (twin sync)', [
+                        'v1_deal_id' => $v1->id, 'property_id' => $v1->property_id, 'v2_deal_id' => $v2->id,
+                    ]);
+                } elseif ($v1->accepted_status !== $accepted) {
                     $dirty['accepted_status'] = $accepted;
                 }
                 if ($regDate !== null && $this->dateChanged($v1->registration_date, $regDate)) {
                     $dirty['registration_date'] = $regDate;
                 }
-                if ($grantedAt !== null && ! $v1->granted_at) {
+                if (! $grantBlocked && $grantedAt !== null && ! $v1->granted_at) {
                     $dirty['granted_at'] = $grantedAt;
                 }
 
