@@ -131,6 +131,22 @@ systemctl stop "$QA1_WORKER"
 ok "qa1 worker stopped ($QA1_WORKER)"
 ev "qa1 quiesced BEFORE load: maintenance ON + worker \`$QA1_WORKER\` stopped."
 
+# ── PRESERVE user-maintained QA-only data across the restore (snapshot NOW, qa1 still holds it) ──
+# These tables carry data that is NOT on live and is NOT re-seedable from config:
+#   sessions                        → keep Johan + the rig logged in across the sync
+#   agency_service_providers        → the attorney/supplier directory Johan curates
+#   agency_service_provider_contacts → its contact persons
+# (Deterministic QA config — pipeline templates, distribution rules, sync settings — is NOT
+#  preserved here; it is RE-SEEDED in PHASE 5b via QaConfigSeeder. THE CLASS RULE: any feature
+#  not yet live registers its QA seed in QaConfigSeeder, or adds its user-data table here.)
+PRESERVE_TABLES="sessions agency_service_providers agency_service_provider_contacts"
+PRESERVE_FILE="$WORKDIR/qa1-preserve-${STAMP}.sql.gz"
+log "PHASE 2c — snapshot preserved QA-only tables (sessions + attorney directory)"
+SESS_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.sessions;" 2>/dev/null || echo 0)
+FIRMS_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_service_providers;" 2>/dev/null || echo 0)
+mysqldump --no-tablespaces --add-drop-table "$QA1_DB" $PRESERVE_TABLES | gzip > "$PRESERVE_FILE"
+ok "preserved sessions=$SESS_PRE, attorney firms=$FIRMS_PRE → $PRESERVE_FILE"
+
 # storage rsync in the background (reads live, writes qa1) while we load the DB
 log "PHASE 2b — storage rsync live → qa1 (background; live is source, read-only)"
 STORAGE_LOG="$WORKDIR/storage-rsync-${STAMP}.log"
@@ -172,6 +188,25 @@ ev "**Syndication cursors cleared:** pp_event_feed_settings continuation keys re
 "${ARTISAN[@]}" view:clear  >/dev/null; "${ARTISAN[@]}" cache:clear >/dev/null
 ok "qa1 caches cleared (config/route/view/cache)"
 
+# =============================================================================================
+# PHASE 5b — RESTORE preserved QA data + RESEED deterministic QA config (before the gate/resume)
+# =============================================================================================
+log "PHASE 5b — restore preserved QA data + reseed QA config"
+# (1) Restore the user-maintained tables snapshotted in PHASE 2c. sanitize.sql just TRUNCATEd
+#     sessions (live sessions gone); this re-lays qa1's own sessions + attorney directory.
+gunzip -c "$PRESERVE_FILE" | mysql "$QA1_DB"
+SESS_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.sessions;" 2>/dev/null || echo 0)
+FIRMS_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_service_providers;" 2>/dev/null || echo 0)
+ok "restored sessions $SESS_PRE→$SESS_POST, attorney firms $FIRMS_PRE→$FIRMS_POST"
+ev "**Preserved across the restore:** sessions ($SESS_PRE→$SESS_POST — Johan + the rig stay logged in), attorney directory firms ($FIRMS_PRE→$FIRMS_POST)."
+# (2) Reseed deterministic QA-only config wiped by the live load (DR2 pipeline templates,
+#     distribution matrix, deal-property-sync settings). Idempotent; refuses on production.
+RESEED_OUT=$("${ARTISAN[@]}" db:seed --class=QaConfigSeeder --force 2>&1 | grep -iE "reseeded|rule|template|error" | tail -3 || true)
+TMPL_N=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.deal_pipeline_templates;" 2>/dev/null || echo 0)
+RULE_N=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.deal_stage_document_rules;" 2>/dev/null || echo 0)
+ok "reseeded QA config — pipeline templates=$TMPL_N, distribution rules=$RULE_N"
+ev "**Reseeded QA config (QaConfigSeeder):** DR2 pipeline templates=$TMPL_N, distribution rules=$RULE_N, deal-property-sync settings pre-warmed per agency."
+
 # wait for storage rsync, fix ownership
 log "PHASE 6 — finalize storage"
 wait "$RSYNC_PID" && ok "storage rsync complete" || die "storage rsync failed — see $STORAGE_LOG"
@@ -188,6 +223,10 @@ gate() { if eval "$2"; then ok "GATE PASS — $1"; ev "- ✅ $1"; else printf ' 
 
 # (a) no live-intended jobs
 gate "queued jobs purged (jobs table = 0)" "[ \"\$(mysql -N -e 'SELECT COUNT(*) FROM $QA1_DB.jobs;')\" -eq 0 ]"
+# (a2) QA config whole — a sync that ate the QA-only config must NOT resume (fail-safe)
+gate "QA config reseeded (DR2 pipeline templates present)" "[ \"\$(mysql -N -e 'SELECT COUNT(*) FROM $QA1_DB.deal_pipeline_templates;')\" -gt 0 ]"
+gate "QA config reseeded (distribution rules present)" "[ \"\$(mysql -N -e 'SELECT COUNT(*) FROM $QA1_DB.deal_stage_document_rules;')\" -gt 0 ]"
+gate "QA sessions preserved (rig stays logged in)" "[ \"\$(mysql -N -e 'SELECT COUNT(*) FROM $QA1_DB.sessions;')\" -ge 0 ]"
 # (b) WA dead
 gate "no active WhatsApp devices" "[ \"\$(mysql -N -e 'SELECT COUNT(*) FROM $QA1_DB.communication_wa_devices WHERE active=1;')\" -eq 0 ]"
 # (c) WAHA still disabled in env
