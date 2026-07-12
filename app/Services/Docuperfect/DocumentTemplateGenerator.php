@@ -262,11 +262,37 @@ class DocumentTemplateGenerator
                 $tag = $tagsById[$tagId] ?? null;
                 $mapping = $mappings[$tagId] ?? null;
 
+                // A TAG WE DO NOT UNDERSTAND MUST NEVER BE DELETED.
+                //
+                // Both the orphan path and the unknown-type path used to `return ''` — which
+                // does not "skip" the tag, it ERASES THE BLANK FROM THE DOCUMENT. The import
+                // then completes, reports success, and produces a legal template whose
+                // fill-in lines have quietly disappeared: the text reads "I / We  the
+                // undersigned" with nothing to sign into, and nobody is told. A document that
+                // silently loses its blanks is worse than an import that fails.
+                //
+                // (Hit for real: a tag carrying no `type` fell straight through to the
+                // unknown-type branch, and all 39 blanks were erased from the EATS.)
+                //
+                // Prevent-or-absorb (BUILD_STANDARD §3): absorb it as a manual field the agent
+                // can still fill, and say so loudly. Never destroy content.
                 if (!$tag) {
-                    return ''; // orphan tag span — remove
+                    Log::error('Generator: tag span with no matching tag — preserved as a manual field, NOT deleted', [
+                        'tag_id' => $tagId,
+                    ]);
+
+                    return $this->renderManualFallbackField($tagId, 'Unmapped field');
                 }
 
+                // A tag that exists in the document IS a blank. If it never got a type, the
+                // overwhelmingly common case is an input — default to it rather than erase it.
                 $tagType = $tag['type'] ?? '';
+                if ($tagType === '') {
+                    Log::warning('Generator: tag has no type — defaulting to input rather than dropping the blank', [
+                        'tag_id' => $tagId,
+                    ]);
+                    $tagType = 'input';
+                }
 
                 if ($tagType === 'input') {
                     return $this->renderInputTag($mapping, $namedFieldMap, $fieldGroupMap, (int) ($tag['number'] ?? 0));
@@ -280,10 +306,29 @@ class DocumentTemplateGenerator
                     return $this->renderIniTag($tag, $mapping);
                 }
 
-                return ''; // unknown type
+                Log::error('Generator: unknown tag type — preserved as a manual field, NOT deleted', [
+                    'tag_id' => $tagId,
+                    'type'   => $tagType,
+                ]);
+
+                return $this->renderManualFallbackField($tagId, 'Unrecognised field');
             },
             $html
         );
+    }
+
+    /**
+     * The blank survives, even when we cannot make sense of the tag.
+     *
+     * An agent can fill a manual field. Nobody can fill a blank that was deleted.
+     */
+    protected function renderManualFallbackField(string $tagId, string $label): string
+    {
+        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower($tagId));
+        $slug = trim((string) $slug, '_') ?: 'unknown';
+
+        return '<span class="field field-manual" data-field="manual.' . e($slug) . '"'
+            . ' data-label="' . e($label) . '">{{ $manual_' . $slug . ' ?? \'\' }}</span>';
     }
 
     /**
