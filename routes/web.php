@@ -660,13 +660,31 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // BEFORE the {deal} wildcards so they never shadow-capture.
     Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
     Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
+    Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
+    Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
     // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
     // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
     Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
     Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
+    // (Johan DR2-walk fix 2) attorney = FIRM + contact person — DR2-specific feeds.
+    Route::get('/attorney/search',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneySearch'])->middleware('permission:create_deals')->name('attorney.search');
+    Route::post('/attorney/inline',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneyInline'])->middleware('permission:create_deals')->name('attorney.inline');
 
     Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
-    Route::put('/{deal}',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
+    Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
+
+    // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
+    // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
+    Route::get('/{deal}/log',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'log'])->middleware('permission:view_deals')->name('log');
+    Route::post('/{deal}/remark', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addRemark'])->middleware('permission:view_deals')->name('remark');
+
+    // Settlement — admin + BM only (settle_deals). Faithful DR1 copy on the same tables.
+    Route::get('/{deal}/settle',              [\App\Http\Controllers\Dr2\DealSettlementController::class, 'settle'])->middleware('permission:settle_deals')->name('settle');
+    Route::post('/{deal}/settle',             [\App\Http\Controllers\Dr2\DealSettlementController::class, 'saveSettlement'])->middleware('permission:settle_deals')->name('settle.save');
+    Route::get('/{deal}/settle/print',        [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printSettlement'])->middleware('permission:settle_deals')->name('settle.print');
+    Route::get('/{deal}/settle/print/{user}', [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printAgentPayslip'])->middleware('permission:settle_deals')->name('settle.print.agent');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
@@ -695,6 +713,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // (DR2 respec) firm → contact persons management.
+    Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // Inline pick-or-create (used by the deal form) — gated to agents working a deal.
     Route::get('/search', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->name('deals-v2.suppliers.search')->middleware('permission:deals_v2.edit');
     Route::post('/inline', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->name('deals-v2.suppliers.inline')->middleware('permission:deals_v2.edit');
@@ -965,6 +986,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
+
+    // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
+    Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');
+    Route::put('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'update'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.update');
 
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');

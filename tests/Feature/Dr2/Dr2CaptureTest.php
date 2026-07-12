@@ -33,6 +33,7 @@ class Dr2CaptureTest extends TestCase
         return array_merge([
             'period'                => '2026-06',
             'deal_date'             => '2026-06-10',
+            'deal_type'             => 'bond',
             'property_value'        => 1000000,
             'total_commission'      => 57500,
             'listing_split_percent' => 50,
@@ -64,7 +65,10 @@ class Dr2CaptureTest extends TestCase
         $this->actingAs($admin)
             ->get(route('deals-dr2.create'))
             ->assertOk()
-            ->assertSee('Add Deal (DR2)', false);
+            // DR1-faithful header (visual parity), plus the DR2 capture enhancements.
+            ->assertSee('Add Deal', false)
+            ->assertSee('Deal Type', false)      // enhancement 6 (compulsory radios)
+            ->assertSee('Commission %', false);  // enhancement 5 (calc-on-load)
     }
 
     public function test_dr2_store_persists_a_real_deals_row(): void
@@ -87,9 +91,26 @@ class Dr2CaptureTest extends TestCase
             'agency_id'        => $agency->id,
             'branch_id'        => $branch->id,
             'period'           => '2026-06',
+            'deal_type'        => 'bond',
             'property_address' => '12 Marine Drive, Uvongo',
             'seller_name'      => 'A Seller',
         ]);
+    }
+
+    public function test_dr2_deal_type_is_compulsory(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-dealtype');
+
+        $before = DB::table('deals')->count();
+
+        $this->actingAs($admin)
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+                'branch_id' => $branch->id,
+                'deal_type' => '', // no deal type chosen
+            ]))
+            ->assertSessionHasErrors('deal_type');
+
+        $this->assertSame($before, DB::table('deals')->count(), 'No deal may be stored without a deal type.');
     }
 
     public function test_dr2_store_links_the_picked_property_with_manual_exact_provenance(): void
@@ -157,5 +178,63 @@ class Dr2CaptureTest extends TestCase
         $this->assertDatabaseHas('deals', [
             'agency_id' => $agency->id, 'branch_id' => $branch->id, 'period' => '2026-06',
         ]);
+    }
+
+    /**
+     * DR2 reverse link (property-spine doctrine): choosing a buyer/seller contact on
+     * capture ALSO links them to the property with the right role — idempotently.
+     */
+    public function test_dr2_capture_reverse_links_buyer_and_seller_to_the_property(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-revlink');
+
+        $property = Property::create([
+            'title' => 'Rev-link Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '9 Link Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $buyerC  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Bob', 'last_name' => 'Buyer']);
+        $sellerC = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sue', 'last_name' => 'Seller']);
+
+        $post = fn () => $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id'          => $branch->id,
+            'property_id'        => $property->id,
+            'buyer_contact_ids'  => (string) $buyerC->id,
+            'seller_contact_ids' => (string) $sellerC->id,
+        ]));
+
+        $post()->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $buyerC->id, 'role' => 'buyer']);
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $sellerC->id, 'role' => 'seller']);
+
+        // A second capture of the same parties must not duplicate the links.
+        $post()->assertSessionHasNoErrors();
+        $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $buyerC->id])->count());
+        $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $sellerC->id])->count());
+    }
+
+    /** A contact already linked in one role must NOT be silently re-roled by a deal. */
+    public function test_dr2_capture_does_not_reroles_an_existing_link(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-reroute');
+
+        $property = Property::create([
+            'title' => 'Reroute Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '11 Keep Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $c = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Joint', 'last_name' => 'Party']);
+        $property->contacts()->attach($c->id, ['role' => 'seller']);
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id'         => $branch->id,
+            'property_id'       => $property->id,
+            'buyer_contact_ids' => (string) $c->id, // same contact, now picked as buyer
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $c->id, 'role' => 'seller']);
+        $this->assertDatabaseMissing('contact_property', ['property_id' => $property->id, 'contact_id' => $c->id, 'role' => 'buyer']);
+        $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $c->id])->count());
     }
 }

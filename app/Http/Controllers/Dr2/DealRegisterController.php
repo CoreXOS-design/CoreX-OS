@@ -6,8 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Deal;
+use App\Models\DealLog;
+use App\Models\DealSettlement;
+use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\DealV2\AgencyServiceProviderContact;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\ContactDuplicateService;
 use App\Services\DealMoneyLineRebuilder;
 use App\Services\Finance\RollupService;
 use App\Services\PermissionService;
@@ -41,18 +46,210 @@ use Illuminate\View\View;
  */
 class DealRegisterController extends Controller
 {
-    /** DR2 register front page — the same `deals` rows DR1 shows (agency-scoped by BelongsToAgency). */
-    public function index(): View
+    /**
+     * DR2 register list — a FAITHFUL copy of DR1's Admin\DealController::index()
+     * (search, status/commission/branch/agent filters, sort, paid-not-settled
+     * exception, agent scope via visibleTo). Renders the DR1-identical dr2.index.
+     * Read access (deals.view) — admin + BM + agent (agent scoped to own deals).
+     */
+    public function index(Request $request): View
     {
-        $deals = Deal::query()
-            ->with('agents')
-            ->orderByDesc('deal_date')
-            ->limit(50)
-            ->get();
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
 
+        $user = auth()->user();
+        $scope = PermissionService::getDataScope($user, 'deals');
+        $query = Deal::query()->visibleTo($user)->with('agents');
+
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('property_address', 'like', "%{$search}%")
+                  ->orWhere('seller_name', 'like', "%{$search}%")
+                  ->orWhere('buyer_name', 'like', "%{$search}%")
+                  ->orWhere('deal_no', 'like', "%{$search}%")
+                  ->orWhere('file_no', 'like', "%{$search}%");
+            });
+        }
+
+        if ($status = $request->input('status')) {
+            $map = [
+                'Pending'    => ['Pending', 'P'],
+                'Granted'    => ['Granted', 'G'],
+                'Registered' => ['Registered', 'R'],
+                'Declined'   => ['Declined', 'D'],
+            ];
+            if (isset($map[$status])) {
+                $query->whereIn('accepted_status', $map[$status]);
+            } else {
+                $query->where('accepted_status', $status);
+            }
+        }
+
+        if ($commStatus = $request->input('commission')) {
+            $query->where('commission_status', $commStatus);
+        }
+
+        if ($scope === 'all' && ($branchFilter = $request->input('branch'))) {
+            $query->where('branch_id', $branchFilter);
+        }
+
+        if ($agentFilter = $request->input('agent')) {
+            $query->whereHas('agents', fn ($q) => $q->where('users.id', $agentFilter));
+        }
+
+        $sortField = $request->input('sort', 'deal_no');
+        $sortDir = $request->input('direction', 'desc');
+        $allowed = ['deal_no', 'deal_date', 'property_value', 'accepted_status', 'commission_status', 'property_address'];
+        if (! in_array($sortField, $allowed)) {
+            $sortField = 'deal_no';
+        }
+        $query->orderBy($sortField, $sortDir === 'asc' ? 'asc' : 'desc');
+
+        $deals = $query->paginate(20)->withQueryString();
+
+        // PAID_NOT_SETTLED exception report (admin all-scope only) — DR1 parity.
+        $paidNotSettledDeals = collect();
+        if ($scope === 'all') {
+            $allPaidDeals = Deal::query()->visibleTo($user)->where('commission_status', 'Paid')->get();
+            $paidDealIds = $allPaidDeals->pluck('id')->map(fn ($v) => (int) $v)->all();
+
+            $settledPaidDealIds = [];
+            if (count($paidDealIds) > 0) {
+                $settledPaidDealIds = DealSettlement::query()
+                    ->whereIn('deal_id', $paidDealIds)
+                    ->whereNotNull('paid_at')
+                    ->distinct()
+                    ->pluck('deal_id')
+                    ->map(fn ($v) => (int) $v)
+                    ->all();
+            }
+
+            $settledPaidSet = array_flip($settledPaidDealIds);
+            $paidNotSettledDeals = $allPaidDeals->filter(fn ($d) => ! isset($settledPaidSet[(int) $d->id]))->values();
+        }
+
+        $agents = User::orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
-        return view('dr2.index', compact('deals', 'branches'));
+        $branchIdContext = (int) $request->input('branch_id');
+        if ($branchIdContext <= 0 && $scope === 'branch') {
+            $branchIdContext = (int) ($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
+        }
+
+        return view('dr2.index', compact('deals', 'agents', 'branches', 'paidNotSettledDeals', 'branchIdContext'));
+    }
+
+    /**
+     * DR2 deal log — DR1 parity (read the audit trail). deals.view (all three roles;
+     * agents see their own deals' feedback).
+     */
+    public function log(Deal $deal): View
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+
+        $logs = DealLog::query()
+            ->where('deal_id', $deal->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $actors = User::whereIn('id', $logs->pluck('actor_user_id')->filter()->unique()->values())->get()->keyBy('id');
+
+        return view('dr2.log', compact('deal', 'logs', 'actors'));
+    }
+
+    /**
+     * DR2 add remark — FEEDBACK. Per Johan's DR2 permission doctrine, AGENTS may give
+     * feedback (log/remarks), so this gates on deals.view (not deals.create like DR1).
+     * Read-plus-feedback, not deal setup.
+     */
+    public function addRemark(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+
+        $data = $request->validate([
+            'remark' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $remark = trim((string) $data['remark']);
+        if ($remark === '') {
+            return redirect()->route('deals-dr2.log', $deal)->withErrors('Remark cannot be blank.');
+        }
+
+        // Backwards compatibility: keep the latest remark on the deal row (DR1 parity).
+        $deal->remarks = $remark;
+        $deal->save();
+
+        $this->logDealEvent($deal, 'remark_added', null, null, $remark);
+
+        return redirect()->route('deals-dr2.log', $deal)->with('status', 'Remark added.');
+    }
+
+    /**
+     * DR2 quick status update — DR1 parity. Deal STATUS is setup, not feedback, so it
+     * stays deals.edit (admin + BM). Agents' allowed writes are feedback + pipeline
+     * steps, not accepted/commission status.
+     */
+    public function quickUpdate(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $oldAccepted = (string) ($deal->accepted_status ?? '');
+        $oldCommission = (string) ($deal->commission_status ?? '');
+
+        $data = $request->validate([
+            'accepted_status'   => ['nullable', 'string', 'max:1'],
+            'commission_status' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $newAccepted = array_key_exists('accepted_status', $data) ? (string) ($data['accepted_status'] ?? '') : $oldAccepted;
+        $newCommission = array_key_exists('commission_status', $data) ? (string) ($data['commission_status'] ?? '') : $oldCommission;
+
+        $deal->fill([
+            'accepted_status'   => $newAccepted,
+            'commission_status' => $newCommission,
+        ])->save();
+
+        if ($oldAccepted !== $newAccepted) {
+            $this->logDealEvent($deal, 'status_changed', $oldAccepted, $newAccepted);
+        }
+        if ($oldCommission !== $newCommission) {
+            $this->logDealEvent($deal, 'commission_status_changed', $oldCommission, $newCommission);
+        }
+
+        // The deal row + its money lines are updated SYNCHRONOUSLY above (the register's
+        // status column + money lines are correct the instant this returns).
+        DealMoneyLineRebuilder::rebuildDealId((int) $deal->id);
+
+        // (Johan DR2-walk fix 3) The slow part of a quick status save is the PERIOD-WIDE
+        // finance rollup — RollupService::refreshPeriod recomputes finance_computed_values
+        // across every deal/agent/branch in the period (O(period), not O(this deal)). It
+        // feeds reports/dashboards, NOT the register, so DEFER it until after the response:
+        // the save returns snappy, the rollup still runs the same request cycle (no queue
+        // worker needed). Nothing is failing/retrying — it was just heavy work run inline.
+        $dealPeriod = (string) ($deal->period ?? '');
+        if ($dealPeriod && preg_match('/^\d{4}-\d{2}$/', $dealPeriod)) {
+            dispatch(function () use ($dealPeriod) {
+                (new RollupService())->refreshPeriod($dealPeriod);
+            })->afterResponse();
+        }
+
+        return redirect()->route('deals-dr2.index')->with('status', 'Deal updated.');
+    }
+
+    /** DR1-parity audit-trail writer. Never blocks the deal operation on a logging failure. */
+    private function logDealEvent(Deal $deal, string $eventType, ?string $from = null, ?string $to = null, ?string $message = null): void
+    {
+        try {
+            DealLog::create([
+                'deal_id'       => $deal->id,
+                'actor_user_id' => auth()->id(),
+                'event_type'    => $eventType,
+                'from_value'    => $from,
+                'to_value'      => $to,
+                'message'       => $message,
+            ]);
+        } catch (\Throwable $e) {
+            // Never block deal operations because logging failed.
+        }
     }
 
     /**
@@ -142,7 +339,12 @@ class DealRegisterController extends Controller
 
                 $deal->deal_no = (string) ($maxNumeric + 1);
 
-                return $this->persistDeal($deal, $request, true);
+                $resp = $this->persistDeal($deal, $request, true);
+                if ($deal->exists) {
+                    $this->logDealEvent($deal, 'created', null, null, 'Deal created');
+                }
+
+                return $resp;
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
@@ -188,6 +390,9 @@ class DealRegisterController extends Controller
         $data = $request->validate([
             'period'           => ['required'],
             'deal_date'        => ['required', 'date'],
+            // (Enhancement 6) deal type is COMPULSORY — explicit choice, no silent
+            // default. Additive column on `deals`; DR1 ignores it (legacy rows NULL).
+            'deal_type'        => ['required', 'in:bond,cash,sale_of_2nd'],
             'property_value'   => ['required', 'numeric'],
             'total_commission' => ['required', 'numeric'],
 
@@ -202,7 +407,15 @@ class DealRegisterController extends Controller
 
             'seller_name'      => ['nullable', 'string', 'max:255'],
             'buyer_name'       => ['nullable', 'string', 'max:255'],
+            // (DR2 reverse link) CSV of chosen contact ids for each party. Used
+            // to create the property↔contact link with the right role at save
+            // (one action, both records). Display names stay in *_name.
+            'seller_contact_ids' => ['nullable', 'string', 'max:500'],
+            'buyer_contact_ids'  => ['nullable', 'string', 'max:500'],
             'attorney_name'    => ['nullable', 'string', 'max:255'],
+            // (fix 2) attorney = firm + contact person; the deal links both.
+            'attorney_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -300,6 +513,7 @@ class DealRegisterController extends Controller
         $deal->fill([
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
+            'deal_type'        => $data['deal_type'],
             'property_value'   => $data['property_value'],
             'total_commission' => $data['total_commission'],
 
@@ -314,6 +528,8 @@ class DealRegisterController extends Controller
             'seller_name'      => $data['seller_name'] ?? null,
             'buyer_name'       => $data['buyer_name'] ?? null,
             'attorney_name'    => $data['attorney_name'] ?? null,
+            'attorney_provider_id' => ! empty($data['attorney_provider_id']) ? (int) $data['attorney_provider_id'] : null,
+            'attorney_contact_id'  => ! empty($data['attorney_contact_id']) ? (int) $data['attorney_contact_id'] : null,
             'accepted_status'  => $data['accepted_status'] ?? null,
             'commission_status' => $data['commission_status'] ?? null,
             'registration_date' => $data['registration_date'] ?? null,
@@ -336,6 +552,19 @@ class DealRegisterController extends Controller
         }
 
         $deal->save();
+
+        // (DR2 reverse link — property-spine doctrine) Deal capture is often the
+        // moment a buyer/seller enters the story. Linking a party on the deal
+        // MUST also link them to the PROPERTY with the correct role, so the
+        // property knows its buyer/seller too. One action, both records —
+        // idempotent, audit-logged, never re-roles an existing link.
+        if ($propertyId) {
+            $linkProperty = Property::find($propertyId);
+            if ($linkProperty) {
+                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['seller_contact_ids'] ?? null), 'seller');
+                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['buyer_contact_ids'] ?? null), 'buyer');
+            }
+        }
 
         // Rebuild agent pivots (DR1 parity: detach then re-attach per side with snapshots).
         $deal->agents()->detach();
@@ -428,19 +657,31 @@ class DealRegisterController extends Controller
             return response()->json([]);
         }
 
+        // (Enhancement 1) Rich results matching the PDF splitter's property search
+        // exactly (PdfSplitterController::searchProperties): each row carries EXTRA
+        // identifying info — reference + seller/owner name + listing agent — not just
+        // the address, so two similar-address properties can't be confused. Same
+        // `visibleTo` scope + canonical `searchAddress` clarity rules. One pattern.
         $properties = Property::query()
+            ->visibleTo($request->user())
             ->searchAddress($search)
             ->with('agent')
             ->latest()
             ->limit(15)
             ->get()
-            ->map(fn (Property $p) => $p->toSearchResult([
-                'address'            => $p->buildDisplayAddress(),
-                'price'              => $p->listing_price ?? $p->price ?? null,
-                'commission_percent' => $p->commission_percent,
-                'listing_agent_id'   => $p->agent_id,
-                'listing_agent_name' => $p->agent?->name,
-            ]));
+            ->map(function (Property $p) {
+                $seller = $p->sellerOwnerContact();
+
+                return $p->toSearchResult([
+                    'address'            => $p->buildDisplayAddress(),
+                    'ref'                => $p->property_number,
+                    'seller'             => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                    'price'              => $p->listing_price ?? $p->price ?? null,
+                    'commission_percent' => $p->commission_percent,
+                    'listing_agent_id'   => $p->agent_id,
+                    'listing_agent_name' => $p->agent?->name,
+                ]);
+            });
 
         return response()->json($properties);
     }
@@ -480,5 +721,254 @@ class DealRegisterController extends Controller
             'sellers' => $sellers,
             'buyers'  => $buyers,
         ]);
+    }
+
+    /**
+     * (DR2 party picker) Contact autocomplete for the buyer/seller fields — the
+     * UNIVERSAL path when the property has no linked party yet (the property
+     * tick-list is only the fast path). Reuses the canonical Contact::search +
+     * toSearchResult primitives (same engine the property-page picker uses).
+     */
+    public function contactSearch(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        // Search the whole AGENCY (bypass the 'own'/'branch' ContactScope) so a
+        // capturer can link ANY existing agency contact instead of being shown
+        // nothing and creating a duplicate (Non-Negotiable #10). AgencyScope +
+        // soft-deletes still apply. Mirrors the property-page link picker.
+        $rows = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
+            ->with(['phones', 'emails', 'type', 'agent'])
+            ->search($q)
+            ->limit(15)
+            ->get()
+            ->map(fn (Contact $c) => $c->toSearchResult($q, [
+                'name'  => $c->full_name,
+                'email' => $c->email,
+                'phone' => $c->phone,
+            ]));
+
+        return response()->json($rows);
+    }
+
+    /**
+     * (DR2 party picker) Add-new contact inline — Match-or-Create (Non-Neg #10):
+     * an existing contact matching phone/email is REUSED, never duplicated. Does
+     * NOT link here — the deal save creates the property↔contact link with the
+     * correct role. Returns {id, name} for the picker to token, or a 409
+     * duplicate payload when the agency's dupe policy needs a human decision.
+     */
+    public function contactInline(Request $request): JsonResponse
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('deals.create') || $user?->hasPermission('deals.edit'), 403);
+
+        $data = $request->validate([
+            'first_name' => ['required', 'string', 'max:100'],
+            'last_name'  => ['nullable', 'string', 'max:100'],
+            'phone'      => ['nullable', 'string', 'max:30'],
+            'email'      => ['nullable', 'email', 'max:150'],
+            'bypass_duplicate_check' => ['nullable', 'boolean'],
+        ]);
+
+        $agencyId = (int) ($user->effectiveAgencyId() ?? 0);
+        $bypass   = ! empty($data['bypass_duplicate_check']);
+        unset($data['bypass_duplicate_check']);
+
+        $service = app(ContactDuplicateService::class);
+        if (! $bypass) {
+            $dupes = $service->findDuplicates($data, $agencyId);
+            if ($dupes->isNotEmpty()) {
+                $mode = $service->resolveMode($agencyId);
+                if ($mode === 'auto_link') {
+                    $existing = $dupes->first();
+                    return response()->json(['id' => $existing->id, 'name' => $existing->full_name, 'matched' => true]);
+                }
+                return response()->json([
+                    'duplicate_detected' => [
+                        'duplicates' => $dupes->map(fn ($c) => [
+                            'id'   => $c->id,
+                            'name' => $c->full_name,
+                            'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                        ])->values()->all(),
+                        'mode'         => $mode,
+                        'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner'], true),
+                    ],
+                ], 409);
+            }
+        }
+
+        $data['created_by_user_id'] = $user->id;
+        $contact = Contact::create($data);
+
+        return response()->json(['id' => $contact->id, 'name' => $contact->full_name], 201);
+    }
+
+    /**
+     * Parse a CSV of contact ids (from the party picker's hidden field) into a
+     * clean, deduped list of positive ints.
+     *
+     * @return int[]
+     */
+    private function parseIdCsv(?string $csv): array
+    {
+        if (! $csv) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(
+            array_map('intval', explode(',', $csv)),
+            fn ($n) => $n > 0
+        )));
+    }
+
+    /**
+     * (DR2 reverse link) Link each chosen contact to the property with $role —
+     * idempotent, and it NEVER re-roles a contact already linked in another
+     * role (a seller picked as a buyer on a later deal keeps its seller link).
+     * Ensures the seller-side PropertySellerLink, and fires the canonical
+     * ContactLinkedToProperty audit event only for genuinely NEW links.
+     *
+     * @param  int[]  $contactIds
+     */
+    private function syncPartyLinks(Property $property, array $contactIds, string $role): void
+    {
+        foreach ($contactIds as $cid) {
+            // Respect an existing link of ANY role — no silent re-roling.
+            if ($property->contacts()->where('contacts.id', $cid)->exists()) {
+                continue;
+            }
+            $contact = Contact::find($cid);
+            if (! $contact) {
+                continue;
+            }
+            $property->contacts()->attach($cid, ['role' => $role]);
+            if ($role === 'seller') {
+                \App\Models\PropertySellerLink::ensureExists((int) $property->id, $cid);
+            }
+            // Domain event — new contact↔property link (Non-Neg #9 / audit).
+            event(new \App\Events\Contact\ContactLinkedToProperty(
+                contact: $contact,
+                property: $property,
+                role: $role,
+                actorUserId: auth()->id(),
+            ));
+        }
+    }
+
+    /**
+     * (Johan DR2-walk fix 2) Attorney = a FIRM with MULTIPLE contact persons.
+     * Search attorney firms (agency-scoped, active) and flatten each firm × its
+     * contacts into pick options, so the capture can attach FIRM + the specific
+     * contact person (BBB Inc → attorney X via his assistant, attorney Y via his
+     * paralegal). A firm with no contacts yet is still offerable (firm-only).
+     */
+    public function attorneySearch(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json(['results' => []]);
+        }
+
+        $firms = AgencyServiceProvider::query()
+            ->where('is_active', true)
+            ->where('specialty', 'transfer_attorney')
+            ->where(function ($w) use ($q) {
+                $w->where('name', 'like', "%{$q}%")
+                  ->orWhereHas('serviceContacts', fn ($c) => $c->where('attorney_name', 'like', "%{$q}%")->orWhere('contact_person', 'like', "%{$q}%"));
+            })
+            ->with(['serviceContacts' => fn ($c) => $c->where('is_active', true)])
+            ->limit(10)
+            ->get();
+
+        $results = [];
+        foreach ($firms as $firm) {
+            if ($firm->serviceContacts->isEmpty()) {
+                $results[] = [
+                    'firm' => $firm->name, 'provider_id' => $firm->id, 'contact_id' => null,
+                    'attorney' => null, 'contact' => null, 'email' => $firm->email,
+                    'label' => $firm->name,
+                ];
+                continue;
+            }
+            foreach ($firm->serviceContacts as $c) {
+                $results[] = [
+                    'firm' => $firm->name, 'provider_id' => $firm->id, 'contact_id' => $c->id,
+                    'attorney' => $c->attorney_name, 'contact' => $c->contact_person, 'email' => $c->email,
+                    'label' => $this->attorneyLabel($firm->name, $c->attorney_name, $c->contact_person),
+                ];
+            }
+        }
+
+        return response()->json(['results' => $results]);
+    }
+
+    /**
+     * (Johan DR2-walk fix 2) Add-new attorney inline. Modal field order per Johan:
+     * Firm, Attorney, Contact, Email, Address. Find-or-create the FIRM (agency-scoped,
+     * by name) then create a CONTACT person under it. Returns the firm + contact ids
+     * the deal links, plus the display label. Soft-delete rules + agency scope apply.
+     */
+    public function attorneyInline(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $data = $request->validate([
+            'firm'     => ['required', 'string', 'max:191'],
+            'attorney' => ['nullable', 'string', 'max:191'],
+            'contact'  => ['nullable', 'string', 'max:191'],
+            'email'    => ['nullable', 'email', 'max:191'],
+            'address'  => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $userId = $request->user()->id;
+
+        $firm = AgencyServiceProvider::query()
+            ->where('name', $data['firm'])
+            ->where('specialty', 'transfer_attorney')
+            ->first();
+
+        if (! $firm) {
+            $firm = AgencyServiceProvider::create([
+                'agency_id'     => $agencyId,
+                'name'          => $data['firm'],
+                'specialty'     => 'transfer_attorney',
+                'address'       => $data['address'] ?? null,
+                'is_active'     => true,
+                'created_by_id' => $userId,
+            ]);
+        } elseif (! empty($data['address']) && empty($firm->address)) {
+            $firm->update(['address' => $data['address']]);
+        }
+
+        $contact = AgencyServiceProviderContact::create([
+            'agency_id'           => $agencyId,
+            'service_provider_id' => $firm->id,
+            'attorney_name'       => $data['attorney'] ?? null,
+            'contact_person'      => $data['contact'] ?? null,
+            'email'               => $data['email'] ?? null,
+            'is_active'           => true,
+            'created_by_id'       => $userId,
+        ]);
+
+        return response()->json([
+            'provider_id' => $firm->id,
+            'contact_id'  => $contact->id,
+            'label'       => $this->attorneyLabel($firm->name, $contact->attorney_name, $contact->contact_person),
+        ], 201);
+    }
+
+    private function attorneyLabel(?string $firm, ?string $attorney, ?string $contact): string
+    {
+        return trim(($firm ?? '')
+            . ($attorney ? ' — ' . $attorney : '')
+            . ($contact ? ' (via ' . $contact . ')' : ''));
     }
 }

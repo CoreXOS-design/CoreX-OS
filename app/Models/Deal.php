@@ -84,6 +84,7 @@ class Deal extends Model
 
         'period',
         'deal_date',
+        'deal_type',
 
         'property_value',
         'total_commission',
@@ -95,6 +96,8 @@ class Deal extends Model
         // manager. See branchManager() + spec admin-multi-branch-manager.md.
         'managed_by_user_id',
         'property_address',
+        'attorney_provider_id',
+        'attorney_contact_id',
         'seller_name',
         'buyer_name',
         'attorney_name',
