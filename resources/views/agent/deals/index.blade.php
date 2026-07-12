@@ -124,6 +124,16 @@
                                        class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">
                                         Log
                                     </a>
+                                    {{-- Proforma Invoice — granted onward only (endpoint re-checks) --}}
+                                    @permission('proforma.generate')
+                                    @if(\Illuminate\Support\Facades\Route::has('deals-dr2.proforma.generate') && app(\App\Services\Proforma\ProformaFinancialResolver::class)->isEligible($deal))
+                                    <span style="color: var(--text-muted); margin: 0 .35rem;">·</span>
+                                    <form method="POST" action="{{ route('deals-dr2.proforma.generate', $deal) }}" style="display:inline;">
+                                        @csrf
+                                        <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9); background:none; border:none; padding:0; cursor:pointer;">Proforma</button>
+                                    </form>
+                                    @endif
+                                    @endpermission
                                 </td>
                             </tr>
                         @endforeach
