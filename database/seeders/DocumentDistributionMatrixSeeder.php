@@ -22,9 +22,11 @@ class DocumentDistributionMatrixSeeder extends Seeder
 {
     /** slug => party roles that receive it by default. */
     private const DEFAULTS = [
-        'otp' => ['seller', 'buyer', 'bond_originator', 'transfer_attorney'],
-        'ids' => ['bond_originator', 'transfer_attorney'],
-        'por' => ['bond_originator', 'transfer_attorney'],
+        'otp'               => ['seller', 'buyer', 'bond_originator', 'transfer_attorney'],
+        'ids'               => ['bond_originator', 'transfer_attorney'],
+        'por'               => ['bond_originator', 'transfer_attorney'],
+        // The generated proforma files to deal+property+seller — the type rule makes that explicit.
+        'proforma_invoice'  => ['seller'],
     ];
 
     public function run(): void

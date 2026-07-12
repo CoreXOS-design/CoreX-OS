@@ -96,6 +96,117 @@ class DocumentDistributionMatrix
     }
 
     /**
+     * PARTY-FIRST view for the editable settings UI:
+     * [party_role => [document_type_id => ['delivery_mode'=>, 'pipeline_step_id'=>]]].
+     * Includes both type-level (null stage) and stage-scoped active rules.
+     */
+    public function partyMatrix(int $agencyId): array
+    {
+        $rows = DealStageDocumentRule::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->get(['document_type_id', 'party_role', 'delivery_mode', 'pipeline_step_id']);
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[$r->party_role][$r->document_type_id] = [
+                'delivery_mode'    => $r->delivery_mode,
+                'pipeline_step_id' => $r->pipeline_step_id,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Distinct pipeline-step NAMES for the "optional stage" dropdown, each mapped to a
+     * representative step id (default template first). "Any stage" is the null option.
+     * @return array<string,int>  step name => representative step id
+     */
+    public function stageOptions(int $agencyId): array
+    {
+        $rows = \Illuminate\Support\Facades\DB::table('deal_pipeline_steps as s')
+            ->join('deal_pipeline_templates as t', 's.pipeline_template_id', '=', 't.id')
+            ->where('t.agency_id', $agencyId)
+            ->whereNull('s.deleted_at')
+            ->orderByDesc('t.is_default')->orderBy('s.position')
+            ->get(['s.id', 's.name']);
+
+        $out = [];
+        foreach ($rows as $r) {
+            if (! isset($out[$r->name])) {
+                $out[$r->name] = (int) $r->id;   // first (default-template) wins
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * PARTY-FIRST editable save: replace the document set a party role receives.
+     * $entries = [document_type_id => ['delivery_mode'=>, 'pipeline_step_id'=> ?int]].
+     * One logical rule per (party, type): existing (party,type) rules of any stage are
+     * cleared and the chosen delivery+stage written. Unlisted types are soft-deleted.
+     */
+    public function setPartyDistribution(int $agencyId, string $partyRole, array $entries, ?int $actorId = null): void
+    {
+        if (! array_key_exists($partyRole, self::PARTY_ROLES)) {
+            return;
+        }
+        $wantedTypeIds = array_map('intval', array_keys($entries));
+
+        // Existing rules for this party (any stage, incl. trashed).
+        $existing = DealStageDocumentRule::withTrashed()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('party_role', $partyRole)
+            ->get();
+
+        // Soft-delete rules for types no longer wanted.
+        foreach ($existing as $rule) {
+            if (! in_array((int) $rule->document_type_id, $wantedTypeIds, true) && ! $rule->trashed()) {
+                $rule->delete();
+            }
+        }
+
+        foreach ($entries as $typeId => $opts) {
+            $typeId   = (int) $typeId;
+            $mode     = ($opts['delivery_mode'] ?? '') === DealStageDocumentRule::MODE_DIRECT_ATTACHMENT
+                ? DealStageDocumentRule::MODE_DIRECT_ATTACHMENT : DealStageDocumentRule::MODE_SECURE_LINK;
+            $stepId   = ! empty($opts['pipeline_step_id']) ? (int) $opts['pipeline_step_id'] : null;
+
+            // Collapse to one rule per (party, type): drop any other-stage rows for this pair.
+            $forType = $existing->where('document_type_id', $typeId);
+            $keep = null;
+            foreach ($forType as $rule) {
+                if ($keep === null) {
+                    $keep = $rule;
+                } elseif (! $rule->trashed()) {
+                    $rule->delete();
+                }
+            }
+            if ($keep) {
+                $keep->fill([
+                    'pipeline_step_id' => $stepId,
+                    'delivery_mode'    => $mode,
+                    'is_active'        => true,
+                    'deleted_at'       => null,
+                ])->save();
+            } else {
+                DealStageDocumentRule::create([
+                    'agency_id'          => $agencyId,
+                    'pipeline_step_id'   => $stepId,
+                    'document_type_id'   => $typeId,
+                    'party_role'         => $partyRole,
+                    'delivery_mode'      => $mode,
+                    'auto_on_stage_tick' => $stepId !== null,   // stage-scoped rules can auto-fire
+                    'is_active'          => true,
+                    'created_by_id'      => $actorId,
+                ]);
+            }
+        }
+    }
+
+    /**
      * Replace the party-role set a document type distributes to (agency-scoped, idempotent).
      * Adds missing rules (restoring soft-deleted ones), soft-deletes removed ones. Only the
      * type-level (null-stage) rules are touched — stage rules are never affected.
