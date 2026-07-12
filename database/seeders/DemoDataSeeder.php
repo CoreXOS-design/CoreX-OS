@@ -52,7 +52,15 @@ use Illuminate\Support\Str;
 class DemoDataSeeder extends Seeder
 {
     private const AGENCY_ID = 1;
-    private const DEMO_LOGIN_EMAIL = 'demo@corexos.co.za';
+
+    // NOT 'demo@corexos.co.za'. `users.email` is utf8mb4_unicode_ci (case-
+    // INSENSITIVE) under a UNIQUE index, so 'demo@…' and the System Owner's
+    // 'Demo@…' (SystemOwnerSeeder::EMAIL) are THE SAME KEY to MySQL. Sharing
+    // the string means one account silently overwrites the other: the owner's
+    // updateOrCreate would match this tenant admin and null out its agency_id,
+    // detaching the whole demo dataset from agency 1. The two identities are
+    // kept on separate domains so they can never collide again.
+    private const DEMO_LOGIN_EMAIL = 'admin@demo.corexos.co.za';
     private const DEMO_LOGIN_PASSWORD = 'CoreXDemo!2026';
     private const RNG_SEED = 20260518;
 
@@ -182,6 +190,19 @@ class DemoDataSeeder extends Seeder
 
         $this->stage0_referenceData();
         $this->stage1_agencyBranchesUsers();
+
+        // The permanent System Owner login (Demo@corexos.co.za) — Johan's
+        // private door at /demo-owner-login, used to wire the demo up to live.
+        // It MUST be re-created by the demo rebuild itself: the documented
+        // rebuild is `migrate:fresh --database=demo && demo:seed`, which runs
+        // THIS seeder and never DatabaseSeeder — so calling it there alone left
+        // the owner account absent from every demo box, and the owner login
+        // dead. Safe to run here: this point is already past run()'s double-lock
+        // environment + protected-database gates. Idempotent (updateOrCreate).
+        // super_admin is NOT in DemoLoginController::ALLOWED_ROLES, so this
+        // account is unreachable from the passwordless persona buttons — it is
+        // email+password only, which is the point.
+        $this->call(SystemOwnerSeeder::class);
         $this->stage2_prospectingAndTracked();
         $this->stage3_claimsAndPitches();
         $this->stage4_contactsAndWishlists();
@@ -202,6 +223,8 @@ class DemoDataSeeder extends Seeder
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
             . ' / ' . self::DEMO_LOGIN_PASSWORD);
+        $this->command->info('System Owner (/demo-owner-login): ' . SystemOwnerSeeder::EMAIL
+            . ' / ' . SystemOwnerSeeder::PASSWORD);
     }
 
     // ───────────────────────────────────────────────────────────────────

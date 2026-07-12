@@ -19,10 +19,13 @@ use Illuminate\Support\Facades\Hash;
  * Idempotent: updateOrCreate on the email, and it always resets the password +
  * role so a reset restores the documented credentials.
  *
- * GATING: invoked only inside the local/demo environment gate in
- * DatabaseSeeder. It must never run on staging/production — a standing
- * privileged credential on the live system is exactly what we don't want, and
- * the System Owner login route is itself demo-mode-only anyway.
+ * GATING: invoked from the local/demo environment gate in DatabaseSeeder, and
+ * from DemoDataSeeder::run() (which is itself behind the demo:seed double-lock
+ * environment + protected-database gates) so that the documented demo rebuild —
+ * `migrate:fresh --database=demo && demo:seed`, which never runs DatabaseSeeder
+ * — restores this account too. It must never run on staging/production: a
+ * standing privileged credential on the live system is exactly what we don't
+ * want, and the System Owner login route is itself demo-mode-only anyway.
  */
 class SystemOwnerSeeder extends Seeder
 {
@@ -33,6 +36,27 @@ class SystemOwnerSeeder extends Seeder
 
     public function run(): void
     {
+        // COLLISION GUARD. `users.email` is utf8mb4_unicode_ci — case-
+        // INSENSITIVE — under a UNIQUE index, so self::EMAIL ('Demo@…') and a
+        // tenant login differing only in case ('demo@…') are THE SAME ROW to
+        // MySQL. Without this guard the updateOrCreate below matches that
+        // tenant user and silently rewrites it into the platform owner —
+        // nulling its agency_id and detaching every record it owns. That is
+        // precisely what DemoDataSeeder's old 'demo@corexos.co.za' admin would
+        // have done. Fail loudly instead of corrupting data: the owner is the
+        // only account allowed to hold this address in any casing.
+        $existing = User::where('email', self::EMAIL)->first();
+
+        if ($existing && $existing->agency_id !== null) {
+            throw new \RuntimeException(
+                "Refusing to seed the System Owner: user #{$existing->id} ({$existing->email}) "
+                . "already holds this address case-insensitively and belongs to agency "
+                . "#{$existing->agency_id}. Overwriting it would detach that agency's data. "
+                . "Give that user a different email — " . self::EMAIL . " is reserved for the "
+                . "platform owner."
+            );
+        }
+
         User::updateOrCreate(
             ['email' => self::EMAIL],
             [

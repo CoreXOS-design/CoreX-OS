@@ -39,11 +39,34 @@ php artisan demo:seed
 | Field | Value |
 |-------|-------|
 | URL | `/login` then `/corex/market-intelligence` |
-| Email | `demo@corexos.co.za` |
+| Email | `admin@demo.corexos.co.za` |
 | Password | `CoreXDemo!2026` |
 | Role | `admin` (sees everything in agency 1; is a "manager" so BM-only chips show) |
 
 Branch managers / agents log in with `…@hfcoastal.co.za` (company domain, so the e-sign agent-FROM path is exercised) and password `CoreXDemo!2026`. A read-only `viewer@hfcoastal.co.za` user also exists.
+
+> **This admin was `demo@corexos.co.za` until 2026-07-12.** It had to move.
+> `users.email` is `utf8mb4_unicode_ci` — **case-insensitive** — under a UNIQUE
+> index, so `demo@corexos.co.za` and the System Owner's `Demo@corexos.co.za`
+> are *the same row* to MySQL. The two accounts cannot both exist while they
+> differ only by capitalisation. The owner keeps the address; the tenant admin
+> moved to the demo user domain. `SystemOwnerSeeder` now hard-refuses to seed
+> if any agency-owned user holds that address in any casing.
+
+## System Owner login (platform, not tenant)
+
+| Field | Value |
+|-------|-------|
+| URL | `/demo-owner-login` |
+| Email | `Demo@corexos.co.za` |
+| Password | `Demo@1024` |
+| Role | `super_admin` (`is_owner`), `agency_id` NULL — a platform identity, not a member of agency 1 |
+
+Johan's private door into the demo — used to wire the demo up to live. Seeded by
+`SystemOwnerSeeder`, which `DemoDataSeeder` calls, so **`demo:seed` restores it on
+every rebuild**. It is email+password only: `super_admin` is deliberately absent
+from `DemoLoginController::ALLOWED_ROLES`, so the passwordless persona buttons on
+the demo login screen can never sign anyone in as the owner.
 
 ---
 

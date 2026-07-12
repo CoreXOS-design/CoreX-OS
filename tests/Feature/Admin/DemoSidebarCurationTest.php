@@ -5,6 +5,7 @@ namespace Tests\Feature\Admin;
 use App\Models\DevSetting;
 use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\SystemOwnerSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -55,6 +56,47 @@ class DemoSidebarCurationTest extends TestCase
         (new SystemOwnerSeeder())->run();
 
         $this->assertSame(1, User::where('email', SystemOwnerSeeder::EMAIL)->count());
+    }
+
+    /**
+     * users.email is utf8mb4_unicode_ci — case-INSENSITIVE — under a UNIQUE
+     * index, so a tenant login differing only in capitalisation is the SAME ROW
+     * as the System Owner. Without the guard, updateOrCreate matches that tenant
+     * user and rewrites it into the platform owner, nulling its agency_id and
+     * detaching that agency's data. Seeding must fail loudly, never corrupt.
+     */
+    public function test_system_owner_seeder_refuses_to_hijack_a_tenant_user_with_the_same_email(): void
+    {
+        $tenantAdmin = User::factory()->create([
+            'email'     => strtolower(SystemOwnerSeeder::EMAIL), // differs only by case
+            'role'      => 'admin',
+            'agency_id' => 1,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        try {
+            (new SystemOwnerSeeder())->run();
+        } finally {
+            $tenantAdmin->refresh();
+            $this->assertSame(1, $tenantAdmin->agency_id, 'tenant admin must not be detached from its agency');
+            $this->assertSame('admin', $tenantAdmin->role, 'tenant admin must not be promoted to owner');
+        }
+    }
+
+    /** The demo dataset's admin must never squat the owner's reserved address. */
+    public function test_demo_admin_email_does_not_collide_with_the_system_owner(): void
+    {
+        $demoLoginEmail = (new \ReflectionClass(DemoDataSeeder::class))
+            ->getConstant('DEMO_LOGIN_EMAIL');
+
+        $this->assertNotSame(
+            strtolower(SystemOwnerSeeder::EMAIL),
+            strtolower($demoLoginEmail),
+            'DemoDataSeeder::DEMO_LOGIN_EMAIL case-collides with SystemOwnerSeeder::EMAIL. '
+            . 'users.email is case-insensitive under a UNIQUE index — these are the same row, '
+            . 'and seeding both silently detaches the demo agency from its admin.'
+        );
     }
 
     public function test_owner_can_save_demo_sidebar_visibility(): void
