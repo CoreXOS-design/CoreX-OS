@@ -68,6 +68,35 @@ every rebuild**. It is email+password only: `super_admin` is deliberately absent
 from `DemoLoginController::ALLOWED_ROLES`, so the passwordless persona buttons on
 the demo login screen can never sign anyone in as the owner.
 
+## Listing photos
+
+Every demo listing has a real gallery — `stage5b_propertyPhotos()`. A property with no
+photo is the first thing a prospect notices; an empty grid reads as a broken system, not
+an unfinished dataset.
+
+- **Pool:** 30 licensed photos (Unsplash — commercial use, no attribution) committed at
+  `database/seeders/data/demo-properties/*.jpg`, ~5MB. **Committed, not downloaded at seed
+  time**, so `demo:seed` works on a box with no internet and does not rot the day a
+  third-party URL stops resolving.
+- **Dealt out deterministically** from the property id, so a listing keeps the same gallery
+  across reseeds and neighbouring listings never look alike. 108 listings × 5 photos = 540
+  files (~92MB in `storage/`, which is not in git).
+- **Written to the canonical path** `properties/{id}/{n}.jpg`, and into **both**
+  `images_json` and `gallery_images_json` (same ordered set — the internal UI reads the
+  gallery, the public site / mobile API / portal readiness read `images_json`; writing only
+  one leaves half the product looking empty).
+
+**Why the canonical path matters.** `PropertyImageGuard::belongsToProperty()` hard-requires
+the prefix `properties/{id}/`, and `isPersistable()` enforces it on every gallery save. Demo
+photos parked in a sandbox path of their own would look fine right up until an agent opened
+the gallery editor mid-walkthrough, saved, and watched every image get silently rejected.
+
+**Shared-storage caveat.** The demo DB is its own connection; `storage/app/public` is not. On
+a dev laptop it is the same directory the main dev app uses, so `demo:seed` there overwrites
+`properties/{id}/` for whichever IDs the demo uses. Acceptable (dev image data is disposable,
+and the documented local flow is `migrate:fresh && demo:seed`) but worth knowing before you go
+hunting for a photo that "vanished". On the demo host, storage is dedicated.
+
 ## The demo host MUST set `COREX_INSTANCE_ROLE=demo`
 
 Not in `.env` → `Instance::role()` silently defaults to `primary`, and **the box

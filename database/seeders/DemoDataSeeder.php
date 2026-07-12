@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -63,6 +64,9 @@ class DemoDataSeeder extends Seeder
     private const DEMO_LOGIN_EMAIL = 'admin@demo.corexos.co.za';
     private const DEMO_LOGIN_PASSWORD = 'CoreXDemo!2026';
     private const RNG_SEED = 20260518;
+
+    /** Photos dealt to each listing from the committed pool. See stage5b_propertyPhotos(). */
+    private const PHOTOS_PER_PROPERTY = 5;
 
     // ───────────────────────────────────────────────────────────────────
     //  DEMO IDENTITY — single source of truth.
@@ -207,6 +211,7 @@ class DemoDataSeeder extends Seeder
         $this->stage3_claimsAndPitches();
         $this->stage4_contactsAndWishlists();
         $this->stage5_promoteToStock();
+        $this->stage5b_propertyPhotos();
         $this->stage6_buyerMatchRecompute();
         $this->stage6b_linkBuyerProperties();
         $this->stage7_presentations();
@@ -1696,6 +1701,91 @@ class DemoDataSeeder extends Seeder
     // ───────────────────────────────────────────────────────────────────
     //  STAGE 6 — buyer-match recompute + chip-rule match rows
     // ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Every demo listing gets a real gallery. A property with no photo is the one
+     * thing a prospect notices immediately — an empty grid reads as a broken system,
+     * not an unfinished dataset.
+     *
+     * ── WHERE THE FILES GO ──
+     *
+     * `properties/{id}/{n}.jpg` on the public disk — the CANONICAL path, not a demo
+     * sandbox of its own. PropertyImageGuard::belongsToProperty() hard-requires the
+     * prefix `properties/{id}/`, and isPersistable() enforces it on every gallery
+     * save. Park demo photos anywhere else and they look fine until an agent opens
+     * the gallery editor in a walkthrough, saves, and every image is silently
+     * rejected. Demo images are first-class or they are a trap.
+     *
+     * NOTE (shared storage): the demo DB is its own connection, but `storage/app/
+     * public` is NOT — on a dev laptop it is the same directory the main dev app
+     * uses. Running demo:seed there overwrites `properties/{id}/` for the IDs the
+     * demo happens to use. That is acceptable (dev image data is disposable, and the
+     * documented local flow is `migrate:fresh && demo:seed`) but it is worth knowing
+     * before you go looking for a photo that "vanished". On the demo host the
+     * storage directory is dedicated, so nothing else can be touched.
+     *
+     * ── WHY A POOL ──
+     *
+     * 108 listings × 5 photos is 540 files. Committing a unique photo per slot would
+     * put hundreds of MB in git for a dataset that is regenerated every three days.
+     * Instead: 30 licensed photos (Unsplash, commercial use, no attribution) in
+     * `database/seeders/data/demo-properties/`, dealt out so each listing gets its
+     * own run of the pool. Committed rather than downloaded at seed time, so
+     * `demo:seed` still works on a box with no internet and does not rot the day a
+     * third-party URL stops resolving.
+     *
+     * The offset is derived from the property id (not mt_rand), so a listing keeps
+     * the same gallery across reseeds and neighbouring listings never look alike.
+     */
+    private function stage5b_propertyPhotos(): void
+    {
+        $pool = glob(database_path('seeders/data/demo-properties/*.jpg')) ?: [];
+        sort($pool); // glob order is filesystem-dependent; the deal-out must not be.
+
+        if ($pool === []) {
+            // Fail loudly. A silent skip here ships a demo full of grey placeholders
+            // and nobody finds out until a customer is looking at it.
+            throw new \RuntimeException(
+                'Demo photo pool is empty (database/seeders/data/demo-properties/*.jpg). '
+                . 'The demo cannot be seeded without listing images.'
+            );
+        }
+
+        $poolCount = count($pool);
+        $perProperty = min(self::PHOTOS_PER_PROPERTY, $poolCount);
+        $disk = Storage::disk('public');
+
+        $ids = DB::table('properties')->orderBy('id')->pluck('id');
+        $written = 0;
+
+        foreach ($ids as $propertyId) {
+            // Deterministic, id-derived, and coprime-ish with the pool size so
+            // consecutive listings start at different points in the pool.
+            $offset = ($propertyId * 7) % $poolCount;
+            $urls = [];
+
+            foreach (range(0, $perProperty - 1) as $slot) {
+                $source = $pool[($offset + $slot) % $poolCount];
+                $relative = "properties/{$propertyId}/" . ($slot + 1) . '.jpg';
+
+                $disk->put($relative, file_get_contents($source));
+                $urls[] = $disk->url($relative);
+                $written++;
+            }
+
+            // images_json AND gallery_images_json hold the SAME ordered set — see
+            // Property::allImages(). The internal UI reads the gallery; the public
+            // website, mobile API and portal readiness read images_json. Writing only
+            // one leaves half the product looking empty.
+            DB::table('properties')->where('id', $propertyId)->update([
+                'images_json'         => json_encode($urls),
+                'gallery_images_json' => json_encode($urls),
+                'updated_at'          => now(),
+            ]);
+        }
+
+        $this->command->info("  Photos: {$written} files across {$ids->count()} listings ({$poolCount} in pool).");
+    }
 
     private function stage6_buyerMatchRecompute(): void
     {
