@@ -119,6 +119,27 @@ class DocumentTemplateGenerator
         // Strip any shell from processed HTML before wrapping (safety guard)
         $processedHtml = $this->extractBodyOnly($processedHtml);
 
+        // Stamp the data-role-block contract onto the generated document.
+        //
+        // THIS IS WHERE THE CONTRACT IS BORN ON THE IMPORT PATH. processTagSpans() has just
+        // written the `data-field` + `data-contact-type` spans, which is exactly what the
+        // normalizer needs — and this is the only moment they exist before the blade is
+        // written. The CDS *builder* path normalises at publish (TemplateController::cdsGenerate),
+        // but the *importer* path never did, so every imported document went out without the
+        // contract and rendered through legacy clustering forever after. That is why the
+        // backfill found nothing to do: there was never anything to find.
+        //
+        // Stamp it here and an imported document carries the contract from birth.
+        try {
+            $processedHtml = app(RoleBlockNormalizer::class)->normalize($processedHtml);
+            Log::info('Generator: role-block contract stamped', [
+                'role_blocks' => substr_count($processedHtml, 'data-role-block='),
+            ]);
+        } catch (\Throwable $e) {
+            // Never fail an import over the contract — it can be backfilled.
+            Log::error('Generator: role-block normalisation failed', ['error' => $e->getMessage()]);
+        }
+
         // Step 4: Wrap in blade shell
         try {
             $bladeContent = $this->wrapInBladeTemplate($processedHtml, $templateName);
