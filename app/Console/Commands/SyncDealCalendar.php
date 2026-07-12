@@ -29,10 +29,16 @@ class SyncDealCalendar extends Command
         $created = 0;
         $updated = 0;
         foreach ($events as $payload) {
+            // Key on user_id too, so a step shared by multiple deal-side agents gets one
+            // event PER agent (defect fix: Barbara). Null-safe → the deals_v2 source, which
+            // emits a single (possibly null) agent per step, is unaffected.
             $existing = CalendarEvent::withoutGlobalScopes()
                 ->where('source_type', $payload['source_type'])
                 ->where('source_id', $payload['source_id'])
                 ->where('category', $payload['category'])
+                ->when(($payload['user_id'] ?? null) !== null,
+                    fn ($q) => $q->where('user_id', $payload['user_id']),
+                    fn ($q) => $q->whereNull('user_id'))
                 ->first();
 
             if ($existing) {

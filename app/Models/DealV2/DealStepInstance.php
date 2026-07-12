@@ -18,16 +18,19 @@ class DealStepInstance extends Model
     protected $fillable = [
         'agency_id',
         'deal_id',
+        'dr1_deal_id',
         'pipeline_step_id',
         'name',
         'description',
         'position',
         'is_locked',
         'is_milestone',
+        'is_custom',
         'is_suspensive',
         'completion_type',
         'completion_config',
         'status',
+        'na_reason',
         'trigger_type',
         'trigger_step_instance_id',
         'days_offset',
@@ -57,6 +60,7 @@ class DealStepInstance extends Model
     protected $casts = [
         'is_locked' => 'boolean',
         'is_milestone' => 'boolean',
+        'is_custom' => 'boolean',
         'is_suspensive' => 'boolean',
         'notify_agent' => 'boolean',
         'notify_bm' => 'boolean',
@@ -77,9 +81,24 @@ class DealStepInstance extends Model
         return $this->belongsTo(DealV2::class, 'deal_id');
     }
 
+    /**
+     * AT-216: DR2 pipeline anchor — the DR1 deal this step belongs to.
+     * Coexists with the legacy deals_v2 anchor (`deal()`) until AT-219 sunset.
+     */
+    public function dr1Deal(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Deal::class, 'dr1_deal_id');
+    }
+
     public function pipelineStep(): BelongsTo
     {
         return $this->belongsTo(DealPipelineStep::class, 'pipeline_step_id');
+    }
+
+    /** AT-216 V1.1 — per-step comment thread (newest last). */
+    public function comments()
+    {
+        return $this->hasMany(DealStepComment::class, 'deal_step_instance_id')->orderBy('created_at');
     }
 
     public function triggerStepInstance(): BelongsTo

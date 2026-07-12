@@ -307,6 +307,10 @@
                                 <td class="px-3 py-2.5 text-right">
                                     <div class="flex items-center justify-end gap-1.5">
                                         <a href="{{ route('deals-dr2.log', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Log</a>
+                                        {{-- AT-216 pipeline overlay (pure tracking) — attach/track this deal's pipeline --}}
+                                        @permission('view_deals')
+                                        <a href="{{ route('deals-dr2.pipeline', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">{{ $deal->deal_pipeline_template_id ? 'Pipeline' : 'Attach' }}</a>
+                                        @endpermission
                                         @permission('deals.edit')
                                         <a href="{{ route('deals-dr2.edit', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Edit</a>
                                         @endpermission

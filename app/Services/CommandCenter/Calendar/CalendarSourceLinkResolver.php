@@ -30,6 +30,22 @@ class CalendarSourceLinkResolver
             return null;
         }
 
+        // AT-216 — a DR1-anchored pipeline step deadline links to its DR2 DEAL pipeline board
+        // (source_id is the STEP; the deal is step.dr1_deal_id). Without this, the dropdown item
+        // has no url and wrongly opens the in-page event panel instead of loading the deal.
+        if ($event->source_type === \App\Models\DealV2\DealStepInstance::class) {
+            $step = \App\Models\DealV2\DealStepInstance::withTrashed()
+                ->select('id', 'dr1_deal_id')->find($event->source_id);
+            if ($step && $step->dr1_deal_id) {
+                try {
+                    return ['url' => route('deals-dr2.pipeline', $step->dr1_deal_id), 'label' => 'Open deal pipeline'];
+                } catch (\Throwable $e) {
+                    return null;
+                }
+            }
+            return null; // deals_v2-anchored step → no DR2 route
+        }
+
         $routeMap = [
             \App\Models\Property::class => ['route' => 'corex.properties.show', 'label' => 'View property'],
             \App\Models\FicaSubmission::class => ['route' => 'compliance.fica.show', 'label' => 'View FICA submission'],

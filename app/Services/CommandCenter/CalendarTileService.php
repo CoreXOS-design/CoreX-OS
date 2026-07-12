@@ -431,24 +431,53 @@ class CalendarTileService
             return null;
         }
 
-        $deals = DealV2::query()
-            ->visibleTo($user)
-            ->whereIn('overall_rag', ['amber', 'red', 'overdue'])
-            ->orderByRaw("FIELD(overall_rag,'overdue','red','amber')")
-            ->limit(25)
+        // DR2 (AT-216 R3) — the agent's DR1 deals with an ATTACHED pipeline: surface each
+        // deal's live pipeline RAG + nearest step due date, linking to the pipeline board.
+        // (Replaces the retired deals-v2 register source.)
+        $dealIds = \Illuminate\Support\Facades\DB::table('deal_user')
+            ->where('user_id', $user->id)->pluck('deal_id');
+
+        $deals = \App\Models\Deal::query()
+            ->whereIn('id', $dealIds)
+            ->whereNotNull('deal_pipeline_template_id')
             ->get();
 
-        $items = $deals->map(function (DealV2 $d) {
-            $addr = null;
-            try { $addr = $d->property?->short_address ?? $d->property?->address; } catch (\Throwable $e) {}
-            return [
+        $pipeline = app(\App\Services\Deal\Dr1PipelineService::class);
+        $items = [];
+        foreach ($deals as $d) {
+            $steps = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $d->id)
+                ->whereIn('status', ['active', 'not_started'])
+                ->whereNotNull('due_date')
+                ->get();
+            if ($steps->isEmpty()) {
+                continue;
+            }
+
+            $worstRag = 'green';
+            $nearest  = null;
+            foreach ($steps as $s) {
+                $rag = $pipeline->calculateRag($s);
+                if ((self::RAG_RANK[$rag] ?? 0) > (self::RAG_RANK[$worstRag] ?? 0)) {
+                    $worstRag = $rag;
+                }
+                if (! $nearest || $s->due_date->lt($nearest)) {
+                    $nearest = $s->due_date;
+                }
+            }
+
+            $items[] = [
                 'id'    => $d->id,
-                'title' => trim(($d->reference ? $d->reference . ' — ' : '') . ($addr ?: 'Deal')),
-                'rag'   => $d->overall_rag,
-                'due'   => $d->expected_registration?->format('d M'),
-                'url'   => $this->safeRoute('deals-v2.show', $d->id),
+                'title' => trim(($d->deal_no ? $d->deal_no . ' — ' : '') . ($d->property_address ?: 'Deal')),
+                'rag'   => $worstRag,
+                'due'   => $nearest?->format('d M'),
+                'badge' => $steps->count() . ' due',
+                'url'   => $this->safeRoute('deals-dr2.pipeline', $d->id),
             ];
-        })->values()->all();
+        }
+
+        // Worst RAG first, then soonest due; cap at 25.
+        usort($items, fn ($a, $b) => (self::RAG_RANK[$b['rag']] ?? 0) <=> (self::RAG_RANK[$a['rag']] ?? 0));
+        $items = array_slice($items, 0, 25);
 
         $worst = 'neutral';
         foreach ($items as $it) {
@@ -465,8 +494,8 @@ class CalendarTileService
             'urgency'      => 'high',
             'count'        => count($items),
             'items'        => $items,
-            'view_all_url' => $this->safeRoute('deals-v2.index') ?? route('command-center.calendar'),
-            'empty_text'   => 'No deals need attention',
+            'view_all_url' => $this->safeRoute('agent.deals.index') ?? route('command-center.calendar'),
+            'empty_text'   => 'No pipeline steps due',
         ];
     }
 

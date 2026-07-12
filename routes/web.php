@@ -685,6 +685,21 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/settle',             [\App\Http\Controllers\Dr2\DealSettlementController::class, 'saveSettlement'])->middleware('permission:settle_deals')->name('settle.save');
     Route::get('/{deal}/settle/print',        [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printSettlement'])->middleware('permission:settle_deals')->name('settle.print');
     Route::get('/{deal}/settle/print/{user}', [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printAgentPayslip'])->middleware('permission:settle_deals')->name('settle.print.agent');
+
+    // AT-216 — pipeline tracking overlay on the DR2 register (pure tracking: never mutates
+    // the DR1 deal, only its pipeline steps + pointer). view_deals to see, create_deals to act.
+    Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
+    Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
+    Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
+    // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
+    Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');
+    Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.na');
+    Route::post('/{deal}/pipeline/steps/{step}/remove',    [\App\Http\Controllers\Dr2\PipelineController::class, 'removeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.remove');
+    Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
+    // R2 — due-date edit + restore/reinstate (no permanent stranding)
+    Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
+    Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
+    Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====

@@ -158,6 +158,31 @@
                 </div>
             </div>
 
+            {{-- AT-216 V1.1 — Pipeline (auto-attached on save; defaults per deal type, changeable) --}}
+            @if(($mode ?? 'create') === 'create' && isset($availableTemplates) && $availableTemplates->isNotEmpty())
+            <div class="field-full">
+                <label class="ds-label block mb-1">Pipeline</label>
+                <select name="pipeline_template_id" id="dr2-pipeline-select" class="ds-input w-full">
+                    <option value="">— No pipeline (attach later) —</option>
+                    @foreach($availableTemplates as $tpl)
+                        <option value="{{ $tpl->id }}" {{ (string) old('pipeline_template_id', $defaultByType[$dt] ?? '') === (string) $tpl->id ? 'selected' : '' }}>{{ $tpl->name }} · {{ $tpl->deal_type }}{{ $tpl->is_default ? ' (default)' : '' }}</option>
+                    @endforeach
+                </select>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Defaults to your agency's template for the deal type — change it here or attach later from the deal's pipeline.</p>
+            </div>
+            <script>
+            (function () {
+                var map = @json($defaultByType);
+                document.querySelectorAll('input[name=deal_type]').forEach(function (r) {
+                    r.addEventListener('change', function () {
+                        var s = document.getElementById('dr2-pipeline-select');
+                        if (s && map[this.value]) { s.value = String(map[this.value]); }
+                    });
+                });
+            })();
+            </script>
+            @endif
+
             {{-- (Enhancement 1) Property — rich searchable picker matching the PDF splitter --}}
             <div class="field-full" id="dr2-prop">
                 <label class="ds-label block mb-1">Property</label>

@@ -34,7 +34,62 @@ class DealCalendarSource implements CalendarSourceContract
     {
         return collect()
             ->merge($this->dealStepDeadline())
+            ->merge($this->dr1DealStepDeadline())
             ->merge($this->dealRegistrationTarget());
+    }
+
+    /**
+     * AT-216 V1.1 — DR2 pipeline step deadlines anchored to a DR1 `deals` row (dr1_deal_id).
+     * FEEDS THE EXISTING deal-step calendar layer (same source_type + category as the
+     * deals_v2 steps above) — no second event system. DR1 `deals` carries agency_id +
+     * property_address directly (no branches join).
+     *
+     * Defect fix (Barbara): a deal can have MORE THAN ONE deal-side agent (listing + selling,
+     * or multiple per side). The step deadline must appear on EVERY agent's calendar — so we
+     * JOIN deal_user and emit one payload per (step, agent), not a single representative. The
+     * sync keys events on (source_type, source_id, user_id), so each agent gets their own.
+     */
+    private function dr1DealStepDeadline(): Collection
+    {
+        return DB::table('deal_step_instances as dsi')
+            ->whereNull('dsi.deleted_at')
+            ->whereNotNull('dsi.due_date')
+            ->whereNotNull('dsi.dr1_deal_id')
+            ->whereIn('dsi.status', self::ACTIVE_STEP_STATUSES)
+            ->join('deals as d', 'd.id', '=', 'dsi.dr1_deal_id')
+            ->whereNull('d.deleted_at')
+            ->join('deal_user as du', 'du.deal_id', '=', 'd.id') // one row per deal-side agent
+            ->select(
+                'dsi.id',
+                'dsi.due_date',
+                'dsi.dr1_deal_id as deal_id',
+                'dsi.name as step_name',
+                'd.deal_no as reference',
+                'd.branch_id',
+                'd.agency_id',
+                'd.property_id',
+                'd.property_address',
+                'du.user_id as agent_id',
+            )
+            ->get()
+            ->map(fn ($r) => [
+                'event_type'  => 'deal',
+                'category'    => 'deal_step_deadline',
+                'title'       => ($r->step_name ?? 'Step') . ' Due — ' . ($r->reference ?? ('Deal #' . $r->deal_id)) . ($r->property_address ? ' — ' . $r->property_address : ''),
+                'event_date'  => Carbon::parse($r->due_date)->startOfDay(),
+                'source_type' => \App\Models\DealV2\DealStepInstance::class,
+                'source_id'   => $r->id,
+                'user_id'     => $r->agent_id,
+                'agency_id'   => $r->agency_id,
+                'branch_id'   => $r->branch_id,
+                'property_id' => $r->property_id,
+                'metadata'    => [
+                    'deal_id'   => $r->deal_id,
+                    'deal_ref'  => $r->reference,
+                    'step_name' => $r->step_name,
+                    'dr1'       => true,
+                ],
+            ]);
     }
 
     private function dealStepDeadline(): Collection
