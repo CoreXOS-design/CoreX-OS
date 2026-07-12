@@ -5,6 +5,7 @@
 <div class="w-full space-y-5">
 
     @include('dr2.partials._grant-conflict-modal')
+    @include('dr2.partials._capture-declined-notice')
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
