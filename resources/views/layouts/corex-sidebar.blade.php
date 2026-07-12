@@ -1548,7 +1548,13 @@
 
 
         {{-- Deals (slide-panel group) --}}
-        @if($user && $user->hasAnyPermission(['access_deal_register_v2', 'deals_v2.create', 'deals_v2.capture_own', 'deals_v2.manage_pipeline']))
+        {{-- AT-219 (DR2 sunset): the abandoned deals-v2 prototype register is RETIRED (soft).
+             Nav hidden here; its register routes redirect to DR2 (deals-dr2). Only two deal
+             registers remain visible: DR1 (/admin/deals) and DR2 (deals-dr2). Salvaged tools
+             (Pipeline Setup, Supplier Directory) stay ROUTE-reachable and will be re-homed
+             under DR2 by the DR2 twin rebuild. Code archived, admin-recoverable — to restore
+             this menu, remove the `false &&` below. --}}
+        @if(false && $user && $user->hasAnyPermission(['access_deal_register_v2', 'deals_v2.create', 'deals_v2.capture_own', 'deals_v2.manage_pipeline']))
         <div>
             <button type="button" @click="push('deals-v2')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deals-v2' ? 'active' : '' }}">
