@@ -1442,6 +1442,16 @@
         </a>
         @endpermission
 
+        {{-- Proforma Invoices settings (Accounting pillar) --}}
+        @permission('proforma.manage')
+        <a href="{{ route('admin.proforma-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.proforma-settings*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 3h6m2 6H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
+            </svg>
+            <span>Proforma Invoices</span>
+        </a>
+        @endpermission
+
         {{-- Knowledge Base --}}
         @permission('access_knowledge_base')
         <a href="{{ route('admin.knowledge.index') }}" class="corex-nav-item {{ request()->routeIs('admin.knowledge.*') ? 'active' : '' }}">
