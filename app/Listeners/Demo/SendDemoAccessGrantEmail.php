@@ -55,7 +55,13 @@ class SendDemoAccessGrantEmail
             return;
         }
 
-        Mail::to($event->grant->contact_email)
+        // The `corex` mailer — mail@corexos.co.za over corexos.co.za's own SMTP.
+        // Not the default mailer: that authenticates as system@hfcoastal.co.za,
+        // which is the agency's mailbox, and this invitation is a CoreX product
+        // email. DemoAccessGrantMail pins the same mailer and takes its From from
+        // that mailer's config, so From and SMTP account always agree (SPF).
+        Mail::mailer('corex')
+            ->to($event->grant->contact_email)
             ->send(new DemoAccessGrantMail(
                 grant:      $event->grant,
                 accessCode: $event->plaintextCode,
