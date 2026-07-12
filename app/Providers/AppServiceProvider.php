@@ -211,6 +211,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\FlagPropertyUnderOfferOnDealCreated::class);
         Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\MarkPropertySoldOnDealMilestone::class);
         Event::listen(\App\Events\Deal\DealClosed::class,        \App\Listeners\Deal\RevertPropertyStatusOnDealDeclined::class);
+        // (d) DealStageAdvanced(→G) → auto-decline every OTHER active deal on the
+        //     property (grant cascades; one grant at a time). Audited, re-grantable.
+        Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\AutoDeclineSiblingDealsOnGrant::class);
+        // (e) DealStageAdvanced(→G) → re-flag an on-market property under-offer (the
+        //     RE-GRANT path, after a fall-through reverted it). No-op once sold.
+        Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\EnsurePropertyUnderOfferOnGrant::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to

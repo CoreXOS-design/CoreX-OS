@@ -4,6 +4,7 @@ namespace App\Listeners\Deal;
 
 use App\Events\Deal\DealClosed;
 use App\Models\AgencyDealSyncSettings;
+use App\Services\Deal\DealPropertyStatusService;
 
 /**
  * DR2 Wave 2 (c) — the safety companion, ON by default. Deal declined / lapsed →
@@ -44,6 +45,14 @@ class RevertPropertyStatusOnDealDeclined
             }
             $prior = $property->pre_deal_offer_status;
             if ($prior === null || $prior === '') {
+                return;
+            }
+
+            // Wave 2 AGGREGATE rule — a property may carry multiple concurrent
+            // deals (two offers). Only revert to on-market when NO other active
+            // (pending/granted) deal remains: deal 1 declined while deal 2 is
+            // still pending → the property STAYS under-offer.
+            if (app(DealPropertyStatusService::class)->otherActiveDealsExist($deal)) {
                 return;
             }
 

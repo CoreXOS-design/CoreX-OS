@@ -72,6 +72,8 @@
 
     <div class="page-wrap">
 
+    @include('dr2.partials._grant-conflict-modal')
+
     <div class="space-y-6">
 
 <form method="POST" action="{{ $mode === 'create' ? route('deals-dr2.store') : route('deals-dr2.update', $deal) }}" class="space-y-6">
@@ -195,7 +197,14 @@
                 </div>
                 <input type="hidden" name="property_address" id="dr2_property_address" value="{{ old('property_address', $deal->property_address) }}">
                 <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline text-gray-500 ml-1">unlink</button></div>
-                <div class="text-xs text-gray-400 mt-1">No CoreX match? Type the address — the deal still saves.</div>
+                <div class="flex items-center justify-between mt-1">
+                    <div class="text-xs text-gray-400">No CoreX match? Type the address — the deal still saves.</div>
+                    {{-- Wave 2 resale guard — the search shows on-market listings by default so a
+                         renovated-and-relisted address steers to the LIVE record, not its sold twin. --}}
+                    <label class="text-[11px] flex items-center gap-1 cursor-pointer" style="color:var(--text-muted,#6b7280);">
+                        <input type="checkbox" id="dr2_property_showall" class="w-3 h-3"> Show sold/archived too
+                    </label>
+                </div>
             </div>
 
             {{-- (Enhancement 2 + DR2 party picker) Seller — property tick-list (fast
@@ -667,10 +676,19 @@
     const closeProp = () => { pResults.style.display = 'none'; pResults.innerHTML = ''; };
     pSearch.addEventListener('input', () => { pAddr.value = pSearch.value; });
 
+    const showAllProp = document.getElementById('dr2_property_showall');
+    const statusBadge = (row) => {
+        const on = row.on_market !== false && row.status !== undefined ? row.on_market !== false : true;
+        const label = (row.status || (on ? 'on market' : 'off market')).replace(/_/g, ' ');
+        const col = on ? '#065f46' : '#b91c1c';
+        const bg  = on ? '#ecfdf5' : '#fef2f2';
+        return '<span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:' + col + ';background:' + bg + ';">' + esc(label) + '</span>';
+    };
     const runProp = debounce(() => {
         const q = pSearch.value.trim();
         if (q.length < 2) { closeProp(); return; }
-        fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+        const url = R.properties + '?q=' + encodeURIComponent(q) + (showAllProp && showAllProp.checked ? '&all=1' : '');
+        fetch(url, { headers: { Accept: 'application/json' } })
             .then(r => r.ok ? r.json() : [])
             .then(rows => {
                 if (!Array.isArray(rows) || !rows.length) {
@@ -681,24 +699,38 @@
                     const addr = row.address || row.label || ('Property #' + row.id);
                     const sub = [row.ref ? ('Ref ' + row.ref) : '', row.seller ? ('Seller: ' + row.seller) : '', row.agent ? ('Agent: ' + row.agent) : ''].filter(Boolean).join(' · ');
                     const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
-                    return '<div class="dr2-prow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
-                        + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
+                    // Wave 2 resale guard — dates row: listed date, and sold date on off-market twins.
+                    const dates = [row.listed_date ? ('Listed ' + row.listed_date) : '', row.sold_date ? ('Sold ' + row.sold_date) : ''].filter(Boolean).join(' · ');
+                    const offMarket = row.on_market === false;
+                    return '<div class="dr2-prow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" data-onmarket="' + (offMarket ? '0' : '1') + '" data-status="' + esc(row.status || '') + '" data-sold="' + esc(row.sold_date || '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;' + (offMarket ? 'background:#fff7f7;' : '') + '">'
+                        + '<div style="display:flex;align-items:center;gap:.4rem;"><span style="font-weight:600;color:#0b2a4a;">' + addr + '</span>' + statusBadge(row) + '</div>'
                         + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + sub + '</div>' : '')
+                        + (dates ? '<div style="font-size:.72rem;color:#6b7280;">' + dates + '</div>' : '')
                         + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
                 }).join('');
                 pResults.style.display = 'block';
                 pResults.querySelectorAll('.dr2-prow').forEach(el => {
-                    el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
-                    el.addEventListener('mouseout', () => el.style.background = '#fff');
+                    el.addEventListener('mouseover', () => el.style.background = el.dataset.onmarket === '0' ? '#fdecec' : '#f9fafb');
+                    el.addEventListener('mouseout', () => el.style.background = el.dataset.onmarket === '0' ? '#fff7f7' : '#fff');
                     el.addEventListener('click', () => pickProp(el.dataset));
                 });
             }).catch(closeProp);
     }, 220);
+    if (showAllProp) showAllProp.addEventListener('change', runProp);
     pSearch.addEventListener('input', runProp);
     pSearch.addEventListener('focus', runProp);
     document.addEventListener('click', e => { if (!e.target.closest('#dr2-prop')) closeProp(); });
 
     function pickProp(d) {
+        // Wave 2 resale guard — a hard WARN before linking a sold/archived record:
+        // those never receive status updates from new deals, so it is almost always
+        // the wrong record (the agent likely wants the live listing at this address).
+        if (d.onmarket === '0') {
+            const soldBit = d.sold ? (' was sold on ' + d.sold) : (' is ' + ((d.status || 'off market').replace(/_/g, ' ')));
+            if (!confirm('This property record' + soldBit + '. Deals on it will NOT update property/portal statuses. Did you mean the active listing at this address? Click Cancel to keep searching, or OK to link this record anyway.')) {
+                return;
+            }
+        }
         pId.value = d.id; pAddr.value = d.address; pSearch.value = d.address;
         pLinkedId.textContent = '#' + d.id; pLinked.style.display = '';
         closeProp();

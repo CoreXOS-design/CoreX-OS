@@ -203,6 +203,13 @@ class DealRegisterController extends Controller
         $newAccepted = array_key_exists('accepted_status', $data) ? (string) ($data['accepted_status'] ?? '') : $oldAccepted;
         $newCommission = array_key_exists('commission_status', $data) ? (string) ($data['commission_status'] ?? '') : $oldCommission;
 
+        // Wave 2 granted-uniqueness — block a second grant on the same property.
+        if ($newAccepted === 'G' && $oldAccepted !== 'G') {
+            if ($conflict = app(\App\Services\Deal\DealPropertyStatusService::class)->committedDealOnProperty($deal->property_id, (int) $deal->id)) {
+                return back()->with('grant_conflict', $this->grantConflictPayload($conflict));
+            }
+        }
+
         $deal->fill([
             'accepted_status'   => $newAccepted,
             'commission_status' => $newCommission,
@@ -538,6 +545,18 @@ class DealRegisterController extends Controller
         // §2.2 — resolve the picked property link (manual pick = exact confidence).
         $propertyId = !empty($data['property_id']) ? (int) $data['property_id'] : null;
 
+        // Wave 2 granted-uniqueness — a property may carry multiple concurrent
+        // deals, but AT MOST ONE granted. Block a NEW grant here (before any
+        // write) when another deal already holds the granted/registered lane.
+        // back()->withInput() preserves every field the user entered so the
+        // block modal can send them to resolve the other deal, then return.
+        $intendedAccepted = (string) ($data['accepted_status'] ?? '');
+        if ($intendedAccepted === 'G' && $oldAcceptedStatus !== 'G') {
+            if ($conflict = app(\App\Services\Deal\DealPropertyStatusService::class)->committedDealOnProperty($propertyId, (int) ($deal->id ?? 0))) {
+                return back()->withInput()->with('grant_conflict', $this->grantConflictPayload($conflict));
+            }
+        }
+
         $deal->fill([
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
@@ -685,33 +704,60 @@ class DealRegisterController extends Controller
             return response()->json([]);
         }
 
+        // Wave 2 resale/duplicate-address guard — a buyer who buys, renovates and
+        // relists leaves TWO property records at one address (old Sold/archived,
+        // new Active). By DEFAULT steer agents to the ON-MARKET record; a
+        // ?all=1 toggle reveals the off-market ones for genuine edge cases. Old
+        // (off-market) records never receive status updates from new deals (the
+        // Wave 2 listeners already skip OFF_MARKET_STATUSES), so linking one is
+        // almost always a mistake — the UI warns before it is selected.
+        $showAll = $request->boolean('all');
+
         // (Enhancement 1) Rich results matching the PDF splitter's property search
-        // exactly (PdfSplitterController::searchProperties): each row carries EXTRA
-        // identifying info — reference + seller/owner name + listing agent — not just
-        // the address, so two similar-address properties can't be confused. Same
-        // `visibleTo` scope + canonical `searchAddress` clarity rules. One pattern.
+        // exactly: each row carries EXTRA identifying info — reference + seller +
+        // listing agent — plus (Wave 2) a status badge + key dates so an agent can
+        // tell the live listing from the sold twin at the same address.
         $properties = Property::query()
             ->visibleTo($request->user())
             ->searchAddress($search)
+            ->when(! $showAll, fn ($q) => $q->onMarket())
             ->with('agent')
             ->latest()
             ->limit(15)
-            ->get()
-            ->map(function (Property $p) {
-                $seller = $p->sellerOwnerContact();
+            ->get();
 
-                return $p->toSearchResult([
-                    'address'            => $p->buildDisplayAddress(),
-                    'ref'                => $p->property_number,
-                    'seller'             => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
-                    'price'              => $p->listing_price ?? $p->price ?? null,
-                    'commission_percent' => $p->commission_percent,
-                    'listing_agent_id'   => $p->agent_id,
-                    'listing_agent_name' => $p->agent?->name,
-                ]);
-            });
+        // Sold date for off-market rows = the registration_date of the property's
+        // registered ('R') deal, if any. One query for the whole result set.
+        $offMarketIds = $properties->filter(fn (Property $p) => ! $p->isOnMarket())->pluck('id');
+        $soldDates = $offMarketIds->isEmpty() ? collect() : \App\Models\Deal::withoutGlobalScopes()
+            ->whereIn('property_id', $offMarketIds)
+            ->where('accepted_status', 'R')
+            ->whereNull('deleted_at')
+            ->selectRaw('property_id, MAX(registration_date) as sold_date')
+            ->groupBy('property_id')
+            ->pluck('sold_date', 'property_id');
 
-        return response()->json($properties);
+        $results = $properties->map(function (Property $p) use ($soldDates) {
+            $seller  = $p->sellerOwnerContact();
+            $onMarket = $p->isOnMarket();
+
+            return $p->toSearchResult([
+                'address'            => $p->buildDisplayAddress(),
+                'ref'                => $p->property_number,
+                'seller'             => $seller ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) : null,
+                'price'              => $p->listing_price ?? $p->price ?? null,
+                'commission_percent' => $p->commission_percent,
+                'listing_agent_id'   => $p->agent_id,
+                'listing_agent_name' => $p->agent?->name,
+                // Wave 2 resale guard payload:
+                'status'             => (string) $p->status,
+                'on_market'          => $onMarket,
+                'listed_date'        => optional($p->listed_date ?? $p->first_marketed_at)->toDateString(),
+                'sold_date'          => $onMarket ? null : ($soldDates[$p->id] ?? null),
+            ]);
+        });
+
+        return response()->json($results);
     }
 
     /**
@@ -835,6 +881,23 @@ class DealRegisterController extends Controller
         $contact = Contact::create($data);
 
         return response()->json(['id' => $contact->id, 'name' => $contact->full_name], 201);
+    }
+
+    /**
+     * Build the block-modal payload for a granted-uniqueness conflict: the
+     * blocking deal's number, a link that opens THAT deal in a new tab (so the
+     * user can resolve it — e.g. decline the fallen-through deal), and its status.
+     *
+     * @return array{deal_no:string,deal_id:int,url:string,status:string}
+     */
+    private function grantConflictPayload(Deal $conflict): array
+    {
+        return [
+            'deal_no' => (string) ($conflict->deal_no ?? $conflict->id),
+            'deal_id' => (int) $conflict->id,
+            'url'     => route('deals-dr2.edit', $conflict->id),
+            'status'  => $conflict->accepted_status === 'R' ? 'Registered' : 'Granted',
+        ];
     }
 
     /**

@@ -60,6 +60,98 @@ final class Wave2DealPropertyStatusSyncTest extends TestCase
         ], $over));
     }
 
+    private function acceptedOf(Deal $d): string
+    {
+        return (string) Deal::withoutGlobalScopes()->find($d->id)->accepted_status;
+    }
+
+    // ── Wave 2 refinement: grant cascades ────────────────────────────────────
+
+    /** 4 offers = 4 pending deals; granting one AUTO-DECLINES the other three (audited). */
+    public function test_grant_cascades_auto_declines_all_other_active_deals(): void
+    {
+        $this->settings(['flag_property_under_offer_on_deal' => true]);
+        $a = $this->makeDeal(['deal_no' => '7001']);
+        $b = $this->makeDeal(['deal_no' => '7002']);
+        $c = $this->makeDeal(['deal_no' => '7003']);
+        $d = $this->makeDeal(['deal_no' => '7004']);
+        $this->assertSame('under_offer', $this->property->refresh()->status);
+
+        $a->update(['accepted_status' => 'G']); // grant A
+
+        $this->assertSame('G', $this->acceptedOf($a));
+        foreach ([$b, $c, $d] as $sib) {
+            $this->assertSame('D', $this->acceptedOf($sib), 'every other active deal must auto-decline');
+        }
+        $this->assertDatabaseHas('deal_logs', ['deal_id' => $b->id, 'event_type' => 'auto_declined']);
+        // Granted deal keeps the property live (sold milestone OFF) — stays under-offer.
+        $this->assertSame('under_offer', $this->property->refresh()->status);
+    }
+
+    /** Granted deal falls through → auto-declined sibling is RE-GRANTABLE; property re-flags. */
+    public function test_fall_through_re_grant_is_allowed_and_reflags_property(): void
+    {
+        $this->settings(['flag_property_under_offer_on_deal' => true, 'revert_property_on_deal_declined' => true]);
+        $a = $this->makeDeal(['deal_no' => '7101']);
+        $b = $this->makeDeal(['deal_no' => '7102']);
+
+        $a->update(['accepted_status' => 'G']);          // grant A → B auto-declined
+        $this->assertSame('D', $this->acceptedOf($b));
+
+        $a->update(['accepted_status' => 'D']);          // A falls through → no active deal → revert
+        $this->assertSame('for_sale', $this->property->refresh()->status);
+
+        $b->update(['accepted_status' => 'G']);          // re-grant the auto-declined B (D→G) — legal
+        $this->assertSame('G', $this->acceptedOf($b));
+        $this->assertSame('under_offer', $this->property->refresh()->status, 're-grant must re-flag under-offer');
+    }
+
+    /** The block survives for exactly one case: granting while ANOTHER deal is granted. */
+    public function test_second_grant_while_one_granted_is_blocked(): void
+    {
+        $a = $this->makeDeal(['deal_no' => '7201']);
+        $b = $this->makeDeal(['deal_no' => '7202']);
+        $a->update(['accepted_status' => 'G']);          // A granted (B auto-declined)
+
+        $svc = app(\App\Services\Deal\DealPropertyStatusService::class);
+        $bFresh = Deal::withoutGlobalScopes()->find($b->id);
+
+        $conflict = $svc->existingCommittedDeal($bFresh);
+        $this->assertNotNull($conflict);
+        $this->assertSame($a->id, $conflict->id);
+
+        $this->expectException(\App\Exceptions\Deal\DuplicateGrantException::class);
+        $svc->assertCanGrant($bFresh);
+    }
+
+    // ── Wave 2: resale / duplicate-address search guard ──────────────────────
+
+    /** Property search excludes off-market (sold) twins by default; ?all=1 reveals them, flagged. */
+    public function test_resale_search_excludes_off_market_by_default_and_flags_on_all(): void
+    {
+        $agent = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'admin', 'is_active' => true,
+        ]);
+        $mk = fn (string $status) => Property::withoutEvents(fn () => Property::withoutGlobalScopes()->create([
+            'external_id' => 'TWIN-' . Str::random(8), 'title' => '12 Resale Rd', 'address' => '12 Resale Rd',
+            'agent_id' => $agent->id, 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
+            'listing_type' => 'sale', 'status' => $status,
+        ]));
+        $active = $mk('for_sale');
+        $sold   = $mk('sold');
+
+        $this->actingAs($agent)->withoutVite();
+
+        $default = collect($this->getJson(route('deals-dr2.search.properties', ['q' => 'Resale Rd']))->assertOk()->json());
+        $this->assertTrue($default->contains('id', $active->id), 'the live listing must appear');
+        $this->assertFalse($default->contains('id', $sold->id), 'the sold twin must be hidden by default');
+
+        $all = collect($this->getJson(route('deals-dr2.search.properties', ['q' => 'Resale Rd', 'all' => 1]))->assertOk()->json());
+        $soldRow = $all->firstWhere('id', $sold->id);
+        $this->assertNotNull($soldRow, 'show-all reveals the sold twin');
+        $this->assertFalse($soldRow['on_market'], 'the sold twin is flagged off-market for the warn');
+    }
+
     public function test_off_by_default_deal_created_does_not_touch_property(): void
     {
         $this->makeDeal();

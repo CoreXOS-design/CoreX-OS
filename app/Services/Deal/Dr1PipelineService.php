@@ -282,6 +282,14 @@ class Dr1PipelineService
             return; // never downgrade / re-fire
         }
 
+        // Wave 2 granted-uniqueness — a pipeline trigger may NOT silently create a
+        // second granted deal on a property that already carries one. Throws
+        // DuplicateGrantException; completeStep()'s transaction rolls the step
+        // completion back and the controller surfaces the block to the user.
+        if ($code === 'G') {
+            app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
+        }
+
         $updates = ['accepted_status' => $code];
         if ($code === 'G' && empty($deal->granted_at)) {
             $updates['granted_at'] = now();

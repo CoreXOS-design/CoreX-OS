@@ -101,7 +101,21 @@ class PipelineController extends Controller
         }
 
         $notes = trim((string) $request->input('notes', ''));
-        $this->pipelines->completeStep($step, $request->user()?->id, $notes !== '' ? ['notes' => $notes] : []);
+
+        // Wave 2 granted-uniqueness — a step whose trigger would GRANT this deal
+        // is blocked when the property already carries a granted deal. The
+        // service throws inside the transaction (step completion rolls back);
+        // surface it to the user instead of silently swallowing it.
+        try {
+            $this->pipelines->completeStep($step, $request->user()?->id, $notes !== '' ? ['notes' => $notes] : []);
+        } catch (\App\Exceptions\Deal\DuplicateGrantException $e) {
+            $other = $e->existingGrantedDeal;
+            return back()->with('error', sprintf(
+                'Step not completed — it would grant this deal, but deal #%s already carries a %s status on this property. Resolve that deal first.',
+                (string) ($other->deal_no ?? $other->id),
+                $e->existingStatusLabel(),
+            ));
+        }
 
         return redirect()->route('deals-dr2.pipeline', $deal)
             ->with('info', "Step \"{$step->name}\" completed.");
