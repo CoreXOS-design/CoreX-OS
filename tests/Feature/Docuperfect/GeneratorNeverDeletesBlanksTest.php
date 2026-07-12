@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Docuperfect;
 
 use App\Services\Docuperfect\DocumentTemplateGenerator;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use ReflectionClass;
 use Tests\TestCase;
@@ -26,18 +27,26 @@ use Tests\TestCase;
  */
 final class GeneratorNeverDeletesBlanksTest extends TestCase
 {
+    use RefreshDatabase;
+
     private function process(string $html, array $tags, array $mappings): string
     {
         $gen = app(DocumentTemplateGenerator::class);
         $m = (new ReflectionClass($gen))->getMethod('processTagSpans');
         $m->setAccessible(true);
 
+        // Same named-field map generate() builds from the mappings.
+        $ids = collect($mappings)->pluck('namedFieldId')->filter()->all();
+        $namedFieldMap = $ids === []
+            ? new Collection()
+            : \App\Models\Docuperfect\NamedField::whereIn('id', $ids)->get()->keyBy('id');
+
         return $m->invoke(
             $gen,
             $html,
             collect($tags)->keyBy('id')->all(),
             $mappings,
-            new Collection(),
+            $namedFieldMap,
             new Collection(),
         );
     }
@@ -110,5 +119,42 @@ final class GeneratorNeverDeletesBlanksTest extends TestCase
         $out = $this->process($html, [['id' => 't0', 'number' => 1, 'type' => 'input']], []);
 
         $this->assertStringContainsString('class="field', $out);
+    }
+
+    /**
+     * The chain that Phase 1 rides on, end to end:
+     *   tag  →  processTagSpans writes data-field + data-contact-type
+     *        →  RoleBlockNormalizer stamps the data-role-block contract.
+     *
+     * The importer never ran that last step — only the CDS *builder* path normalised at
+     * publish — so every imported document went out WITHOUT the contract and rendered
+     * through legacy clustering forever after. (Which is why the backfill found nothing to
+     * do: there was never anything to find.) The generator now stamps at birth.
+     */
+    public function test_the_generators_output_stamps_the_role_block_contract(): void
+    {
+        $nf = \App\Models\Docuperfect\NamedField::create([
+            'name' => 'Seller Full Name',
+            'source_type' => 'contact',
+            'source_column' => 'first_name+last_name',
+            'source_contact_type' => 'Seller',
+        ]);
+
+        $html = '<p>I / We <span data-tag-id="t0">[1]</span> the undersigned</p>';
+
+        $processed = $this->process(
+            $html,
+            [['id' => 't0', 'number' => 1, 'type' => 'input']],
+            ['t0' => ['mappingType' => 'named_field', 'namedFieldId' => $nf->id]],
+        );
+
+        // What the generator writes: the pillar name, with the party alongside it.
+        $this->assertStringContainsString('data-field="contact.first_name+last_name"', $processed);
+        $this->assertStringContainsString('data-contact-type="Seller"', $processed);
+
+        // What the renderer needs: the contract.
+        $stamped = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)->normalize($processed);
+
+        $this->assertStringContainsString('data-role-block="seller"', $stamped);
     }
 }
