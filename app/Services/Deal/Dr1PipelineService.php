@@ -27,19 +27,19 @@ use Illuminate\Support\Facades\DB;
  *   • completeStep()    — mark a step done and cascade to its successors (step-level only).
  *   • calculateRag() / ragColour() — pure, model-agnostic RAG maths (identical to DR2).
  *
- * ── DELIBERATELY DEFERRED (needs a DR1 status-model design pass — do NOT fake it) ────
- *   The DR2 engine also drives DEAL-LEVEL status: advanceStage / DealStageMove (auto|prompt),
- *   suspensive-gate → 'granted', negative → 'declined'/'cancelled', overall_rag, and
- *   expected/actual_registration. DR1 `deals` has NONE of those columns (no `status`,
- *   `overall_rag`, or `expected_registration`) — DR1 models its lifecycle through
- *   settlements, not a pipeline status enum. Wiring stage advancement onto DR1 is a
- *   separate increment that first decides how (or whether) a pipeline drives a DR1 deal's
- *   state. Until then this overlay is a pure step-tracking layer: it never mutates the
- *   DR1 deal beyond its own pipeline pointer, so it can be attached to a live DR1 deal
- *   without changing that deal's existing behaviour.
+ * ── DEAL-STATUS COUPLING (Sweep #2 — the pipeline now drives the deal's accepted_status) ──
+ *   A completed step with a configured `status_trigger` advances the DR1 deal's
+ *   `accepted_status` (P/G/R/D — the field the DR2 register reads) via applyStatusTrigger():
+ *   'granted'→G, 'completed'/'registered'→R, 'declined'/'cancelled'→D. Forward-only (never
+ *   downgrades), stamps granted_at / registration_date. Steps WITHOUT a status_trigger stay
+ *   pure tracking (never touch the deal). This fires from EVERY completion path because they
+ *   all route through completeStep().
  *
- * BM-approval, prompt/auto stage gates, and cross-pillar distribution (DealStepCompleted)
- * ride on that deferred deal-status layer and are therefore out of scope here too.
+ * ── STILL DEFERRED (needs a DR1 status-model design pass — do NOT fake it) ────
+ *   The rest of the DR2 engine's deal-level machinery — DealStageMove auto|prompt queueing,
+ *   `overall_rag`, `expected_registration`, BM-approval holds, suspensive AND-gate → granted,
+ *   and cross-pillar distribution (DealStepCompleted) — is NOT ported. DR1 has no status enum
+ *   / overall_rag / expected_registration columns and models its lifecycle through settlements.
  */
 class Dr1PipelineService
 {
@@ -218,12 +218,12 @@ class Dr1PipelineService
     }
 
     /**
-     * Complete a step (step-level only): mark it done and activate its ready successors.
+     * Complete a step: mark it done, cascade to ready successors, and — if the step is
+     * CONFIGURED with a status_trigger — advance the DR1 deal's accepted_status accordingly.
      *
-     * NOTE: this is the pure step-tracking completion. The DR2 engine additionally drives
-     * BM-approval holds and deal-status stage gates off completion — both deferred here
-     * (see the class docblock). A DR1 pipeline step therefore completes cleanly and cascades
-     * to its successors without touching the DR1 deal's state.
+     * This is the single choke point for EVERY DR1 completion path (pipeline board, My Deals,
+     * calendar) so the status_trigger fires from all of them, not just one. Steps WITHOUT a
+     * status_trigger stay pure tracking (never touch the deal). See applyStatusTrigger().
      */
     public function completeStep(DealStepInstance $step, ?int $userId = null, array $completionData = []): void
     {
@@ -241,7 +241,59 @@ class Dr1PipelineService
                 "Step \"{$step->name}\" completed{$notes}");
 
             $this->activateDownstreamSteps($step);
+
+            // Sweep #2 — fire the step's configured status_trigger onto the deal's status.
+            $this->applyStatusTrigger($step, $userId);
         });
+    }
+
+    /** DR2 status_trigger vocabulary → DR1 `accepted_status` code (the field the register reads). */
+    private const STATUS_TRIGGER_MAP = [
+        'granted'      => 'G',
+        'accepted'     => 'G',
+        'completed'    => 'R',
+        'registered'   => 'R',
+        'registration' => 'R',
+        'declined'     => 'D',
+        'cancelled'    => 'D',
+    ];
+
+    /** Forward-only rank so a late trigger never downgrades an already-advanced deal. */
+    private const ACCEPTED_STATUS_RANK = ['P' => 1, 'G' => 2, 'R' => 3];
+
+    /**
+     * Sweep #2 — apply a completed step's status_trigger to the DR1 deal's `accepted_status`
+     * (P/G/R/D — the one truth the register reads; NOT commission_status). Only steps with a
+     * status_trigger configured drive the deal state; forward-only (a late 'granted' never
+     * downgrades a 'Registered' deal), 'D' (declined) always applies. Stamps granted_at /
+     * registration_date on first reach. Audited to the deal timeline.
+     */
+    private function applyStatusTrigger(DealStepInstance $step, ?int $userId): void
+    {
+        $trigger = $step->status_trigger;
+        $code    = $trigger ? (self::STATUS_TRIGGER_MAP[$trigger] ?? null) : null;
+        $deal    = $step->dr1Deal;
+        if (! $code || ! $deal) {
+            return;
+        }
+
+        $current = (string) $deal->accepted_status;
+        if ($code !== 'D' && (self::ACCEPTED_STATUS_RANK[$code] ?? 0) <= (self::ACCEPTED_STATUS_RANK[$current] ?? 0)) {
+            return; // never downgrade / re-fire
+        }
+
+        $updates = ['accepted_status' => $code];
+        if ($code === 'G' && empty($deal->granted_at)) {
+            $updates['granted_at'] = now();
+        }
+        if ($code === 'R' && empty($deal->registration_date)) {
+            $updates['registration_date'] = now()->toDateString();
+        }
+        $deal->forceFill($updates)->save();
+
+        $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered', 'D' => 'Declined'][$code] ?? $code;
+        $this->logActivity($deal, $step, $userId, 'deal_status_advanced',
+            "Deal status → {$label} (pipeline step \"{$step->name}\" completed, trigger \"{$trigger}\")");
     }
 
     /**
