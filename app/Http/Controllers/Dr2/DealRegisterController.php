@@ -686,6 +686,19 @@ class DealRegisterController extends Controller
             }
         }
 
+        // Wave 2 auto-decline-on-capture notice — the DealCreated listener
+        // (AutoDeclineNewDealOnCommittedProperty) declines a NEW pending offer
+        // captured against a property that already carries a granted/registered
+        // deal. Surface Johan's clickable notice: the capture SUCCEEDED, but it
+        // landed Declined, with the blocking deal #XXXX linked (new tab).
+        if ($isNew && $intendedAccepted === 'P') {
+            if ($committed = app(\App\Services\Deal\DealPropertyStatusService::class)->committedDealOnProperty($propertyId, (int) $deal->id)) {
+                return redirect()->route('deals-dr2.index')
+                    ->with('status', "Deal {$deal->deal_no} captured — auto-declined (property already committed).")
+                    ->with('capture_declined', $this->grantConflictPayload($committed));
+            }
+        }
+
         return redirect()->route('deals-dr2.index')
             ->with('status', $isNew ? "Deal {$deal->deal_no} captured." : "Deal {$deal->deal_no} updated.");
     }

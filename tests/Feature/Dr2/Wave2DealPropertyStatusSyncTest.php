@@ -124,6 +124,45 @@ final class Wave2DealPropertyStatusSyncTest extends TestCase
         $svc->assertCanGrant($bFresh);
     }
 
+    /**
+     * The creation-time gap: a NEW offer captured on a property that ALREADY carries
+     * a granted deal is CAPTURED (never lost) but AUTO-DECLINED on save, audited.
+     */
+    public function test_new_capture_on_committed_property_auto_declines_and_audits(): void
+    {
+        $granted = $this->makeDeal(['deal_no' => '7301']);
+        $granted->update(['accepted_status' => 'G']);          // property now committed
+        $this->assertSame('G', $this->acceptedOf($granted));
+
+        $late = $this->makeDeal(['deal_no' => '7302']);         // new offer, captured Pending
+
+        $this->assertSame('D', $this->acceptedOf($late), 'new capture on a committed property lands Declined');
+        $this->assertDatabaseHas('deal_logs', [
+            'deal_id' => $late->id, 'event_type' => 'auto_declined', 'to_value' => 'D',
+        ]);
+    }
+
+    /** A Registered deal is committed too — a later pending capture is auto-declined. */
+    public function test_new_capture_on_registered_property_auto_declines(): void
+    {
+        $reg = $this->makeDeal(['deal_no' => '7311']);
+        $reg->update(['accepted_status' => 'G']);
+        $reg->update(['accepted_status' => 'R']);
+        $this->assertSame('R', $this->acceptedOf($reg));
+
+        $late = $this->makeDeal(['deal_no' => '7312']);
+        $this->assertSame('D', $this->acceptedOf($late), 'a registered property is committed — new offer declined');
+    }
+
+    /** Multiple pending offers with NO grant yet all stay Pending — the multi-offer premise. */
+    public function test_new_capture_stays_pending_when_no_committed_deal(): void
+    {
+        $a = $this->makeDeal(['deal_no' => '7401']);
+        $b = $this->makeDeal(['deal_no' => '7402']);
+        $this->assertSame('P', $this->acceptedOf($a));
+        $this->assertSame('P', $this->acceptedOf($b), 'a second pending offer is legal when none is granted');
+    }
+
     // ── Wave 2: resale / duplicate-address search guard ──────────────────────
 
     /** Property search excludes off-market (sold) twins by default; ?all=1 reveals them, flagged. */

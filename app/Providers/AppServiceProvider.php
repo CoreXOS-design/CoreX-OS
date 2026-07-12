@@ -217,6 +217,10 @@ class AppServiceProvider extends ServiceProvider
         // (e) DealStageAdvanced(→G) → re-flag an on-market property under-offer (the
         //     RE-GRANT path, after a fall-through reverted it). No-op once sold.
         Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\EnsurePropertyUnderOfferOnGrant::class);
+        // (f) DealCreated → a NEW offer captured on a property that ALREADY carries a
+        //     granted/registered deal is auto-declined on save (captured, never lost;
+        //     audited). Chokepoint for EVERY creation path — DR2 capture, twin, API.
+        Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\AutoDeclineNewDealOnCommittedProperty::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
