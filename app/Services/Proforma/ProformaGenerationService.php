@@ -161,6 +161,12 @@ class ProformaGenerationService
             $invoice->document_id = $doc->id;
             $invoice->save();
 
+            // Ruling 3 — the proforma files to deal + property + SELLER. The bridge links the
+            // property's contacts; guarantee the resolved seller is reached even on thin data.
+            if ($invoice->issued_to_contact_id) {
+                $doc->contacts()->syncWithoutDetaching([$invoice->issued_to_contact_id]);
+            }
+
             if ($this->mailer->send($invoice, $bytes, $filename)) {
                 ProformaInvoiceAudit::record($invoice, ProformaInvoiceAudit::EVENT_EMAILED, $actor->id, [
                     'to_contact_id' => $invoice->issued_to_contact_id,
