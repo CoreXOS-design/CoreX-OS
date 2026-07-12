@@ -109,12 +109,16 @@
                 </div>
             </div>
 
-            {{-- Login card --}}
-            <div class="login-card w-full rounded-md" style="max-width: 400px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
+            {{-- Login card. $maxWidth / $heading default to the login form's own values
+                 (400px, "Sign in to your account"), so every auth view is unchanged;
+                 the demo T&C page opts into a wider card and suppresses the heading. --}}
+            <div class="login-card w-full rounded-md" style="max-width: {{ $maxWidth }}; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
 
-                <div class="text-xs font-medium text-center mb-6" style="color: rgba(255,255,255,0.55); letter-spacing: 0.02em;">
-                    Sign in to your account
-                </div>
+                @if ($heading)
+                    <div class="text-xs font-medium text-center mb-6" style="color: rgba(255,255,255,0.55); letter-spacing: 0.02em;">
+                        {{ $heading }}
+                    </div>
+                @endif
 
                 {{ $slot }}
 

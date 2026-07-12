@@ -10,9 +10,14 @@
     The version number is shown deliberately: a prospect (and later, a lawyer)
     should be able to see exactly which text was on screen.
 --}}
-<x-guest-layout>
+{{-- A legal document is not a login form. The default guest card is 400px wide with
+     a 340px scroll window and a "Sign in to your account" heading — which squeezed
+     the terms into a letterbox and mistitled the page. Ask for a card that can
+     actually hold a document, and suppress the heading: this page has its own <h1>.
+     :heading="null" — not heading="" — so it is a real null, not a falsy string. --}}
+<x-guest-layout max-width="820px" :heading="null">
     <div style="margin-bottom:18px;">
-        <h1 style="font-size:18px; font-weight:700; color:var(--text-primary, #111827); margin-bottom:4px;">
+        <h1 style="font-size:22px; font-weight:700; color:var(--text-primary, #111827); margin-bottom:4px;">
             Demo Terms &amp; Conditions
         </h1>
         <p style="font-size:12px; color:var(--text-secondary, #6b7280);">
@@ -37,41 +42,51 @@
          A forced-scroll gate is theatre: it proves the mouse moved, not that anyone
          read. The evidence that matters is the immutable version pointer on the
          acceptance row. --}}
-    <div style="max-height:340px; overflow-y:auto; padding:14px;
-                margin-bottom:18px; border-radius:6px;
+    {{-- Height tracks the viewport rather than a fixed 340px: on a laptop the terms
+         now fill the screen instead of a letterbox, and the clamp keeps the accept
+         button above the fold on a short window and stops the box collapsing on a
+         phone. --}}
+    <div style="height:clamp(320px, 55vh, 620px); overflow-y:auto; padding:20px 22px;
+                margin-bottom:20px; border-radius:6px;
                 border:1px solid var(--border, rgba(0,0,0,0.14));
                 background:var(--surface-2, #f0f2f8);
                 color:var(--text-primary, #111827);
-                font-size:13px; line-height:1.65; white-space:pre-wrap;">{{ $tnc['body'] }}</div>
+                font-size:15px; line-height:1.7; white-space:pre-wrap;">{{ $tnc['body'] }}</div>
 
-    <form method="POST" action="{{ route('demo.tnc.accept') }}">
+    <form method="POST" action="{{ route('demo.tnc.accept') }}" id="tnc-accept">
         @csrf
 
-        <label style="display:flex; gap:9px; align-items:flex-start; margin-bottom:18px;
-                      font-size:13px; line-height:1.5; cursor:pointer;
+        <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:18px;
+                      font-size:14px; line-height:1.55; cursor:pointer;
                       color:var(--text-primary, #111827);">
             <input type="checkbox" name="accept" value="1" required
-                   style="margin-top:2px; flex:0 0 auto;">
+                   style="margin-top:3px; flex:0 0 auto;">
             <span>I have read and accept these terms on behalf of
                 <strong>{{ $grant['company_name'] ?? 'my company' }}</strong>.</span>
         </label>
+    </form>
 
-        <button type="submit"
-                style="width:100%; padding:10px 14px; border-radius:6px; border:none;
+    {{-- Accept and Decline are two DIFFERENT endpoints, so they must stay two forms.
+         Laid out as one row (form= links the button back to its form) — a pair of
+         stacked full-width buttons reads fine at 400px and clumsy at 820px. Wraps to
+         stacked on a narrow screen. --}}
+    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+        <button type="submit" form="tnc-accept"
+                style="flex:1 1 220px; padding:11px 18px; border-radius:6px; border:none;
                        background:var(--brand-button, #0ea5e9); color:#ffffff;
                        font-size:14px; font-weight:600; cursor:pointer;">
             Accept &amp; continue
         </button>
-    </form>
 
-    <form method="POST" action="{{ route('demo.gate.logout') }}" style="margin-top:12px;">
-        @csrf
-        <button type="submit"
-                style="width:100%; padding:8px; border-radius:6px;
-                       border:1px solid var(--border, rgba(0,0,0,0.14));
-                       background:transparent; color:var(--text-secondary, #6b7280);
-                       font-size:12px; cursor:pointer;">
-            Decline and sign out
-        </button>
-    </form>
+        <form method="POST" action="{{ route('demo.gate.logout') }}" style="flex:0 1 auto; margin:0;">
+            @csrf
+            <button type="submit"
+                    style="padding:11px 18px; border-radius:6px;
+                           border:1px solid var(--border, rgba(0,0,0,0.14));
+                           background:transparent; color:var(--text-secondary, #6b7280);
+                           font-size:13px; cursor:pointer;">
+                Decline and sign out
+            </button>
+        </form>
+    </div>
 </x-guest-layout>
