@@ -314,6 +314,33 @@ class DemoAccessGrantTest extends TestCase
         });
     }
 
+    /**
+     * The emailed link points at the GATE, on the DEMO's domain.
+     *
+     * Two ways this goes wrong, both silent:
+     *
+     *  - Linking the site root. It works (root 302s to /demo/gate), but the first
+     *    thing a prospect sees of CoreX should open the form it claims to.
+     *  - Building the URL with route('demo.gate'). This mail is sent from PRIMARY,
+     *    so the URL generator would resolve against PRIMARY's domain and mail the
+     *    prospect a staging/live link that 404s. The demo's address is only ever
+     *    knowable from config — never from the sending box's own URL generator.
+     */
+    public function test_the_emailed_link_points_at_the_demo_gate_not_the_primary_domain(): void
+    {
+        Mail::fake();
+        config()->set('corex.instance.demo_url', 'https://demo1.corexos.co.za');
+
+        [$grant] = $this->service->issue([
+            'company_name'  => 'Ramsgate Rentals',
+            'contact_email' => 'devan@ramsgate.co.za',
+        ], $this->owner->id);
+
+        Mail::assertQueued(DemoAccessGrantMail::class, function (DemoAccessGrantMail $mail) {
+            return $mail->gateUrl === 'https://demo1.corexos.co.za/demo/gate';
+        });
+    }
+
     /** The audit payload must NOT carry the credential. */
     public function test_the_granted_event_redacts_the_plaintext_code_from_its_audit_payload(): void
     {

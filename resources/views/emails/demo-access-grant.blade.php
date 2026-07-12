@@ -29,7 +29,7 @@
             SIGN IN AT
         </p>
         <p style="margin: 0 0 16px; font-size: 15px;">
-            <a href="{{ $demoUrl }}" style="color: #0ea5e9; font-weight: 600;">{{ $demoUrl }}</a>
+            <a href="{{ $gateUrl }}" style="color: #0ea5e9; font-weight: 600;">{{ $gateUrl }}</a>
         </p>
 
         <p style="margin: 0 0 4px; font-size: 12px; font-weight: 600; color: #6b7280;">

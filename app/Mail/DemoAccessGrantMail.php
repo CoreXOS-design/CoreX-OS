@@ -32,7 +32,7 @@ class DemoAccessGrantMail extends Mailable implements ShouldQueue
     public function __construct(
         public DemoAccessGrant $grant,
         public string $accessCode,
-        public string $demoUrl,
+        public string $gateUrl,
     ) {}
 
     public function envelope(): Envelope
@@ -49,7 +49,7 @@ class DemoAccessGrantMail extends Mailable implements ShouldQueue
             with: [
                 'grant'        => $this->grant,
                 'accessCode'   => $this->accessCode,
-                'demoUrl'      => $this->demoUrl,
+                'gateUrl'      => $this->gateUrl,
                 'expiryHours'  => $this->grant->expiry_hours,
                 'contactName'  => $this->grant->contact_name,
                 'companyName'  => $this->grant->company_name,

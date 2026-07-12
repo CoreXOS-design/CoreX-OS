@@ -59,13 +59,31 @@ class SendDemoAccessGrantEmail
             ->send(new DemoAccessGrantMail(
                 grant:      $event->grant,
                 accessCode: $event->plaintextCode,
-                demoUrl:    self::demoUrl(),
+                gateUrl:    self::gateUrl(),
             ));
     }
 
-    /** Where we tell the prospect to go. Configurable so staging can point elsewhere. */
+    /** The demo's base address. Configurable so staging can point elsewhere. */
     public static function demoUrl(): string
     {
         return rtrim((string) config('corex.instance.demo_url', 'https://demo1.corexos.co.za'), '/');
+    }
+
+    /**
+     * Where we send the prospect: straight at the gate, not the site root.
+     *
+     * The root works — it 302s to /demo/gate — but the emailed link is the first
+     * thing a prospect ever sees of CoreX, and a link whose destination is the form
+     * it actually opens is one they can trust before they click it.
+     *
+     * Built by CONCATENATION, deliberately — NOT route('demo.gate'). This email is
+     * sent from PRIMARY (the demo host's mailer is a local catcher; see the guard
+     * above), so route() would resolve against primary's own domain and mail the
+     * prospect a staging URL that 404s. The demo's address is only ever knowable
+     * from config, never from the URL generator of the box doing the sending.
+     */
+    public static function gateUrl(): string
+    {
+        return self::demoUrl() . '/demo/gate';
     }
 }
