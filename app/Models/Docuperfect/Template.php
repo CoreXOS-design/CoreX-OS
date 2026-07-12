@@ -360,19 +360,28 @@ class Template extends Model
      *
      * Spec: .ai/specs/esign-v3-complete-spec.md §5
      *
-     * Layered defence — and an honest note on which layers are actually LIVE:
-     *   Layer 1 — document_type_id slug match. **DEAD.** `docuperfect_document_types` has no
-     *             `slug` column (verified on live, staging and qa1), so `documentType->slug`
-     *             is always null and this layer has never fired for anyone.
-     *   Layer 2 — template_type string. **EFFECTIVELY DEAD.** The real values in the wild are
-     *             `sales` / `rental` / `standard` / `general`; none is in the blocked list, and
-     *             the importer stamps every document it creates `general`.
-     *   Layer 3 — name regex. **THE ONLY LIVE LAYER.** Everything below rests on it.
-     *   Layer 4 — the saving guard above, so a blocked template cannot be stored e-signable.
+     * Layered defence — with an honest note on what each layer really does:
+     *
+     *   Layer 1 — document_type slug (`document_types.slug`). **LIVE, and the strongest.**
+     *             Five live OTPs are blocked by it today. It is the only layer that survives a
+     *             RENAME, because it asks what the document IS, not what it is called.
+     *             (Correction: an earlier version of this docblock called Layer 1 dead. That was
+     *             wrong — it was read against `docuperfect_document_types`, a legacy table with
+     *             no slug. The FK points at `document_types`, which has slugs for all five
+     *             blocked types. The layer was never dead; nothing was ever CLASSIFIED.)
+     *   Layer 2 — template_type string. Effectively inert: the values in the wild are
+     *             `sales` / `rental` / `standard` / `general`, none of which is a blocked slug.
+     *   Layer 3 — name regex. The fallback for anything unclassified. Load-bearing precisely
+     *             because classification was missing — "Contract of Sale" is on live today and
+     *             the old pattern did NOT match it.
+     *   Layer 4 — the saving guard above: a blocked template cannot be STORED e-signable, by
+     *             any of the seven writers of `is_esign`.
      *   Layer 5 — every trigger writes to legal_block_audit_log (insert-only).
      *
-     * Because Layer 3 carries the whole load, the pattern must cover how South Africans
-     * actually name these documents — "Contract of Sale" is on live today and was NOT matched.
+     * The real fix was never a longer regex — it was classifying documents at all.
+     * `DocumentTypeClassifier` now classifies on import, and a migration backfills the
+     * templates nobody ever classified. A classified sale stays blocked whatever it is renamed.
+     *
      * A mandate (Authority to Sell / sole mandate) is NOT an alienation document and must stay
      * e-signable: it authorises a sale, it does not effect one.
      */

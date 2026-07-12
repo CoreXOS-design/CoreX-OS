@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect;
 
+use App\Models\Docuperfect\DocumentType;
 use App\Models\Docuperfect\Template;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -163,20 +164,40 @@ final class EctaEsignBlockGuardTest extends TestCase
         $this->assertFalse($t->fresh()->is_esign);
     }
 
-    /** Renaming a blocked document to something innocuous must not launder it. */
-    public function test_a_sale_cannot_be_laundered_by_renaming_it_then_flipping_the_flag(): void
+    /**
+     * THE LAUNDERING ATTACK — and the reason classification exists.
+     *
+     * An UNCLASSIFIED sale is protected only by its name, so renaming it launders it into an
+     * e-signable document. (I pinned that as an honest limit before the classifier existed.)
+     *
+     * A CLASSIFIED sale is protected by what it IS. Rename it to anything you like — it stays
+     * blocked, because Layer 1 reads the document type, not the label.
+     */
+    public function test_a_classified_sale_survives_being_renamed_to_something_innocuous(): void
     {
-        $t = $this->template('Offer To Purchase (V13)');
+        $otpType = DocumentType::query()->where('slug', 'offer_to_purchase')->value('id');
+
+        $t = $this->template('Offer To Purchase (V13)', ['document_type_id' => $otpType]);
         $this->assertFalse($t->is_esign);
 
-        // The attack: rename it to something the regex does not catch, then turn e-sign on.
+        // The attack: rename it past the regex, then turn e-sign on.
         $t->update(['name' => 'Enviro Document V13', 'is_esign' => true]);
 
-        // HONEST LIMIT: the name IS the classification (Layers 1-2 are dead), so a renamed
-        // document is genuinely no longer identifiable as a sale. It unblocks — and it SHOULD,
-        // because at that point nothing in the system can tell it is one. This test pins the
-        // behaviour so the limitation is visible rather than assumed away: the fix is real
-        // document-type classification, not a longer regex.
-        $this->assertTrue($t->fresh()->is_esign, 'documented limit — see the classification finding');
+        $this->assertTrue($t->fresh()->isEsignBlocked(), 'classification must outlive the name');
+        $this->assertFalse($t->fresh()->is_esign, 'a renamed sale must STILL be wet-ink');
+    }
+
+    /** An UNCLASSIFIED sale is only as safe as its name — which is exactly why we classify. */
+    public function test_an_unclassified_sale_is_only_protected_by_its_name(): void
+    {
+        $t = $this->template('Offer To Purchase (V13)');   // no document_type_id
+        $this->assertFalse($t->is_esign);
+
+        $t->update(['name' => 'Enviro Document V13', 'is_esign' => true]);
+
+        $this->assertTrue(
+            $t->fresh()->is_esign,
+            'this is the hole classification closes — an unclassified document is what it is CALLED'
+        );
     }
 }

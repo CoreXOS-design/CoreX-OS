@@ -208,9 +208,25 @@ class DocumentTemplateGenerator
                 $slug = Str::slug($templateName);
                 $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
 
+                // Classify the document — what it IS, not what it is called.
+                //
+                // The importer used to leave document_type_id NULL on every document it
+                // created, which is why the ECTA legal block's strongest layer (the document-type
+                // slug) could never fire for an imported OTP: it fell through to the name regex,
+                // and a rename would have laundered a deed of alienation into an e-signable one.
+                // Classified, it stays blocked whatever anyone calls it.
+                $documentTypeId = app(DocumentTypeClassifier::class)
+                    ->classifyToId($templateName, strip_tags($processedHtml));
+
+                Log::info('Generator: document classified', [
+                    'name' => $templateName,
+                    'document_type_id' => $documentTypeId,
+                ]);
+
                 // Create the template first to get an ID for slug uniqueness
                 $template = Template::create([
                     'name' => $templateName,
+                    'document_type_id' => $documentTypeId,
                     'template_type' => 'general',
                     'render_type' => 'web',
                     'blade_view' => "docuperfect.web-templates.imported.{$slug}",
