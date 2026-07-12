@@ -46,6 +46,13 @@ class ProformaGenerationService
             throw new \DomainException($this->resolver->ineligibleReason($deal) ?? 'Deal not eligible for a proforma.');
         }
 
+        // ONE active proforma per deal — a new one only via admin void → generate.
+        // Fast pre-check (clean UI error); the authoritative race-safe check is inside
+        // the transaction, behind the settings-row lock.
+        if ($this->hasActiveProforma($deal)) {
+            throw new \DomainException('This deal already has an active proforma — void it first to issue a new one.');
+        }
+
         $fin      = $this->resolver->resolve($deal);
         $settings = AgencyProformaSettings::forAgency((int) $deal->agency_id);
         $dueDate  = $settings->resolveDueDate(now());
@@ -53,6 +60,13 @@ class ProformaGenerationService
         // 1) Record + locked commission line + number — one atomic transaction.
         $invoice = DB::transaction(function () use ($deal, $actor, $fin, $dueDate) {
             [$sequence, $number] = $this->numbers->allocate((int) $deal->agency_id);
+
+            // Race-safe re-check: allocate() locked the agency's settings row FOR UPDATE, so a
+            // concurrent generate for this deal is serialised behind it and sees the committed
+            // active proforma here. Throwing rolls back the allocation (no number wasted).
+            if ($this->hasActiveProforma($deal)) {
+                throw new \DomainException('This deal already has an active proforma.');
+            }
 
             $invoice = new ProformaInvoice();
             $invoice->forceFill([
@@ -103,6 +117,25 @@ class ProformaGenerationService
         $this->notifyAdmins($deal, $invoice, $actor, $fin['reference']);
 
         return $invoice;
+    }
+
+    /** The deal's current active (issued, non-voided) proforma, if any. */
+    public function activeProforma(Deal $deal): ?ProformaInvoice
+    {
+        return ProformaInvoice::withoutGlobalScopes()
+            ->where('deal_id', $deal->id)
+            ->where('status', ProformaInvoice::STATUS_ISSUED)
+            ->latest('id')
+            ->first();
+    }
+
+    /** One active proforma per deal — true when a new generate must be refused. */
+    public function hasActiveProforma(Deal $deal): bool
+    {
+        return ProformaInvoice::withoutGlobalScopes()
+            ->where('deal_id', $deal->id)
+            ->where('status', ProformaInvoice::STATUS_ISSUED)
+            ->exists();
     }
 
     /** Render the PDF, file it on the deal (3 pillars), email it. Re-usable by regenerate. */

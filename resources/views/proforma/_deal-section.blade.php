@@ -9,6 +9,7 @@
         ->where('deal_id', $deal->id)
         ->latest('id')->get();
     $eligible = app(\App\Services\Proforma\ProformaFinancialResolver::class)->isEligible($deal);
+    $activeProforma = $proformas->firstWhere('status', 'issued');   // one active per deal
     $money = fn ($v) => 'R ' . number_format((float) ($v ?? 0), 2, '.', ',');
 @endphp
 
@@ -16,7 +17,10 @@
     <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.6rem;">
         <h3 style="font-size:.9rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#6b7280);">Proforma Invoices</h3>
         @permission('proforma.generate')
-            @if($eligible)
+            @if($activeProforma)
+                {{-- One active proforma per deal — the only path to a new one is admin void → generate. --}}
+                <a href="{{ route('proforma.show', $activeProforma) }}" class="corex-btn-primary" style="font-size:.8rem;padding:.4rem .9rem;">View Proforma ({{ $activeProforma->number }})</a>
+            @elseif($eligible)
                 <form method="POST" action="{{ route('deals-dr2.proforma.generate', $deal) }}">@csrf
                     <button type="submit" class="corex-btn-primary" style="font-size:.8rem;padding:.4rem .9rem;">Generate Proforma Invoice</button>
                 </form>
