@@ -186,6 +186,14 @@
         $activeGroup = 'payroll';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
+    } elseif (request()->routeIs(
+        'deals-v2.suppliers.*',
+        'deals-v2.pipeline.*',
+        'admin.settings.deal-property-sync.*',
+        'admin.settings.deal-distribution-rules.*'
+    )) {
+        // Johan menu reorg — the four deal-register config doors live in one admin group.
+        $activeGroup = 'deal-register-settings';
     } elseif (request()->routeIs('deals-v2.*') || request()->routeIs('admin.settings.deal-distribution-rules.*')) {
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
@@ -1650,18 +1658,63 @@
         </a>
         @endpermission
 
-        {{-- AT-216 V1.1 — Deal Pipelines (agency config). Re-homed here after the deals-v2
-             prototype nav was retired (AT-219); the salvaged Pipeline Setup lives in Settings. --}}
-        @permission('deals_v2.manage_pipeline')
-        @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
-        <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-item {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-            <span>Deal Pipelines</span>
-        </a>
+        {{-- Johan menu reorg (2026-07-12) — DEAL REGISTER SETTINGS group. The four
+             deal-register config doors (Supplier Directory, Deal Pipelines, Deal
+             Property Sync, Deal Document Distribution) were scattered as flat items
+             after Settings — themselves salvaged from the retired deals-v2 group
+             (AT-219). Collected here into ONE admin corner as a slide-panel group.
+             Routes are UNCHANGED — old bookmarks still resolve; only the nav home
+             moved. Each sub-item keeps its OWN page permission (sync = access_settings,
+             the rest = their deals_v2.* gate); the group shows if the user can open at
+             least one door. Order is Johan's. --}}
+        @if($user && $user->hasAnyPermission(['deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
+        <div>
+            <button type="button" @click="push('deal-register-settings')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deal-register-settings' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+                <span>Deal Register Settings</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'deal-register-settings' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('deal-register-settings') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Deal Register Settings</div>
+
+                {{-- 1. Supplier Directory --}}
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
+                @endif
+                @endpermission
+
+                {{-- 2. Deal Pipelines (pipeline setup) --}}
+                @permission('deals_v2.manage_pipeline')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
+                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">Deal Pipelines</a>
+                @endif
+                @endpermission
+
+                {{-- 3. Deal Property Sync --}}
+                @permission('access_settings')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
+                <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">Deal Property Sync</a>
+                @endif
+                @endpermission
+
+                {{-- 4. Deal Document Distribution (the distribution-rules matrix) --}}
+                @permission('deals_v2.manage_distribution_rules')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Deal Document Distribution</a>
+                @endif
+                @endpermission
+            </div>
+        </div>
         @endif
-        @endpermission
 
         {{-- AT-161 — "Email Setup" moved to Communications → Email (as "Email Capture
              Setup"). URL unchanged (settings/email-setup); only the nav home moved. --}}
