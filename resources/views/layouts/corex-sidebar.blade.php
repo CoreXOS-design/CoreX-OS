@@ -117,7 +117,10 @@
         $activeGroup = 'evaluation';
     } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*')) {
         $activeGroup = 'api-server';
-    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.index', 'training.show')) {
+    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*')) {
+        // 'training.*' covers the whole LMS — the agent-facing courses AND Training
+        // Management (training.manage + its course/lesson editors), both of which
+        // live in the Hidden panel. It does NOT match 'training-help.*'.
         $activeGroup = 'hidden';
     } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
@@ -187,6 +190,19 @@
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
         $activeGroup = 'integration';
+    } elseif (request()->routeIs(
+        'agencies.*',
+        'admin.agency-setup-progress',
+        'admin.ai-usage.*'
+    )) {
+        $activeGroup = 'agency';
+    } elseif (request()->routeIs(
+        'admin.company-settings*',
+        'corex.role-manager*',
+        'admin.soft-deletes.*',
+        'staff-take-on.*'
+    )) {
+        $activeGroup = 'company';
     } elseif (request()->routeIs(
         'admin.deposit-trust-interest.*',
         'deposit-interest-calculator.*',
@@ -1449,19 +1465,47 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
-        {{-- Company Settings --}}
-        @permission('manage_performance_settings')
-        <a href="{{ route('admin.company-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
-            </svg>
-            <span>Company Settings</span>
-        </a>
-        @endpermission
+        {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on']))
+        <div>
+            <button type="button" @click="push('company')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+                </svg>
+                <span>Company</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'company' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('company') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Company</div>
+
+                @permission('manage_performance_settings')
+                <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">Company Settings</a>
+                @endpermission
+
+                @permission('access_role_manager')
+                <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
+                @endpermission
+
+                @permission('access_soft_deletes')
+                <a href="{{ route('admin.soft-deletes.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.soft-deletes.*') ? 'active' : '' }}">Soft Deletes</a>
+                @endpermission
+
+                @permission('manage_staff_take_on')
+                <a href="{{ route('staff-take-on.index') }}" class="corex-nav-subitem {{ request()->routeIs('staff-take-on.*') ? 'active' : '' }}">Staff Take-On</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Knowledge Base --}}
         @permission('access_knowledge_base')
@@ -1470,26 +1514,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
             </svg>
             <span>Knowledge Base</span>
-        </a>
-        @endpermission
-
-        {{-- Role Manager --}}
-        @permission('access_role_manager')
-        <a href="{{ route('corex.role-manager') }}" class="corex-nav-item {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-            </svg>
-            <span>Role Manager</span>
-        </a>
-        @endpermission
-
-        {{-- Soft Deletes Register --}}
-        @permission('access_soft_deletes')
-        <a href="{{ route('admin.soft-deletes.index') }}" class="corex-nav-item {{ request()->routeIs('admin.soft-deletes.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 4.5 19.5a1.5 1.5 0 0 0 1.5 1.4h12a1.5 1.5 0 0 0 1.5-1.4L21 7.5M3 7.5h18M3 7.5l1-3h16l1 3M9.75 11.25l4.5 4.5m0-4.5-4.5 4.5" />
-            </svg>
-            <span>Soft Deletes</span>
         </a>
         @endpermission
 
@@ -1513,15 +1537,7 @@
         </a>
         @endpermission
 
-        {{-- Training Management (admin/owner only) --}}
-        @if($isOwner || $effectiveRole === 'super_admin')
-        <a href="{{ route('training.manage') }}" class="corex-nav-item {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-            </svg>
-            <span>Training Mgmt</span>
-        </a>
-        @endif
+        {{-- Training Management moved to System Developer → Hidden (owner-only). --}}
 
         {{-- Onboarding (admin/owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')
@@ -1556,17 +1572,6 @@
             <span>Contact Governance</span>
         </a>
         @endif
-
-        {{-- Staff Take-On --}}
-        @permission('manage_staff_take_on')
-        <a href="{{ route('staff-take-on.index') }}" class="corex-nav-item {{ request()->routeIs('staff-take-on.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
-            </svg>
-            <span>Staff Take-On</span>
-        </a>
-        @endpermission
-
 
         {{-- Deals (slide-panel group) --}}
         {{-- AT-219 (DR2 sunset): the abandoned deals-v2 prototype register is RETIRED (soft).
@@ -1667,21 +1672,35 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">System Developer</div>
 
-        {{-- Agency Management --}}
-        <a href="{{ route('agencies.index') }}" class="corex-nav-item {{ request()->routeIs('agencies.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
-            </svg>
-            <span>Agency Management</span>
-        </a>
+        {{-- Agency (slide-panel group: tenant management, onboarding progress, AI spend) --}}
+        <div>
+            <button type="button" @click="push('agency')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('agency') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+                </svg>
+                <span>Agency</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
 
-        {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
-        <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-item {{ request()->routeIs('admin.agency-setup-progress') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-            </svg>
-            <span>Agency Setup Progress</span>
-        </a>
+            <div class="corex-nav-panel {{ $groupOpen('agency') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('agency') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Agency</div>
+
+                <a href="{{ route('agencies.index') }}" class="corex-nav-subitem {{ request()->routeIs('agencies.*') ? 'active' : '' }}">Agency Management</a>
+
+                {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
+                <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress') ? 'active' : '' }}">Agency Setup Progress</a>
+
+                {{-- AI Usage (MIC Phase B2) --}}
+                @permission('mic.view_ai_costs')
+                <a href="{{ route('admin.ai-usage.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ai-usage.*') ? 'active' : '' }}">AI Usage</a>
+                @endpermission
+            </div>
+        </div>
 
         {{-- PP Agents now lives under the Importer slide-panel group. --}}
 
@@ -1724,16 +1743,6 @@
                 @endpermission
             </div>
         </div>
-
-        {{-- AI Usage (MIC Phase B2) --}}
-        @permission('mic.view_ai_costs')
-        <a href="{{ route('admin.ai-usage.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ai-usage.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.5l4.5-4.5 4.5 4.5L21 6m0 0v6m0-6h-6" />
-            </svg>
-            <span>AI Usage</span>
-        </a>
-        @endpermission
 
         {{-- Dev Settings --}}
         <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*') ? 'active' : '' }}">
@@ -1881,6 +1890,9 @@
 
                 {{-- Training --}}
                 <a href="{{ route('training.index') }}" class="corex-nav-subitem {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">Training</a>
+
+                {{-- Training Management (LMS authoring) --}}
+                <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Training Mgmt</a>
 
                 {{-- Rentals — nested drill-down --}}
                 @permission('view_rentals')
