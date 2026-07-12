@@ -1041,6 +1041,10 @@ Route::middleware(['auth'])->group(function () {
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
     Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');
     Route::put('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'update'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.update');
+    // AT-227 — Document-type distribution matrix (TYPE-level, null-stage): per type → party roles.
+    // The single source of truth AT-228 send-buttons + m6 e-sign completion both consume.
+    Route::get('/admin/settings/document-distribution',  [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution');
+    Route::post('/admin/settings/document-distribution', [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'save'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution.save');
 
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
