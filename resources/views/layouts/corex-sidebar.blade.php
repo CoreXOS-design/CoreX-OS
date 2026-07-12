@@ -115,6 +115,10 @@
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
+    } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*')) {
+        $activeGroup = 'api-server';
+    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.index', 'training.show')) {
+        $activeGroup = 'hidden';
     } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
@@ -202,6 +206,21 @@
     )) {
         $activeGroup = 'communication';
     }
+
+    // ── Nested groups (a panel that lives inside another panel) ──
+    // Rentals and Evaluation are drill-downs of the System Developer → Hidden
+    // panel, so opening either must also open its parent panel underneath.
+    $navGroupParents = [
+        'rentals'    => 'hidden',
+        'evaluation' => 'hidden',
+    ];
+
+    // Full open-chain for the active group, root-most first: ['hidden','rentals'].
+    $activeChain = [];
+    for ($_g = $activeGroup; $_g !== null; $_g = $navGroupParents[$_g] ?? null) {
+        array_unshift($activeChain, $_g);
+    }
+    $groupOpen = fn (string $g): bool => in_array($g, $activeChain, true);
 
     // ── Demo sidebar curation (presentation-only) ──
     // Hide curated sidebar items for demo-agency members only. Owners and all
@@ -363,7 +382,9 @@
     {{-- Navigation — sliding-panel drill-down (root + per-group overlay panels) --}}
     <nav class="flex-1 min-h-0 corex-nav-viewport"
          x-data="{
-            stack: @js($activeGroup ? [$activeGroup] : []),
+            groupParents: @js($navGroupParents),
+            stack: @js($activeChain),
+            chain(g) { const out = []; for (let c = g; c; c = this.groupParents[c] || null) out.unshift(c); return out },
             push(g) { if (this.stack[this.stack.length - 1] !== g) this.stack.push(g) },
             pop() { this.stack.pop() },
             inStack(g) { return this.stack.includes(g) },
@@ -375,11 +396,11 @@
             runSearch() { this.searchResults = window.CorexNavSearch.search(this.searchQ); this.searchSel = 0 },
             clearSearch() { this.searchQ = ''; this.searchResults = []; this.searchSel = 0 },
             moveSel(d) { if (this.searchResults.length) this.searchSel = (this.searchSel + d + this.searchResults.length) % this.searchResults.length },
-            goResult(e, r) { if (r && r.group) { e.preventDefault(); this.stack = [r.group]; this.clearSearch() } },
+            goResult(e, r) { if (r && r.group) { e.preventDefault(); this.stack = this.chain(r.group); this.clearSearch() } },
             goSel() {
                 const r = this.searchResults[this.searchSel];
                 if (!r) return;
-                if (r.group) { this.stack = [r.group]; this.clearSearch() }
+                if (r.group) { this.stack = this.chain(r.group); this.clearSearch() }
                 else if (r.href) { window.location.href = r.href }
             }
          }">
@@ -1654,6 +1675,14 @@
             <span>Agency Management</span>
         </a>
 
+        {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
+        <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-item {{ request()->routeIs('admin.agency-setup-progress') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            <span>Agency Setup Progress</span>
+        </a>
+
         {{-- PP Agents now lives under the Importer slide-panel group. --}}
 
         {{-- Duplicate Cleanup --}}
@@ -1664,13 +1693,37 @@
             <span>Duplicate Cleanup</span>
         </a>
 
-        {{-- API Catalog --}}
-        <a href="{{ route('admin.api.catalog') }}" class="corex-nav-item {{ request()->routeIs('admin.api.catalog') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
-            </svg>
-            <span>API</span>
-        </a>
+        {{-- API & Server (slide-panel group: API catalog + Backups + Server Health) --}}
+        <div>
+            <button type="button" @click="push('api-server')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('api-server') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
+                </svg>
+                <span>API &amp; Server</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $groupOpen('api-server') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('api-server') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">API &amp; Server</div>
+
+                <a href="{{ route('admin.api.catalog') }}" class="corex-nav-subitem {{ request()->routeIs('admin.api.catalog') ? 'active' : '' }}">API</a>
+
+                {{-- Backups (AT-163) --}}
+                @permission('view_backups')
+                <a href="{{ route('admin.backups.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.backups.*') ? 'active' : '' }}">Backups</a>
+                @endpermission
+
+                {{-- Server Health Monitor (live server vitals) --}}
+                @permission('view_server_health')
+                <a href="{{ route('admin.system-health.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">Server Health</a>
+                @endpermission
+            </div>
+        </div>
 
         {{-- AI Usage (MIC Phase B2) --}}
         @permission('mic.view_ai_costs')
@@ -1690,25 +1743,33 @@
             <span>Dev Settings</span>
         </a>
 
-        {{-- Backups (AT-163) --}}
-        @permission('view_backups')
-        <a href="{{ route('admin.backups.index') }}" class="corex-nav-item {{ request()->routeIs('admin.backups.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008V11.25Z" />
-            </svg>
-            <span>Backups</span>
-        </a>
-        @endpermission
+        {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating
+             CoreX, what they looked at, when their access dies.
 
-        {{-- Server Health Monitor (live server vitals) --}}
-        @permission('view_server_health')
-        <a href="{{ route('admin.system-health.index') }}" class="corex-nav-item {{ request()->routeIs('admin.system-health.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
-            </svg>
-            <span>Server Health</span>
-        </a>
-        @endpermission
+             Deliberately NOT wrapped in @permission. This block is already inside
+             the owner-only section (same as Dev Settings above), and a permission
+             key would be GRANTABLE — one mis-click in the Role Manager and an
+             agency admin can see which of their competitors are trialling us.
+             Spec: .ai/specs/demo-access-control.md §8 --}}
+        @if (\App\Support\Instance::isDemo())
+            {{-- ON THE DEMO BOX: the only demo surface that means anything here is
+                 "where is CoreX, and what token do I use". The grants themselves live
+                 on primary — this database is wiped every 3 days. --}}
+            <a href="{{ route('admin.demo-connection.edit') }}" class="corex-nav-item {{ request()->routeIs('admin.demo-connection.*') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                </svg>
+                <span>Demo Connection</span>
+            </a>
+        @else
+            {{-- ON PRIMARY: issue grants, publish terms, mint the connector. --}}
+            <a href="{{ route('admin.demo-access.index') }}" class="corex-nav-item {{ request()->routeIs('admin.demo-access.*') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
+                </svg>
+                <span>Demo Access</span>
+            </a>
+        @endif
 
         {{-- Integration (slide-panel group: Meta config + public legal pages) --}}
         <div>
@@ -1788,105 +1849,92 @@
             @endif
         </a>
 
-        {{-- Sales Documents — hidden from agency users, visible to system owners only --}}
-        @if(\Illuminate\Support\Facades\Route::has('docuperfect.sales'))
-        <a href="{{ route('docuperfect.sales') }}" class="corex-nav-item {{ request()->routeIs('docuperfect.sales*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5M12 12.75h3m-3 0h-3m-2.25 0H5.625c-.621 0-1.125-.504-1.125-1.125V4.125c0-.621.504-1.125 1.125-1.125h5.25a2.25 2.25 0 0 1 2.25 2.25v1.5m-6 9V21m0-6.75h9" />
-            </svg>
-            <span>Sales Documents</span>
-            <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
-                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
-                  title="Hidden from agency users — visible to system owners only">Hidden</span>
-        </a>
-        @endif
-
-        {{-- Revenue Share — hidden from agency users, visible to system owners only --}}
-        <a href="{{ route('revenue-share.calculator') }}"
-           class="corex-nav-item {{ request()->routeIs('revenue-share.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
-            </svg>
-            <span>Revenue Share</span>
-            <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
-                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
-                  title="Hidden from agency users — visible to system owners only">Hidden</span>
-        </a>
-
-        {{-- Training — hidden from agency users, visible to system owners only --}}
-        <a href="{{ route('training.index') }}"
-           class="corex-nav-item {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
-            </svg>
-            <span>Training</span>
-            <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
-                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
-                  title="Hidden from agency users — visible to system owners only">Hidden</span>
-        </a>
-
-        {{-- Rentals — hidden from agency users, visible to system owners only --}}
-        @permission('view_rentals')
+        {{-- ═══════════════════════════════════════════
+             HIDDEN — pages hidden from agency users, visible to system owners
+             only. Every hidden page (and hidden drill-down group) lives here.
+             Rentals and Evaluation nest one level deeper — see $navGroupParents.
+             ═══════════════════════════════════════════ --}}
         <div>
-            <button type="button" @click="push('rentals')"
-                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'rentals' ? 'active' : '' }}">
+            <button type="button" @click="push('hidden')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('hidden') ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205 3 1m1.5.5-1.5-.5M6.75 7.364V3h-3v18m3-13.636 10.5-3.819" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243" />
                 </svg>
-                <span>Rentals</span>
-                <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
-                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
-                      title="Hidden from agency users — visible to system owners only">Hidden</span>
-            </button>
-
-            <div class="corex-nav-panel {{ $activeGroup === 'rentals' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rentals') }">
-                <button type="button" @click="pop()" class="corex-nav-back">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    <span>Back</span>
-                </button>
-                <div class="corex-nav-panel-title">Rentals</div>
-                <a href="{{ route('rentals.index') }}" class="corex-nav-subitem {{ request()->routeIs('rentals.*') ? 'active' : '' }}">Rentals</a>
-                @permission('view_rentals')
-                <a href="{{ route('rental.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('rental.dashboard') ? 'active' : '' }}">Dashboard</a>
-                @endpermission
-                @permission('access_rental_signatures')
-                <a href="{{ route('rental.signatures') }}" class="corex-nav-subitem {{ request()->routeIs('rental.signatures*') ? 'active' : '' }}">Electronic Signatures</a>
-                @endpermission
-                @permission('view_rentals')
-                <a href="{{ route('rental.active-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.active-leases') ? 'active' : '' }}">Active Leases</a>
-                <a href="{{ route('rental.expired-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.expired-leases') ? 'active' : '' }}">Expired Leases</a>
-                @endpermission
-            </div>
-        </div>
-        @endpermission
-
-        {{-- Evaluation — hidden from agency users, visible to system owners only --}}
-        <div>
-            <button type="button" @click="push('evaluation')"
-                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'evaluation' ? 'active' : '' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
-                </svg>
-                <span>Evaluation</span>
-                <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
-                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
-                      title="Hidden from agency users — visible to system owners only">Hidden</span>
+                <span>Hidden</span>
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div class="corex-nav-panel {{ $activeGroup === 'evaluation' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('evaluation') }">
+            <div class="corex-nav-panel {{ $groupOpen('hidden') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('hidden') }">
                 <button type="button" @click="pop()" class="corex-nav-back">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
                 </button>
-                <div class="corex-nav-panel-title">Evaluation</div>
-                <a href="{{ route('evaluation.index') }}#tab=property" class="corex-nav-subitem {{ request()->routeIs('evaluation.*') ? 'active' : '' }}">Property Report</a>
-                <a href="{{ route('evaluation.index') }}#tab=suburb" class="corex-nav-subitem">Suburb Report</a>
-                <a href="{{ route('evaluation.index') }}#tab=town" class="corex-nav-subitem">Town Report</a>
-                <a href="{{ route('evaluation.index') }}#tab=street" class="corex-nav-subitem">Street Report</a>
-                <a href="{{ route('evaluation.index') }}#tab=transfer" class="corex-nav-subitem">Transfer Report</a>
-                {{-- Phase D1 — Prospecting evaluation tab removed; the new
-                     MIC Analyse tab is now the canonical surface for that data. --}}
+                <div class="corex-nav-panel-title">Hidden</div>
+
+                {{-- Sales Documents --}}
+                @if(\Illuminate\Support\Facades\Route::has('docuperfect.sales'))
+                <a href="{{ route('docuperfect.sales') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.sales*') ? 'active' : '' }}">Sales Documents</a>
+                @endif
+
+                {{-- Revenue Share --}}
+                <a href="{{ route('revenue-share.calculator') }}" class="corex-nav-subitem {{ request()->routeIs('revenue-share.*') ? 'active' : '' }}">Revenue Share</a>
+
+                {{-- Training --}}
+                <a href="{{ route('training.index') }}" class="corex-nav-subitem {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">Training</a>
+
+                {{-- Rentals — nested drill-down --}}
+                @permission('view_rentals')
+                <div>
+                    <button type="button" @click="push('rentals')"
+                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('rentals') ? 'active' : '' }}">
+                        <span>Rentals</span>
+                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </button>
+
+                    <div class="corex-nav-panel {{ $groupOpen('rentals') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rentals') }">
+                        <button type="button" @click="pop()" class="corex-nav-back">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                            <span>Back</span>
+                        </button>
+                        <div class="corex-nav-panel-title">Rentals</div>
+                        <a href="{{ route('rentals.index') }}" class="corex-nav-subitem {{ request()->routeIs('rentals.*') ? 'active' : '' }}">Rentals</a>
+                        @permission('view_rentals')
+                        <a href="{{ route('rental.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('rental.dashboard') ? 'active' : '' }}">Dashboard</a>
+                        @endpermission
+                        @permission('access_rental_signatures')
+                        <a href="{{ route('rental.signatures') }}" class="corex-nav-subitem {{ request()->routeIs('rental.signatures*') ? 'active' : '' }}">Electronic Signatures</a>
+                        @endpermission
+                        @permission('view_rentals')
+                        <a href="{{ route('rental.active-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.active-leases') ? 'active' : '' }}">Active Leases</a>
+                        <a href="{{ route('rental.expired-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.expired-leases') ? 'active' : '' }}">Expired Leases</a>
+                        @endpermission
+                    </div>
+                </div>
+                @endpermission
+
+                {{-- Evaluation — nested drill-down --}}
+                <div>
+                    <button type="button" @click="push('evaluation')"
+                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('evaluation') ? 'active' : '' }}">
+                        <span>Evaluation</span>
+                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </button>
+
+                    <div class="corex-nav-panel {{ $groupOpen('evaluation') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('evaluation') }">
+                        <button type="button" @click="pop()" class="corex-nav-back">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                            <span>Back</span>
+                        </button>
+                        <div class="corex-nav-panel-title">Evaluation</div>
+                        <a href="{{ route('evaluation.index') }}#tab=property" class="corex-nav-subitem {{ request()->routeIs('evaluation.*') ? 'active' : '' }}">Property Report</a>
+                        <a href="{{ route('evaluation.index') }}#tab=suburb" class="corex-nav-subitem">Suburb Report</a>
+                        <a href="{{ route('evaluation.index') }}#tab=town" class="corex-nav-subitem">Town Report</a>
+                        <a href="{{ route('evaluation.index') }}#tab=street" class="corex-nav-subitem">Street Report</a>
+                        <a href="{{ route('evaluation.index') }}#tab=transfer" class="corex-nav-subitem">Transfer Report</a>
+                        {{-- Phase D1 — Prospecting evaluation tab removed; the new
+                             MIC Analyse tab is now the canonical surface for that data. --}}
+                    </div>
+                </div>
             </div>
         </div>
         @endif
@@ -2015,9 +2063,16 @@ window.__demoNavHidden = @json($_demoHiddenNav);
             a.remove();
         });
 
-        // Collapse a section only if WE removed its last sub-item.
+        // Collapse a section only if WE removed its last sub-item. A link inside
+        // a NESTED panel belongs to that panel, not to the outer one — count only
+        // the panel's own links, plus any nested drill-down it still holds.
         touchedPanels.forEach(function (panel) {
-            if (!panel.querySelector('a.corex-nav-subitem')) {
+            var ownLinks = Array.prototype.filter.call(
+                panel.querySelectorAll('a.corex-nav-subitem'),
+                function (a) { return a.closest('.corex-nav-panel') === panel; }
+            );
+            var nestedGroups = panel.querySelectorAll('button.corex-nav-subgroup-toggle');
+            if (!ownLinks.length && !nestedGroups.length) {
                 var wrap = panel.parentElement; // group wrapper (button + panel)
                 if (wrap) wrap.remove();
             }
@@ -2121,11 +2176,14 @@ window.CorexNavSearch = (function () {
             if (m) add(firstText(btn), null, '', m[1]);
         });
 
-        // Sub-section links inside every panel, tagged with their heading.
+        // Sub-section links inside every panel, tagged with their heading. A
+        // nested panel (Hidden → Rentals) owns its own links — skip them here so
+        // they aren't also indexed against the outer panel's heading.
         root.querySelectorAll('.corex-nav-panel').forEach(function (panel) {
             const titleEl = panel.querySelector('.corex-nav-panel-title');
             const parent = titleEl ? firstText(titleEl) : '';
             panel.querySelectorAll('a.corex-nav-subitem').forEach(function (a) {
+                if (a.closest('.corex-nav-panel') !== panel) return;
                 add(firstText(a), a.getAttribute('href'), parent, null);
             });
         });

@@ -24,6 +24,7 @@ Route::get('account-setup/{user}', [AccountSetupController::class, 'show'])
     ->middleware('signed')
     ->name('account.setup');
 Route::post('account-setup/{user}', [AccountSetupController::class, 'store'])
+    ->middleware('signed')
     ->name('account.setup.store');
 
 // `auth.nocache` forces no-store cache headers on these pages so the browser

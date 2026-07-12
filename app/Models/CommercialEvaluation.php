@@ -6,9 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 class CommercialEvaluation extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id',

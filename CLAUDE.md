@@ -156,6 +156,38 @@ There are two property tiers, clearly separated:
 
 Promotion from Tracked → Stock happens when a mandate is signed, via `promoteToStock()`. Promotion preserves the audit chain — the Tracked Property record stays as the long-lived audit trail, and its `promoted_to_property_id` points at the operational Property. Resolution uses a 5-strategy match: source-ref exact → GPS proximity (~5m) → erf+suburb → normalised address → token overlap. This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work.
 
+### 10a. Every new setting reaches the Setup Wizard. Same prompt, no exceptions.
+
+If a prompt adds a **setting** — anything an agency configures about how CoreX behaves for
+them (a new column on `agencies`, a new `PerformanceSetting` key, a `commission_settings`
+field, a new toggle/threshold/template/list on `/corex/settings` or Company Settings) — then
+that same prompt ALSO surfaces it in the **Agency Onboarding Setup Wizard**
+(`config/agency-onboarding-copy.php`). A setting that exists only on the settings page is
+**not done**.
+
+This is Non-negotiable #2 (nav entry same day) applied to configuration: a setting nobody is
+told about is a setting nobody uses. The wizard is the only place an agency is ever walked
+through what CoreX can do — if a feature's switch never appears there, that feature ships
+inert and stays inert, and we find out months later that no customer ever turned it on.
+
+**What "surfaced in the wizard" means:**
+
+1. Add the control to the relevant step in `config/agency-onboarding-copy.php` — with its
+   `explain` (what the setting is, in a full sentence) and `affects` ("What this changes:" —
+   a concrete, observable consequence, never a tautology).
+2. Wire its canonical saver into that step's `savers`. **Read `.ai/specs/agency-onboarding-setup.md` §6.1
+   before you do** — the wizard step posts a SUBSET of the saver's fields, and a saver that
+   coerces an absent checkbox to `false` will silently wipe settings the step never rendered.
+   Guard every boolean write with `$request->has()`.
+3. If the setting genuinely does not belong in onboarding (an expert/rarely-touched knob, or
+   something an agency configures once it is already running), that is a legitimate call —
+   but it is **Johan's call, not the lane's**. Ask. If it stays out, say so explicitly in the
+   commit message and record it in the spec's "Deliberately NOT in the wizard" list (§5.1),
+   so the omission is a decision on the record rather than an oversight nobody noticed.
+
+The reverse also holds: a control removed from the settings page is removed from the wizard
+in the same prompt. The two must never drift.
+
 ### 11. Git sync at session boundaries.
 Every VS Code session begins with the mandatory pre-reads (CLAUDE.md, STANDARDS.md, CODEBASE_MAP.md, the relevant spec) and THEN — before any other work — runs `git fetch --all --prune`, `git pull --rebase origin <current branch>`, and merges/rebases `origin/Staging` into the working branch. Conflicts are resolved on the spot, before any other file is touched. Every session ends with `git add` of the changed files, a focused commit message, and `git push origin <current branch>`.
 

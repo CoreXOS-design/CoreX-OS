@@ -452,6 +452,8 @@ return [
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
         ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
+        ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
+        ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
@@ -585,7 +587,9 @@ return [
             // reveal_backup_password is likewise principal-only (AT-163).
             // calendar.tile.my_deals: the §15.5 DR2 hold is LIFTED (AT-216 R3, Johan's explicit
             // ask) — the deal-pipeline deck tile ships with DR2. Admin gets it via all-minus-exclude.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password'],
+            // agency_setup.track is the platform-owner cross-agency progress
+            // board — owner-only, so admin is excluded from the all-minus rule.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

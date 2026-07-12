@@ -335,29 +335,41 @@ Schedule::command('geo:cache-purge')
     ->withoutOverlapping()
     ->name('geo-cache-purge');
 
-// Demo refresh — full wipe + rebuild of the demo database every 3 days, 03:00 SAST.
+// ── The demo 3-day rebuild. ONE schedule. ──
 //
-// This REPLACES the previous pair:
-//     Schedule::command('demo:cleanup --force')->dailyAt('03:00');
-//     Schedule::command('demo:seed')->dailyAt('03:05');      // <-- no --force
-// which was silently destroying the demo every night: DemoDataSeeder refuses any
-// non-local environment without --force, and the demo box is APP_ENV=demo. The
-// cleanup deleted all [DEMO] data; the reseed then refused. Nightly, for months.
+// CONVERGED at the QA2 → Staging merge. Both branches independently diagnosed the
+// same fault (the demo was destroying itself nightly) and each shipped its own
+// 3-day rebuild — Staging's `demo:refresh` and AT-230's `demo:reset`. The merge
+// briefly carried BOTH, each daily at 03:00 SAST under a DIFFERENT
+// withoutOverlapping() name, so nothing would have stopped two full wipes racing
+// each other on the same box on the same night. They are now one entry.
 //
-// demo:refresh is one atomic gated operation (back up → wipe → migrate → seed →
-// VERIFY → roll back on any failure). It is scheduled DAILY on purpose but only
-// acts once per DEMO_REFRESH_INTERVAL_DAYS (default 3), so a night that is missed
-// or that fails self-heals on the next tick rather than waiting a full cycle.
+// GATE — Instance::isDemo() (COREX_INSTANCE_ROLE), never app()->environment():
+// demo1.corexos.co.za runs APP_ENV=production, so an environment()-based gate is
+// silently FALSE on the very box it is meant to describe. That is the same trap
+// that made DemoLoginController::isEnabled() false on the demo host, and it is
+// why the old `in_array(app()->environment(), ['local','demo'])` gate is gone.
 //
-// It is safe to register unconditionally: the command no-ops unless
-// DEMO_REFRESH_ENABLED=true, which only the demo box sets. The environment check
-// is kept as defence in depth — live and staging run this same file.
-if (in_array(app()->environment(), ['local', 'demo'], true)) {
-    Schedule::command('demo:refresh')
+// TIMING — DemoResetSchedule::isResetDay() (checked inside demo:reset --scheduled)
+// is a PURE FUNCTION OF TIME, and it is the same function the countdown banner
+// reads. One computation, so the banner cannot promise a reset the scheduler does
+// not perform. It deliberately replaces demo:refresh's stored last-refreshed-at
+// throttle, which lived in the database the reset destroys.
+//
+// SAFETY — demo:reset now takes demo:refresh's backup first and REFUSES to wipe if
+// that backup fails, so the safer operation survived the convergence.
+//
+// demo:refresh is retained as a hand-runnable command (no hard deletes) but is no
+// longer scheduled; it targets a dedicated `demo` connection, which is the right
+// shape for rebuilding a demo DB from ANOTHER box, not for a demo instance
+// rebuilding its own.
+if (\App\Support\Instance::isDemo()) {
+    Schedule::command('demo:reset --scheduled')
         ->dailyAt('03:00')
-        ->timezone('Africa/Johannesburg')
+        ->timezone(\App\Support\DemoResetSchedule::TIMEZONE)
+        ->onOneServer()
         ->withoutOverlapping()
-        ->name('demo-refresh');
+        ->name('demo-access.reset');
 }
 
 // Mandate expiry — daily at 01:00. Marks stock properties whose expiry_date

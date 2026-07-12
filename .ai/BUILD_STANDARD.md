@@ -147,6 +147,16 @@ A feature is DONE only when ALL apply:
 - [ ] Test/seed data mirrors real-world messiness
 - [ ] Sibling occurrences of any fixed bug-class also fixed
 - [ ] Navigation entry + permission gate present
+- [ ] **Every new SETTING is surfaced in the Agency Onboarding Setup Wizard** in the
+      same prompt (`config/agency-onboarding-copy.php` — control + `explain` +
+      `affects` + its canonical saver). A setting that exists only on the settings
+      page is not done — the wizard is the only place an agency is ever told the
+      feature exists, so a missing control means the feature ships inert. Leaving it
+      out is Johan's call, not the lane's: ask, then record it in the spec's
+      "Deliberately NOT in the wizard" list. CLAUDE.md Non-negotiable #10a.
+      **Before wiring a saver, read `.ai/specs/agency-onboarding-setup.md` §6.1** — a
+      wizard step posts a SUBSET of the saver's fields, and a saver that coerces an
+      absent checkbox to `false` silently wipes settings it never rendered.
 - [ ] Verification report states WHICH input paths were proven
 - [ ] **Reference data travels with the deploy.** If the feature relies on
       GLOBAL reference rows (settings/types/classes/permissions), those rows are

@@ -6,9 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class DealMoneyLine extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /** A child's branch is its parent's branch, never the acting user's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Deal::class, 'deal_id'];
+    }
 
     protected $table = 'deal_money_lines';
 

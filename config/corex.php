@@ -21,6 +21,44 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Instance role — primary vs demo
+    |--------------------------------------------------------------------------
+    |
+    | Spec: .ai/specs/demo-access-control.md §3
+    |
+    | One codebase, two roles. `primary` is the real install (live/staging);
+    | `demo` is demo1.corexos.co.za, whose database is destroyed every 3 days.
+    |
+    | This flag exists because there is NO usable "am I demo?" predicate today:
+    |   - config('app.env_label') is COSMETIC — it only colours the banner.
+    |   - DemoLoginController::isEnabled() requires !environment('production'),
+    |     but the demo host runs APP_ENV=production, so it is false there.
+    | Never gate security on a display string.
+    |
+    | The durable records (grants, T&C, sessions, page views) live in the
+    | PRIMARY database. A demo instance reaches primary over the Agency Public
+    | API using an AgencyApiKey bearer token with the demo:gate +
+    | demo:telemetry scopes.
+    |
+    */
+    'instance' => [
+        'role'          => env('COREX_INSTANCE_ROLE', 'primary'),
+        'control_url'   => env('COREX_DEMO_CONTROL_URL'),
+        'control_token' => env('COREX_DEMO_CONTROL_TOKEN'),
+
+        // Where the invitation email sends the prospect. Set on PRIMARY (it is
+        // primary that mails the grant), not on the demo host.
+        'demo_url'      => env('COREX_DEMO_URL', 'https://demo1.corexos.co.za'),
+
+        // How long a demo host caches primary's verdict on a session. This IS the
+        // revoke latency: a revoked grant keeps working for up to this many
+        // seconds. The admin UI's revoke dialog quotes it. Raising it trades
+        // safety for fewer round trips — don't, without saying so on that dialog.
+        'gate_cache_ttl' => (int) env('COREX_DEMO_GATE_CACHE_TTL', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Domain events
     |--------------------------------------------------------------------------
     |

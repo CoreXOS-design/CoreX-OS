@@ -13,6 +13,28 @@ use App\Http\Controllers\Admin\DealController;
 use App\Http\Controllers\Agent\DealRegisterController;
 use App\Http\Controllers\Admin\MonthlyGoalController;
 
+// ════════════════════════════════════════════════════════════════
+// Demo Access Control (AT-230) — the gate on demo1.corexos.co.za.
+//
+// UNAUTHENTICATED by necessity: this IS the front door. A prospect arrives with
+// nothing but an emailed email+code, so these routes sit outside auth — they are
+// also on EnsureDemoGrant's exempt list, or the gate would redirect to itself
+// forever.
+//
+// On PRIMARY these 404 (DemoGateController::assertDemo). A sign-in gate for a
+// demo that does not live here would be a dead end, and a surface to probe.
+//
+// Spec: .ai/specs/demo-access-control.md §6.2, §6.3, §6.4
+// ════════════════════════════════════════════════════════════════
+Route::get('/demo/gate',         [\App\Http\Controllers\Demo\DemoGateController::class, 'show'])->name('demo.gate');
+Route::post('/demo/gate',        [\App\Http\Controllers\Demo\DemoGateController::class, 'verify'])->name('demo.gate.verify');
+Route::post('/demo/gate/logout', [\App\Http\Controllers\Demo\DemoGateController::class, 'logout'])->name('demo.gate.logout');
+Route::get('/demo/tnc',          [\App\Http\Controllers\Demo\DemoGateController::class, 'tnc'])->name('demo.tnc');
+Route::post('/demo/tnc',         [\App\Http\Controllers\Demo\DemoGateController::class, 'acceptTnc'])->name('demo.tnc.accept');
+
+// Page-view beacon. Always 204 — never blocks, never errors (fails OPEN, §6.4).
+Route::post('/demo/telemetry',   [\App\Http\Controllers\Demo\DemoTelemetryController::class, 'store'])->name('demo.telemetry');
+
 // ── Seller Live Link (public, no auth) ──
 Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
 Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
@@ -617,6 +639,16 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
     Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkConfirm'])->name('rows.bulk-confirm');
     Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkExclude'])->name('rows.bulk-exclude');
     Route::post('/rows/confirm-all', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmAllFiltered'])->name('rows.confirm-all');
+});
+
+// ===== PUBLIC AGENCY-SETUP GATE (token landing + real-login gate) =====
+// Distinct prefix from onboarding/{token} (P24) to avoid route shadowing.
+// The token authenticates the emailed link and logs the Admin in; the wizard
+// itself runs under normal auth (see the corex.agency-setup.* group below).
+// Spec: .ai/specs/agency-onboarding-setup.md §3.2–3.3.
+Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name('agency-setup.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'show'])->name('show');
+    Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
 });
 
 // ===== P24 MARKET INTELLIGENCE =====
@@ -1478,15 +1510,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
-            $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
-            // buyer_portal_links.agency_id is NOT NULL and this is a raw insert
-            // (no BelongsToAgency auto-stamp) — derive it from the contact pillar.
-            $agencyId = \App\Models\Contact::withoutGlobalScopes()->whereKey($request->contact_id)->value('agency_id');
-            // Revoke existing active links
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            $request->validate(['contact_id' => 'required|integer']);
+            // Resolve the contact through its global scopes (agency + branch), so a
+            // contact outside the caller's agency/branch 404s here instead of
+            // minting a public portal link that leaks another tenant's buyer.
+            // findOrFail is what enforces isolation — do NOT use withoutGlobalScopes.
+            $contact  = \App\Models\Contact::findOrFail($request->integer('contact_id'));
+            $agencyId = $contact->agency_id;
+            // Revoke existing active links (scoped to this contact, now proven ours).
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $contact->id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
             $token = bin2hex(random_bytes(32));
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
-                'contact_id' => $request->contact_id, 'agency_id' => $agencyId, 'token' => $token,
+                'contact_id' => $contact->id, 'agency_id' => $agencyId, 'token' => $token,
                 'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
                 'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
@@ -1494,7 +1529,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         })->name('command-center.buyers.portal-links.generate');
 
         Route::post('/buyers/portal-links/{id}/revoke', function (int $id) {
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('id', $id)->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            // Scope the revoke to the caller's agency — buyer_portal_links has no
+            // model/global scope, so a raw id would otherwise let one agency revoke
+            // another's links. abort 404 when the id isn't ours.
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            abort_unless($agencyId, 403);
+            $updated = \Illuminate\Support\Facades\DB::table('buyer_portal_links')
+                ->where('id', $id)->where('agency_id', $agencyId)
+                ->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            abort_if($updated === 0, 404);
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
 
@@ -2197,6 +2240,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
+
+    // Agency Onboarding Setup Wizard (authenticated; token gate handed off here
+    // after login). Reuses the settings save paths. Spec: agency-onboarding-setup.md
+    Route::middleware(['permission:agency_setup.run', 'agency.required'])->group(function () {
+        Route::get('/agency-setup', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'index'])->name('corex.agency-setup.index');
+        Route::get('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'show'])->name('corex.agency-setup.step');
+        Route::post('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'save'])->name('corex.agency-setup.step.save');
+        Route::post('/agency-setup/step/{step}/skip', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'skip'])->name('corex.agency-setup.step.skip');
+        Route::post('/agency-setup/finish', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'finish'])->name('corex.agency-setup.finish');
+        // Inline list editors (property types/statuses/mandate/condition, contact sources)
+        Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
+        Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
+    });
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -2396,6 +2452,62 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
     });
 
+    // ── Demo Access Control (AT-230) — system-owner sales tooling. ──
+    //
+    // owner_only, and deliberately NO permission key in corex-permissions.php.
+    // This is the list of companies evaluating CoreX — including agencies who
+    // compete with each other. A permission key is GRANTABLE; one mis-click in the
+    // Role Manager and an agency admin is reading it. owner_only has no delegation
+    // path. That is the stronger gate, not a skipped one — see spec §8 for why this
+    // satisfies rather than violates non-negotiable #5.
+    //
+    // Every action ALSO calls abort_unless($user->isOwnerRole(), 403) — belt,
+    // braces, and the sidebar's own owner gate.
+    //
+    // Spec: .ai/specs/demo-access-control.md §8, §9
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-access')->name('admin.demo-access.')->group(function () {
+        // T&C + connection routes come FIRST — otherwise they are swallowed by /{grant}.
+        Route::get('/tnc',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'tnc'])->name('tnc');
+        Route::post('/tnc', [\App\Http\Controllers\Admin\DemoAccessController::class, 'publishTnc'])->name('tnc.publish');
+
+        // The universal connector — minted HERE (on live), pasted into the demo.
+        Route::get('/connection',         [\App\Http\Controllers\Admin\DemoAccessController::class, 'connection'])->name('connection');
+        Route::post('/connection',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'mintConnector'])->name('connection.mint');
+        Route::post('/connection/revoke', [\App\Http\Controllers\Admin\DemoAccessController::class, 'revokeConnector'])->name('connection.revoke');
+
+        Route::post('/reset', [\App\Http\Controllers\Admin\DemoAccessController::class, 'reset'])->name('reset');
+
+        Route::get('/',       [\App\Http\Controllers\Admin\DemoAccessController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Admin\DemoAccessController::class, 'create'])->name('create');
+        Route::post('/',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'store'])->name('store');
+
+        Route::get('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'show'])->whereNumber('grant')->name('show');
+        Route::get('/{grant}/edit',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'edit'])->whereNumber('grant')->name('edit');
+        Route::put('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'update'])->whereNumber('grant')->name('update');
+        Route::post('/{grant}/revoke',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'revoke'])->whereNumber('grant')->name('revoke');
+        Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{grant}',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'destroy'])->whereNumber('grant')->name('destroy');
+    });
+
+    // ── Demo Connection (AT-230) — the DEMO side of the link. ──
+    //
+    // Where a System Owner signed in on demo1.corexos.co.za pastes the CoreX URL +
+    // the connector token minted on live. 404s on primary (nothing to configure
+    // there — the connector is minted there instead).
+    //
+    // Reachable even when the connector is BROKEN: EnsureDemoGrant exempts
+    // demo-owner-login and bypasses any signed-in owner on a local role check, so a
+    // bad paste can always be undone from the browser. Without that, the fail-closed
+    // gate would make the connection its own prerequisite.
+    //
+    // Spec: .ai/specs/demo-access-control.md §5.2
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-connection')->name('admin.demo-connection.')->group(function () {
+        Route::get('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'edit'])->name('edit');
+        Route::put('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'update'])->name('update');
+        Route::post('/test', [\App\Http\Controllers\Admin\DemoConnectionController::class, 'test'])->name('test');
+    });
+
     // Developer Users — System Owner / Developer roster, visible across all
     // agencies (cross-agency owner view). See .ai/specs/developer-users.md.
     Route::middleware('owner_only')->prefix('admin/developer-users')->name('admin.developer-users.')->group(function () {
@@ -2434,6 +2546,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
+
+    // Agency Setup Progress board — platform-owner cross-agency tracking of the
+    // onboarding wizard. Owner-only. Spec: agency-onboarding-setup.md §7.4.
+    Route::middleware('owner_only')->get('/admin/agency-setup-progress', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'index'])
+        ->name('admin.agency-setup-progress');
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.
