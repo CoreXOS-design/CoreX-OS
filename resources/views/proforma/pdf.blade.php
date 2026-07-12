@@ -72,11 +72,21 @@
         </tr>
     </table>
 
-    {{-- ── Meta panel (right-aligned label/value block, bordered) ── --}}
-    <table class="w100" style="margin-top: 12px;">
+    {{-- ── Top row (GRID): Invoice To (left 50%) | Invoice Details (right 48%), tops aligned ── --}}
+    <table class="w100" style="margin-top: 14px;">
         <tr>
-            <td style="width: 55%;"></td>
-            <td style="width: 45%; vertical-align: top;">
+            <td style="width: 50%; vertical-align: top;">
+                <div class="panel">
+                    <div class="panel-head">Invoice to</div>
+                    <div class="panel-body">
+                        <span class="b" style="font-size: 11.5px;">{{ $invoice->issued_to_name }}</span><br>
+                        @if($invoice->care_of_name)<span class="muted">c/o {{ $invoice->care_of_name }} (Transferring Attorney)</span><br>@endif
+                        @if($customerVat)<span class="muted">Customer VAT No: {{ $customerVat }}</span>@endif
+                    </div>
+                </div>
+            </td>
+            <td style="width: 2%;"></td>
+            <td style="width: 48%; vertical-align: top;">
                 <div class="panel">
                     <div class="panel-head">Invoice details</div>
                     <div class="panel-body">
@@ -92,22 +102,8 @@
         </tr>
     </table>
 
-    {{-- ── Invoice-to block (bordered) ── --}}
-    <table style="margin-top: 12px; width: 55%;">
-        <tr><td>
-            <div class="panel">
-                <div class="panel-head">Invoice to</div>
-                <div class="panel-body">
-                    <span class="b" style="font-size: 11.5px;">{{ $invoice->issued_to_name }}</span><br>
-                    @if($invoice->care_of_name)<span class="muted">c/o {{ $invoice->care_of_name }} (Transferring Attorney)</span><br>@endif
-                    @if($customerVat)<span class="muted">Customer VAT No: {{ $customerVat }}</span>@endif
-                </div>
-            </div>
-        </td></tr>
-    </table>
-
-    {{-- ── Line items ── --}}
-    <table class="w100 items" style="margin-top: 14px;">
+    {{-- ── Line items (full width, on the grid) ── --}}
+    <table class="w100 items" style="margin-top: 16px;">
         <thead>
             <tr>
                 <th>Description</th>
@@ -152,9 +148,9 @@
         </tr>
     </table>
 
-    {{-- ── Banking box (filled = bordered block; empty = hidden) ── --}}
+    {{-- ── Banking box — left-column width (50%), on the grid; hidden when empty ── --}}
     @if(!empty($settings->bank_details))
-        <table style="margin-top: 16px; width: 60%;">
+        <table style="margin-top: 16px; width: 50%;">
             <tr><td>
                 <div class="panel">
                     <div class="panel-head">Banking details</div>
