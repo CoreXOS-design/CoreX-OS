@@ -219,6 +219,11 @@ class DocumentTemplateGenerator
                     'signing_parties' => $signingParties,
                     'editor_state' => $editorState,
                     'is_global' => false,
+                    // Was an unconditional `true` — for EVERY imported document, an Offer To
+                    // Purchase included. The importer cannot know whether a document may
+                    // lawfully be e-signed, so it must not assert that it can.
+                    // Template::booted() forces this to false for any alienation document
+                    // (ECTA §13(1)); this stops the importer claiming otherwise to begin with.
                     'is_esign' => true,
                     'owner_id' => $ownerId,
                 ]);
