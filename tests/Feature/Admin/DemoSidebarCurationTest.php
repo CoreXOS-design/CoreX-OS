@@ -146,11 +146,39 @@ class DemoSidebarCurationTest extends TestCase
     {
         $owner = $this->ownerUser();
 
+        // The hub reaches the curator twice — a rail link and a card in the
+        // Demo pane. Either is a valid entry point; the route must be on the page.
         $this->actingAs($owner)
             ->get(route('admin.dev-settings.index'))
             ->assertOk()
-            ->assertSee('Demo sidebar settings')
+            ->assertSee('Demo sidebar')
             ->assertSee(route('admin.dev-settings.demo-sidebar'), false);
+    }
+
+    public function test_dev_settings_index_no_longer_advertises_demo_access(): void
+    {
+        // Demo Access is owner sales tooling with its own sidebar entry — it is
+        // deliberately NOT surfaced as a card on Dev Settings.
+        $this->actingAs($this->ownerUser())
+            ->get(route('admin.dev-settings.index'))
+            ->assertOk()
+            ->assertDontSee('Issue time-boxed, company-attributed credentials');
+    }
+
+    public function test_dev_settings_hub_opens_the_requested_section(): void
+    {
+        $owner = $this->ownerUser();
+
+        $this->actingAs($owner)
+            ->get(route('admin.dev-settings.index', ['s' => 'demo']))
+            ->assertOk()
+            ->assertSee("devSettingsHub('demo')", false);
+
+        // Unknown section falls back to the first pane rather than rendering blank.
+        $this->actingAs($owner)
+            ->get(route('admin.dev-settings.index', ['s' => 'nonsense']))
+            ->assertOk()
+            ->assertSee("devSettingsHub('compliance')", false);
     }
 
     public function test_demo_sidebar_page_renders_curator(): void
