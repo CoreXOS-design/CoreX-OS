@@ -10,6 +10,40 @@ use ZipArchive;
 class DocxParserService
 {
     /**
+     * What a fill-in blank looks like in a real HFC document.
+     *
+     * This used to be `/_{2,}%?/` — underscores only. HFC's actual templates barely use
+     * underscores: they rule their fill-in lines with ELLIPSIS runs (`…………`, U+2026) and
+     * dot leaders. Measured on the four live source documents:
+     *
+     *     document                        _runs   …runs   ....runs
+     *     exclusive-authority-to-sell-v10     3      35          5
+     *     offer-to-purchase-v13-enviro        2     117         13
+     *     fica-natural-person-v8             11       0          0
+     *     seller-mandatory-disclosure-v7     11       0          0
+     *
+     * So the importer saw 3 blanks in the EATS and 2 in the OTP — the two launch-critical
+     * sales documents — and imported them as near-empty shells. It was not detecting
+     * badly; it was looking for the wrong character.
+     *
+     * `u` flag is required: an ellipsis is multibyte.
+     * Dot leaders need 4+ so ordinary prose "..." is never mistaken for a blank.
+     */
+    private const BLANK_PATTERN = '/(?:_{2,}|…{2,}|\.{4,})%?/u';
+
+    /** Which shape produced this blank — useful when triaging a bad import. */
+    private function blankSource(string $raw): string
+    {
+        if (str_contains($raw, '…')) {
+            return 'ellipsis';
+        }
+        if (str_contains($raw, '.')) {
+            return 'dot_leader';
+        }
+        return 'underscore';
+    }
+
+    /**
      * Parse a .docx file.
      * Pipeline: Mammoth (HTML) + Claude AI (field detection on plain text).
      * Falls back to regex field detection if Claude fails.
@@ -401,15 +435,22 @@ class DocxParserService
         foreach ($pMatches[1] as $pInner) {
             $lineText = strip_tags($pInner);
 
-            // --- Source 1: Underscore runs ---
-            preg_match_all('/_{2,}%?/', $lineText, $blankMatches, PREG_OFFSET_CAPTURE);
+            // --- Source 1: blank runs (underscores, ellipses, dot leaders) ---
+            preg_match_all(self::BLANK_PATTERN, $lineText, $blankMatches, PREG_OFFSET_CAPTURE);
 
             foreach ($blankMatches[0] as $match) {
                 $raw = $match[0];
                 $offset = $match[1];
-                $contextBefore = mb_substr($lineText, max(0, $offset - 40), min($offset, 40));
-                $afterPos = $offset + mb_strlen($raw);
-                $contextAfter = mb_substr($lineText, $afterPos, 40);
+
+                // PREG_OFFSET_CAPTURE gives a BYTE offset, but the context is sliced with
+                // mb_* — and an ellipsis is 3 bytes. Convert, or every context string on an
+                // ellipsis document is sliced mid-character and arrives at the AI as
+                // garbage. The AI names fields from context_before/context_after, so this
+                // is the difference between "Seller Full Name" and an unusable suggestion.
+                $charOffset = mb_strlen(substr($lineText, 0, $offset));
+
+                $contextBefore = mb_substr($lineText, max(0, $charOffset - 40), min($charOffset, 40));
+                $contextAfter  = mb_substr($lineText, $charOffset + mb_strlen($raw), 40);
                 $context = trim($contextBefore . ' [___] ' . $contextAfter);
 
                 $fields[] = [
@@ -418,7 +459,7 @@ class DocxParserService
                     'context_before' => trim($contextBefore),
                     'context_after' => trim($contextAfter),
                     'position' => $position + $offset,
-                    'source' => 'underscore',
+                    'source' => $this->blankSource($raw),
                 ];
             }
 
@@ -614,10 +655,14 @@ class DocxParserService
      */
     private function injectFieldSpans(string $html, array $fields): string
     {
-        // Normalize <u>___</u> to plain ___ for uniform matching
-        $normalizedHtml = preg_replace('/<u>([_\s]+)<\/u>/u', '$1', $html);
+        // Normalize <u>___</u> / <u>……</u> to a plain run for uniform matching.
+        $normalizedHtml = preg_replace('/<u>([_\s…\.]+)<\/u>/u', '$1', $html);
 
-        preg_match_all('/_{2,}%?/', $normalizedHtml, $matches, PREG_OFFSET_CAPTURE);
+        // MUST be the same pattern the detector uses. If the two ever diverge, the spans
+        // injected into the HTML and the fields handed to the AI fall out of step, and
+        // every field after the first mismatch is assigned to the wrong blank
+        // (STANDARDS.md — "when AI misses one blank, all subsequent fields shift wrong").
+        preg_match_all(self::BLANK_PATTERN, $normalizedHtml, $matches, PREG_OFFSET_CAPTURE);
 
         $blanks = [];
         foreach ($matches[0] as $match) {
@@ -627,13 +672,30 @@ class DocxParserService
             ];
         }
 
-        // Merge adjacent blanks
+        // Merge adjacent blanks — but ONLY across empty space.
+        //
+        // The merge exists because Mammoth can split one ruled line into several runs
+        // (`<u>___</u>___`), which must re-join into a single blank. The gap was measured in
+        // characters alone (<= 10), which was survivable while only underscores were
+        // detected. It is NOT survivable now: HFC's documents write "Tel: ……… Email: ………",
+        // and " Email: " is an 8-character gap — so two genuinely different fields would be
+        // merged into one, the span count would fall below the field count, and EVERY
+        // subsequent field would be assigned to the wrong blank. That is precisely the
+        // shift-assignments bug class in STANDARDS.md.
+        //
+        // So: still merge runs that are only separated by whitespace/markup, never merge
+        // across real text. A label between two blanks means they are two blanks.
         $merged = [];
         foreach ($blanks as $blank) {
             if (!empty($merged)) {
                 $prev = &$merged[count($merged) - 1];
-                $gap = $blank['offset'] - ($prev['offset'] + $prev['length']);
-                if ($gap >= 0 && $gap <= 10) {
+                $gapStart = $prev['offset'] + $prev['length'];
+                $gap = $blank['offset'] - $gapStart;
+                $gapText = $gap > 0 ? substr($normalizedHtml, $gapStart, $gap) : '';
+                $gapIsEmpty = trim(strip_tags($gapText)) === ''
+                    || trim(strip_tags($gapText), " \t\n\r\0\x0B\xC2\xA0") === '';
+
+                if ($gap >= 0 && $gap <= 10 && $gapIsEmpty) {
                     $prev['length'] = ($blank['offset'] + $blank['length']) - $prev['offset'];
                     continue;
                 }
