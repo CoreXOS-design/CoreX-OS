@@ -38,10 +38,12 @@ class CommissionCalculationService
         // 3. Commission excl VAT
         $commissionExclVat = bcsub($grossCommission, $vatAmount, 2);
 
-        // 4. Check mentee status
-        $mentor = AgentMentor::where('mentee_user_id', $userId)
-            ->where('is_active', true)
-            ->first();
+        // 4. Check mentee status. An agency that does not run a mentor programme
+        // switches it off in Settings — no mentor fee is charged, even if an
+        // AgentMentor row still exists from before.
+        $mentor = $settings->mentor_program_enabled
+            ? AgentMentor::where('mentee_user_id', $userId)->where('is_active', true)->first()
+            : null;
         $isMentored = $mentor && $capPeriod->transactions_mentored < $settings->mentor_transactions;
 
         // 5. Check cap status

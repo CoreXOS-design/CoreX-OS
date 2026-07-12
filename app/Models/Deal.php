@@ -84,6 +84,7 @@ class Deal extends Model
 
         'period',
         'deal_date',
+        'deal_type',
 
         'property_value',
         'total_commission',
@@ -95,6 +96,8 @@ class Deal extends Model
         // manager. See branchManager() + spec admin-multi-branch-manager.md.
         'managed_by_user_id',
         'property_address',
+        'attorney_provider_id',
+        'attorney_contact_id',
         'seller_name',
         'buyer_name',
         'attorney_name',
@@ -149,6 +152,22 @@ class Deal extends Model
     public function property()
     {
         return $this->belongsTo(\App\Models\Property::class, 'property_id');
+    }
+
+    /**
+     * AT-216 (DR2 · WS-PIPELINE) — the pipeline template driving this deal (nullable
+     * until a pipeline is started) and its per-deal step instances anchored to DR1.
+     * Reuses the salvaged AT-158 engine (DealPipelineStep / DealStepInstance) on the
+     * DR1 `deals` row. Additive; DR1's existing behaviour is unchanged.
+     */
+    public function dealPipelineTemplate()
+    {
+        return $this->belongsTo(\App\Models\DealV2\DealPipelineTemplate::class, 'deal_pipeline_template_id');
+    }
+
+    public function pipelineSteps()
+    {
+        return $this->hasMany(\App\Models\DealV2\DealStepInstance::class, 'dr1_deal_id')->orderBy('position')->orderBy('id');
     }
 
     /** Phase 3i — the presentation that led to this deal, when known. */

@@ -192,6 +192,55 @@ These models stay agency-scoped only. `BranchScope` does NOT attach:
 
 ---
 
+## 7a. Coverage enforcement + child-branch inheritance (added 2026-07-11)
+
+**The failure mode this section exists to prevent.** The 2026-07-11 verification audit
+(`.ai/audits/branch-split-verification-2026-07-11.md`) found that `BranchScope` had been
+attached to the models that existed when it was built, and **every model added since was born
+unscoped** — 15 of them, including the deal pipeline, commission and signed contracts. Nothing
+ever failed, because `split_branches_enabled` was never set to `true` in a single test in the
+repo. The coverage rotted silently.
+
+**The rule now:** every model whose table carries `branch_id` must be one of exactly three
+things, and `tests/Feature/Branches/BranchSplitIsolationTest.php` fails the suite if it is
+none of them:
+
+1. **branch-scoped** — `use BelongsToBranch` (or `DealBranchScope` for the cross-branch deal
+   register); or
+2. **shared by design** — listed in `SHARED_BY_DESIGN` with a reason (this section's §7
+   allowlist: configuration and directory data every branch is meant to see); or
+3. **a known gap** — listed in `PENDING_DECISION`, the debt register, which must only ever
+   shrink.
+
+Adding a model to a list is a design decision, not a way to silence the test.
+
+**Child records inherit their PARENT's branch, never the acting user's.**
+`BelongsToBranch` auto-stamps `branch_id` from whoever is logged in. For a child record that
+is wrong: a principal in Margate holding `branches.view_all` may legitimately edit a Port
+Shepstone deal, and the acting-user stamp would mark the money line "Margate" — leaving the
+Shepstone agents whose deal it is unable to see their own money line. Use
+`App\Models\Concerns\InheritsBranchFromParent` alongside `BelongsToBranch` (declared
+**after** it, so its listener registers second and wins) and declare the parent:
+
+```php
+use BelongsToBranch, InheritsBranchFromParent;
+
+protected function branchParent(): array
+{
+    return [\App\Models\Deal::class, 'deal_id'];
+}
+```
+
+Applied to `DealMoneyLine`, `CalendarEventFeedback`, `PropertyAuditLog`.
+
+**`CommissionLedger` is the open one.** It must NOT simply take `BelongsToBranch`: commission
+rows are written from queue/console context with no authenticated user, so the auto-stamp
+would no-op to NULL — and a NULL-branch row is invisible to anyone without `branches.view_all`
+(§8), which would hide agents' own commission from them. It needs the **earning agent's**
+branch set explicitly at write time.
+
+---
+
 ## 8. NULL `branch_id` handling
 
 **When Split = ON and a user has `branch_id = NULL`:**

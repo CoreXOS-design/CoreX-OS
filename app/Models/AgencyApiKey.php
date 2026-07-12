@@ -45,6 +45,15 @@ class AgencyApiKey extends Model implements Authenticatable
     public const SCOPE_LEADS_WRITE       = 'leads:write';
     public const SCOPE_WEBHOOKS_RECEIVE = 'webhooks:receive';
 
+    // NOTE (AT-230): there are deliberately NO demo:* scopes here.
+    //
+    // The demo instance authenticates to primary with the UNIVERSAL DemoConnector
+    // (app/Models/DemoConnector.php + demo.connector middleware), not with an
+    // AgencyApiKey. An AgencyApiKey is agency-scoped — it resolves an agency as the
+    // tenant for AgencyScope — but demo access grants are RR Technologies' own sales
+    // data, not tenant data. A demo scope here would also be one mis-click away in
+    // the per-agency key UI. Spec: .ai/specs/demo-access-control.md §5.1
+
     public const SCOPES = [
         self::SCOPE_LISTINGS_READ      => 'Read listings',
         self::SCOPE_AGENTS_READ        => 'Read agent profiles',

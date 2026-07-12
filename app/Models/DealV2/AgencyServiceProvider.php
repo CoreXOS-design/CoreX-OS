@@ -29,11 +29,21 @@ class AgencyServiceProvider extends Model
         'company',
         'email',
         'phone',
+        'address',
         'notes',
         'is_preferred',
         'is_active',
         'created_by_id',
     ];
+
+    /**
+     * AT-217 (DR2 respec) — a firm has 1..n working contacts (attorney + contact
+     * person). Active, non-deleted only for pickers; the pivot deal keeps its own FKs.
+     */
+    public function serviceContacts()
+    {
+        return $this->hasMany(AgencyServiceProviderContact::class, 'service_provider_id')->orderBy('attorney_name');
+    }
 
     protected $casts = [
         'is_preferred' => 'boolean',

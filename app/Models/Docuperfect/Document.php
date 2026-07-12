@@ -7,10 +7,11 @@ use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToBranch;
 
 class Document extends Model
 {
-    use SoftDeletes;
+    use BelongsToBranch, SoftDeletes;
 
     protected $table = 'docuperfect_documents';
 

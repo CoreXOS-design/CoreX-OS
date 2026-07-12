@@ -183,6 +183,81 @@ final class PropertyWizardDraftResumeTest extends TestCase
             ->assertSee($draft->title, false);
     }
 
+    // ---- AT-211: a draft follows its agent; an owner is never stamped as the agent ----
+
+    public function test_owner_draft_is_attributed_to_a_valid_agent_not_the_owner(): void
+    {
+        $this->seedRolesOnce();
+        [$agent, $suburbId, $agencyId] = $this->seedAgencyAgent();
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+        $before = \App\Models\Property::count();
+
+        // Owner reaches the wizard with a switcher-selected agency (RequireAgencyContext).
+        $resp = $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $agencyId])
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($suburbId));
+
+        $resp->assertOk();
+        $this->assertSame($before + 1, \App\Models\Property::count());
+        $draft = \App\Models\Property::latest('id')->first();
+        // Attributed to the AGENT, never the owner; agency + branch follow the agent.
+        $this->assertSame($agent->id, (int) $draft->agent_id);
+        $this->assertSame($agencyId, (int) $draft->agency_id);
+        $this->assertNotNull($draft->branch_id);
+    }
+
+    public function test_real_agent_draft_is_attributed_to_themselves(): void
+    {
+        $this->seedRolesOnce();
+        [$agent, $suburbId] = $this->seedAgencyAgent();
+
+        $this->actingAs($agent)
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($suburbId))
+            ->assertOk();
+
+        $this->assertSame($agent->id, (int) \App\Models\Property::latest('id')->first()->agent_id);
+    }
+
+    public function test_owner_with_no_agency_agent_gets_a_clean_422_not_a_500(): void
+    {
+        $this->seedRolesOnce();
+        $this->seedP24Once();
+        // An agency with a branch but NO agents.
+        $agencyId = (int) DB::table('agencies')->insertGetId([
+            'name' => 'Empty ' . Str::random(6), 'slug' => 'empty-' . Str::random(8),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('branches')->insert([
+            'agency_id' => $agencyId, 'name' => 'Main', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $agencyId])
+            ->postJson(route('corex.properties.wizard.draft'), $this->step1Payload($this->suburbId))
+            ->assertStatus(422);   // graceful, NOT a 500 from PropertyObserver
+    }
+
+    private bool $rolesSeeded = false;
+
+    /** Seed the two global roles the owner-guard needs: an owner role + a plain agent role. */
+    private function seedRolesOnce(): void
+    {
+        if ($this->rolesSeeded) {
+            return;
+        }
+        foreach ([['super_admin', 1], ['agent', 0]] as [$name, $isOwner]) {
+            if (!DB::table('roles')->where('name', $name)->whereNull('agency_id')->exists()) {
+                DB::table('roles')->insert([
+                    'name' => $name, 'label' => ucfirst($name), 'is_owner' => $isOwner,
+                    'agency_id' => null, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+        }
+        \App\Models\Role::clearCache();
+        $this->rolesSeeded = true;
+    }
+
     /** Valid step-1 payload keyed to the seeded P24 chain. */
     private function step1Payload(int $suburbId, array $over = []): array
     {

@@ -26,6 +26,45 @@
                 --brand-button:  #00b4d8;
                 --brand-icon:    #33c4e0;
                 --brand-sidebar: #33c4e0;
+
+                /* ── THE CARD IS ALWAYS DARK. THE TOKENS MUST BE TOO. ──
+                   corex.css declares the LIGHT palette at :root (--text-primary #111827,
+                   --surface #ffffff) and only flips to dark under `html.dark`, which a
+                   guest page never sets. So every guest view written against the design
+                   tokens rendered near-black text on this dark card — invisible. The demo
+                   gate and T&C pages use them heavily (16 and 10 references); that is what
+                   made half their copy unreadable.
+
+                   Fixed here, at the token layer, rather than by rewriting the colour of
+                   every element in four views: any guest page that reaches for a token now
+                   gets a value that works on the card it is actually sitting on.
+
+                   NOT done by adding `class="dark"` to <html>: `html.dark` (0,1,1) outranks
+                   `:root` (0,1,0), so it would override these card-tuned values with the
+                   app-chrome palette — opaque #13161d panels and a near-invisible 6% border
+                   — inside a translucent card they were never designed for. It would also
+                   switch on every other `html.dark` rule in corex.css across pages that
+                   never asked for them. This block loads after corex.css, so at equal
+                   specificity it simply wins. */
+                --text-primary:   #f9fafb;
+                --text-secondary: rgba(255, 255, 255, 0.62);
+                --text-muted:     #9ca3af;
+                --surface:        rgba(255, 255, 255, 0.06);
+                --surface-2:      rgba(255, 255, 255, 0.06);
+                --border:         rgba(255, 255, 255, 0.14);
+                --border-hover:   rgba(255, 255, 255, 0.24);
+
+                /* Error/alert red must read on dark: #dc2626 on this card is muddy. */
+                --ds-crimson:     #f87171;
+                --ds-red:         #f87171;
+            }
+
+            /* The gate's access-code field is input[type=text]; the card's placeholder rule
+               only covered email/password, so its "XXXX-XXXX" hint rendered at the browser
+               default — near-black on dark. */
+            .login-card input[type="text"]::placeholder,
+            .login-card textarea::placeholder {
+                color: rgba(255, 255, 255, 0.25);
             }
 
             body {
@@ -109,12 +148,16 @@
                 </div>
             </div>
 
-            {{-- Login card --}}
-            <div class="login-card w-full rounded-md" style="max-width: 400px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
+            {{-- Login card. $maxWidth / $heading default to the login form's own values
+                 (400px, "Sign in to your account"), so every auth view is unchanged;
+                 the demo T&C page opts into a wider card and suppresses the heading. --}}
+            <div class="login-card w-full rounded-md" style="max-width: {{ $maxWidth }}; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
 
-                <div class="text-xs font-medium text-center mb-6" style="color: rgba(255,255,255,0.55); letter-spacing: 0.02em;">
-                    Sign in to your account
-                </div>
+                @if ($heading)
+                    <div class="text-xs font-medium text-center mb-6" style="color: rgba(255,255,255,0.55); letter-spacing: 0.02em;">
+                        {{ $heading }}
+                    </div>
+                @endif
 
                 {{ $slot }}
 

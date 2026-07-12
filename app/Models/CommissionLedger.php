@@ -163,8 +163,11 @@ class CommissionLedger extends Model
             // PRE-CAP: Standard split
             $agentSplitPercent = $settings->commission_split_agent;
 
-            // Check mentor status
-            $mentor = AgentMentor::where('mentee_user_id', $userId)->where('is_active', true)->first();
+            // Check mentor status — skipped entirely when the agency does not run
+            // a mentor programme (mirrors CommissionCalculationService).
+            $mentor = $settings->mentor_program_enabled
+                ? AgentMentor::where('mentee_user_id', $userId)->where('is_active', true)->first()
+                : null;
             if ($mentor && $capPeriod->transactions_mentored < $settings->mentor_transactions) {
                 // Mentor fee applies on first N transactions
                 $mentorFee = bcdiv(bcmul($commissionExclVat, (string) $settings->mentor_extra_split, 2), '100', 2);

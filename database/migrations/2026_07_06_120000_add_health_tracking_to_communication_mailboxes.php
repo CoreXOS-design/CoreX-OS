@@ -32,15 +32,34 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('communication_mailboxes', function (Blueprint $table) {
-            $table->string('last_error', 100)->nullable()->after('last_polled_at');
-            $table->timestamp('last_error_at')->nullable()->after('last_error');
-            $table->unsignedInteger('consecutive_failures')->default(0)->after('last_error_at');
-            $table->timestamp('failure_notified_at')->nullable()->after('consecutive_failures');
+            if (!Schema::hasColumn('communication_mailboxes', 'last_error')) {
+                $table->string('last_error', 100)->nullable()->after('last_polled_at');
+            }
+            if (!Schema::hasColumn('communication_mailboxes', 'last_error_at')) {
+                $table->timestamp('last_error_at')->nullable()->after('last_error');
+            }
+            if (!Schema::hasColumn('communication_mailboxes', 'consecutive_failures')) {
+                $table->unsignedInteger('consecutive_failures')->default(0)->after('last_error_at');
+            }
+            if (!Schema::hasColumn('communication_mailboxes', 'failure_notified_at')) {
+                $table->timestamp('failure_notified_at')->nullable()->after('consecutive_failures');
+            }
         });
 
         Schema::table('agencies', function (Blueprint $table) {
-            $table->unsignedSmallInteger('communication_failure_alert_threshold')->nullable()
-                ->after('communication_first_poll_days');
+            if (Schema::hasColumn('agencies', 'communication_failure_alert_threshold')) {
+                return;
+            }
+
+            $column = $table->unsignedSmallInteger('communication_failure_alert_threshold')->nullable();
+
+            // This migration's filename sorts BEFORE 2026_07_15_000001, which creates
+            // communication_first_poll_days. On a fresh ordered replay the anchor does not
+            // exist yet, so only position after it when present (incrementally-migrated
+            // envs) and otherwise append — column order is cosmetic.
+            if (Schema::hasColumn('agencies', 'communication_first_poll_days')) {
+                $column->after('communication_first_poll_days');
+            }
         });
     }
 

@@ -13,6 +13,28 @@ use App\Http\Controllers\Admin\DealController;
 use App\Http\Controllers\Agent\DealRegisterController;
 use App\Http\Controllers\Admin\MonthlyGoalController;
 
+// ════════════════════════════════════════════════════════════════
+// Demo Access Control (AT-230) — the gate on demo1.corexos.co.za.
+//
+// UNAUTHENTICATED by necessity: this IS the front door. A prospect arrives with
+// nothing but an emailed email+code, so these routes sit outside auth — they are
+// also on EnsureDemoGrant's exempt list, or the gate would redirect to itself
+// forever.
+//
+// On PRIMARY these 404 (DemoGateController::assertDemo). A sign-in gate for a
+// demo that does not live here would be a dead end, and a surface to probe.
+//
+// Spec: .ai/specs/demo-access-control.md §6.2, §6.3, §6.4
+// ════════════════════════════════════════════════════════════════
+Route::get('/demo/gate',         [\App\Http\Controllers\Demo\DemoGateController::class, 'show'])->name('demo.gate');
+Route::post('/demo/gate',        [\App\Http\Controllers\Demo\DemoGateController::class, 'verify'])->name('demo.gate.verify');
+Route::post('/demo/gate/logout', [\App\Http\Controllers\Demo\DemoGateController::class, 'logout'])->name('demo.gate.logout');
+Route::get('/demo/tnc',          [\App\Http\Controllers\Demo\DemoGateController::class, 'tnc'])->name('demo.tnc');
+Route::post('/demo/tnc',         [\App\Http\Controllers\Demo\DemoGateController::class, 'acceptTnc'])->name('demo.tnc.accept');
+
+// Page-view beacon. Always 204 — never blocks, never errors (fails OPEN, §6.4).
+Route::post('/demo/telemetry',   [\App\Http\Controllers\Demo\DemoTelemetryController::class, 'store'])->name('demo.telemetry');
+
 // ── Seller Live Link (public, no auth) ──
 Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
 Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
@@ -324,6 +346,15 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
+        // AT-220 — session-armour token refresh. GET (no CSRF needed) returns the
+        // current CSRF token so long-lived authoring pages (document/template
+        // editor, e-sign wizard) can refresh a stale token in-place AND slide the
+        // session, instead of dying with a 419. Auth-gated → a dead session yields
+        // 401 JSON, which the client turns into the plain "connection lost" banner.
+        Route::get('/csrf-token', function () {
+            return response()->json(['token' => csrf_token()]);
+        })->name('csrf-token');
+
         // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
         // session (components/reminder-toast.blade.php). MUST live in this
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
@@ -610,6 +641,16 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
     Route::post('/rows/confirm-all', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmAllFiltered'])->name('rows.confirm-all');
 });
 
+// ===== PUBLIC AGENCY-SETUP GATE (token landing + real-login gate) =====
+// Distinct prefix from onboarding/{token} (P24) to avoid route shadowing.
+// The token authenticates the emailed link and logs the Admin in; the wizard
+// itself runs under normal auth (see the corex.agency-setup.* group below).
+// Spec: .ai/specs/agency-onboarding-setup.md §3.2–3.3.
+Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name('agency-setup.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'show'])->name('show');
+    Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
+});
+
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
 // /listings (admin browse) and /import (POST upload trigger) stay mounted
@@ -634,6 +675,65 @@ Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:ac
     Route::get('/history', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'history'])->name('deposit-interest-calculator.history')->middleware('permission:access_deposit_calc_history');
     Route::get('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'show'])->name('deposit-interest-calculator.show')->middleware('permission:access_deposit_calc_history');
     Route::delete('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'destroy'])->name('deposit-interest-calculator.destroy')->middleware('permission:access_deposit_calc_history');
+});
+
+// ===== DEAL REGISTER (DR2) — shared shell (AT-215) =====
+// DR2 rebuilds DR1 on the SAME `deals` tables (spec deal-register-v2-rebuild-spec.md),
+// coexisting with DR1 behind its own nav + permission. Distinct from the abandoned
+// deals-v2 module (URI `deals-v2/*`), which sunsets under AT-219. Reuses DR1's deal
+// permissions (view_deals / create_deals). AT-217 (cc3) builds the capture into create/store.
+Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(function () {
+    Route::get('/',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'index'])->middleware('permission:view_deals')->name('index');
+    Route::get('/create',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'create'])->middleware('permission:create_deals')->name('create');
+    Route::post('/',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'store'])->middleware('permission:create_deals')->name('store');
+
+    // AT-217 §2 capture-enhancement JSON feeds (canonical property picker + linked
+    // seller/buyer contacts + attorney supplier directory). Static paths declared
+    // BEFORE the {deal} wildcards so they never shadow-capture.
+    Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
+    // §2.4 attorney — reuse the shared supplier directory (agency_service_providers),
+    // gated on DR2's own create_deals so DR2 never depends on the sunset deals-v2 perms.
+    Route::get('/suppliers/search',             [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->middleware('permission:create_deals')->name('suppliers.search');
+    Route::post('/suppliers/inline',            [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->middleware('permission:create_deals')->name('suppliers.inline');
+    // (Johan DR2-walk fix 2) attorney = FIRM + contact person — DR2-specific feeds.
+    Route::get('/attorney/search',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneySearch'])->middleware('permission:create_deals')->name('attorney.search');
+    Route::post('/attorney/inline',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'attorneyInline'])->middleware('permission:create_deals')->name('attorney.inline');
+
+    Route::get('/{deal}/edit',   [\App\Http\Controllers\Dr2\DealRegisterController::class, 'edit'])->middleware('permission:create_deals')->name('edit');
+    // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
+    Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
+    Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
+
+    // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
+    // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
+    Route::get('/{deal}/log',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'log'])->middleware('permission:view_deals')->name('log');
+    Route::post('/{deal}/remark', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addRemark'])->middleware('permission:view_deals')->name('remark');
+
+    // Settlement — admin + BM only (settle_deals). Faithful DR1 copy on the same tables.
+    Route::get('/{deal}/settle',              [\App\Http\Controllers\Dr2\DealSettlementController::class, 'settle'])->middleware('permission:settle_deals')->name('settle');
+    Route::post('/{deal}/settle',             [\App\Http\Controllers\Dr2\DealSettlementController::class, 'saveSettlement'])->middleware('permission:settle_deals')->name('settle.save');
+    Route::get('/{deal}/settle/print',        [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printSettlement'])->middleware('permission:settle_deals')->name('settle.print');
+    Route::get('/{deal}/settle/print/{user}', [\App\Http\Controllers\Dr2\DealSettlementController::class, 'printAgentPayslip'])->middleware('permission:settle_deals')->name('settle.print.agent');
+
+    // AT-216 — pipeline tracking overlay on the DR2 register (pure tracking: never mutates
+    // the DR1 deal, only its pipeline steps + pointer). view_deals to see, create_deals to act.
+    Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
+    Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
+    Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
+    // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
+    Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');
+    Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.na');
+    Route::post('/{deal}/pipeline/steps/{step}/remove',    [\App\Http\Controllers\Dr2\PipelineController::class, 'removeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.remove');
+    Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
+    // R2 — due-date edit + restore/reinstate (no permanent stranding)
+    Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
+    Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
+    Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
+
+    // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
+    Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
+    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware('permission:view_deals')->name('documents.download');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
@@ -662,6 +762,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // (DR2 respec) firm → contact persons management.
+    Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // Inline pick-or-create (used by the deal form) — gated to agents working a deal.
     Route::get('/search', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->name('deals-v2.suppliers.search')->middleware('permission:deals_v2.edit');
     Route::post('/inline', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->name('deals-v2.suppliers.inline')->middleware('permission:deals_v2.edit');
@@ -1407,15 +1510,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Buyer Portal Links — agent management
         Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
-            $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
-            // buyer_portal_links.agency_id is NOT NULL and this is a raw insert
-            // (no BelongsToAgency auto-stamp) — derive it from the contact pillar.
-            $agencyId = \App\Models\Contact::withoutGlobalScopes()->whereKey($request->contact_id)->value('agency_id');
-            // Revoke existing active links
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            $request->validate(['contact_id' => 'required|integer']);
+            // Resolve the contact through its global scopes (agency + branch), so a
+            // contact outside the caller's agency/branch 404s here instead of
+            // minting a public portal link that leaks another tenant's buyer.
+            // findOrFail is what enforces isolation — do NOT use withoutGlobalScopes.
+            $contact  = \App\Models\Contact::findOrFail($request->integer('contact_id'));
+            $agencyId = $contact->agency_id;
+            // Revoke existing active links (scoped to this contact, now proven ours).
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $contact->id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
             $token = bin2hex(random_bytes(32));
             \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
-                'contact_id' => $request->contact_id, 'agency_id' => $agencyId, 'token' => $token,
+                'contact_id' => $contact->id, 'agency_id' => $agencyId, 'token' => $token,
                 'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
                 'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
@@ -1423,7 +1529,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         })->name('command-center.buyers.portal-links.generate');
 
         Route::post('/buyers/portal-links/{id}/revoke', function (int $id) {
-            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('id', $id)->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            // Scope the revoke to the caller's agency — buyer_portal_links has no
+            // model/global scope, so a raw id would otherwise let one agency revoke
+            // another's links. abort 404 when the id isn't ours.
+            $agencyId = auth()->user()?->effectiveAgencyId();
+            abort_unless($agencyId, 403);
+            $updated = \Illuminate\Support\Facades\DB::table('buyer_portal_links')
+                ->where('id', $id)->where('agency_id', $agencyId)
+                ->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            abort_if($updated === 0, 404);
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
 
@@ -2126,6 +2240,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
+
+    // Agency Onboarding Setup Wizard (authenticated; token gate handed off here
+    // after login). Reuses the settings save paths. Spec: agency-onboarding-setup.md
+    Route::middleware(['permission:agency_setup.run', 'agency.required'])->group(function () {
+        Route::get('/agency-setup', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'index'])->name('corex.agency-setup.index');
+        Route::get('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'show'])->name('corex.agency-setup.step');
+        Route::post('/agency-setup/step/{step}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'save'])->name('corex.agency-setup.step.save');
+        Route::post('/agency-setup/step/{step}/skip', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'skip'])->name('corex.agency-setup.step.skip');
+        Route::post('/agency-setup/finish', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'finish'])->name('corex.agency-setup.finish');
+        // Inline list editors (property types/statuses/mandate/condition, contact sources)
+        Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
+        Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
+    });
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -2325,6 +2452,62 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
     });
 
+    // ── Demo Access Control (AT-230) — system-owner sales tooling. ──
+    //
+    // owner_only, and deliberately NO permission key in corex-permissions.php.
+    // This is the list of companies evaluating CoreX — including agencies who
+    // compete with each other. A permission key is GRANTABLE; one mis-click in the
+    // Role Manager and an agency admin is reading it. owner_only has no delegation
+    // path. That is the stronger gate, not a skipped one — see spec §8 for why this
+    // satisfies rather than violates non-negotiable #5.
+    //
+    // Every action ALSO calls abort_unless($user->isOwnerRole(), 403) — belt,
+    // braces, and the sidebar's own owner gate.
+    //
+    // Spec: .ai/specs/demo-access-control.md §8, §9
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-access')->name('admin.demo-access.')->group(function () {
+        // T&C + connection routes come FIRST — otherwise they are swallowed by /{grant}.
+        Route::get('/tnc',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'tnc'])->name('tnc');
+        Route::post('/tnc', [\App\Http\Controllers\Admin\DemoAccessController::class, 'publishTnc'])->name('tnc.publish');
+
+        // The universal connector — minted HERE (on live), pasted into the demo.
+        Route::get('/connection',         [\App\Http\Controllers\Admin\DemoAccessController::class, 'connection'])->name('connection');
+        Route::post('/connection',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'mintConnector'])->name('connection.mint');
+        Route::post('/connection/revoke', [\App\Http\Controllers\Admin\DemoAccessController::class, 'revokeConnector'])->name('connection.revoke');
+
+        Route::post('/reset', [\App\Http\Controllers\Admin\DemoAccessController::class, 'reset'])->name('reset');
+
+        Route::get('/',       [\App\Http\Controllers\Admin\DemoAccessController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Admin\DemoAccessController::class, 'create'])->name('create');
+        Route::post('/',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'store'])->name('store');
+
+        Route::get('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'show'])->whereNumber('grant')->name('show');
+        Route::get('/{grant}/edit',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'edit'])->whereNumber('grant')->name('edit');
+        Route::put('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'update'])->whereNumber('grant')->name('update');
+        Route::post('/{grant}/revoke',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'revoke'])->whereNumber('grant')->name('revoke');
+        Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{grant}',        [\App\Http\Controllers\Admin\DemoAccessController::class, 'destroy'])->whereNumber('grant')->name('destroy');
+    });
+
+    // ── Demo Connection (AT-230) — the DEMO side of the link. ──
+    //
+    // Where a System Owner signed in on demo1.corexos.co.za pastes the CoreX URL +
+    // the connector token minted on live. 404s on primary (nothing to configure
+    // there — the connector is minted there instead).
+    //
+    // Reachable even when the connector is BROKEN: EnsureDemoGrant exempts
+    // demo-owner-login and bypasses any signed-in owner on a local role check, so a
+    // bad paste can always be undone from the browser. Without that, the fail-closed
+    // gate would make the connection its own prerequisite.
+    //
+    // Spec: .ai/specs/demo-access-control.md §5.2
+    Route::middleware('owner_only')->prefix('admin/dev-settings/demo-connection')->name('admin.demo-connection.')->group(function () {
+        Route::get('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'edit'])->name('edit');
+        Route::put('/',      [\App\Http\Controllers\Admin\DemoConnectionController::class, 'update'])->name('update');
+        Route::post('/test', [\App\Http\Controllers\Admin\DemoConnectionController::class, 'test'])->name('test');
+    });
+
     // Developer Users — System Owner / Developer roster, visible across all
     // agencies (cross-agency owner view). See .ai/specs/developer-users.md.
     Route::middleware('owner_only')->prefix('admin/developer-users')->name('admin.developer-users.')->group(function () {
@@ -2363,6 +2546,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
+
+    // Agency Setup Progress board — platform-owner cross-agency tracking of the
+    // onboarding wizard. Owner-only. Spec: agency-onboarding-setup.md §7.4.
+    Route::middleware('owner_only')->get('/admin/agency-setup-progress', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'index'])
+        ->name('admin.agency-setup-progress');
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

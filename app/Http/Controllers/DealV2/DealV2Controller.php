@@ -22,8 +22,22 @@ class DealV2Controller extends Controller
     {
     }
 
+    /**
+     * AT-219 (DR2 sunset) — the abandoned deals-v2 register prototype is retired (soft).
+     * Its render entry points early-return this redirect to the new Deal Register (DR2);
+     * the original method bodies are preserved below each return (archived, admin-recoverable
+     * — no hard delete). Salvaged tooling (pipeline setup, supplier directory) lives in a
+     * DIFFERENT controller and stays fully live.
+     */
+    private function dr2RetiredRedirect(): \Illuminate\Http\RedirectResponse
+    {
+        return redirect()->route('deals-dr2.index')
+            ->with('info', 'The Deal Register V2 prototype has been retired — this is the new Deal Register (DR2).');
+    }
+
     public function index(Request $request)
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         // Gate on the umbrella access permission (same key the sidebar "Deal
         // Register" link uses), NOT deals_v2.view. deals_v2.view is a scoped
         // action permission that governs WHICH deals are visible; on its own it
@@ -66,6 +80,7 @@ class DealV2Controller extends Controller
      */
     public function overview(Request $request)
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         abort_unless(auth()->user()?->hasPermission('deals_v2.view_overview'), 403);
         $user = auth()->user();
 
@@ -174,6 +189,7 @@ class DealV2Controller extends Controller
      */
     public function create()
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         return $this->buildCreateView('deals-v2.create-form');
     }
 
@@ -182,6 +198,7 @@ class DealV2Controller extends Controller
      */
     public function createWizard()
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         return $this->buildCreateView('deals-v2.create');
     }
 
@@ -360,6 +377,7 @@ class DealV2Controller extends Controller
 
     public function show(DealV2 $deal)
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         // Same umbrella gate as index() — viewing a single deal is part of the
         // register browsing surface, so it requires access_deal_register_v2.
         abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
@@ -568,6 +586,7 @@ class DealV2Controller extends Controller
 
     public function edit(DealV2 $deal)
     {
+        return $this->dr2RetiredRedirect(); // AT-219 soft-retire — original body preserved below (archived)
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
 
         $deal->load(['property', 'contacts', 'agents', 'listingAgent', 'sellingAgent', 'branch',

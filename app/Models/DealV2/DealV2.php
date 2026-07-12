@@ -18,9 +18,10 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 class DealV2 extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     protected $table = 'deals_v2';
 

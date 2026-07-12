@@ -71,6 +71,9 @@ return [
         ['key' => 'deals.create',            'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 31],
         ['key' => 'deals.edit',              'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 32],
         ['key' => 'deals.archive',           'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 33],
+        // AT-218 (DR2) — Deal Documents. New granular action; the DR2 register/capture
+        // themselves reuse DR1's view_deals / create_deals (spec deal-register-v2-rebuild §5).
+        ['key' => 'deals.upload_documents',  'label' => 'Upload Deal Documents',           'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 35],
 
         // ── Listings — Granular Actions ──
         ['key' => 'listings.view',           'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'listings',         'sort_order' => 34],
@@ -449,6 +452,8 @@ return [
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
         ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
+        ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
+        ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
@@ -580,10 +585,11 @@ return [
             // reveal_mailbox_credential is principal-only — admin must NOT inherit
             // it via the all-minus-exclude default (AT-37).
             // reveal_backup_password is likewise principal-only (AT-163).
-            // calendar.tile.my_deals is FLAGGED HIDDEN behind the DR2 hold (AT-164 §15.5)
-            // — it must NOT be auto-granted to admin via all-minus-exclude; it lights up
-            // only when explicitly granted after DR2 ships.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'calendar.tile.my_deals'],
+            // calendar.tile.my_deals: the §15.5 DR2 hold is LIFTED (AT-216 R3, Johan's explicit
+            // ask) — the deal-pipeline deck tile ships with DR2. Admin gets it via all-minus-exclude.
+            // agency_setup.track is the platform-owner cross-agency progress
+            // board — owner-only, so admin is excluded from the all-minus rule.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -629,6 +635,7 @@ return [
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
                 'access_rental_signatures',
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals',
+                'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
@@ -735,6 +742,7 @@ return [
                 'view_listings', 'view_performance',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
+                'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
                 'listings.view',
                 'rentals.view', 'rentals.create', 'rentals.edit',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',

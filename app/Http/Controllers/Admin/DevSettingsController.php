@@ -14,9 +14,21 @@ class DevSettingsController extends Controller
      */
     private const DEMO_TOGGLE_PASSWORD = 'Demo@on&off@$';
 
-    public function index()
+    /**
+     * Sections of the Dev Settings hub. ?s=<key> drives the right pane, same
+     * contract as the main settings hub (CoreX\SettingsController::index).
+     */
+    private const SECTIONS = ['compliance', 'demo'];
+
+    public function index(Request $request)
     {
+        $section = (string) $request->get('s', '');
+        if (!in_array($section, self::SECTIONS, true)) {
+            $section = 'compliance';
+        }
+
         return view('admin.dev-settings.index', [
+            'activeSection'            => $section,
             'complianceChecksDisabled' => DevSetting::bool('compliance_checks_disabled'),
             'demoModeEnabled'          => DevSetting::bool('demo_mode_enabled'),
             'isProduction'             => app()->environment('production'),
@@ -52,12 +64,17 @@ class DevSettingsController extends Controller
             $supplied = (string) $request->input('demo_toggle_password', '');
 
             if (!hash_equals(self::DEMO_TOGGLE_PASSWORD, $supplied)) {
-                return redirect()->route('admin.dev-settings.index')
+                // Land back on the Demo pane — otherwise the hub opens on
+                // Compliance and the password error sits on a pane nobody sees.
+                return redirect()->route('admin.dev-settings.index', ['s' => 'demo'])
                     ->withErrors(['demo_toggle_password' => 'Incorrect password — demo mode was left unchanged.'])
                     ->with('warning', 'Other settings were saved, but demo mode requires the correct password to change.');
             }
 
             DevSetting::set('demo_mode_enabled', $requestedDemo ? '1' : '0');
+
+            return redirect()->route('admin.dev-settings.index', ['s' => 'demo'])
+                ->with('success', 'Dev settings updated.');
         }
 
         return redirect()->route('admin.dev-settings.index')

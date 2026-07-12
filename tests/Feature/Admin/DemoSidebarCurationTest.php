@@ -5,6 +5,7 @@ namespace Tests\Feature\Admin;
 use App\Models\DevSetting;
 use App\Models\Role;
 use App\Models\User;
+use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\SystemOwnerSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -57,6 +58,47 @@ class DemoSidebarCurationTest extends TestCase
         $this->assertSame(1, User::where('email', SystemOwnerSeeder::EMAIL)->count());
     }
 
+    /**
+     * users.email is utf8mb4_unicode_ci — case-INSENSITIVE — under a UNIQUE
+     * index, so a tenant login differing only in capitalisation is the SAME ROW
+     * as the System Owner. Without the guard, updateOrCreate matches that tenant
+     * user and rewrites it into the platform owner, nulling its agency_id and
+     * detaching that agency's data. Seeding must fail loudly, never corrupt.
+     */
+    public function test_system_owner_seeder_refuses_to_hijack_a_tenant_user_with_the_same_email(): void
+    {
+        $tenantAdmin = User::factory()->create([
+            'email'     => strtolower(SystemOwnerSeeder::EMAIL), // differs only by case
+            'role'      => 'admin',
+            'agency_id' => 1,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        try {
+            (new SystemOwnerSeeder())->run();
+        } finally {
+            $tenantAdmin->refresh();
+            $this->assertSame(1, $tenantAdmin->agency_id, 'tenant admin must not be detached from its agency');
+            $this->assertSame('admin', $tenantAdmin->role, 'tenant admin must not be promoted to owner');
+        }
+    }
+
+    /** The demo dataset's admin must never squat the owner's reserved address. */
+    public function test_demo_admin_email_does_not_collide_with_the_system_owner(): void
+    {
+        $demoLoginEmail = (new \ReflectionClass(DemoDataSeeder::class))
+            ->getConstant('DEMO_LOGIN_EMAIL');
+
+        $this->assertNotSame(
+            strtolower(SystemOwnerSeeder::EMAIL),
+            strtolower($demoLoginEmail),
+            'DemoDataSeeder::DEMO_LOGIN_EMAIL case-collides with SystemOwnerSeeder::EMAIL. '
+            . 'users.email is case-insensitive under a UNIQUE index — these are the same row, '
+            . 'and seeding both silently detaches the demo agency from its admin.'
+        );
+    }
+
     public function test_owner_can_save_demo_sidebar_visibility(): void
     {
         $owner = $this->ownerUser();
@@ -104,11 +146,39 @@ class DemoSidebarCurationTest extends TestCase
     {
         $owner = $this->ownerUser();
 
+        // The hub reaches the curator twice — a rail link and a card in the
+        // Demo pane. Either is a valid entry point; the route must be on the page.
         $this->actingAs($owner)
             ->get(route('admin.dev-settings.index'))
             ->assertOk()
-            ->assertSee('Demo sidebar settings')
+            ->assertSee('Demo sidebar')
             ->assertSee(route('admin.dev-settings.demo-sidebar'), false);
+    }
+
+    public function test_dev_settings_index_no_longer_advertises_demo_access(): void
+    {
+        // Demo Access is owner sales tooling with its own sidebar entry — it is
+        // deliberately NOT surfaced as a card on Dev Settings.
+        $this->actingAs($this->ownerUser())
+            ->get(route('admin.dev-settings.index'))
+            ->assertOk()
+            ->assertDontSee('Issue time-boxed, company-attributed credentials');
+    }
+
+    public function test_dev_settings_hub_opens_the_requested_section(): void
+    {
+        $owner = $this->ownerUser();
+
+        $this->actingAs($owner)
+            ->get(route('admin.dev-settings.index', ['s' => 'demo']))
+            ->assertOk()
+            ->assertSee("devSettingsHub('demo')", false);
+
+        // Unknown section falls back to the first pane rather than rendering blank.
+        $this->actingAs($owner)
+            ->get(route('admin.dev-settings.index', ['s' => 'nonsense']))
+            ->assertOk()
+            ->assertSee("devSettingsHub('compliance')", false);
     }
 
     public function test_demo_sidebar_page_renders_curator(): void

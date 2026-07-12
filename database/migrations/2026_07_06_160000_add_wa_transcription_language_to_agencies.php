@@ -21,7 +21,19 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('agencies', function (Blueprint $table) {
-            $table->string('wa_transcription_language', 10)->nullable()->after('wa_transcription_time');
+            if (Schema::hasColumn('agencies', 'wa_transcription_language')) {
+                return;
+            }
+
+            $column = $table->string('wa_transcription_language', 10)->nullable();
+
+            // This migration's filename sorts BEFORE 2026_07_22_000001, which creates
+            // wa_transcription_time. On a fresh ordered replay the anchor does not exist
+            // yet, so only position after it when present (incrementally-migrated envs)
+            // and otherwise append — column order is cosmetic.
+            if (Schema::hasColumn('agencies', 'wa_transcription_time')) {
+                $column->after('wa_transcription_time');
+            }
         });
     }
 

@@ -527,10 +527,15 @@ class SettingsController extends Controller
             ));
         }
 
-        // Checkbox toggles never post when unchecked — coerce explicitly so an
-        // unchecked box persists as false (the presentations form always
-        // carries this field, so absence means "off", not "leave as-is").
-        $data['ss_show_complex_section'] = $request->boolean('ss_show_complex_section');
+        // An unchecked box must persist as false, but an ABSENT key means the
+        // caller's form never rendered this field at all — the setup wizard's
+        // presentations step posts only its six coverage controls. Coercing
+        // unconditionally would let that step silently switch the section off.
+        // Forms that own the checkbox post a hidden "0" companion, so "rendered
+        // but unchecked" still arrives and still saves as false.
+        if ($request->has('ss_show_complex_section')) {
+            $data['ss_show_complex_section'] = $request->boolean('ss_show_complex_section');
+        }
 
         $agency->update($data);
 
@@ -896,8 +901,16 @@ class SettingsController extends Controller
             $data['min_minutes_between_same'] = max(0, (int) $data['min_minutes_between_same']);
         }
 
+        // Only coerce a checkbox the caller's form actually rendered. Forms that
+        // own a toggle post a hidden "0" companion, so a rendered-but-unchecked
+        // box still arrives and still saves as false. An ABSENT key means the
+        // form never showed the field — the setup wizard's notifications step
+        // renders 10 of these 12, omitting weekend_visible and
+        // open_hours_enabled — so leave it alone rather than switch it off.
         foreach ($boolFields as $bf) {
-            $data[$bf] = $request->boolean($bf);
+            if ($request->has($bf)) {
+                $data[$bf] = $request->boolean($bf);
+            }
         }
 
         AgencyDashboardSetting::updateOrCreate(

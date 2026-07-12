@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
 use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\DealV2\AgencyServiceProviderContact;
 use App\Models\DealV2\DealV2;
 use App\Services\DealV2\AgencyServiceProviderService;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +35,7 @@ class SupplierDirectoryController extends Controller
         $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
         $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
+            ->with(['serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name')])
             ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
             ->get();
 
@@ -123,6 +125,47 @@ class SupplierDirectoryController extends Controller
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',
         ]);
+    }
+
+    /**
+     * (DR2 respec) Add a CONTACT PERSON under a firm — attorney + working contact
+     * (assistant/paralegal) + email/phone. Agency-scoped; soft-deleted on remove so
+     * historic deal references keep resolving.
+     */
+    public function storeContact(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+
+        $data = $request->validate([
+            'attorney_name'  => 'nullable|string|max:191',
+            'contact_person' => 'nullable|string|max:191',
+            'role'           => 'nullable|string|max:100',
+            'email'          => 'nullable|email|max:191',
+            'phone'          => 'nullable|string|max:50',
+        ]);
+
+        if (empty($data['attorney_name']) && empty($data['contact_person'])) {
+            return back()->withErrors('A contact needs at least an attorney or a contact person.');
+        }
+
+        AgencyServiceProviderContact::create(array_merge($data, [
+            'agency_id'           => (int) $provider->agency_id,
+            'service_provider_id' => $provider->id,
+            'is_active'           => true,
+            'created_by_id'       => $request->user()->id,
+        ]));
+
+        return back()->with('success', 'Contact added to ' . $provider->name . '.');
+    }
+
+    /** Soft-delete a firm contact (deactivate). Historic deals keep resolving. */
+    public function deactivateContact(Request $request, AgencyServiceProviderContact $contact)
+    {
+        abort_unless((int) $contact->agency_id === (int) $request->user()->effectiveAgencyId(), 403);
+        $contact->update(['is_active' => false]);
+        $contact->delete();
+
+        return back()->with('success', 'Contact removed.');
     }
 
     private function authorizeAgency(Request $request, AgencyServiceProvider $provider): void
