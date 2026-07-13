@@ -2341,6 +2341,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
             Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
 
+            // AT-239 — Regions screen (MDB municipality + agency-editable alias).
+            Route::get('/regions',                                [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'index'])->name('regions.index');
+            Route::put('/regions/{municipality}',                 [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'updateAlias'])->name('regions.update')->where('municipality', '.*');
+
             Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
             Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');
             Route::post('/property-types/{type}/archive',         [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'archive'])->name('property-types.archive');

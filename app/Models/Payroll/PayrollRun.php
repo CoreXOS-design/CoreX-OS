@@ -19,6 +19,7 @@ class PayrollRun extends Model
         'run_number',
         'period_month',
         'pay_date',
+        'cut_date',
         'status',
         'finalised_at',
         'finalised_by',
@@ -39,6 +40,7 @@ class PayrollRun extends Model
     protected $casts = [
         'period_month'       => 'date',
         'pay_date'           => 'date',
+        'cut_date'           => 'date',
         'finalised_at'       => 'datetime',
         'cancelled_at'       => 'datetime',
         'payslip_count'      => 'integer',

@@ -14,27 +14,42 @@
  */
 
 return [
-    'kzn_south_coast' => [
-        'name'  => 'KZN South Coast',
+    // ── KZN South Coast taxonomy (Johan-ruled 2026-07-13, verified on P24) ──
+    // Rule: where a P24 alias region exists → use it verbatim; where none → the
+    // MUNICIPAL name grouping the P24 towns beneath it. All agency-editable in
+    // the Regions screen; the suburb queue catches the long tail.
+
+    // P24 ALIAS REGION (verified on-site: Hibiscus Coast, published member towns).
+    'hibiscus_coast' => [
+        'name'  => 'Hibiscus Coast',
         'towns' => [
-            ['name' => 'Margate',         'suburbs' => ['Margate', 'Uvongo', 'Manaba Beach', 'Ramsgate']],
-            ['name' => 'Shelly Beach',    'suburbs' => ['Shelly Beach', 'St Michaels-on-Sea', 'Southbroom']],
-            ['name' => 'Port Shepstone',  'suburbs' => ['Port Shepstone', 'Oslo Beach', 'Umtentweni']],
-            ['name' => 'Hibberdene',      'suburbs' => ['Hibberdene']],
-            ['name' => 'Pumula',          'suburbs' => ['Pumula']],
-            ['name' => 'Munster',         'suburbs' => ['Munster']],
-            ['name' => 'Trafalgar',       'suburbs' => ['Trafalgar']],
-            ['name' => 'Palm Beach',      'suburbs' => ['Palm Beach', 'Marina Beach']],
+            ['name' => 'Margate',        'suburbs' => ['Margate', 'Uvongo', 'Manaba Beach', 'Ramsgate', 'Shelly Beach', 'St Michaels-on-Sea']],
+            ['name' => 'Port Shepstone', 'suburbs' => ['Port Shepstone', 'Oslo Beach', 'Umtentweni', 'Sea Park', 'Marburg']],
+            ['name' => 'Southbroom',     'suburbs' => ['Southbroom']],
+            ['name' => 'Port Edward',    'suburbs' => ['Port Edward', 'Munster', 'Palm Beach', 'Glenmore Beach']],
+            ['name' => 'Marina Beach',   'suburbs' => ['Marina Beach', 'San Lameer']],
+            ['name' => 'Umzumbe',        'suburbs' => ['Umzumbe', 'Pumula', 'Sunwich Port']],
+            ['name' => 'Hibberdene',     'suburbs' => ['Hibberdene']],
+            ['name' => 'Trafalgar',      'suburbs' => ['Trafalgar']],
         ],
     ],
 
-    'kzn_north_coast' => [
-        'name'  => 'KZN North Coast',
+    // MUNICIPAL region — P24 has NO north alias (Ballito is a top-level area);
+    // KwaDukuza is the municipality grouping Ballito + surrounds.
+    'kwadukuza' => [
+        'name'  => 'KwaDukuza',
         'towns' => [
-            ['name' => 'Ballito',  'suburbs' => ['Ballito', 'Salt Rock', 'Sheffield Beach', 'Simbithi']],
-            ['name' => 'Umhlanga', 'suburbs' => ['Umhlanga Rocks', 'Umhlanga Ridge', 'La Lucia']],
-            ['name' => 'Tongaat',  'suburbs' => ['Tongaat', 'Tongaat Beach']],
-            ['name' => 'Stanger',  'suburbs' => ['Stanger', 'KwaDukuza']],
+            ['name' => 'Ballito',   'suburbs' => ['Ballito', 'Salt Rock', 'Sheffield Beach', 'Shakas Rock', 'Simbithi', 'Umhlali', 'Tinley Manor']],
+            ['name' => 'KwaDukuza', 'suburbs' => ['KwaDukuza', 'Stanger', 'Shakaskraal']],
+        ],
+    ],
+
+    // MUNICIPAL region — Scottburgh area (Johan's call: Umdoni municipality).
+    'umdoni' => [
+        'name'  => 'Umdoni',
+        'towns' => [
+            ['name' => 'Scottburgh', 'suburbs' => ['Scottburgh', 'Scottburgh South', 'Kelso', 'Pennington', 'Park Rynie', 'Sezela']],
+            ['name' => 'Umkomaas',   'suburbs' => ['Umkomaas', 'Widenham', 'Craigieburn']],
         ],
     ],
 

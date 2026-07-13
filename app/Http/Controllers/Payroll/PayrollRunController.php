@@ -62,10 +62,15 @@ class PayrollRunController extends Controller
             $defaultPeriod = $today->copy()->startOfMonth();
         }
 
-        // Active employees with current basic salary
+        // AT-237 B2 — who's on this run = employed DURING the period: active ongoing
+        // staff PLUS this-period leavers (who must get a final payslip). Excludes
+        // not-yet-started, terminated-before-period, and suspended-without-termination.
+        $periodEnd = $defaultPeriod->copy()->endOfMonth();
         $basicType = PayrollEarningType::where('code', 'basic')->first();
         $employees = PayrollEmployee::with('user', 'user.branch')
-            ->active()
+            ->where('employment_date', '<=', $periodEnd)
+            ->where(fn ($w) => $w->whereNull('termination_date')->orWhere('termination_date', '>=', $defaultPeriod))
+            ->where(fn ($w) => $w->where('is_active', true)->orWhereNotNull('termination_date'))
             ->orderBy('created_at')
             ->get();
 
@@ -74,6 +79,12 @@ class PayrollRunController extends Controller
                 ? $emp->currentEarnings()->where('earning_type_id', $basicType->id)->value('amount')
                 : null;
 
+            // AT-237 rule 3 — a this-period leaver is a final payslip that can't be
+            // missed: flag it so the New Run screen shows + auto-selects (checks) it.
+            $emp->is_leaver = $emp->termination_date
+                && $emp->termination_date->gte($defaultPeriod)
+                && $emp->termination_date->lte($periodEnd);
+
             // Last finalised run for this employee
             $lastPayslip = PayrollPayslip::where('payroll_employee_id', $emp->id)
                 ->whereHas('run', fn($q) => $q->where('status', 'finalised'))
@@ -81,6 +92,9 @@ class PayrollRunController extends Controller
                 ->first();
             $emp->last_run_period = $lastPayslip?->period_month;
         }
+
+        // AT-237 B1 — default cut date for the form (agency default, else full month).
+        $defaultCutDate = $this->resolveCutDate(null, $defaultPeriod, (int) auth()->user()->effectiveAgencyId());
 
         // Check for existing run in default period
         $existingRun = PayrollRun::forMonth($defaultPeriod)
@@ -96,7 +110,7 @@ class PayrollRunController extends Controller
         ];
         foreach ($employees as $emp) {
             try {
-                $calc = $calculator->calculatePayslip($emp, $defaultPeriod);
+                $calc = $calculator->calculatePayslip($emp, $defaultPeriod, null, [], $defaultCutDate);
                 $projectedTotals['gross'] = bcadd($projectedTotals['gross'], $calc->totalEarnings, 2);
                 $projectedTotals['paye'] = bcadd($projectedTotals['paye'], $calc->payeAmount, 2);
                 $projectedTotals['uif_employee'] = bcadd($projectedTotals['uif_employee'], $calc->uifEmployeeAmount, 2);
@@ -110,8 +124,26 @@ class PayrollRunController extends Controller
         }
 
         return view('payroll.runs.create', compact(
-            'defaultPeriod', 'employees', 'existingRun', 'projectedTotals'
+            'defaultPeriod', 'defaultCutDate', 'employees', 'existingRun', 'projectedTotals'
         ));
+    }
+
+    /**
+     * AT-237 B1 — resolve a run's cut date: operator input wins; else the agency's
+     * default cut-day-of-month (clamped to the period's length); else NULL = full
+     * month (the calculator treats a null cut as the period end → no proration).
+     */
+    private function resolveCutDate(?string $input, Carbon $periodMonth, int $agencyId): ?Carbon
+    {
+        if (! empty($input)) {
+            return Carbon::parse($input);
+        }
+        $day = \App\Models\Agency::withoutGlobalScopes()->find($agencyId)?->payroll_default_cut_day;
+        if ($day) {
+            $clamped = min((int) $day, $periodMonth->copy()->endOfMonth()->day);
+            return $periodMonth->copy()->day($clamped);
+        }
+        return null; // full month
     }
 
     // ── STORE ──
@@ -123,6 +155,7 @@ class PayrollRunController extends Controller
             'pay_date'     => 'required|date',
             'employee_ids' => 'required|array|min:1',
             'employee_ids.*' => 'integer|exists:payroll_employees,id',
+            'cut_date'     => 'nullable|date', // AT-237 B1 — operator-selectable cut (default = full month)
             'notes'        => 'nullable|string|max:2000',
         ]);
 
@@ -158,8 +191,11 @@ class PayrollRunController extends Controller
 
         $agencyId = auth()->user()->effectiveAgencyId();
         $calculator = new PayrollCalculator();
+        // AT-237 B1 — resolve the cut date: operator input wins; else the agency
+        // default cut-day; else NULL = full month (cut = period end).
+        $cutDate = $this->resolveCutDate($validated['cut_date'] ?? null, $periodMonth, (int) $agencyId);
 
-        $run = DB::transaction(function () use ($validated, $periodMonth, $payDate, $agencyId, $calculator) {
+        $run = DB::transaction(function () use ($validated, $periodMonth, $payDate, $cutDate, $agencyId, $calculator) {
             // Generate run number: YYYYMM-001
             $ym = $periodMonth->format('Ym');
             $seq = PayrollRun::withoutGlobalScopes()
@@ -173,16 +209,35 @@ class PayrollRunController extends Controller
                 'run_number'   => $runNumber,
                 'period_month' => $periodMonth,
                 'pay_date'     => $payDate,
+                'cut_date'     => $cutDate,
                 'status'       => 'draft',
-                'notes'        => $validated['notes'],
+                'notes'        => $validated['notes'] ?? null, // AT-237 I2 — was an undefined-key notice when omitted
                 'created_by'   => auth()->id(),
             ]);
 
-            // Generate payslips
+            // AT-237 B2 — membership = employed AT ANY POINT during the period
+            // (excludes not-yet-started + terminated-before-period). Operator-selected,
+            // filtered to that window...
+            $periodEnd = $periodMonth->copy()->endOfMonth();
             $employees = PayrollEmployee::with('user')
                 ->whereIn('id', $validated['employee_ids'])
-                ->where('is_active', true)
+                ->where('employment_date', '<=', $periodEnd)
+                ->where(fn ($w) => $w->whereNull('termination_date')->orWhere('termination_date', '>=', $periodMonth))
                 ->get();
+
+            // ...PLUS any employee TERMINATED within this period who the operator did
+            // NOT select — Johan rule 3: a leaver ALWAYS gets a final payslip in the
+            // run covering their leave date, so it can't be missed. Dedup: skip anyone
+            // who already holds a finalised payslip for this period.
+            $autoTerminated = PayrollEmployee::with('user')
+                ->where('agency_id', $agencyId)
+                ->whereNotNull('termination_date')
+                ->whereBetween('termination_date', [$periodMonth, $periodEnd])
+                ->whereNotIn('id', $employees->pluck('id')->all())
+                ->whereDoesntHave('payslips', fn ($q) => $q->whereHas('run',
+                    fn ($r) => $r->where('status', 'finalised')->whereYear('period_month', $periodMonth->year)->whereMonth('period_month', $periodMonth->month)))
+                ->get();
+            $employees = $employees->concat($autoTerminated);
 
             $payslipSeq = 0;
             $totals = [
@@ -214,7 +269,7 @@ class PayrollRunController extends Controller
                     $leaveDays = $holidayService->countWorkingDays($leaveStart, $leaveEnd, $emp->workingDaysMaskArray());
 
                     if ($leaveDays > 0) {
-                        $dailyRate = $emp->dailyRate();
+                        $dailyRate = $emp->dailyRate($periodMonth); // AT-237 D9 — period-aware, was current-month
                         $deduction = bcmul((string) $leaveDays, $dailyRate, 2);
                         $preTaxAdjustments[] = [
                             'label'            => "Unpaid Leave: {$leaveApp->application_number} ({$leaveDays} day" . ($leaveDays != 1 ? 's' : '') . ")",
@@ -225,8 +280,8 @@ class PayrollRunController extends Controller
                     }
                 }
 
-                // Calculate (with pre-tax adjustments for unpaid leave)
-                $calc = $calculator->calculatePayslip($emp, $periodMonth, null, $preTaxAdjustments);
+                // Calculate (with pre-tax adjustments for unpaid leave + the run cut date)
+                $calc = $calculator->calculatePayslip($emp, $periodMonth, null, $preTaxAdjustments, $cutDate);
 
                 // Generate payslip number
                 $payslipNumber = 'HFC-' . $periodMonth->format('Ym') . '-' . str_pad($payslipSeq, 3, '0', STR_PAD_LEFT);
@@ -754,7 +809,7 @@ class PayrollRunController extends Controller
             $payslip->lines()->delete();
 
             // Recalculate from current employee profile
-            $calc = $calculator->calculatePayslip($payslip->employee, $run->period_month);
+            $calc = $calculator->calculatePayslip($payslip->employee, $run->period_month, null, [], $run->cut_date);
 
             // Recreate lines
             $sortOrder = 0;

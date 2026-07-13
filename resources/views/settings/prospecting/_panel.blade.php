@@ -69,6 +69,10 @@
                     :style="activeTab === '{{ $key }}' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
                     class="px-4 py-3 text-xs font-semibold whitespace-nowrap">{{ $label }}</button>
         @endforeach
+        {{-- AT-239 — Regions door (its own page: MDB municipality + agency alias). --}}
+        <a href="{{ route('settings.prospecting.regions.index') }}" data-tour="regions-door"
+           class="px-4 py-3 text-xs font-semibold whitespace-nowrap no-underline inline-flex items-center gap-1 border-b-2 border-transparent"
+           style="color: var(--text-secondary); margin-left: auto;">🗺️ Regions →</a>
     </div>
 
     {{-- TAB 1: Towns & Suburbs --}}

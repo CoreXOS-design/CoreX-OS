@@ -60,7 +60,12 @@
     $micBuyers     = $micBuyers ?? collect();
     $micRegions    = $micRegions ?? collect();
     $activeBuyerId = request('buyer_id');
-    $activeRegion  = request('region');
+    $activeRegion  = request('region'); // canonical municipality value
+    // AT-239 — display the agency alias for the active region (municipality → "Hibiscus Coast").
+    $regionLabelFor = function ($value) use ($micRegions) {
+        $hit = $micRegions->firstWhere('value', $value);
+        return $hit->label ?? $value;
+    };
     $selectedBuyerPill = $selectedBuyer ?? ($activeBuyerId ? $micBuyers->firstWhere('id', (int) $activeBuyerId) : null);
     $buyerLabel = function ($b) {
         $name = trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? ''));
@@ -70,7 +75,7 @@
     // Active filter pills
     $activePills = [];
     if ($selectedBuyerPill)                              $activePills[] = ['label' => 'Buyer · ' . $buyerLabel($selectedBuyerPill), 'remove' => $urlWithout('buyer_id')];
-    if ($activeRegion)                                   $activePills[] = ['label' => 'Region · ' . $activeRegion,               'remove' => $urlWithout('region')];
+    if ($activeRegion)                                   $activePills[] = ['label' => 'Region · ' . $regionLabelFor($activeRegion), 'remove' => $urlWithout('region')];
     if ($activeSearch !== '')                            $activePills[] = ['label' => '"' . $activeSearch . '"',                'remove' => $urlWithout('search')];
     if ($activeSuburb)                                   $activePills[] = ['label' => 'Suburb · ' . $activeSuburb,              'remove' => $urlWithout('suburb')];
     if ($activeType)                                     $activePills[] = ['label' => 'Type · ' . $activeType,                  'remove' => $urlWithout('property_type')];
@@ -186,10 +191,10 @@
         <div x-show="open" style="padding: 0 0 6px;">
             @if($micRegions->count() > 0)
                 @foreach($micRegions as $region)
-                    @php $rIsActive = (string) $activeRegion === (string) $region; @endphp
-                    <a href="{{ $rIsActive ? $urlWithout('region') : $urlWith(['region' => $region]) }}"
+                    @php $rIsActive = (string) $activeRegion === (string) $region->value; @endphp
+                    <a href="{{ $rIsActive ? $urlWithout('region') : $urlWith(['region' => $region->value]) }}"
                        style="{{ $rIsActive ? $activeRowStyle : $rowStyle }}">
-                        <span>{{ $region }}</span>
+                        <span>{{ $region->label }}</span>
                         @if($rIsActive)<span style="font-weight:700;">×</span>@endif
                     </a>
                 @endforeach

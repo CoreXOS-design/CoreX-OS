@@ -135,13 +135,14 @@ class PayrollEmployee extends Model
      * Calculate daily rate per the employee's daily_rate_basis.
      * Returns bcmath string.
      */
-    public function dailyRate(): string
+    public function dailyRate(?\Carbon\Carbon $periodMonth = null): string
     {
         $basic = $this->basicSalaryAmount();
+        $period = $periodMonth ?? now(); // AT-237 D9 — was hardcoded to the CURRENT month; now the run's period.
 
         return match ($this->daily_rate_basis ?? 'fixed_21_67') {
             'fixed_21_67' => bcdiv($basic, '21.67', 2),
-            'calendar_working_days' => bcdiv($basic, (string) $this->workingDaysInCurrentMonth(), 2),
+            'calendar_working_days' => bcdiv($basic, (string) $this->workingDaysInMonth($period), 2),
             default => throw new \RuntimeException("Daily rate basis '{$this->daily_rate_basis}' not yet implemented."),
         };
     }
@@ -190,18 +191,40 @@ class PayrollEmployee extends Model
         return (bool) ($mask & (1 << $dayIndex));
     }
 
-    private function workingDaysInCurrentMonth(): int
+    /**
+     * AT-237 — count this employee's working days in [start, end] inclusive,
+     * respecting their working_days_mask. The period-aware primitive behind both
+     * partial-period proration and (via dailyRate) unpaid-leave day rates.
+     */
+    public function workingDaysBetween(\Carbon\Carbon $start, \Carbon\Carbon $end): int
     {
-        $start = now()->startOfMonth();
-        $end = now()->endOfMonth();
+        if ($end->lt($start)) {
+            return 0;
+        }
         $count = 0;
-        $cursor = $start->copy();
-        while ($cursor <= $end) {
+        $cursor = $start->copy()->startOfDay();
+        $last = $end->copy()->startOfDay();
+        while ($cursor->lte($last)) {
             if ($this->isWorkingDay($cursor)) {
                 $count++;
             }
             $cursor->addDay();
         }
-        return max($count, 1);
+        return $count;
+    }
+
+    /** Working days in the given period month (min 1). */
+    public function workingDaysInMonth(\Carbon\Carbon $periodMonth): int
+    {
+        return max($this->workingDaysBetween(
+            $periodMonth->copy()->startOfMonth(),
+            $periodMonth->copy()->endOfMonth()
+        ), 1);
+    }
+
+    /** BC shim — AT-237 D9: daily-rate/leave math is now period-aware; this stays for any legacy caller. */
+    private function workingDaysInCurrentMonth(): int
+    {
+        return $this->workingDaysInMonth(now());
     }
 }
