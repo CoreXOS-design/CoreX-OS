@@ -121,6 +121,25 @@
                         @if($property->isPublished())
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
+
+                        {{-- AT-238 — WHERE THE PAPER LIVES.
+                             The physical file reference, read straight through from the filing
+                             register. The property stores no copy of it: the register owns the
+                             fact, so a re-numbered file cannot leave a stale reference behind
+                             here. An agent standing on the property record can now see which
+                             file to pull without going and looking it up.
+
+                             Several are normal — an OA and an EA are separate documents — so all
+                             of them are shown. A property with no filing shows NOTHING: an empty
+                             chip is clutter, and absence is already the answer. --}}
+                        @if(!$isNew && $property->filings->isNotEmpty())
+                            @foreach($property->filings as $filing)
+                                <span class="ds-badge ds-badge-info"
+                                      title="Physically filed as {{ $filing->full_reference }} ({{ $filing->document_type }}){{ $filing->expiry_date ? ' — mandate expires ' . $filing->expiry_date->format('d M Y') : '' }}. Read live from the Filing Register.">
+                                    {{ $filing->document_type }} · {{ $filing->full_reference }}
+                                </span>
+                            @endforeach
+                        @endif
                     </div>
                     @php
                         $sbAddrParts = [];

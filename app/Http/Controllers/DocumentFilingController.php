@@ -225,6 +225,18 @@ class DocumentFilingController extends Controller
         $validated['property_id']       = ($validated['property_id'] ?? null) ?: null;
         $validated['seller_contact_id'] = ($validated['seller_contact_id'] ?? null) ?: null;
 
+        // ONE SELLER FACT, enforced HERE and not merely in the form.
+        //
+        // A seller is EITHER a linked contact OR a typed name — never both. When a contact is
+        // linked, the free-text name is not stored at all: keeping a copy of the contact's name
+        // alongside the link creates a second fact that drifts the moment the contact is renamed,
+        // and it is what let a duplicate seller be captured (Johan, qa1). The linked contact is
+        // the seller; `seller_display` reads through to it. The typed name exists for exactly one
+        // case — a seller CoreX does not hold — and that case has no link.
+        if ($validated['seller_contact_id']) {
+            $validated['seller_name'] = null;
+        }
+
         return $this->resolveBranchAndAgent($validated, $existing);
     }
 
