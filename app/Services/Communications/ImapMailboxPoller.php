@@ -104,7 +104,12 @@ class ImapMailboxPoller
                 $stats['folders']++;
 
                 try {
-                    $messages = $folder->query()->since($since)->get();
+                    // AT-257: fetch UIDs only (setFetchBody(false) — no body fetch, so the
+                    // server never sets \Seen). Each body is then pulled with a TRUE BODY.PEEK
+                    // below (PeekingMessageFetcher), so archiving never marks a message read —
+                    // not even if a message parse / the poll budget / the connection is
+                    // interrupted mid-message (the proven cause of AT-257).
+                    $messages = $folder->query()->since($since)->setFetchBody(false)->get();
                 } catch (ImapPollTimeoutException $e) {
                     throw $e;
                 } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
@@ -112,8 +117,16 @@ class ImapMailboxPoller
                     continue;
                 }
 
-                foreach ($messages as $message) {
+                foreach ($messages as $liteMessage) {
                     try {
+                        $uid = (int) $liteMessage->getUid();
+                        // AT-257 — non-destructive read: BODY.PEEK[], never sets \Seen.
+                        $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, $uid);
+                        if ($message === null) {
+                            $stats['errors']++;
+                            Log::warning("Communication archive: peek fetch returned no content (mailbox {$mailbox->id}, uid {$uid})");
+                            continue;
+                        }
                         $normalized = $this->normalize($message, $direction);
                         $result = $this->ingestor->ingest($mailbox, $normalized, $direction);
                         $stats[$result] = ($stats[$result] ?? 0) + 1;
