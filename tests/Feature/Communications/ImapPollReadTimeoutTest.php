@@ -71,6 +71,11 @@ final class ImapPollReadTimeoutTest extends TestCase
                         return $this;
                     }
 
+                    public function setFetchBody($b) // AT-257: poller fetches UIDs-only now
+                    {
+                        return $this;
+                    }
+
                     public function get()
                     {
                         sleep(5); // simulate a non-responsive server fread()
