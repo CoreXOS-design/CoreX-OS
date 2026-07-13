@@ -111,7 +111,8 @@
     @permission('filing.create')
     <div x-show="showNew" x-cloak x-transition class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">New Filing</h2>
-        <form method="POST" action="{{ route('filing-register.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <form method="POST" action="{{ route('filing-register.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4"
+              x-data="filingPicker({})">
             @csrf
             <div>
                 <label for="new_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch <span class="text-red-500">*</span></label>
@@ -153,23 +154,78 @@
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
-            <div>
-                <label for="new_property_address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property Address <span class="text-red-500">*</span></label>
-                <input id="new_property_address" type="text" name="property_address" required tabindex="6" placeholder="e.g. 21 Dee Road, Uvongo"
+            {{-- AT-238 — Property: search the property tables, link the real record.
+                 The typed text is ALWAYS submitted as property_address, so a filing whose
+                 property CoreX does not hold still saves. Linking is an upgrade, never a gate. --}}
+            <div class="relative">
+                <label for="new_property_address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property <span class="text-red-500">*</span></label>
+                <input type="hidden" name="property_id" :value="propertyId">
+                <input id="new_property_address" type="text" name="property_address" required tabindex="6"
+                       autocomplete="off"
+                       placeholder="Search a property, or just type the address"
+                       x-model="address" @input="onType()" @focus="onType()" @blur="closeSoon()"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       :style="propertyId
+                            ? 'background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
+                            : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+
+                <div x-show="open && results.length" x-cloak
+                     class="absolute z-30 left-0 right-0 mt-1 rounded-md overflow-hidden"
+                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.18); max-height: 260px; overflow-y: auto;">
+                    <template x-for="r in results" :key="r.id">
+                        <button type="button" @mousedown.prevent="pick(r)"
+                                class="w-full text-left px-3 py-2 text-sm hover:opacity-80"
+                                style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
+                            <span x-text="r.address || r.label"></span>
+                            <span class="block text-xs" style="color: var(--text-muted);">
+                                <span x-text="r.agent ? ('Agent: ' + r.agent) : ''"></span>
+                                <span x-show="r.expiry_date" x-text="' · mandate expires ' + r.expiry_date"></span>
+                            </span>
+                        </button>
+                    </template>
+                </div>
+
+                <div x-show="propertyId" x-cloak class="text-xs mt-1 flex items-center gap-2" style="color: var(--ds-green, #059669);">
+                    <span>✓ Linked to the property record</span>
+                    <button type="button" @click="unlink()" class="underline" style="color: var(--text-muted);">unlink</button>
+                </div>
+                <p x-show="!propertyId" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">
+                    No CoreX match? Type the address — the filing still saves.
+                </p>
             </div>
+
+            {{-- AT-238 — Seller: sourced from the property's link roles when we know them. --}}
             <div>
-                <label for="new_seller_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller Name</label>
+                <label for="new_seller_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
+                <input type="hidden" name="seller_contact_id" :value="sellerContactId">
+                <select x-show="sellers.length" x-cloak
+                        @change="pickSeller($event.target.value)"
+                        class="w-full rounded-md px-3 py-2 text-sm mb-1"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="">— type a name instead —</option>
+                    <template x-for="s in sellers" :key="s.id">
+                        <option :value="s.id" :selected="s.id == sellerContactId" x-text="s.name"></option>
+                    </template>
+                </select>
                 <input id="new_seller_name" type="text" name="seller_name" tabindex="7" placeholder="Optional"
+                       x-model="sellerName"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
+
+            {{-- AT-238 — Expiry: prefilled from the property's mandate on link, then it is YOURS.
+                 It is stored on this row, never mirrored: an OA and an EA on the same property
+                 can genuinely expire on different dates, and the register records what was filed. --}}
             <div>
                 <label for="new_expiry_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Expiry Date</label>
                 <input id="new_expiry_date" type="date" name="expiry_date" tabindex="8"
+                       x-model="expiry"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <p x-show="suggestedExpiry && suggestedExpiry !== expiry" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">
+                    Property mandate expires <span x-text="suggestedExpiry"></span> —
+                    <button type="button" class="underline" @click="expiry = suggestedExpiry" style="color: var(--brand-icon, #0ea5e9);">use it</button>
+                </p>
             </div>
             <div>
                 <label for="new_notes" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
@@ -205,7 +261,13 @@
                     @forelse($filings as $filing)
                     {{-- One row: display cells (x-show="!editing") + a single full-width edit cell (x-show="editing").
                          Cells are server-rendered so they never pop/shift on Alpine hydration. --}}
-                    <tr x-data="{ editing: false }" style="border-top: 1px solid var(--border);">
+                    <tr x-data="{ editing: false, ...filingPicker({
+                            propertyId: {{ $filing->property_id ?: 'null' }},
+                            address: @js($filing->property_address),
+                            sellerContactId: {{ $filing->seller_contact_id ?: 'null' }},
+                            sellerName: @js($filing->seller_name),
+                            expiry: @js($filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : ''),
+                        }) }" style="border-top: 1px solid var(--border);">
                         {{-- Display cells --}}
                         <td x-show="!editing" class="px-4 py-3 font-mono text-xs whitespace-nowrap">{{ $filing->full_reference }}</td>
                         <td x-show="!editing" class="px-4 py-3">
@@ -217,8 +279,26 @@
                                 <span class="ds-badge ds-badge-default">Other</span>
                             @endif
                         </td>
-                        <td x-show="!editing" class="px-4 py-3">{{ $filing->property_address }}</td>
-                        <td x-show="!editing" class="px-4 py-3" style="color: var(--text-secondary);">{{ $filing->seller_name ?? '—' }}</td>
+                        {{-- AT-238 — show the LINKED record when there is one (the register stops
+                             disagreeing with the property page), the typed text when there isn't. --}}
+                        <td x-show="!editing" class="px-4 py-3">
+                            @if($filing->property)
+                                <a href="{{ route('corex.properties.show', $filing->property) }}"
+                                   class="no-underline hover:underline" style="color: var(--text-primary);">{{ $filing->property_display }}</a>
+                                <span class="ds-badge ds-badge-success" style="margin-left:.35rem;"
+                                      title="Linked to the property record — address, seller and mandate expiry come from the property, not retyped.">Linked</span>
+                            @else
+                                {{ $filing->property_address }}
+                            @endif
+                        </td>
+                        <td x-show="!editing" class="px-4 py-3" style="color: var(--text-secondary);">
+                            @if($filing->sellerContact)
+                                <a href="{{ route('corex.contacts.show', $filing->sellerContact) }}"
+                                   class="no-underline hover:underline" style="color: var(--text-secondary);">{{ $filing->seller_display }}</a>
+                            @else
+                                {{ $filing->seller_display ?? '—' }}
+                            @endif
+                        </td>
                         <td x-show="!editing" class="px-4 py-3">{{ $filing->agent->name ?? '—' }}</td>
                         <td x-show="!editing" class="px-4 py-3 whitespace-nowrap">
                             {{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '—' }}
@@ -288,23 +368,57 @@
                                            class="rounded-md px-2 py-1 text-xs w-16"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
-                                <div>
-                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Address</label>
-                                    <input type="text" name="property_address" value="{{ $filing->property_address }}"
+                                {{-- AT-238 — same picker as the new-filing form, seeded with this row's
+                                     current link. Editing an old free-text row is how it gets linked. --}}
+                                <div class="relative">
+                                    <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Property</label>
+                                    <input type="hidden" name="property_id" :value="propertyId">
+                                    <input type="text" name="property_address" autocomplete="off"
+                                           x-model="address" @input="onType()" @focus="onType()" @blur="closeSoon()"
                                            class="rounded-md px-2 py-1 text-xs w-40"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           :style="propertyId
+                                                ? 'background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
+                                                : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                    <div x-show="open && results.length" x-cloak
+                                         class="absolute z-30 left-0 mt-1 rounded-md"
+                                         style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 260px; max-height: 220px; overflow-y: auto;">
+                                        <template x-for="r in results" :key="r.id">
+                                            <button type="button" @mousedown.prevent="pick(r)"
+                                                    class="w-full text-left px-3 py-2 text-xs"
+                                                    style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
+                                                <span x-text="r.address || r.label"></span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <div x-show="propertyId" x-cloak class="text-[0.6875rem] mt-1" style="color: var(--ds-green, #059669);">
+                                        ✓ linked · <button type="button" @click="unlink()" class="underline" style="color: var(--text-muted);">unlink</button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
-                                    <input type="text" name="seller_name" value="{{ $filing->seller_name }}"
+                                    <input type="hidden" name="seller_contact_id" :value="sellerContactId">
+                                    <select x-show="sellers.length" x-cloak @change="pickSeller($event.target.value)"
+                                            class="rounded-md px-2 py-1 text-xs w-28 mb-1"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">— type a name —</option>
+                                        <template x-for="s in sellers" :key="s.id">
+                                            <option :value="s.id" :selected="s.id == sellerContactId" x-text="s.name"></option>
+                                        </template>
+                                    </select>
+                                    <input type="text" name="seller_name" x-model="sellerName"
                                            class="rounded-md px-2 py-1 text-xs w-28"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Expiry</label>
-                                    <input type="date" name="expiry_date" value="{{ $filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : '' }}"
+                                    <input type="date" name="expiry_date" x-model="expiry"
                                            class="rounded-md px-2 py-1 text-xs"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    {{-- Never rewrites what was filed — it offers, the human decides. --}}
+                                    <p x-show="suggestedExpiry && suggestedExpiry !== expiry" x-cloak class="text-[0.6875rem] mt-1" style="color: var(--text-muted);">
+                                        mandate: <span x-text="suggestedExpiry"></span>
+                                        <button type="button" class="underline" @click="expiry = suggestedExpiry" style="color: var(--brand-icon, #0ea5e9);">use</button>
+                                    </p>
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
@@ -332,4 +446,115 @@
     </div>
 
 </div>
+
+{{--
+    AT-238 — the filing register's property/seller picker.
+
+    One component, used by the New Filing form and by every inline edit row, so a link made
+    while creating and a link made while correcting an old row behave identically.
+
+    The rule it enforces: LINKING IS AN UPGRADE, NEVER A GATE. The typed address is always
+    submitted, so a filing whose property CoreX has never heard of still saves — about 42% of
+    the historical register is exactly that. And the expiry is SUGGESTED, never silently
+    rewritten: the register is a legal record of what was filed, not a live mirror of the
+    property.
+--}}
+@push('scripts')
+<script>
+function filingPicker(initial) {
+    return {
+        propertyId:      initial.propertyId ?? null,
+        address:         initial.address ?? '',
+        sellerContactId: initial.sellerContactId ?? null,
+        sellerName:      initial.sellerName ?? '',
+        expiry:          initial.expiry ?? '',
+        suggestedExpiry: null,
+        sellers: [],
+        results: [],
+        open: false,
+        _timer: null,
+
+        onType() {
+            // Typing a new address means the old link no longer describes what is typed.
+            // Drop it rather than leave a link silently disagreeing with the text.
+            if (this.propertyId && this.address !== this._linkedLabel) {
+                this.propertyId = null;
+                this.suggestedExpiry = null;
+                this.sellers = [];
+            }
+            clearTimeout(this._timer);
+            const q = (this.address || '').trim();
+            if (q.length < 2) { this.results = []; this.open = false; return; }
+            this._timer = setTimeout(() => this.search(q), 220);
+        },
+
+        async search(q) {
+            try {
+                const res = await fetch('{{ route('filing-register.search.properties') }}?q=' + encodeURIComponent(q), {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) { this.results = []; this.open = false; return; }
+                const data = await res.json();
+                this.results = data.results || [];
+                this.open = this.results.length > 0;
+            } catch (e) {
+                // A search that cannot reach the server must never block the filing:
+                // the typed address still saves.
+                this.results = [];
+                this.open = false;
+            }
+        },
+
+        async pick(r) {
+            this.propertyId = r.id;
+            this.address = r.address || r.label || this.address;
+            this._linkedLabel = this.address;
+            this.open = false;
+            this.results = [];
+            await this.loadSuggestions(r.id);
+        },
+
+        async loadSuggestions(id) {
+            try {
+                const url = '{{ route('filing-register.search.property-suggestions', ['property' => '__ID__']) }}'.replace('__ID__', id);
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;
+                const data = await res.json();
+                this.sellers = data.sellers || [];
+                this.suggestedExpiry = data.suggestions?.expiry_date || null;
+
+                // Fill only what is EMPTY. Never overwrite a date or a name that a human
+                // already committed to this row — that is the filed fact.
+                if (!this.expiry && this.suggestedExpiry) {
+                    this.expiry = this.suggestedExpiry;
+                }
+                if (!this.sellerContactId && !this.sellerName && this.sellers.length) {
+                    this.pickSeller(this.sellers[0].id);
+                }
+            } catch (e) { /* suggestions are a convenience, never a blocker */ }
+        },
+
+        pickSeller(id) {
+            if (!id) { this.sellerContactId = null; return; }
+            const s = this.sellers.find(x => String(x.id) === String(id));
+            if (!s) return;
+            this.sellerContactId = s.id;
+            this.sellerName = s.name; // keep the text in step, so an unlinked row still reads right
+        },
+
+        unlink() {
+            this.propertyId = null;
+            this.suggestedExpiry = null;
+            this.sellers = [];
+            this.sellerContactId = null;
+            // The address and expiry STAY: unlinking says "CoreX has no record of this",
+            // not "forget what I filed".
+        },
+
+        closeSoon() { setTimeout(() => { this.open = false; }, 120); },
+    };
+}
+</script>
+@endpush
 @endsection
