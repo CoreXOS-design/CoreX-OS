@@ -29,13 +29,42 @@ class PayrollCalculator
         Carbon $periodMonth,
         ?Carbon $asOfDate = null,
         array $preTaxAdjustments = [],
+        ?Carbon $cutDate = null,
     ): PayslipCalculation {
-        $asOfDate = $asOfDate ?? $periodMonth->copy()->endOfMonth();
+        // AT-237 B1/B2 — partial-period window. The cut defaults to the full month
+        // (period end); a run's operator-selected cut, or a mid-month TERMINATION,
+        // pulls it earlier; a mid-month EMPLOYMENT date pushes the start later. Basic
+        // pro-rates over [effectiveStart..effectiveCut]; allowances always pay full.
+        $periodStart = $periodMonth->copy()->startOfMonth();
+        $periodEnd = $periodMonth->copy()->endOfMonth();
+
+        $effectiveCut = $cutDate ? $cutDate->copy() : $periodEnd->copy();
+        if ($effectiveCut->gt($periodEnd)) { $effectiveCut = $periodEnd->copy(); }
+        if ($effectiveCut->lt($periodStart)) { $effectiveCut = $periodStart->copy(); }
+        if (! empty($employee->termination_date)) {
+            $term = $employee->termination_date instanceof Carbon
+                ? $employee->termination_date->copy() : Carbon::parse((string) $employee->termination_date);
+            if ($term->lt($effectiveCut)) { $effectiveCut = $term->copy(); }
+        }
+        $effectiveStart = $periodStart->copy();
+        if (! empty($employee->employment_date)) {
+            $hire = $employee->employment_date instanceof Carbon
+                ? $employee->employment_date->copy() : Carbon::parse((string) $employee->employment_date);
+            if ($hire->gt($effectiveStart)) { $effectiveStart = $hire->copy(); }
+        }
+
+        // Resolve the employee template as of the cut (their package on their last worked day).
+        $asOfDate = $asOfDate ?? $effectiveCut->copy();
         $warnings = [];
         $trace = [];
 
-        // 1. Gather earnings from employee template
-        $earnings = $this->gatherEarnings($employee, $asOfDate);
+        [$prorationFactor, $prorationTrace, $prorationWarn] =
+            $this->prorationFactor($employee, $periodStart, $periodEnd, $effectiveStart, $effectiveCut);
+        $trace = array_merge($trace, $prorationTrace);
+        $warnings = array_merge($warnings, $prorationWarn);
+
+        // 1. Gather earnings — Basic pro-rated to the cut; allowances (and all non-basic) full.
+        $earnings = $this->gatherEarnings($employee, $asOfDate, $prorationFactor);
 
         // 1b. Apply pre-tax adjustments (e.g. unpaid leave deductions)
         // These reduce gross/taxable BEFORE PAYE/UIF calc
@@ -185,7 +214,7 @@ class PayrollCalculator
 
     // ── Earnings & Deductions Gathering ──
 
-    private function gatherEarnings(PayrollEmployee $employee, Carbon $asOfDate): array
+    private function gatherEarnings(PayrollEmployee $employee, Carbon $asOfDate, string $prorationFactor = '1.000000'): array
     {
         $rows = PayrollEmployeeEarning::withoutGlobalScopes()
             ->where('payroll_employee_id', $employee->id)
@@ -204,11 +233,17 @@ class PayrollCalculator
             if (! $type || ! $type->is_active) {
                 continue;
             }
+            $amount = $this->round2((string) $row->amount);
+            // AT-237 B1 — pro-rate ONLY earnings flagged pro_rates_on_partial (Basic).
+            // Allowances / bonus / overtime / commission are NOT flagged → pay full.
+            if ($type->pro_rates_on_partial && bccomp($prorationFactor, '1', 6) < 0) {
+                $amount = $this->round2(bcmul($amount, $prorationFactor, 6));
+            }
             $earnings[] = [
                 'earning_type_id' => $type->id,
                 'label'           => $type->label,
                 'sars_code'       => $type->sars_source_code,
-                'amount'          => $this->round2((string) $row->amount),
+                'amount'          => $amount,
                 'is_taxable'      => (bool) $type->is_taxable,
                 'affects_uif'     => (bool) $type->affects_uif_remuneration,
                 'affects_sdl'     => (bool) $type->affects_sdl_remuneration,
@@ -216,6 +251,44 @@ class PayrollCalculator
         }
 
         return $earnings;
+    }
+
+    /**
+     * AT-237 B1 — proration factor [0..1] for pro-ratable (Basic) earnings, per the
+     * employee's daily_rate_basis, over the worked window vs the period. 1.0 for a
+     * full unbroken month (so full-month payslips are UNCHANGED). hours_per_day is
+     * absorbed to calendar working days with a warning (not yet a supported basis).
+     *
+     * @return array{0:string,1:array,2:array} [factor(6dp), traceLines, warnings]
+     */
+    private function prorationFactor(PayrollEmployee $employee, Carbon $periodStart, Carbon $periodEnd, Carbon $effectiveStart, Carbon $effectiveCut): array
+    {
+        if ($effectiveStart->lte($periodStart) && $effectiveCut->gte($periodEnd)) {
+            return ['1.000000', [], []]; // full month — no proration
+        }
+        if ($effectiveCut->lt($effectiveStart)) {
+            return ['0.000000', ['Proration: no worked days in period → Basic R0'], []];
+        }
+
+        $worked = $employee->workingDaysBetween($effectiveStart, $effectiveCut);
+        $basis = $employee->daily_rate_basis ?: 'fixed_21_67';
+        $warnings = [];
+        $trace = [];
+
+        if ($basis === 'calendar_working_days') {
+            $total = max($employee->workingDaysBetween($periodStart, $periodEnd), 1);
+            $factor = min(1.0, $worked / $total);
+            $trace[] = "Basic pro-rated (calendar_working_days): {$worked}/{$total} working days";
+        } elseif ($basis === 'fixed_21_67') {
+            $factor = min(1.0, $worked / 21.67);
+            $trace[] = "Basic pro-rated (fixed_21_67): {$worked}/21.67 working days";
+        } else {
+            $total = max($employee->workingDaysBetween($periodStart, $periodEnd), 1);
+            $factor = min(1.0, $worked / $total);
+            $warnings[] = "daily_rate_basis '{$basis}' not supported for proration — used calendar working days ({$worked}/{$total})";
+        }
+
+        return [number_format($factor, 6, '.', ''), $trace, $warnings];
     }
 
     /**

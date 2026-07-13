@@ -68,6 +68,13 @@
                             @error('pay_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
+                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Cut Date</label>
+                            <input type="date" name="cut_date" value="{{ old('cut_date', $defaultCutDate?->format('Y-m-d')) }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <p class="text-[0.6875rem] mt-1" style="color: var(--text-muted);">Basic salary pro-rates to this date; allowances pay in full. Blank = full month.</p>
+                            @error('cut_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
                             <input type="text" name="notes" value="{{ old('notes', '') }}" maxlength="2000" placeholder="Optional run notes"
                                    class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -111,7 +118,12 @@
                                                 <div class="flex items-center gap-2">
                                                     <div class="w-7 h-7 rounded-full flex items-center justify-center text-[0.6875rem] font-bold text-white flex-shrink-0" style="background: var(--brand-icon);">{{ strtoupper(substr($emp->user->name ?? '?', 0, 1)) }}</div>
                                                     <div class="min-w-0">
-                                                        <p class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $emp->user->name ?? 'Unknown' }}</p>
+                                                        <p class="text-xs font-semibold truncate" style="color: var(--text-primary);">
+                                                            {{ $emp->user->name ?? 'Unknown' }}
+                                                            @if(!empty($emp->is_leaver))
+                                                                <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[0.625rem] font-bold" style="background:#fef2f2;color:#b91c1c;" title="Terminates {{ $emp->termination_date?->format('d M Y') }} — final payslip, basic pro-rated">FINAL · leaves {{ $emp->termination_date?->format('d M') }}</span>
+                                                            @endif
+                                                        </p>
                                                         <p class="text-[0.6875rem] truncate" style="color: var(--text-muted);">{{ $emp->designation_snapshot }}</p>
                                                     </div>
                                                 </div>
