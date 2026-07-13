@@ -98,7 +98,7 @@ class P24SuburbController extends Controller
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
-            'region'          => $validated['region'] ?? 'kzn-south-coast',
+            'region'          => $validated['region'] ?? null,
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
         ]);
@@ -133,7 +133,7 @@ class P24SuburbController extends Controller
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
-            'region'          => $validated['region'] ?? 'kzn-south-coast',
+            'region'          => $validated['region'] ?? null,
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
         ]);
