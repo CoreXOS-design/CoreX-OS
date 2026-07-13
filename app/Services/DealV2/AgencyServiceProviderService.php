@@ -37,6 +37,15 @@ class AgencyServiceProviderService
      */
     public function findOrCreate(int $agencyId, array $data, ?int $userId = null): AgencyServiceProvider
     {
+        // AT-253 (STANDARDS Rule 17) — this CREATES a row stamped with $agencyId, and callers
+        // reach it by casting a possibly-null effectiveAgencyId() to int, which turns NULL into
+        // 0. Agency 0 has no parent row, so the insert would violate the FK and 500 the page
+        // (SupplierDirectoryController:51 was one unguarded route away from exactly that).
+        // A write with no tenant to write into is a question, not a fallback: say so.
+        if ($agencyId <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException('a service provider');
+        }
+
         $specialty = $data['specialty'] ?? 'other';
         $name = trim((string) ($data['name'] ?? ''));
         $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;

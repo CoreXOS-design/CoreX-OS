@@ -19,7 +19,9 @@ class CommissionController extends Controller
     {
         $user = auth()->user();
         $userId = $user->id;
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — currentForUser() CREATES a cap period; the model rejects a
+        // non-positive agency rather than opening one inside agency 1.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
 
         // Get or create current cap period
         $capPeriod = AgentCapPeriod::currentForUser($userId, $agencyId);
@@ -144,7 +146,9 @@ class CommissionController extends Controller
         $user = auth()->user();
         abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — read: sentinel 0 routes to CommissionSetting's <=0 guard,
+        // which returns unsaved defaults instead of reading agency 1's money settings.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $settings = CommissionSetting::forAgency($agencyId);
 
         $currentMonthStart = now()->startOfMonth()->toDateString();

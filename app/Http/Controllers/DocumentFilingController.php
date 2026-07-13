@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Filing\FilingPropertyLinker;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class DocumentFilingController extends Controller
@@ -106,7 +107,9 @@ class DocumentFilingController extends Controller
         // Branch name for header
         $branchName = $isAdmin && !$request->filled('branch_id')
             ? 'All Branches'
-            : ($branchId ? (Branch::find($branchId)->name ?? 'Unknown') : 'Unknown');
+            // AT-253 (Rule 17) — `Branch::find()->name` 500s when the branch is soft-deleted or
+            // out of scope: the `??` guarded the value, not the receiver.
+            : ($branchId ? (Branch::find($branchId)?->name ?? 'Unknown') : 'Unknown');
 
         return view('filing-register.index', compact(
             'filings', 'branches', 'agents', 'branchName',
@@ -179,8 +182,13 @@ class DocumentFilingController extends Controller
     private function rules(): array
     {
         return [
-            'branch_id'         => 'required|exists:branches,id',
-            'agent_id'          => 'required|exists:users,id',
+            // AT-238 (Johan's flow) — branch and agent are NO LONGER things the clerk must know.
+            // They derive from the picked property's listing context, and fall back to the
+            // clerk's own branch/agent when there is no property. They stay overridable, so they
+            // are accepted-if-sent and resolved server-side when they are not: the browser is
+            // never the only thing standing between a NOT-NULL column and a null.
+            'branch_id'         => 'nullable|exists:branches,id',
+            'agent_id'          => 'nullable|exists:users,id',
             'document_type'     => 'required|in:OA,EA,Other',
             'file_reference'    => 'required|string|max:255',
             'sequence_number'   => 'required|string|max:255',
@@ -217,6 +225,50 @@ class DocumentFilingController extends Controller
         $validated['property_id']       = ($validated['property_id'] ?? null) ?: null;
         $validated['seller_contact_id'] = ($validated['seller_contact_id'] ?? null) ?: null;
 
+        return $this->resolveBranchAndAgent($validated, $existing);
+    }
+
+    /**
+     * AT-238 (Johan's flow) — the property answers for branch and agent; the clerk supplies
+     * neither unless they want to override.
+     *
+     * Resolution order, most-specific first:
+     *   1. what the user explicitly chose (an override is always honoured)
+     *   2. the LINKED PROPERTY's own listing context — its branch, its agent
+     *   3. the row's existing values (an edit must not silently re-home an old filing)
+     *   4. the acting user's own branch / the acting user themselves
+     *
+     * Both columns are NOT NULL, so if all four come up empty we refuse with a message rather
+     * than let the insert fail as a raw 500 — an owner/super-admin with no branch of their own,
+     * filing against no property, genuinely has no branch to file under (STANDARDS Rule 17).
+     */
+    private function resolveBranchAndAgent(array $validated, ?DocumentFiling $existing): array
+    {
+        $user = auth()->user();
+
+        $property = ! empty($validated['property_id'])
+            ? Property::withoutGlobalScopes()->find($validated['property_id'])
+            : null;
+
+        $branchId = ($validated['branch_id'] ?? null)
+            ?: $property?->branch_id
+            ?: $existing?->branch_id
+            ?: $user?->effectiveBranchId();
+
+        $agentId = ($validated['agent_id'] ?? null)
+            ?: $property?->agent_id
+            ?: $existing?->agent_id
+            ?: $user?->id;
+
+        if (! $branchId) {
+            throw ValidationException::withMessages([
+                'branch_id' => 'This filing has no branch to sit under — pick a property, or choose a branch.',
+            ]);
+        }
+
+        $validated['branch_id'] = $branchId;
+        $validated['agent_id']  = $agentId;
+
         return $validated;
     }
 
@@ -238,7 +290,10 @@ class DocumentFilingController extends Controller
             return response()->json(['results' => []]);
         }
 
-        $results = $linker->candidates($q, (int) $user->agency_id)
+        // Visibility, NOT a hand-rolled tenant filter. This previously matched on the raw
+        // $user->agency_id, so an owner/super-admin (agency_id NULL → 0) silently got zero
+        // results and the picker looked broken. STANDARDS Rule 17.
+        $results = $linker->candidates($q, $user)
             ->map(fn (Property $p) => $p->toSearchResult([
                 'address'     => $p->buildDisplayAddress(),
                 'expiry_date' => $p->expiry_date?->format('Y-m-d'),
@@ -259,7 +314,11 @@ class DocumentFilingController extends Controller
     {
         $user = auth()->user();
         abort_unless($user->hasPermission('filing.view') || $user->hasPermission('access_filing_register'), 403);
-        abort_unless((int) $property->agency_id === (int) $user->agency_id, 404);
+
+        // Same Rule-17 trap as the search: comparing raw agency_ids 404s an owner/super-admin
+        // (whose agency_id is NULL) out of a property they are perfectly entitled to see.
+        // Ask the visibility scope instead.
+        abort_unless($linker->isVisibleTo($property, $user), 404);
 
         $sellers = $linker->sellerCandidates($property)->map(fn ($c) => [
             'id'    => $c->id,

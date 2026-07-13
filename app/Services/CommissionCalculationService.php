@@ -27,7 +27,9 @@ class CommissionCalculationService
         ?int $propertyId = null
     ): CommissionLedger {
         $user = User::findOrFail($userId);
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — feeds currentForUser(), which CREATES a cap period; the model
+        // now refuses a non-positive agency instead of writing into agency 1.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
 
         // 1. Get or create current cap period
         $capPeriod = AgentCapPeriod::currentForUser($userId, $agencyId);

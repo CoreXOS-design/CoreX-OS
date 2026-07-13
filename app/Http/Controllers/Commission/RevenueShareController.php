@@ -11,7 +11,8 @@ class RevenueShareController extends Controller
     public function calculator(Request $request)
     {
         $user = auth()->user();
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — read: sentinel 0 → guarded defaults, never agency 1's settings.
+        $agencyId = (int) ($user?->effectiveAgencyId() ?: 0);
         $settings = CommissionSetting::forAgency($agencyId);
 
         return view('commission.calculator', compact('settings'));

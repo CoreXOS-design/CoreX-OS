@@ -51,9 +51,18 @@ class FeedbackReportController extends Controller
         $screenshotBase64 = $data['screenshot_base64'] ?? null;
         unset($data['screenshot_base64']);
 
+        // AT-253 (STANDARDS Rule 17) — feedback_reports.agency_id is NOT NULL and there is no
+        // domain object to derive a tenant from, so an actor with no agency gets a clear
+        // refusal. The old `?? 1` silently filed a global super-admin's feedback into agency
+        // 1's queue, where the wrong agency's staff would read and act on it.
+        $agencyId = auth()->user()?->effectiveAgencyId();
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('a feedback report');
+        }
+
         $now = now();
         $reportId = DB::table('feedback_reports')->insertGetId(array_merge($data, [
-            'agency_id' => auth()->user()->effectiveAgencyId() ?? 1,
+            'agency_id' => $agencyId,
             'user_id' => auth()->id(),
             'module_tag' => $this->deriveModuleTag($data['page_url'] ?? ''),
             'submitted_at' => $now,

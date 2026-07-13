@@ -161,7 +161,8 @@ class BuyerPipelineController extends Controller
             return 'agency';
         }
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — read: AgencyContactSettings::forAgency already guards <=0.
+        $agencyId = (int) ($user?->effectiveAgencyId() ?: 0);
         $settings = AgencyContactSettings::forAgency($agencyId);
 
         return $settings->buyer_pipeline_default_scope ?? 'own';

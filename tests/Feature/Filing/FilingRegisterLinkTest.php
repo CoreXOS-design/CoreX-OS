@@ -189,6 +189,92 @@ final class FilingRegisterLinkTest extends TestCase
         $this->assertSame('renewed', $legacy->notes);
     }
 
+    // ── Johan's flow: the property leads, everything derivable derives ───
+
+    /**
+     * The clerk supplies a property and a file number. Branch, agent, seller and expiry all
+     * come from the property's own listing context — they are never things they must know.
+     */
+    public function test_picking_a_property_derives_branch_agent_seller_and_expiry(): void
+    {
+        $listingAgent = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchB->id, 'role' => 'agent',
+        ]);
+        $property = Property::create([
+            'agency_id' => $this->agencyId, 'agent_id' => $listingAgent->id,
+            'branch_id' => $this->branchB->id,           // the property is listed at Southbroom
+            'title' => '14 Marine Drive, Shelly Beach', 'address' => '14 Marine Drive',
+            'suburb' => 'Shelly Beach', 'status' => 'active', 'property_type' => 'House',
+            'price' => 2_150_000, 'expiry_date' => '2026-12-31',
+        ]);
+        $seller = $this->contact('Thandi', 'Mkhize');
+        $property->contacts()->attach($seller->id, ['role' => 'seller']);
+
+        // The API the picker calls must hand back everything the form needs in one go.
+        $this->actingAs($this->admin)
+            ->getJson(route('filing-register.search.property-suggestions', ['property' => $property->id]))
+            ->assertOk()
+            ->assertJsonPath('suggestions.branch_id', $this->branchB->id)
+            ->assertJsonPath('suggestions.agent_id', $listingAgent->id)
+            ->assertJsonPath('suggestions.expiry_date', '2026-12-31')
+            ->assertJsonPath('sellers.0.id', $seller->id);
+
+        // ...and a save that carries ONLY the property + the file number still lands complete.
+        $this->actingAs($this->admin)->post(route('filing-register.store'), [
+            'document_type'    => 'EA',
+            'file_reference'   => 'File 3',
+            'sequence_number'  => '0042',
+            'property_id'      => $property->id,
+            'property_address' => '14 Marine Drive, Shelly Beach',
+            // NO branch_id. NO agent_id. The clerk never touched them.
+        ])->assertSessionHasNoErrors();
+
+        $filing = DocumentFiling::latest('id')->firstOrFail();
+        $this->assertSame($this->branchB->id, $filing->branch_id, 'branch came from the property');
+        $this->assertSame($listingAgent->id, $filing->agent_id, 'agent came from the property');
+    }
+
+    /** An explicit choice always beats the derivation — the derived fields stay overridable. */
+    public function test_an_explicit_branch_or_agent_overrides_the_property(): void
+    {
+        $listingAgent = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchB->id, 'role' => 'agent',
+        ]);
+        $property = Property::create([
+            'agency_id' => $this->agencyId, 'agent_id' => $listingAgent->id,
+            'branch_id' => $this->branchB->id,
+            'title' => '9 Dee Road, Uvongo', 'address' => '9 Dee Road', 'suburb' => 'Uvongo',
+            'status' => 'active', 'property_type' => 'House', 'price' => 1_000_000,
+        ]);
+
+        $this->actingAs($this->admin)->post(route('filing-register.store'), $this->payload([
+            'property_id'      => $property->id,
+            'property_address' => '9 Dee Road, Uvongo',
+            'branch_id'        => $this->branchA->id,   // deliberately NOT the property's branch
+            'agent_id'         => $this->admin->id,
+        ]))->assertSessionHasNoErrors();
+
+        $filing = DocumentFiling::latest('id')->firstOrFail();
+        $this->assertSame($this->branchA->id, $filing->branch_id, 'the human overrode the derivation');
+        $this->assertSame($this->admin->id, $filing->agent_id);
+    }
+
+    /** No property (the free-text path): branch/agent fall back to the clerk, not to a 500. */
+    public function test_a_free_text_filing_falls_back_to_the_clerks_own_branch_and_agent(): void
+    {
+        $this->actingAs($this->admin)->post(route('filing-register.store'), [
+            'document_type'    => 'Other',
+            'file_reference'   => 'File 9',
+            'sequence_number'  => '0101',
+            'property_address' => 'Krizaan 14, Margate',  // no property record exists
+        ])->assertSessionHasNoErrors();
+
+        $filing = DocumentFiling::latest('id')->firstOrFail();
+        $this->assertNull($filing->property_id);
+        $this->assertSame($this->branchA->id, $filing->branch_id, "the clerk's own branch");
+        $this->assertSame($this->admin->id, $filing->agent_id);
+    }
+
     // ── the pickers ──────────────────────────────────────────────────────
 
     public function test_the_property_search_endpoint_serves_filing_users_and_suggests_the_mandate_expiry(): void
@@ -209,6 +295,38 @@ final class FilingRegisterLinkTest extends TestCase
             ->assertJsonPath('suggestions.expiry_date', '2026-12-31')
             ->assertJsonPath('sellers.0.id', $seller->id)
             ->assertJsonPath('sellers.0.name', 'Thandi Mkhize');
+    }
+
+    /**
+     * THE BUG JOHAN HIT, and the test that would have caught it.
+     *
+     * An owner/super-admin carries `agency_id = NULL`. The picker used to filter properties on
+     * that raw value, which cast to the sentinel 0 — so it searched a tenant that does not
+     * exist, returned nothing, and the dropdown silently never opened. The search was not
+     * "broken"; it was correctly answering the wrong question. My own tests all ran as an
+     * agency-bound admin, so none of them saw it. (STANDARDS Rule 17 — the AT-253 class.)
+     */
+    public function test_a_super_admin_with_no_agency_can_still_search_properties(): void
+    {
+        $this->property('14 Marine Drive', 'Shelly Beach', '2026-12-31');
+
+        $superAdmin = User::factory()->create([
+            'agency_id' => null,           // exactly Johan's real account
+            'branch_id' => null,
+            'role'      => 'super_admin',
+        ]);
+        $this->assertNull($superAdmin->effectiveAgencyId(), 'precondition: no agency context');
+
+        $this->actingAs($superAdmin)
+            ->getJson(route('filing-register.search.properties', ['q' => 'marine drive']))
+            ->assertOk()
+            ->assertJsonCount(1, 'results');
+
+        // ...and the suggestions endpoint must not 404 them out of a property they can see.
+        $property = Property::withoutGlobalScopes()->firstOrFail();
+        $this->actingAs($superAdmin)
+            ->getJson(route('filing-register.search.property-suggestions', ['property' => $property->id]))
+            ->assertOk();
     }
 
     /** The seller comes from the property's link roles — a BUYER must never be offered as one. */
