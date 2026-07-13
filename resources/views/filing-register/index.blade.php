@@ -210,20 +210,40 @@
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
-            {{-- AT-238 — Seller: sourced from the property's link roles when we know them. --}}
+            {{-- AT-238 — Seller: ONE TRUTH, never two.
+                 A seller is EITHER a linked contact OR a typed name — never both. The two
+                 surfaces are therefore mutually exclusive: when a contact is linked the
+                 free-text box is not merely blank, it is GONE, so there is nothing to
+                 double-enter into and nothing to drift out of step with the contact record.
+                 The typed name is the fallback for a seller CoreX does not hold, nothing more. --}}
             <div>
-                <label for="new_seller_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Seller
+                    <span x-show="derivedFrom.seller" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                </label>
                 <input type="hidden" name="seller_contact_id" :value="sellerContactId">
-                <select x-show="sellers.length" x-cloak
+
+                {{-- (a) A seller is LINKED — show the contact, and offer the way back to typing. --}}
+                <div x-show="sellerContactId" x-cloak class="w-full rounded-md px-3 py-2 text-sm flex items-center justify-between gap-2"
+                     style="background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);">
+                    <span x-text="linkedSellerName()"></span>
+                    <button type="button" @click="clearSeller()" class="text-xs underline" style="color: var(--text-muted);">use a typed name instead</button>
+                </div>
+
+                {{-- (b) No linked seller, but the property knows some — pick one. --}}
+                <select x-show="!sellerContactId && sellers.length" x-cloak
                         @change="pickSeller($event.target.value)"
                         class="w-full rounded-md px-3 py-2 text-sm mb-1"
                         style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">— type a name instead —</option>
+                    <option value="">— select the seller —</option>
                     <template x-for="s in sellers" :key="s.id">
-                        <option :value="s.id" :selected="s.id == sellerContactId" x-text="s.name"></option>
+                        <option :value="s.id" x-text="s.name"></option>
                     </template>
                 </select>
+
+                {{-- (c) The fallback: no contact linked, so a name may be typed. --}}
                 <input id="new_seller_name" type="text" name="seller_name" tabindex="8" placeholder="Optional"
+                       x-show="!sellerContactId" x-cloak
                        x-model="sellerName"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -282,6 +302,7 @@
                             address: @js($filing->property_address),
                             sellerContactId: {{ $filing->seller_contact_id ?: 'null' }},
                             sellerName: @js($filing->seller_name),
+                            linkedSellerLabel: @js($filing->sellerContact ? trim(($filing->sellerContact->first_name ?? '') . ' ' . ($filing->sellerContact->last_name ?? '')) : null),
                             expiry: @js($filing->expiry_date ? $filing->expiry_date->format('Y-m-d') : ''),
                         }) }" style="border-top: 1px solid var(--border);">
                         {{-- Display cells --}}
@@ -412,16 +433,23 @@
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
+                                    {{-- ONE TRUTH: a linked contact OR a typed name, never both. --}}
                                     <input type="hidden" name="seller_contact_id" :value="sellerContactId">
-                                    <select x-show="sellers.length" x-cloak @change="pickSeller($event.target.value)"
+                                    <div x-show="sellerContactId" x-cloak class="rounded-md px-2 py-1 text-xs w-28 truncate"
+                                         style="background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);"
+                                         :title="linkedSellerName()">
+                                        <span x-text="linkedSellerName()"></span>
+                                        <button type="button" @click="clearSeller()" class="underline block" style="color: var(--text-muted);">type instead</button>
+                                    </div>
+                                    <select x-show="!sellerContactId && sellers.length" x-cloak @change="pickSeller($event.target.value)"
                                             class="rounded-md px-2 py-1 text-xs w-28 mb-1"
                                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                        <option value="">— type a name —</option>
+                                        <option value="">— select the seller —</option>
                                         <template x-for="s in sellers" :key="s.id">
-                                            <option :value="s.id" :selected="s.id == sellerContactId" x-text="s.name"></option>
+                                            <option :value="s.id" x-text="s.name"></option>
                                         </template>
                                     </select>
-                                    <input type="text" name="seller_name" x-model="sellerName"
+                                    <input type="text" name="seller_name" x-model="sellerName" x-show="!sellerContactId" x-cloak
                                            class="rounded-md px-2 py-1 text-xs w-28"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
@@ -481,8 +509,9 @@ function filingPicker(initial) {
     return {
         propertyId:      initial.propertyId ?? null,
         address:         initial.address ?? '',
-        sellerContactId: initial.sellerContactId ?? null,
-        sellerName:      initial.sellerName ?? '',
+        sellerContactId:   initial.sellerContactId ?? null,
+        sellerName:        initial.sellerName ?? '',
+        linkedSellerLabel: initial.linkedSellerLabel ?? null,
         expiry:          initial.expiry ?? '',
         branchId:        initial.branchId ?? '',
         agentId:         initial.agentId ?? '',
@@ -552,6 +581,9 @@ function filingPicker(initial) {
                     this.expiry = this.suggestedExpiry;
                     this.derivedFrom.expiry = true;
                 }
+                // Auto-link the property's seller ONLY when the row has neither a linked seller
+                // nor a typed one. It links the CONTACT; it must never also type the name into
+                // the free-text box — that is the double-entry Johan hit.
                 if (!this.sellerContactId && !this.sellerName && this.sellers.length) {
                     this.pickSeller(this.sellers[0].id);
                     this.derivedFrom.seller = true;
@@ -570,11 +602,26 @@ function filingPicker(initial) {
         },
 
         pickSeller(id) {
-            if (!id) { this.sellerContactId = null; return; }
+            if (!id) { this.clearSeller(); return; }
             const s = this.sellers.find(x => String(x.id) === String(id));
             if (!s) return;
-            this.sellerContactId = s.id;
-            this.sellerName = s.name; // keep the text in step, so an unlinked row still reads right
+            this.sellerContactId   = s.id;
+            this.linkedSellerLabel = s.name;
+            // THE FIX: linking a seller does NOT also type their name into the free-text box.
+            // The contact IS the seller fact; a mirrored copy of their name is a second fact
+            // that can drift, and gives the clerk a box to double-enter into.
+            this.sellerName = '';
+        },
+
+        /** Fall back to typing a name: the link goes, the box comes back, empty. */
+        clearSeller() {
+            this.sellerContactId   = null;
+            this.linkedSellerLabel = null;
+            this.derivedFrom.seller = false;
+        },
+
+        linkedSellerName() {
+            return this.linkedSellerLabel || '(linked seller)';
         },
 
         unlink() {

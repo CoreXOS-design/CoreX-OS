@@ -581,6 +581,21 @@ class Property extends Model
     }
 
     /**
+     * AT-238 — the physical filing-register entries for this property.
+     *
+     * A READ-THROUGH, deliberately: the property does NOT carry a copy of the file reference.
+     * The register owns that fact, and a duplicated reference on the property would be one
+     * more thing to drift the day a file is re-numbered. The property simply asks.
+     *
+     * A property can legitimately have SEVERAL (an OA and an EA are separate documents with
+     * separate lifespans), so this is many.
+     */
+    public function filings(): HasMany
+    {
+        return $this->hasMany(\App\Models\DocumentFiling::class, 'property_id');
+    }
+
+    /**
      * AT-243 — the deal that actually BOUGHT this property, if any.
      *
      * The deal register is the one truth: the purchasing deal is the property's deal in

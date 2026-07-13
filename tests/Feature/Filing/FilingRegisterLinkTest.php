@@ -275,6 +275,125 @@ final class FilingRegisterLinkTest extends TestCase
         $this->assertSame($this->admin->id, $filing->agent_id);
     }
 
+    // ── ONE SELLER FACT (Johan, qa1: the auto-fill was double-entering) ──
+
+    /**
+     * Linking a seller must NOT also store their typed name. Two copies of the same fact is a
+     * duplicate waiting to drift the moment the contact is renamed — and it gave the clerk a
+     * second box to type a seller into.
+     */
+    public function test_linking_a_seller_stores_the_contact_and_NOT_a_copy_of_their_name(): void
+    {
+        $property = $this->property('14 Marine Drive', 'Shelly Beach', null);
+        $seller   = $this->contact('Marius', 'van Rensburg');
+        $property->contacts()->attach($seller->id, ['role' => 'seller']);
+
+        // The browser is not the guarantee: post BOTH, as the buggy form did.
+        $this->actingAs($this->admin)->post(route('filing-register.store'), $this->payload([
+            'property_id'       => $property->id,
+            'property_address'  => '14 Marine Drive, Shelly Beach',
+            'seller_contact_id' => $seller->id,
+            'seller_name'       => 'Marius van Rensburg',   // the mirrored copy
+        ]))->assertSessionHasNoErrors();
+
+        $filing = DocumentFiling::latest('id')->firstOrFail();
+
+        $this->assertSame($seller->id, $filing->seller_contact_id, 'the contact IS the seller fact');
+        $this->assertNull($filing->seller_name, 'the free-text copy must NOT be stored alongside the link');
+
+        // ...and the row still reads correctly, through the link.
+        $this->assertSame('Marius van Rensburg', $filing->seller_display);
+    }
+
+    /** The typed name survives when there is NO linked contact — it is the fallback, not a mirror. */
+    public function test_a_typed_seller_name_is_kept_when_no_contact_is_linked(): void
+    {
+        $this->actingAs($this->admin)->post(route('filing-register.store'), $this->payload([
+            'property_address' => 'Krizaan 14, Margate',
+            'seller_name'      => 'Estate late J. Ellis',   // a seller CoreX does not hold
+        ]))->assertSessionHasNoErrors();
+
+        $filing = DocumentFiling::latest('id')->firstOrFail();
+        $this->assertNull($filing->seller_contact_id);
+        $this->assertSame('Estate late J. Ellis', $filing->seller_name);
+        $this->assertSame('Estate late J. Ellis', $filing->seller_display);
+    }
+
+    /** Switching an existing row from a typed name to a linked contact drops the stale copy. */
+    public function test_linking_a_seller_on_an_existing_row_clears_the_stale_typed_name(): void
+    {
+        $property = $this->property('9 Dee Road', 'Uvongo', null);
+        $seller   = $this->contact('Hannelie', 'Botha');
+        $property->contacts()->attach($seller->id, ['role' => 'seller']);
+
+        $filing = $this->filing(['seller_name' => 'H. Botha (typed)', 'property_address' => '9 Dee Road']);
+
+        $this->actingAs($this->admin)->put(route('filing-register.update', $filing->id), $this->payload([
+            'property_id'       => $property->id,
+            'property_address'  => '9 Dee Road, Uvongo',
+            'seller_contact_id' => $seller->id,
+            'seller_name'       => 'H. Botha (typed)',   // the stale copy the form used to resend
+        ]))->assertRedirect();
+
+        $filing->refresh();
+        $this->assertSame($seller->id, $filing->seller_contact_id);
+        $this->assertNull($filing->seller_name, 'the old typed name does not linger beside the link');
+        $this->assertSame('Hannelie Botha', $filing->seller_display);
+    }
+
+    // ── the property record shows WHERE THE PAPER LIVES ──────────────────
+
+    /**
+     * An agent on the property record can see which physical file to pull. It is a READ-THROUGH:
+     * the property stores no copy of the reference, so a re-numbered file cannot leave a stale
+     * one behind. Several filings are normal (an OA and an EA are separate documents), so all
+     * of them show.
+     */
+    public function test_the_property_record_shows_the_filing_references_of_its_register_entries(): void
+    {
+        $property = $this->property('1 Alamien Avenue', 'Uvongo', null);
+
+        $this->filing([
+            'property_id' => $property->id, 'document_type' => 'EA',
+            'file_reference' => 'File 3', 'sequence_number' => '0042',
+        ]);
+        $this->filing([
+            'property_id' => $property->id, 'document_type' => 'OA',
+            'file_reference' => 'File 7', 'sequence_number' => '0119',
+        ]);
+
+        $refs = $property->fresh()->filings->map->full_reference->all();
+        $this->assertCount(2, $refs, 'both documents are shown — an OA and an EA are separate files');
+        $this->assertContains('File 3 / 0042', $refs);
+        $this->assertContains('File 7 / 0119', $refs);
+
+        // The reference is read live from the register — nothing is copied onto the property.
+        $this->assertFalse(
+            \Illuminate\Support\Facades\Schema::hasColumn('properties', 'file_reference'),
+            'the property must NOT carry its own copy of the file reference'
+        );
+
+        // ...and it renders on the property page.
+        $this->actingAs($this->admin)
+            ->get(route('corex.properties.show', $property))
+            ->assertOk()
+            ->assertSee('File 3 / 0042')
+            ->assertSee('File 7 / 0119');
+    }
+
+    /** A property with no filing shows nothing — absence is the answer, an empty chip is clutter. */
+    public function test_a_property_with_no_filing_entry_shows_no_reference(): void
+    {
+        $property = $this->property('99 Empty Road', 'Margate', null);
+
+        $this->assertCount(0, $property->filings);
+
+        $this->actingAs($this->admin)
+            ->get(route('corex.properties.show', $property))
+            ->assertOk()
+            ->assertDontSee('Physically filed as');
+    }
+
     // ── the pickers ──────────────────────────────────────────────────────
 
     public function test_the_property_search_endpoint_serves_filing_users_and_suggests_the_mandate_expiry(): void
