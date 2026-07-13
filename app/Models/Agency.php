@@ -142,6 +142,7 @@ class Agency extends Model
         'vat_registered',
         'ffc_no',
         'ppra_number',
+        'ncc_registration_number',
         'public_contact',
         'fic_no',
         'sidebar_color',
