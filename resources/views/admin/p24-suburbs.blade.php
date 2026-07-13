@@ -20,6 +20,23 @@
         </div>
     </div>
 
+    {{-- AT-239 — region model moved. This screen is P24's national suburb reference
+         (IDs for pulling listings). "Region" is no longer typed per suburb: it is the
+         official MDB municipality, assigned automatically from each suburb's location.
+         A suburb shows a municipality once it has a located listing; the rest are
+         blank until then. Region display names are managed on the new Regions screen. --}}
+    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface));
+                border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent); color: var(--text-primary);">
+        <span>🗺️</span>
+        <div class="flex-1">
+            <strong>Regions are now assigned automatically</strong> — the “Region” here is the official municipality
+            (Municipal Demarcation Board), derived from each suburb's location. Suburbs without a located listing show
+            blank until they get one. To rename a region for your market (e.g. Ray Nkonyeni → “Hibiscus Coast”),
+            use <a href="{{ route('settings.prospecting.regions.index') }}" style="color: var(--brand-icon, #0ea5e9); font-weight:600;">Prospecting → Regions</a>.
+        </div>
+    </div>
+
     {{-- Flash messages (§3.9 Alert block) --}}
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
