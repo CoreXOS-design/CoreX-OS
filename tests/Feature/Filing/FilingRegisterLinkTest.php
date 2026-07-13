@@ -239,6 +239,84 @@ final class FilingRegisterLinkTest extends TestCase
         $this->assertNull(FilingLinkReview::withoutGlobalScopes()->where('filing_id', $unmatchedFiling->id)->first());
     }
 
+    /**
+     * The one that stops the backfill doing quiet damage.
+     *
+     * Token-AND can return EXACTLY ONE property that is nonetheless the wrong building —
+     * real qa1 cases: "32 Queen View" → 29 Queens View; "10 Wingate Avenue" → 7 Wingate
+     * Avenue. One candidate, wrong house. A lone match must corroborate its number, or it
+     * goes to a human.
+     */
+    public function test_a_lone_match_whose_number_disagrees_is_NOT_auto_linked(): void
+    {
+        // The only "Wingate Avenue" property is number 7 — the filing says 10. It still comes
+        // back as a lone candidate because the canonical search matches each token as a
+        // SUBSTRING across every address field, and "10" is a substring of this property's
+        // portal reference. That is exactly how the real mis-matches arise on qa1.
+        Property::create([
+            'agency_id'     => $this->agencyId,
+            'agent_id'      => $this->admin->id,
+            'branch_id'     => $this->branchA->id,
+            'title'         => '7 Wingate Avenue, Margate',
+            'address'       => '7 Wingate Avenue',
+            'street_number' => '7',
+            'suburb'        => 'Margate',
+            'p24_ref'       => 'P24-110234',   // contains "10" as a substring
+            'status'        => 'active',
+            'property_type' => 'House',
+            'price'         => 1_450_000,
+        ]);
+        $filing = $this->filing(['property_address' => '10 Wingate Avenue, Margate']);
+
+        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
+
+        $this->assertNull($filing->fresh()->property_id, 'a different house number is a different house');
+        $this->assertNotNull(
+            FilingLinkReview::withoutGlobalScopes()->where('filing_id', $filing->id)->first(),
+            'it goes to a human instead of being guessed'
+        );
+    }
+
+    /** ...but the number living in a COMPLEX name is still corroboration, not a mismatch. */
+    public function test_a_lone_match_whose_number_lives_in_the_complex_name_is_linked(): void
+    {
+        // Copied from the real qa1 row (filing #887 → property 1946): the filing names the
+        // complex, the property is a unit inside it, and the address carries the complex
+        // name with its comma — which matters, because the canonical search splits on
+        // whitespace only, so the token is literally "Bantry," comma and all.
+        $property = Property::create([
+            'agency_id'     => $this->agencyId,
+            'agent_id'      => $this->admin->id,
+            'branch_id'     => $this->branchA->id,
+            'title'         => '10 DU BANTRY, Colin Road',
+            'address'       => '10 DU BANTRY, Colin Road',
+            'unit_number'   => '77',
+            'suburb'        => 'Uvongo Beach',
+            'status'        => 'active',
+            'property_type' => 'Flat',
+            'price'         => 1_100_000,
+        ]);
+
+        $filing = $this->filing(['property_address' => '10 Du Bantry, Uvongo Beach']);
+
+        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
+
+        $this->assertSame($property->id, $filing->fresh()->property_id,
+            'the 10 is the complex, and it does match — this is the same building');
+    }
+
+    /** An address with no number at all cannot corroborate anything, so it is not guessed. */
+    public function test_a_numberless_lone_match_goes_to_review_rather_than_being_guessed(): void
+    {
+        $this->property('Riverlets', 'Margate', null);
+        $filing = $this->filing(['property_address' => 'Riverlets']);
+
+        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
+
+        $this->assertNull($filing->fresh()->property_id);
+        $this->assertNotNull(FilingLinkReview::withoutGlobalScopes()->where('filing_id', $filing->id)->first());
+    }
+
     public function test_the_backfill_never_overwrites_a_link_a_human_made(): void
     {
         $human  = $this->property('60 Orange Rocks', 'St Michaels', null);

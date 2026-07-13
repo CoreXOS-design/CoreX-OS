@@ -62,7 +62,23 @@ class FilingPropertyLinker
         $candidates = $this->candidates($filing->property_address, (int) $filing->agency_id);
 
         if ($candidates->count() === 1) {
-            return ['status' => 'matched', 'property' => $candidates->first(), 'candidates' => $candidates];
+            $property = $candidates->first();
+
+            // A SINGLE match is not the same as a CORRECT match, and this is where a naive
+            // backfill would quietly do damage. Token-AND can return exactly one hit that is
+            // the wrong house: on qa1, "32 Queen View" returns one property — 29 Queens View.
+            // "10 Wingate Avenue" returns one — 7 Wingate Avenue. "7 Vinkel" returns one —
+            // 1 Vinkel. One candidate, wrong building, and it would have been auto-linked to
+            // a legal filing record with confidence 'exact'.
+            //
+            // So a lone candidate must still CORROBORATE: the street/unit number the filing
+            // names has to actually appear on the property. If it doesn't, the match is
+            // demoted to the review queue rather than trusted.
+            if ($this->numberCorroborates($filing->property_address, $property)) {
+                return ['status' => 'matched', 'property' => $property, 'candidates' => $candidates];
+            }
+
+            return ['status' => 'ambiguous', 'property' => null, 'candidates' => $candidates];
         }
 
         if ($candidates->count() > 1) {
@@ -70,6 +86,43 @@ class FilingPropertyLinker
         }
 
         return ['status' => 'unmatched', 'property' => null, 'candidates' => $candidates];
+    }
+
+    /**
+     * Does the number in the filing's address actually appear on this property?
+     *
+     * Checked as a WHOLE TOKEN against everything the property calls itself (its number
+     * columns plus its display address), because in a complex the meaningful number often
+     * lives in the complex name rather than in street_number — "10 Du Bantry" is genuinely
+     * "Unit 77, 10 DU BANTRY, Colin Road", and rejecting that would be as wrong as accepting
+     * "32 Queen View" → "29 Queens View".
+     *
+     * An address with no number at all cannot corroborate anything, so it is NOT trusted —
+     * a bare "Riverlets" should be looked at by a human, not guessed.
+     */
+    private function numberCorroborates(?string $filingAddress, Property $property): bool
+    {
+        if (! preg_match_all('/\d+[a-zA-Z]?/', (string) $filingAddress, $m) || empty($m[0])) {
+            return false;
+        }
+
+        $haystack = mb_strtolower(implode(' ', array_filter([
+            (string) $property->street_number,
+            (string) $property->unit_number,
+            (string) $property->property_number,
+            (string) $property->complex_name,
+            (string) $property->address,
+            (string) $property->title,
+            (string) $property->buildDisplayAddress(),
+        ])));
+
+        foreach ($m[0] as $number) {
+            if (preg_match('/(?<![a-z0-9])' . preg_quote(mb_strtolower($number), '/') . '(?![a-z0-9])/', $haystack)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
