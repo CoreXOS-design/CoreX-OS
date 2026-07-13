@@ -14,7 +14,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('account.setup.store', ['user' => $user->id]) }}">
+    <form method="POST" action="{{ $formAction }}">
         @csrf
 
         {{-- Email (read-only) --}}

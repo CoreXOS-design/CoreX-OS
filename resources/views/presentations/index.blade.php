@@ -17,10 +17,10 @@
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
                     <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">P24 Suburbs</a>
                 @endif
-                {{-- AT-27 Phase A / AT-17 — standalone "New Presentation" nav link removed:
-                     presentations are property-first (create the property, then Generate from it).
-                     The presentations.create route is kept one cycle, then removed by AT-17,
-                     which replaces it with an informational property-first redirect. --}}
+                {{-- AT-27 Phase A / AT-17 (retirement FINISHED 2026-07-10) — the standalone
+                     "New Presentation" flow is fully retired: nav link, index/eval buttons and
+                     the create tour removed; presentations.create/store now redirect here.
+                     Presentations are property-first ONLY (open a property → Generate Presentation). --}}
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-presentations') }}"
                    title="Presentations Settings"
@@ -118,8 +118,9 @@
                 </svg>
             </div>
             <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No presentations yet</h3>
-            <p class="text-sm mb-4" style="color: var(--text-muted);">Create your first presentation to start tracking seller pitches and pricing analysis.</p>
-            <a href="{{ route('presentations.create') }}" class="corex-btn-primary">Create Presentation</a>
+            {{-- AT-17: standalone "New Presentation" retired — presentations are generated property-first only. --}}
+            <p class="text-sm mb-4" style="color: var(--text-muted);">Open a property and click <strong>Generate Presentation</strong> to start a seller CMA / presentation.</p>
+            <a href="{{ route('corex.properties.index') }}" class="corex-btn-primary">Go to Properties</a>
         </div>
     @else
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">

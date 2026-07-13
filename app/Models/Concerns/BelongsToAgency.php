@@ -57,6 +57,22 @@ trait BelongsToAgency
                 return;
             }
 
+            // An EXPLICIT null agency_id is a deliberate GLOBAL row (reference data
+            // owned by CoreX, not by a tenant — e.g. CalendarEventClassSeeder's class
+            // defaults). Honour it, and do NOT let the single-agency fallback below
+            // stamp a tenant onto it: on a single-agency install that silently turned
+            // every global row into an agency-1 row, so the seeder's next run could
+            // never find its own global rows, re-inserted them, and died on the
+            // (agency_id, event_class) unique key — which is exactly how
+            // `deploy:sync-reference-data` broke on demo (one agency) while passing on
+            // live (two). Distinguished from "caller never mentioned agency_id" by the
+            // attribute's PRESENCE, so the NOT-NULL fallback below still covers seeders
+            // that simply omit it.
+            $attributes = $model->getAttributes();
+            if (array_key_exists('agency_id', $attributes) && $attributes['agency_id'] === null) {
+                return;
+            }
+
             // Console/seeder/test fallback: if exactly one agency exists in the
             // DB (single-tenant install or fresh dev/test DB), stamp it. This
             // matches the wave3b backfill semantics and prevents seeders from

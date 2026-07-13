@@ -285,10 +285,10 @@
                     @endforeach
                 </div>
 
-                {{-- CTA --}}
+                {{-- CTA — AT-17: standalone New Presentation retired; go property-first. --}}
                 <div class="eval-cta-wrap">
-                    <a href="{{ route('presentations.create') }}" class="corex-btn-primary w-full justify-center text-center">
-                        Generate Evaluation Report
+                    <a href="{{ route('corex.properties.index') }}" class="corex-btn-primary w-full justify-center text-center">
+                        Start from a Property
                     </a>
                 </div>
             </div>

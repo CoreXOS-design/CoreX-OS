@@ -168,6 +168,54 @@ class MarketIntelligenceController extends Controller
             }
         }
 
+        // AT-239 — Region filter. Canonical region lives on towns.region (the
+        // property spine — one truth, no new region list). Resolve region → its
+        // towns → their suburbs, then reuse the same LOWER(TRIM(suburb)) match the
+        // town_id filter uses. Composes AND with every other filter.
+        if ($request->filled('region')) {
+            $region = (string) $request->query('region');
+            $regionTownIds = \DB::table('towns')
+                ->where('agency_id', $agencyId)
+                ->where('region', $region)
+                ->whereNull('deleted_at')
+                ->pluck('id')
+                ->all();
+            $regionSuburbs = !empty($regionTownIds)
+                ? \DB::table('town_suburbs')
+                    ->where('agency_id', $agencyId)
+                    ->whereIn('town_id', $regionTownIds)
+                    ->whereNull('deleted_at')
+                    ->pluck('suburb_normalised')
+                    ->all()
+                : [];
+            if (!empty($regionSuburbs)) {
+                $query->whereIn(\DB::raw('LOWER(TRIM(suburb))'), $regionSuburbs);
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
+
+        // AT-242 — Buyer-led prospecting. Selecting a buyer restricts the
+        // prospecting universe to stock that matches THAT buyer's wishlist,
+        // scored by the canonical Core Matches engine (MatchingService::score),
+        // whose output is already cached per (listing, buyer) in
+        // prospecting_buyer_matches. One truth — we filter the cache, never
+        // re-score, never fork the matching logic. Floor = the agency's MIC
+        // match threshold (agency-configurable, sensible default).
+        $selectedBuyerId = null;
+        if ($request->filled('buyer_id')) {
+            $selectedBuyerId = (int) $request->query('buyer_id');
+            $buyerFloor = (int) AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+            $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
+                $sub->from('prospecting_buyer_matches')
+                    ->select('prospecting_listing_id')
+                    ->where('contact_id', $selectedBuyerId)
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('dismissed_at')
+                    ->where('score', '>=', $buyerFloor);
+            });
+        }
+
         if ($request->filled('bedroom_segment_id')) {
             $segId = (int) $request->query('bedroom_segment_id');
             $seg = \DB::table('bedroom_segments')
@@ -327,6 +375,23 @@ class MarketIntelligenceController extends Controller
             $row->buyer_match_top_score = isset($matchTopScores[$row->id]) ? (int) $matchTopScores[$row->id] : null;
         }
 
+        // AT-242 — in buyer mode, attach THAT buyer's own cached Core Matches
+        // score to each row (the number the agent is prospecting on) so the row
+        // shows the buyer-specific match, not the max across all buyers.
+        if ($selectedBuyerId && !empty($listingIds)) {
+            $selectedBuyerScores = DB::table('prospecting_buyer_matches')
+                ->whereIn('prospecting_listing_id', $listingIds)
+                ->where('contact_id', $selectedBuyerId)
+                ->where('agency_id', $agencyId)
+                ->whereNull('dismissed_at')
+                ->pluck('score', 'prospecting_listing_id');
+            foreach ($rows as $row) {
+                $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
+                    ? (int) $selectedBuyerScores[$row->id]
+                    : null;
+            }
+        }
+
         // AT-75 — when a %-band is active, keep only listings whose top match is
         // in the band, and sort strongest-first (weak matches to the bottom).
         if ($bandActive) {
@@ -345,6 +410,13 @@ class MarketIntelligenceController extends Controller
         }
         if ($request->get('sort') === 'match_score') {
             $rows = $rows->sortByDesc('buyer_match_top_score')->values();
+        }
+
+        // AT-242 — buyer mode default: strongest match for THIS buyer first, so
+        // the best prospecting targets sit at the top. Honoured unless the agent
+        // picked an explicit sort.
+        if ($selectedBuyerId && !$request->filled('sort')) {
+            $rows = $rows->sortByDesc('selected_buyer_score')->values();
         }
 
         $page = $request->get('page', 1);
@@ -410,6 +482,35 @@ class MarketIntelligenceController extends Controller
             ProspectingListing::where('agency_id', $agencyId)
                 ->distinct()->pluck('captured_by_user_id')
         )->orderBy('name')->get(['id', 'name']);
+
+        // AT-242 — buyers that already have at least one cached prospecting match
+        // (active, countable buyers per Buyer Pillar doctrine — the same set the
+        // "buyer matched" KPI counts). These are the selectable buyers for
+        // buyer-led prospecting; a buyer with no matched canvass stock has
+        // nothing to prospect on and is omitted.
+        $micBuyerIds = DB::table('prospecting_buyer_matches')
+            ->where('agency_id', $agencyId)
+            ->whereNull('dismissed_at')
+            ->distinct()
+            ->pluck('contact_id');
+        $micBuyers = Contact::whereIn('id', $micBuyerIds)
+            ->where('is_buyer', true)
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id', 'first_name', 'last_name', 'email']);
+        $activeBuyerId = $selectedBuyerId;
+        $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
+
+        // AT-239 — canonical regions for the Region filter, sourced from the
+        // property spine (towns.region). One truth, no new region list.
+        $micRegions = DB::table('towns')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->whereNotNull('region')
+            ->where('region', '!=', '')
+            ->distinct()
+            ->orderBy('region')
+            ->pluck('region');
 
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
@@ -549,6 +650,8 @@ class MarketIntelligenceController extends Controller
             'snapshotKpis', 'actionPresetCounts', 'filterRailAggregates',
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount',
+            // AT-242 buyer-led prospecting + AT-239 region filter
+            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt'
         ));

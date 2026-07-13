@@ -8,10 +8,18 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 
 class CalendarEventFeedback extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, SoftDeletes, BelongsToAgency;
+
+    /** A child's branch is its parent's branch, never the acting user's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\CommandCenter\CalendarEvent::class, 'calendar_event_id'];
+    }
 
     protected $table = 'calendar_event_feedback';
 

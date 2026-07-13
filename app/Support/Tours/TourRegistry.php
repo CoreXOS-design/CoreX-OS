@@ -229,56 +229,6 @@ class TourRegistry
                 ],
             ],
 
-            // ── Presentations / CMA — start a new presentation (queue #1) ────
-            // Entry screen presentations.create (single form). Sets the
-            // expectation that evidence upload + analysis happen on the NEXT
-            // screen. Field anchors use scoped [name="…"] selectors on the form.
-            'presentation-create' => [
-                'key'   => 'presentation-create',
-                'title' => 'Starting a CMA / presentation',
-                'description' => 'Enter a property\'s details to start a seller CMA / presentation.',
-                'route' => 'presentations.create',
-                'setup' => [
-                    ['action' => 'scrollTop'],
-                ],
-                'steps' => [
-                    [
-                        'element' => 'form [name="title"]',
-                        'title'   => 'Name the presentation',
-                        'body'    => 'A label just for you to find it later — e.g. "21 Dee Road — Seller Presentation". This isn\'t shown to the seller.',
-                    ],
-                    [
-                        'element' => 'form [name="property_address"]',
-                        'title'   => 'Property address',
-                        'body'    => 'Required. The street address of the home you\'re pitching to list. It anchors the whole CMA.',
-                    ],
-                    [
-                        'element' => 'form [name="suburb"]',
-                        'title'   => 'Suburb',
-                        'body'    => 'Required. CoreX pulls comparable sales from this suburb to value the property — so get it right.',
-                    ],
-                    [
-                        'element' => 'form [name="property_type"]',
-                        'title'   => 'Property type',
-                        'body'    => 'House, flat, townhouse… The CMA compares like with like, so a flat is valued against flats, not freestanding houses.',
-                    ],
-                    [
-                        'element' => 'form [name="asking_price_inc"]',
-                        'title'   => 'Asking price',
-                        'body'    => 'Required. The price the seller has in mind (or your opening estimate). The analysis will test it against the real market and suggest a realistic range.',
-                    ],
-                    [
-                        'element' => 'form [name="bedrooms"]',
-                        'title'   => 'Beds, baths & size',
-                        'body'    => 'Fill in the basics — beds, baths, erf and floor size, garages. The closer these match the real home, the sharper the comparable-sales match.',
-                    ],
-                    [
-                        'element' => '[data-tour="pres-submit"]',
-                        'title'   => 'Create — then the clever part',
-                        'body'    => 'This saves the property details and takes you to the next screen, where you upload the comparable-sales evidence and run the analysis that builds the seller\'s valuation. That\'s the start — close this and create your first presentation.',
-                    ],
-                ],
-            ],
 
             // ── Outreach composer — the WhatsApp pitch (queue #1) ────────────
             // On the contact's Outreach tab (gated outreach.compose). Setup opens

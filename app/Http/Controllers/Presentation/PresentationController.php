@@ -138,6 +138,14 @@ class PresentationController extends Controller
      */
     public function create()
     {
+        // AT-17 (retirement FINISHED 2026-07-10): the standalone manual "New Presentation"
+        // form is RETIRED — presentations are now generated property-first ONLY
+        // (open a property → "Generate Presentation"). The free-text form created
+        // property_id-NULL orphans, violating Universal Match-or-Create (#10). Soft-retired
+        // and RECOVERABLE: delete this redirect block to restore the original form below.
+        return redirect()->route('presentations.index')
+            ->with('info', 'New presentations are now created from a property — open a property and click "Generate Presentation".');
+
         $scope = PermissionService::getDataScope(auth()->user(), 'presentations');
         $isAdmin = $scope === 'all';
         $branches = $isAdmin ? Branch::orderBy('name')->get() : collect();
@@ -152,6 +160,13 @@ class PresentationController extends Controller
      */
     public function store(Request $request)
     {
+        // AT-17 (retirement FINISHED 2026-07-10): the manual-capture store path is RETIRED
+        // (it minted property_id-NULL orphans). Presentations are generated property-first
+        // via PresentationGeneratorController. Soft-retired + RECOVERABLE — delete this
+        // redirect block to restore the original store logic below.
+        return redirect()->route('presentations.index')
+            ->with('info', 'New presentations are now created from a property — open a property and click "Generate Presentation".');
+
         $scope = PermissionService::getDataScope(auth()->user(), 'presentations');
         $isAdmin = $scope === 'all';
 

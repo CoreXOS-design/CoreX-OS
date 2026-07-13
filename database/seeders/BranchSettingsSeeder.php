@@ -53,6 +53,17 @@ class BranchSettingsSeeder extends Seeder
                 DB::table('branch_settings')->updateOrInsert(
                     ['branch_id' => $b->id, 'key' => $key],
                     [
+                        // branch_settings.agency_id is NOT NULL with no default.
+                        // updateOrInsert only supplies the match keys + these
+                        // values on INSERT, so omitting agency_id worked solely
+                        // against databases where the rows already existed (the
+                        // UPDATE path). On a fresh schema every insert failed with
+                        // "Field 'agency_id' doesn't have a default value" — and
+                        // because the demo wraps this seeder in safeSeed(), the
+                        // failure was swallowed as a warning and branch letterhead
+                        // silently never seeded. A branch's settings belong to that
+                        // branch's agency by definition.
+                        'agency_id'  => $b->agency_id,
                         'value'      => $value,
                         'updated_at' => now(),
                         'created_at' => now(),

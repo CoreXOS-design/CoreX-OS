@@ -57,6 +57,8 @@ return [
         ['key' => 'view_deals',              'label' => 'View Deals',                      'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 12],
         ['key' => 'create_deals',            'label' => 'Create & Edit Deals',             'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 13],
         ['key' => 'settle_deals',            'label' => 'Settle Deals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 14],
+        ['key' => 'proforma.generate',       'label' => 'Generate Proforma Invoices',      'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 15],
+        ['key' => 'proforma.manage',         'label' => 'Manage Proforma Invoices (admin)', 'section' => 'agency-tracker',  'type' => 'action',  'module' => 'deals',            'sort_order' => 16],
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
@@ -452,6 +454,8 @@ return [
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
         ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
+        ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
+        ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
@@ -585,7 +589,9 @@ return [
             // reveal_backup_password is likewise principal-only (AT-163).
             // calendar.tile.my_deals: the §15.5 DR2 hold is LIFTED (AT-216 R3, Johan's explicit
             // ask) — the deal-pipeline deck tile ships with DR2. Admin gets it via all-minus-exclude.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password'],
+            // agency_setup.track is the platform-owner cross-agency progress
+            // board — owner-only, so admin is excluded from the all-minus rule.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -630,7 +636,7 @@ return [
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
                 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals', 'proforma.generate',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
@@ -734,7 +740,7 @@ return [
             'include' => [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate',
                 'view_listings', 'view_performance',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',

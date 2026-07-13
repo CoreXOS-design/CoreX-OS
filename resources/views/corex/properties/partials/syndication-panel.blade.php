@@ -98,6 +98,9 @@
                                 <template x-if="status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
                                 <template x-if="status === 'pending'"><span>Ready to submit</span></template>
                                 <template x-if="status === 'error'"><span style="color:var(--ds-crimson);" x-text="'Error: ' + lastError"></span></template>
+                                {{-- AT-221 — honest status: the portal accepted the call but did not
+                                     publish (isOnPortal:false). Show the real reason, never a false Active. --}}
+                                <template x-if="status === 'rejected'"><span style="color:var(--ds-crimson);" x-text="'Rejected: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
 
@@ -430,6 +433,9 @@
                                 <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
                                 <template x-if="!p24Ref && status === 'pending'"><span>Ready to submit</span></template>
                                 <template x-if="status === 'error'"><span style="color:var(--ds-crimson);" x-text="'Error: ' + lastError"></span></template>
+                                {{-- AT-221 — honest status: the portal accepted the call but did not
+                                     publish (isOnPortal:false). Show the real reason, never a false Active. --}}
+                                <template x-if="status === 'rejected'"><span style="color:var(--ds-crimson);" x-text="'Rejected: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
 

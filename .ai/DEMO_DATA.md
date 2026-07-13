@@ -39,11 +39,88 @@ php artisan demo:seed
 | Field | Value |
 |-------|-------|
 | URL | `/login` then `/corex/market-intelligence` |
-| Email | `demo@corexos.co.za` |
+| Email | `admin@demo.corexos.co.za` |
 | Password | `CoreXDemo!2026` |
 | Role | `admin` (sees everything in agency 1; is a "manager" so BM-only chips show) |
 
 Branch managers / agents log in with `…@hfcoastal.co.za` (company domain, so the e-sign agent-FROM path is exercised) and password `CoreXDemo!2026`. A read-only `viewer@hfcoastal.co.za` user also exists.
+
+> **This admin was `demo@corexos.co.za` until 2026-07-12.** It had to move.
+> `users.email` is `utf8mb4_unicode_ci` — **case-insensitive** — under a UNIQUE
+> index, so `demo@corexos.co.za` and the System Owner's `Demo@corexos.co.za`
+> are *the same row* to MySQL. The two accounts cannot both exist while they
+> differ only by capitalisation. The owner keeps the address; the tenant admin
+> moved to the demo user domain. `SystemOwnerSeeder` now hard-refuses to seed
+> if any agency-owned user holds that address in any casing.
+
+## System Owner login (platform, not tenant)
+
+| Field | Value |
+|-------|-------|
+| URL | `/demo-owner-login` |
+| Email | `Demo@corexos.co.za` |
+| Password | `Demo@1024` |
+| Role | `super_admin` (`is_owner`), `agency_id` NULL — a platform identity, not a member of agency 1 |
+
+Johan's private door into the demo — used to wire the demo up to live. Seeded by
+`SystemOwnerSeeder`, which `DemoDataSeeder` calls, so **`demo:seed` restores it on
+every rebuild**. It is email+password only: `super_admin` is deliberately absent
+from `DemoLoginController::ALLOWED_ROLES`, so the passwordless persona buttons on
+the demo login screen can never sign anyone in as the owner.
+
+## Listing photos
+
+Every demo listing has a real gallery — `stage5b_propertyPhotos()`. A property with no
+photo is the first thing a prospect notices; an empty grid reads as a broken system, not
+an unfinished dataset.
+
+- **Pool:** 30 licensed photos (Unsplash — commercial use, no attribution) committed at
+  `database/seeders/data/demo-properties/*.jpg`, ~5MB. **Committed, not downloaded at seed
+  time**, so `demo:seed` works on a box with no internet and does not rot the day a
+  third-party URL stops resolving.
+- **Dealt out deterministically** from the property id, so a listing keeps the same gallery
+  across reseeds and neighbouring listings never look alike. 108 listings × 5 photos = 540
+  files (~92MB in `storage/`, which is not in git).
+- **Written to the canonical path** `properties/{id}/{n}.jpg`, and into **both**
+  `images_json` and `gallery_images_json` (same ordered set — the internal UI reads the
+  gallery, the public site / mobile API / portal readiness read `images_json`; writing only
+  one leaves half the product looking empty).
+
+**Why the canonical path matters.** `PropertyImageGuard::belongsToProperty()` hard-requires
+the prefix `properties/{id}/`, and `isPersistable()` enforces it on every gallery save. Demo
+photos parked in a sandbox path of their own would look fine right up until an agent opened
+the gallery editor mid-walkthrough, saved, and watched every image get silently rejected.
+
+**Shared-storage caveat.** The demo DB is its own connection; `storage/app/public` is not. On
+a dev laptop it is the same directory the main dev app uses, so `demo:seed` there overwrites
+`properties/{id}/` for whichever IDs the demo uses. Acceptable (dev image data is disposable,
+and the documented local flow is `migrate:fresh && demo:seed`) but worth knowing before you go
+hunting for a photo that "vanished". On the demo host, storage is dedicated.
+
+## The demo host MUST set `COREX_INSTANCE_ROLE=demo`
+
+Not in `.env` → `Instance::role()` silently defaults to `primary`, and **the box
+behaves as if it were live**. This is not loud: nothing errors, so it looks fine.
+What actually breaks (found on demo1, 2026-07-12 — the line had never been added):
+
+- `Dev Settings → Demo Connection` (`/corex/admin/dev-settings/demo-connection`) —
+  the page where the connector token is pasted — **404s**, and its sidebar entry is
+  hidden. Both gate on `Instance::isDemo()`. There is then no way to connect the
+  demo to live from the browser, which is the whole point of AT-230.
+- The demo access gate (`EnsureDemoGrant`, and the grant check in
+  `DemoLoginController::login()`) is **inert** — the demo is wide open to anyone
+  with the URL, ungated and unwatermarked.
+- Confusingly, the box instead offers `Demo Access → Connection`
+  (`/demo-access/connection`), which is the **live-side minting** page. Two similar
+  URLs, opposite ends of the link:
+
+| Page | Side | What it does |
+|------|------|--------------|
+| `/corex/admin/dev-settings/demo-access/connection` | **live** | *Mints* the connector token |
+| `/corex/admin/dev-settings/demo-connection` | **demo** | *Pastes* the URL + token |
+
+After setting it: `php artisan config:clear` and reload php-fpm (demo1 runs
+`php8.2-fpm`). Verify with `Instance::isDemo() === true`.
 
 ---
 

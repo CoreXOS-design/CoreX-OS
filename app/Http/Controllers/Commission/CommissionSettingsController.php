@@ -33,6 +33,7 @@ class CommissionSettingsController extends Controller
             'monthly_platform_fee' => ['required', 'numeric', 'min:0'],
             'risk_management_fee' => ['required', 'numeric', 'min:0'],
             'risk_management_cap' => ['required', 'numeric', 'min:0'],
+            'mentor_program_enabled' => ['nullable', 'boolean'],
             'mentor_extra_split' => ['required', 'integer', 'min:0', 'max:100'],
             'mentor_transactions' => ['required', 'integer', 'min:1', 'max:50'],
             'revenue_share_enabled' => ['nullable', 'boolean'],
@@ -52,7 +53,18 @@ class CommissionSettingsController extends Controller
 
         // Auto-calculate agency split
         $validated['commission_split_agency'] = 100 - $validated['commission_split_agent'];
-        $validated['revenue_share_enabled'] = $request->boolean('revenue_share_enabled');
+
+        // Both forms that reach here (settings page + setup wizard) render these
+        // toggles with a hidden "0" companion, so an unchecked box still arrives.
+        // Guard on has() anyway — an absent key means the caller never rendered
+        // the field, and must not be read as "off". See spec §6.1.
+        foreach (['mentor_program_enabled', 'revenue_share_enabled'] as $flag) {
+            if ($request->has($flag)) {
+                $validated[$flag] = $request->boolean($flag);
+            } else {
+                unset($validated[$flag]);
+            }
+        }
 
         $agencyId = $user->effectiveAgencyId() ?? 1;
         $settings = CommissionSetting::forAgency($agencyId);

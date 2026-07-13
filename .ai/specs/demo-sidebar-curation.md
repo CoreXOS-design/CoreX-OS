@@ -47,6 +47,21 @@ setting, the owner is a `User` with the existing owner role.
 - Wired into `DatabaseSeeder` **inside the `local`/`demo` environment gate**
   (alongside the demo seeders), so every `db:seed` / `migrate:fresh --seed` on a
   demo/local box recreates it, and staging/production never get the credential.
+- **Also called from `DemoDataSeeder::run()`** (2026-07-12). `DatabaseSeeder`
+  alone was not enough: the documented demo rebuild is
+  `migrate:fresh --database=demo && php artisan demo:seed`, which runs
+  `DemoDataSeeder` and **never** `DatabaseSeeder` — so the owner account was
+  absent from every rebuilt demo box and `/demo-owner-login` was dead. Safe to
+  call there: that point is already past `demo:seed`'s double-lock environment +
+  protected-database gates.
+- **This email is reserved — nothing else may hold it, in any casing.**
+  `users.email` is `utf8mb4_unicode_ci` (case-INSENSITIVE) under a UNIQUE index,
+  so `Demo@corexos.co.za` and `demo@corexos.co.za` are *the same row* to MySQL.
+  `DemoDataSeeder`'s admin login originally used the lowercase form; seeding both
+  would have had `updateOrCreate` silently match the tenant admin and rewrite it
+  into the platform owner, nulling its `agency_id` and detaching agency 1's data.
+  The admin moved to `admin@demo.corexos.co.za`, and `SystemOwnerSeeder` now
+  throws if any user with a non-null `agency_id` holds the address.
 - Login flow is unchanged — the existing "System Owner" sidebar entry and
   `DemoOwnerLoginController` already do the right thing once the user exists.
 

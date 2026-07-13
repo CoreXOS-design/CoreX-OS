@@ -27,13 +27,22 @@ return new class extends Migration {
         }
 
         // MySQL refuses NOT NULL on a column whose FK action is SET NULL —
-        // SET NULL can't write into a NOT NULL column. Drop the existing
-        // nullOnDelete FK from #8, change the column, re-add the FK with
-        // RESTRICT (default, no-action) which matches the spec's intent of
-        // "never wipe market data on agency delete".
-        Schema::table('p24_listings', function (Blueprint $table) {
-            $table->dropForeign(['agency_id']);
-        });
+        // SET NULL can't write into a NOT NULL column. So any existing FK on
+        // agency_id must go before the column can change, and is re-added below
+        // with RESTRICT, matching the spec's "never wipe market data on agency
+        // delete".
+        //
+        // DETECT, do not assume. #8 (…120008) as it stands today creates
+        // agency_id with an INDEX and NO foreign key — an earlier revision of it
+        // created a nullOnDelete FK and was later edited. So environments that
+        // migrated before that edit carry the constraint while a fresh replay has
+        // none, and an unconditional dropForeign() dies with "Can't DROP
+        // 'p24_listings_agency_id_foreign'". That is exactly what broke
+        // `migrate:fresh --database=demo`: the demo connection has no schema
+        // snapshot, so it replays all migrations from zero and hit this.
+        foreach ($this->foreignKeysOn('p24_listings', 'agency_id') as $constraint) {
+            DB::statement("ALTER TABLE `p24_listings` DROP FOREIGN KEY `{$constraint}`");
+        }
 
         Schema::table('p24_listings', function (Blueprint $table) {
             $table->unsignedBigInteger('agency_id')->nullable(false)->change();
@@ -46,13 +55,31 @@ return new class extends Migration {
         });
     }
 
+    /**
+     * Actual foreign-key constraint names on a column, straight from
+     * information_schema — the only way to know whether a drop is safe.
+     *
+     * @return string[]
+     */
+    private function foreignKeysOn(string $table, string $column): array
+    {
+        return array_column(DB::select(
+            'SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = ?
+                AND COLUMN_NAME = ?
+                AND REFERENCED_TABLE_NAME IS NOT NULL',
+            [$table, $column]
+        ), 'CONSTRAINT_NAME');
+    }
+
     public function down(): void
     {
         // Reverse: drop the RESTRICT FK, relax to nullable, re-add the
         // nullOnDelete FK from #8.
-        Schema::table('p24_listings', function (Blueprint $table) {
-            $table->dropForeign(['agency_id']);
-        });
+        foreach ($this->foreignKeysOn('p24_listings', 'agency_id') as $constraint) {
+            DB::statement("ALTER TABLE `p24_listings` DROP FOREIGN KEY `{$constraint}`");
+        }
 
         Schema::table('p24_listings', function (Blueprint $table) {
             $table->unsignedBigInteger('agency_id')->nullable()->change();

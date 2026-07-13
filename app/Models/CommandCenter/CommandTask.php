@@ -12,9 +12,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 class CommandTask extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, BelongsToAgency, SoftDeletes;
 
     /**
      * Hide tasks whose linked property has been soft-deleted (see

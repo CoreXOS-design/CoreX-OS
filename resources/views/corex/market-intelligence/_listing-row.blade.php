@@ -24,6 +24,7 @@
 
 @php
     $state = $state ?? [];
+    $selectedScore = $selectedScore ?? null;
     $tiers = array_merge(['strong'=>0,'mid'=>0,'weak'=>0,'total'=>0,'top_score'=>null,'sources'=>['portal_lead'=>0,'other'=>0]], $tiers ?? []);
     $pitch = $state['pitch'] ?? null;
     $claim = $state['claim'] ?? null;
@@ -216,6 +217,21 @@
                title="Open this property's full intelligence record — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
                 Property intel →
             </a>
+            @endif
+
+            {{-- AT-242 — when prospecting for a specific buyer, show THAT buyer's
+                 own Core Matches score prominently (the number the agent is
+                 acting on), distinct from the blended demand microbar below. --}}
+            @if(($selectedScore ?? null) !== null)
+            @php
+                $sc = (int) $selectedScore;
+                $scColor = $sc >= 80 ? 'var(--ds-green, #10b981)' : ($sc >= 65 ? 'var(--ds-amber, #f59e0b)' : 'var(--text-secondary, #6b7280)');
+            @endphp
+            <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:0.6875rem; font-weight:700;
+                         background: color-mix(in srgb, {{ $scColor }} 14%, transparent); color: {{ $scColor }}; border:1px solid currentColor;"
+                  title="This buyer's match score for this property, from the canonical Core Matches engine. 80+ strong, 65–79 good, below fair.">
+                🎯 {{ $sc }}% buyer match
+            </span>
             @endif
 
             {{-- Demand microbar — strong / mid counts. Phase E3: hover loads
