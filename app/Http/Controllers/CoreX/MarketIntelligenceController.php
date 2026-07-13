@@ -493,8 +493,36 @@ class MarketIntelligenceController extends Controller
             ->whereNull('dismissed_at')
             ->distinct()
             ->pluck('contact_id');
+
+        // AT-242 buyer-selector SCOPE (Johan): My buyers (own) / My branch / Whole
+        // company. Role-sensible default — admins agency-wide, everyone else their
+        // branch (own+branch). Honours branch isolation: 'company' is only offered
+        // to a user whose prospecting data-scope is agency-wide ('all'); branch/own
+        // users get own+branch. Same one-truth match set — only the LISTING is scoped.
+        // Agency-wide roles (the BuyerPipeline one-truth scope pattern) may pick
+        // 'Whole company'; branch/agent roles get own+branch (honours isolation).
+        $canCompany  = in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner'], true)
+            || \App\Services\PermissionService::getDataScope($user, 'prospecting') === 'all';
+        $buyerScopeOptions = $canCompany ? ['own', 'branch', 'company'] : ['own', 'branch'];
+        $defaultScope = $canCompany ? 'company' : 'branch';
+        $buyerScope = $request->input('buyer_scope');
+        if (! in_array($buyerScope, $buyerScopeOptions, true)) {
+            $buyerScope = $defaultScope;
+        }
+
         $micBuyers = Contact::whereIn('id', $micBuyerIds)
             ->where('is_buyer', true)
+            ->when($buyerScope === 'own', fn ($q) => $q->where('contacts.agent_id', $user->id))
+            ->when($buyerScope === 'branch', function ($q) use ($user) {
+                $branchId = $user->effectiveBranchId() ?? $user->branch_id;
+                if ($branchId) {
+                    $q->whereIn('contacts.agent_id', function ($sub) use ($branchId) {
+                        $sub->select('id')->from('users')->where('branch_id', $branchId)->whereNull('deleted_at');
+                    });
+                } else {
+                    $q->where('contacts.agent_id', $user->id);
+                }
+            })
             ->orderBy('first_name')
             ->orderBy('last_name')
             ->get(['id', 'first_name', 'last_name', 'email']);
@@ -664,6 +692,7 @@ class MarketIntelligenceController extends Controller
             'marketIntelligenceSidebarCount',
             // AT-242 buyer-led prospecting + AT-239 region filter
             'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
+            'buyerScope', 'buyerScopeOptions',
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt'
         ));

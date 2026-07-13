@@ -59,6 +59,10 @@
     // AT-242 / AT-239 — buyer-led prospecting + region.
     $micBuyers     = $micBuyers ?? collect();
     $micRegions    = $micRegions ?? collect();
+    // Buyer-selector scope (My buyers / My branch / Whole company).
+    $buyerScope        = $buyerScope ?? 'branch';
+    $buyerScopeOptions = $buyerScopeOptions ?? ['own', 'branch'];
+    $buyerScopeLabels  = ['own' => 'My buyers', 'branch' => 'My branch', 'company' => 'Whole company'];
     $activeBuyerId = request('buyer_id');
     $activeRegion  = request('region'); // canonical municipality value
     // AT-239 — display the agency alias for the active region (municipality → "Hibiscus Coast").
@@ -152,6 +156,22 @@
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
         </button>
         <div x-show="open" style="padding: 0 0 6px;">
+            {{-- AT-242 scope toggle — My buyers / My branch / Whole company. Same match
+                 set, scoped listing. 'Whole company' only shown to agency-wide roles. --}}
+            @if(count($buyerScopeOptions) > 1)
+                <div style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
+                    @foreach($buyerScopeOptions as $sc)
+                        @php $scActive = $buyerScope === $sc; @endphp
+                        <a href="{{ $urlWith(['buyer_scope' => $sc]) }}"
+                           style="font-size:0.6875rem; font-weight:600; padding:2px 8px; border-radius:999px; text-decoration:none;
+                                  {{ $scActive
+                                     ? 'background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 16%, transparent); color: var(--brand-icon,#0ea5e9); border:1px solid currentColor;'
+                                     : 'background: var(--surface-2); color: var(--text-secondary); border:1px solid var(--border);' }}">
+                            {{ $buyerScopeLabels[$sc] ?? $sc }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
             @if($micBuyers->count() > 0)
                 <div style="padding: 2px 12px 6px;">
                     <input type="text" x-model="q" placeholder="Search buyer…"

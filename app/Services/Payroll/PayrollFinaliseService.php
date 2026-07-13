@@ -51,7 +51,14 @@ class PayrollFinaliseService
 
         try {
             DB::transaction(function () use ($run, $finalisedBy, $pdfService, &$payslipCount, &$warnings) {
-                // Lock the run first
+                // AT-237 D2 — pessimistic lock + re-check UNDER the lock. Two concurrent
+                // finalises (double-click, retry) would otherwise both proceed and
+                // double-file Documents / UserDocuments / PDFs. The second waits here,
+                // then sees a non-draft run and aborts cleanly (transaction rolls back).
+                $locked = PayrollRun::withoutGlobalScopes()->where('id', $run->id)->lockForUpdate()->first();
+                if (! $locked || ! $locked->isDraft()) {
+                    throw new \RuntimeException('CONCURRENT_FINALISE');
+                }
                 $run->update([
                     'status'       => 'finalised',
                     'finalised_at' => now(),
@@ -126,6 +133,15 @@ class PayrollFinaliseService
                 $this->cacheRunTotals($run);
             });
         } catch (\Throwable $e) {
+            // AT-237 D2 — the lock-loser aborts cleanly with a plain message (no duplicate filing).
+            if ($e->getMessage() === 'CONCURRENT_FINALISE') {
+                return [
+                    'success'       => false,
+                    'errors'        => ['This run is already being finalised (or is no longer a draft). Refresh to see its status.'],
+                    'warnings'      => $warnings,
+                    'payslip_count' => 0,
+                ];
+            }
             Log::error('Payroll finalise failed', [
                 'run_id' => $run->id,
                 'error'  => $e->getMessage(),
