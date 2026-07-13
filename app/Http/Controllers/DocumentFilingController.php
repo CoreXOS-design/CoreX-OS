@@ -197,34 +197,25 @@ class DocumentFilingController extends Controller
     }
 
     /**
-     * AT-238 — stamp the link provenance when a human picks a property in the form.
+     * AT-238 — normalise the links.
      *
-     * Expiry is NOT touched here. The form prefills it from the property when the user
-     * links one, but whatever they actually submit is what gets filed: an OA and an EA on
-     * the same property can carry different expiry dates, and the register records what
-     * was filed, not what the property currently says.
+     * A link exists because a human picked it in the form, or it does not exist: there is no
+     * provenance to record because nothing else can create one (the historical rows were
+     * deliberately never backfilled).
+     *
+     * ABSENT must become NULL explicitly. An omitted or blanked property_id means "unlink" —
+     * leave the key out and Eloquent simply doesn't touch the column, so the row silently
+     * keeps a link the user just removed.
+     *
+     * Expiry is NOT touched here. The form prefills it from the property when a link is made,
+     * but whatever the user actually submits is what gets filed: an OA and an EA on the same
+     * property can carry different expiry dates, and the register records what was filed, not
+     * what the property currently says.
      */
     private function withLink(array $validated, ?DocumentFiling $existing): array
     {
-        // Normalise ABSENT to NULL explicitly. An omitted (or blanked) property_id means
-        // "unlink" — if we leave the key out, Eloquent simply doesn't touch the column and
-        // the row keeps a link the user just removed.
-        $newPropertyId = ($validated['property_id'] ?? null) ?: null;
-        $oldPropertyId = $existing?->property_id;
-
-        $validated['property_id']       = $newPropertyId;
+        $validated['property_id']       = ($validated['property_id'] ?? null) ?: null;
         $validated['seller_contact_id'] = ($validated['seller_contact_id'] ?? null) ?: null;
-
-        if ($newPropertyId && (int) $newPropertyId !== (int) $oldPropertyId) {
-            $validated['link_source']     = 'manual';
-            $validated['link_confidence'] = 'exact'; // a human pointed at it
-        }
-
-        if (! $newPropertyId) {
-            // Unlinked (or never linked) — the row is free text again, and says so.
-            $validated['link_source']     = null;
-            $validated['link_confidence'] = null;
-        }
 
         return $validated;
     }

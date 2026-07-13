@@ -7,7 +7,6 @@ namespace Tests\Feature\Filing;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\DocumentFiling;
-use App\Models\FilingLinkReview;
 use App\Models\Property;
 use App\Models\Role;
 use App\Models\RolePermission;
@@ -20,17 +19,22 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * AT-238 — the filing register points at the real records instead of retyping them.
+ * AT-238 — NEW filing entries point at the real records instead of retyping them.
  *
- * The two things this must get right, and they pull in opposite directions:
- *   1. Linking must be an UPGRADE, never a gate — ~42% of the historical register names a
- *      property CoreX has never held. Those filings must still save, edit and list.
- *   2. Linking must never FALSIFY what was filed — expiry is per-row, suggested on link,
- *      and never silently rewritten. An OA and an EA on one property can expire on
- *      different dates (68 addresses on qa1 carry more than one mandate doc).
+ * Three things this must get right, and they pull against each other:
+ *   1. Linking is an UPGRADE, never a gate. A new entry whose property CoreX does not hold
+ *      must still save, edit and list, exactly as before.
+ *   2. Linking must never FALSIFY what was filed. The expiry is per-row: suggested from the
+ *      property's mandate on link, and never silently rewritten. An OA and an EA on one
+ *      property can genuinely expire on different dates (68 addresses on qa1 carry more than
+ *      one mandate document).
+ *   3. The 2,069 HISTORICAL rows are not touched. They were deliberately never backfilled —
+ *      a lone address match is not a correct one, and a confidently wrong link on a legal
+ *      filing record is worse than the free text it replaced. They stay free text, viewable
+ *      and editable exactly as they always were.
  *
  * Plus the security hole this build closes: update()/destroy() were unscoped and
- * unpermissioned while store() was correct.
+ * unpermissioned while store() was correct all along.
  */
 final class FilingRegisterLinkTest extends TestCase
 {
@@ -79,8 +83,6 @@ final class FilingRegisterLinkTest extends TestCase
         $filing = DocumentFiling::latest('id')->firstOrFail();
         $this->assertSame($property->id, $filing->property_id);
         $this->assertSame($seller->id, $filing->seller_contact_id);
-        $this->assertSame('manual', $filing->link_source, 'a human pointed at it');
-        $this->assertSame('exact', $filing->link_confidence);
 
         // The linked record wins for display — the register stops disagreeing with the property page.
         $this->assertStringContainsString('Marine Drive', $filing->property_display);
@@ -98,7 +100,6 @@ final class FilingRegisterLinkTest extends TestCase
 
         $filing = DocumentFiling::latest('id')->firstOrFail();
         $this->assertNull($filing->property_id);
-        $this->assertNull($filing->link_source, 'an unlinked row says so, rather than claiming a link');
         $this->assertSame('3 Forset Walk, Manaba Beach', $filing->property_display);
         $this->assertFalse($filing->is_linked);
     }
@@ -152,9 +153,40 @@ final class FilingRegisterLinkTest extends TestCase
 
         $filing->refresh();
         $this->assertNull($filing->property_id);
-        $this->assertNull($filing->link_source);
         $this->assertSame('21 Dee Road, Uvongo', $filing->property_address, 'unlinking is not forgetting');
         $this->assertSame('2026-08-01', $filing->expiry_date->format('Y-m-d'));
+    }
+
+    /**
+     * The scope-cut guarantee: a historical free-text row is NOT migrated, NOT linked, and
+     * NOT degraded. It lists, it edits, it saves — exactly as it did before this build. The
+     * absence of a link is a permanent, first-class state, not a to-do.
+     */
+    public function test_a_historical_free_text_row_is_untouched_and_still_fully_editable(): void
+    {
+        // A property that WOULD match by address, to prove nothing links it behind our back.
+        $this->property('56 Colin Street', 'Uvongo', '2027-01-01');
+
+        $legacy = $this->filing([
+            'property_address' => '56 Colin Street, Uvongo',
+            'seller_name'      => null,
+            'expiry_date'      => '2020-03-12',
+        ]);
+
+        $this->assertNull($legacy->property_id, 'nothing links a historical row on its own');
+
+        // ...and it still edits, as free text, with no property picked.
+        $this->actingAs($this->admin)->put(route('filing-register.update', $legacy->id), $this->payload([
+            'property_address' => '56 Colin Street, Uvongo',
+            'expiry_date'      => '2021-03-12',
+            'notes'            => 'renewed',
+        ]))->assertRedirect();
+
+        $legacy->refresh();
+        $this->assertNull($legacy->property_id, 'editing an old row does not force a link on it');
+        $this->assertSame('56 Colin Street, Uvongo', $legacy->property_display);
+        $this->assertSame('2021-03-12', $legacy->expiry_date->format('Y-m-d'));
+        $this->assertSame('renewed', $legacy->notes);
     }
 
     // ── the pickers ──────────────────────────────────────────────────────
@@ -192,145 +224,6 @@ final class FilingRegisterLinkTest extends TestCase
 
         $this->assertContains($seller->id, $sellers);
         $this->assertNotContains($buyer->id, $sellers, 'a buyer is not a seller');
-    }
-
-    // ── the backfill ─────────────────────────────────────────────────────
-
-    public function test_the_backfill_reports_without_writing_by_default(): void
-    {
-        $property = $this->property('60 Orange Rocks', 'St Michaels', '2027-02-02');
-        $filing = $this->filing(['property_address' => '60 Orange Rocks, St Michaels']);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId])
-            ->expectsOutputToContain('REPORT ONLY')
-            ->assertExitCode(0);
-
-        $this->assertNull($filing->fresh()->property_id, 'report-only must write NOTHING');
-        $this->assertSame(0, FilingLinkReview::withoutGlobalScopes()->count());
-    }
-
-    public function test_the_backfill_links_only_unambiguous_matches_and_queues_the_rest(): void
-    {
-        // One clean match.
-        $clean = $this->property('60 Orange Rocks', 'St Michaels', '2027-02-02');
-        $cleanFiling = $this->filing(['property_address' => '60 Orange Rocks St Michaels']);
-
-        // Two properties that both answer to the same words → ambiguous, must NOT be guessed.
-        $this->property('12 San Miguel', 'Margate', null);
-        $this->property('12 San Miguel', 'Uvongo', null);
-        $ambiguousFiling = $this->filing(['property_address' => '12 San Miguel']);
-
-        // Nothing like it exists → stays free text.
-        $unmatchedFiling = $this->filing(['property_address' => 'Krizaan 14, Nowhere']);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])
-            ->assertExitCode(0);
-
-        $this->assertSame($clean->id, $cleanFiling->fresh()->property_id);
-        $this->assertSame('auto_address_match', $cleanFiling->fresh()->link_source);
-
-        $this->assertNull($ambiguousFiling->fresh()->property_id, 'never guess between candidates');
-        $review = FilingLinkReview::withoutGlobalScopes()->where('filing_id', $ambiguousFiling->id)->first();
-        $this->assertNotNull($review, 'the ambiguous row goes to a human');
-        $this->assertSame('pending', $review->match_status);
-        $this->assertCount(2, $review->candidates_json);
-
-        $this->assertNull($unmatchedFiling->fresh()->property_id, 'no match is an honest answer');
-        $this->assertNull(FilingLinkReview::withoutGlobalScopes()->where('filing_id', $unmatchedFiling->id)->first());
-    }
-
-    /**
-     * The one that stops the backfill doing quiet damage.
-     *
-     * Token-AND can return EXACTLY ONE property that is nonetheless the wrong building —
-     * real qa1 cases: "32 Queen View" → 29 Queens View; "10 Wingate Avenue" → 7 Wingate
-     * Avenue. One candidate, wrong house. A lone match must corroborate its number, or it
-     * goes to a human.
-     */
-    public function test_a_lone_match_whose_number_disagrees_is_NOT_auto_linked(): void
-    {
-        // The only "Wingate Avenue" property is number 7 — the filing says 10. It still comes
-        // back as a lone candidate because the canonical search matches each token as a
-        // SUBSTRING across every address field, and "10" is a substring of this property's
-        // portal reference. That is exactly how the real mis-matches arise on qa1.
-        Property::create([
-            'agency_id'     => $this->agencyId,
-            'agent_id'      => $this->admin->id,
-            'branch_id'     => $this->branchA->id,
-            'title'         => '7 Wingate Avenue, Margate',
-            'address'       => '7 Wingate Avenue',
-            'street_number' => '7',
-            'suburb'        => 'Margate',
-            'p24_ref'       => 'P24-110234',   // contains "10" as a substring
-            'status'        => 'active',
-            'property_type' => 'House',
-            'price'         => 1_450_000,
-        ]);
-        $filing = $this->filing(['property_address' => '10 Wingate Avenue, Margate']);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
-
-        $this->assertNull($filing->fresh()->property_id, 'a different house number is a different house');
-        $this->assertNotNull(
-            FilingLinkReview::withoutGlobalScopes()->where('filing_id', $filing->id)->first(),
-            'it goes to a human instead of being guessed'
-        );
-    }
-
-    /** ...but the number living in a COMPLEX name is still corroboration, not a mismatch. */
-    public function test_a_lone_match_whose_number_lives_in_the_complex_name_is_linked(): void
-    {
-        // Copied from the real qa1 row (filing #887 → property 1946): the filing names the
-        // complex, the property is a unit inside it, and the address carries the complex
-        // name with its comma — which matters, because the canonical search splits on
-        // whitespace only, so the token is literally "Bantry," comma and all.
-        $property = Property::create([
-            'agency_id'     => $this->agencyId,
-            'agent_id'      => $this->admin->id,
-            'branch_id'     => $this->branchA->id,
-            'title'         => '10 DU BANTRY, Colin Road',
-            'address'       => '10 DU BANTRY, Colin Road',
-            'unit_number'   => '77',
-            'suburb'        => 'Uvongo Beach',
-            'status'        => 'active',
-            'property_type' => 'Flat',
-            'price'         => 1_100_000,
-        ]);
-
-        $filing = $this->filing(['property_address' => '10 Du Bantry, Uvongo Beach']);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
-
-        $this->assertSame($property->id, $filing->fresh()->property_id,
-            'the 10 is the complex, and it does match — this is the same building');
-    }
-
-    /** An address with no number at all cannot corroborate anything, so it is not guessed. */
-    public function test_a_numberless_lone_match_goes_to_review_rather_than_being_guessed(): void
-    {
-        $this->property('Riverlets', 'Margate', null);
-        $filing = $this->filing(['property_address' => 'Riverlets']);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
-
-        $this->assertNull($filing->fresh()->property_id);
-        $this->assertNotNull(FilingLinkReview::withoutGlobalScopes()->where('filing_id', $filing->id)->first());
-    }
-
-    public function test_the_backfill_never_overwrites_a_link_a_human_made(): void
-    {
-        $human  = $this->property('60 Orange Rocks', 'St Michaels', null);
-        $other  = $this->property('60 Orange Rocks', 'Margate', null);
-        $filing = $this->filing([
-            'property_address' => '60 Orange Rocks',
-            'property_id'      => $human->id,
-            'link_source'      => 'manual',
-        ]);
-
-        $this->artisan('filing:link-properties', ['--agency' => $this->agencyId, '--apply' => true])->assertExitCode(0);
-
-        $this->assertSame($human->id, $filing->fresh()->property_id);
-        $this->assertSame('manual', $filing->fresh()->link_source, 'a human decision is not re-litigated by a script');
     }
 
     // ── the security hole this build closes ──────────────────────────────
