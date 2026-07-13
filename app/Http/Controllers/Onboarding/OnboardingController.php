@@ -86,7 +86,15 @@ class OnboardingController extends Controller
             'referred_by_user_id' => ['nullable', 'exists:users,id'],
         ]);
 
-        $validated['agency_id'] = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (STANDARDS Rule 17) — agent_applications.agency_id is NOT NULL. An agent
+        // applies TO an agency; with no agency context there is no agency to apply to, and the
+        // old `?? 1` lodged the application with Home Finders regardless of who was applying.
+        $agencyId = $user->effectiveAgencyId();
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('an agent application');
+        }
+
+        $validated['agency_id'] = $agencyId;
         $validated['status'] = 'applied';
         $validated['status_changed_at'] = now();
 

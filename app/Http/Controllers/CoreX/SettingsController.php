@@ -150,7 +150,8 @@ class SettingsController extends Controller
         $data['propertiesStatusOrder'] = $orderedStatuses;
 
         // Operations tab: Commission & Revenue Share (singleton per agency)
-        $data['commissionSettings'] = CommissionSetting::forAgency($user?->effectiveAgencyId() ?? 1);
+        // AT-253 (Rule 17) — read: sentinel 0 → guarded defaults, never agency 1's settings.
+        $data['commissionSettings'] = CommissionSetting::forAgency((int) ($user?->effectiveAgencyId() ?: 0));
 
         // Operations tab: Command Center rules + document expectations.
         // Gated to the same permission the mutation routes require.

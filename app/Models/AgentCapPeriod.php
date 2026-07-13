@@ -155,6 +155,15 @@ class AgentCapPeriod extends Model
      */
     public static function currentForUser(int $userId, int $agencyId): self
     {
+        // AT-253 (STANDARDS Rule 17) — this CREATES a cap period stamped with $agencyId, and
+        // agent_cap_periods.agency_id is NOT NULL. Callers used to pass `effectiveAgencyId() ?? 1`,
+        // so an owner/super-admin viewing the commission screen silently opened a cap period
+        // — a real financial record — inside AGENCY 1. Guard at the model so every caller is
+        // safe, rather than trusting each one to remember.
+        if ($agencyId <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException('a commission cap period');
+        }
+
         $today = now()->toDateString();
 
         $existing = static::forUser($userId)

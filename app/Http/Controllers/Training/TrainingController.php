@@ -135,7 +135,15 @@ class TrainingController extends Controller
             'is_published' => ['nullable', 'boolean'],
         ]);
 
-        $validated['agency_id'] = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (STANDARDS Rule 17) — training_courses.agency_id is NOT NULL. The old `?? 1`
+        // published a no-agency user's course into AGENCY 1's training library, visible to a
+        // tenant that never authored it.
+        $agencyId = $user->effectiveAgencyId();
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('a training course');
+        }
+
+        $validated['agency_id'] = $agencyId;
         $validated['created_by'] = $user->id;
         $validated['is_required'] = $request->boolean('is_required');
         $validated['is_required_for_activation'] = $request->boolean('is_required_for_activation');

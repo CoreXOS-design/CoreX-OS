@@ -911,7 +911,16 @@ class PropertyController extends Controller
 
         // Create + link new contacts added during create (with duplicate detection)
         $dupService = app(\App\Services\ContactDuplicateService::class);
-        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+
+        // AT-253 (STANDARDS Rule 17) — DERIVE the agency from the PROPERTY these contacts are
+        // being attached to, not from the acting user. The contacts belong to the property's
+        // tenant; the person capturing may be an owner/super-admin who belongs to none. The
+        // old `?? 1` created seller contacts inside AGENCY 1 and then duplicate-matched them
+        // against agency 1's book — the wrong tenant's people, in the wrong tenant's CRM.
+        $agencyId = (int) ($property->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException('a contact on this property');
+        }
 
         foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
             if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) continue;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Filing;
 
 use App\Models\Property;
+use App\Models\User;
 use Illuminate\Support\Collection;
 
 /**
@@ -26,22 +27,40 @@ class FilingPropertyLinker
     /**
      * Properties a human may pick from, for what they have typed so far.
      *
+     * AT-253-class bug, found by Johan on qa1 and fixed here: this used to filter on the raw
+     * `$user->agency_id`. An owner/super-admin carries `agency_id = NULL`, which cast to the
+     * sentinel 0 — so the picker searched agency 0, found nothing, and the dropdown never
+     * opened. The search looked "completely broken" while being, technically, a correct query
+     * against a tenant that does not exist.
+     *
+     * Visibility now goes through `Property::scopeVisibleTo()` — the same canonical scope the
+     * DR2 picker uses — so a super-admin sees everything they are entitled to, an agency user
+     * sees their agency's stock, and nobody hand-rolls a tenant filter again.
+     *
      * @return Collection<int,Property>
      */
-    public function candidates(?string $address, int $agencyId, int $limit = 15): Collection
+    public function candidates(?string $address, User $user, int $limit = 15): Collection
     {
         $address = trim((string) $address);
         if (mb_strlen($address) < 2) {
             return collect();
         }
 
-        return Property::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
+        return Property::query()
+            ->visibleTo($user)
             ->searchAddress($address)
-            ->with('agent')
+            ->with(['agent', 'branch'])
             ->limit($limit)
             ->get();
+    }
+
+    /** Can this user legitimately see (and therefore link) this property? */
+    public function isVisibleTo(Property $property, User $user): bool
+    {
+        return Property::query()
+            ->visibleTo($user)
+            ->whereKey($property->getKey())
+            ->exists();
     }
 
     /**
@@ -57,15 +76,20 @@ class FilingPropertyLinker
     }
 
     /**
-     * What linking a property should PREFILL on a new filing row.
+     * Everything the filing form can DERIVE once a property is picked.
      *
-     * The expiry is a SUGGESTION, filled once into the row's own column, where the user may
-     * overrule it. It is not a live mirror: a property holds one expiry_date, but the register
-     * legitimately holds several mandate documents per property with their own lifespans (on
-     * qa1, 68 addresses carry more than one OA/EA, several with genuinely different dates).
-     * Mirroring would collapse them and falsify what was filed.
+     * The property is the lead selector, so it answers every question it can: which branch and
+     * which agent this listing belongs to, who the seller is (from the property-link roles),
+     * and when the mandate expires. The clerk is then left with the one fact the system cannot
+     * know — the file number.
      *
-     * @return array{property_address:string, expiry_date:?string, seller_contact_id:?int, seller_name:?string}
+     * All of it is a SUGGESTION, filled once into the row's own columns, where the user may
+     * overrule any of it. The expiry in particular is not a live mirror: a property holds one
+     * expiry_date, but the register legitimately holds several mandate documents per property
+     * with their own lifespans (on qa1, 68 addresses carry more than one OA/EA, several with
+     * genuinely different dates). Mirroring would collapse them and falsify what was filed.
+     *
+     * @return array<string,mixed>
      */
     public function suggestionsFor(Property $property): array
     {
@@ -78,6 +102,12 @@ class FilingPropertyLinker
             'seller_name'       => $seller
                 ? trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? ''))
                 : null,
+            // The listing's own context — the branch it is listed under and the agent who
+            // holds it. These are what the clerk would otherwise have to know and retype.
+            'branch_id'         => $property->branch_id,
+            'branch_name'       => $property->branch?->name,
+            'agent_id'          => $property->agent_id,
+            'agent_name'        => $property->agent?->name,
         ];
     }
 }

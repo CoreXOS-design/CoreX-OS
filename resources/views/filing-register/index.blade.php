@@ -114,53 +114,18 @@
         <form method="POST" action="{{ route('filing-register.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4"
               x-data="filingPicker({})">
             @csrf
-            <div>
-                <label for="new_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch <span class="text-red-500">*</span></label>
-                <select id="new_branch_id" name="branch_id" required tabindex="1" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    @foreach($branches as $branch)
-                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label for="new_agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent <span class="text-red-500">*</span></label>
-                <select id="new_agent_id" name="agent_id" required tabindex="2" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">Select Agent</option>
-                    @foreach($agents as $ag)
-                    <option value="{{ $ag->id }}">{{ $ag->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label for="new_document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span class="text-red-500">*</span></label>
-                <select id="new_document_type" name="document_type" required tabindex="3" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="OA">OA (Open Authority)</option>
-                    <option value="EA">EA (Exclusive Authority)</option>
-                    <option value="Other">Other</option>
-                </select>
-            </div>
-            <div>
-                <label for="new_file_reference" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File Reference <span class="text-red-500">*</span></label>
-                <input id="new_file_reference" type="text" name="file_reference" required tabindex="4" placeholder="e.g. File 3"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                <label for="new_sequence_number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sequence Number <span class="text-red-500">*</span></label>
-                <input id="new_sequence_number" type="text" name="sequence_number" required tabindex="5" placeholder="e.g. 0042"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
+            {{-- ── STEP 1. THE PROPERTY. Johan's flow: the property is the LEAD selector, and
+                 everything the system can already answer answers itself from it — branch, agent,
+                 seller, mandate expiry. The clerk is left with the one fact CoreX cannot know:
+                 the file number. Free text remains a first-class path for a filing whose
+                 property CoreX does not hold. ── --}}
             {{-- AT-238 — Property: search the property tables, link the real record.
                  The typed text is ALWAYS submitted as property_address, so a filing whose
                  property CoreX does not hold still saves. Linking is an upgrade, never a gate. --}}
             <div class="relative">
                 <label for="new_property_address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property <span class="text-red-500">*</span></label>
                 <input type="hidden" name="property_id" :value="propertyId">
-                <input id="new_property_address" type="text" name="property_address" required tabindex="6"
+                <input id="new_property_address" type="text" name="property_address" required tabindex="1"
                        autocomplete="off"
                        placeholder="Search a property, or just type the address"
                        x-model="address" @input="onType()" @focus="onType()" @blur="closeSoon()"
@@ -194,6 +159,57 @@
                 </p>
             </div>
 
+            {{-- AT-238 (Johan's flow) — Branch and Agent are DERIVED from the property's own
+                 listing context the moment one is picked. They stay editable (a filing can be
+                 booked under another branch/agent), but the clerk is never asked to know them.
+                 With no property linked they fall back to the clerk's own branch/agent. --}}
+            <div>
+                <label for="new_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Branch
+                    <span x-show="derivedFrom.branch" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                </label>
+                <select id="new_branch_id" name="branch_id" x-model="branchId" tabindex="5" class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="">— use my branch —</option>
+                    @foreach($branches as $branch)
+                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label for="new_agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Agent
+                    <span x-show="derivedFrom.agent" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                </label>
+                <select id="new_agent_id" name="agent_id" x-model="agentId" tabindex="6" class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="">— me —</option>
+                    @foreach($agents as $ag)
+                    <option value="{{ $ag->id }}">{{ $ag->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label for="new_document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span class="text-red-500">*</span></label>
+                <select id="new_document_type" name="document_type" required tabindex="7" class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="OA">OA (Open Authority)</option>
+                    <option value="EA">EA (Exclusive Authority)</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div>
+                <label for="new_file_reference" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File Reference <span class="text-red-500">*</span></label>
+                <input id="new_file_reference" type="text" name="file_reference" required tabindex="3" placeholder="e.g. File 3"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
+            <div>
+                <label for="new_sequence_number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sequence Number <span class="text-red-500">*</span></label>
+                <input id="new_sequence_number" type="text" name="sequence_number" required tabindex="4" placeholder="e.g. 0042"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            </div>
             {{-- AT-238 — Seller: sourced from the property's link roles when we know them. --}}
             <div>
                 <label for="new_seller_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller</label>
@@ -207,7 +223,7 @@
                         <option :value="s.id" :selected="s.id == sellerContactId" x-text="s.name"></option>
                     </template>
                 </select>
-                <input id="new_seller_name" type="text" name="seller_name" tabindex="7" placeholder="Optional"
+                <input id="new_seller_name" type="text" name="seller_name" tabindex="8" placeholder="Optional"
                        x-model="sellerName"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -468,7 +484,12 @@ function filingPicker(initial) {
         sellerContactId: initial.sellerContactId ?? null,
         sellerName:      initial.sellerName ?? '',
         expiry:          initial.expiry ?? '',
+        branchId:        initial.branchId ?? '',
+        agentId:         initial.agentId ?? '',
         suggestedExpiry: null,
+        // Which fields the PROPERTY answered for us — drives the "from property" badges, so the
+        // clerk can see at a glance what was derived rather than what they must supply.
+        derivedFrom: { branch: false, agent: false, seller: false, expiry: false },
         sellers: [],
         results: [],
         open: false,
@@ -521,16 +542,29 @@ function filingPicker(initial) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
                 if (!res.ok) return;
                 const data = await res.json();
+                const sug = data.suggestions || {};
                 this.sellers = data.sellers || [];
-                this.suggestedExpiry = data.suggestions?.expiry_date || null;
+                this.suggestedExpiry = sug.expiry_date || null;
 
-                // Fill only what is EMPTY. Never overwrite a date or a name that a human
-                // already committed to this row — that is the filed fact.
+                // Fill only what is EMPTY. Never overwrite a value a human already committed to
+                // this row — on an existing filing that value IS the filed fact.
                 if (!this.expiry && this.suggestedExpiry) {
                     this.expiry = this.suggestedExpiry;
+                    this.derivedFrom.expiry = true;
                 }
                 if (!this.sellerContactId && !this.sellerName && this.sellers.length) {
                     this.pickSeller(this.sellers[0].id);
+                    this.derivedFrom.seller = true;
+                }
+                // The listing's own branch and agent — the two fields the clerk used to have to
+                // know before they could even start. They are suggestions: still editable.
+                if (!this.branchId && sug.branch_id) {
+                    this.branchId = String(sug.branch_id);
+                    this.derivedFrom.branch = true;
+                }
+                if (!this.agentId && sug.agent_id) {
+                    this.agentId = String(sug.agent_id);
+                    this.derivedFrom.agent = true;
                 }
             } catch (e) { /* suggestions are a convenience, never a blocker */ }
         },
@@ -548,6 +582,11 @@ function filingPicker(initial) {
             this.suggestedExpiry = null;
             this.sellers = [];
             this.sellerContactId = null;
+            // Anything the property answered for us stops being an answer. What the human typed
+            // themselves stays — unlinking says "CoreX has no record of this", not "start over".
+            if (this.derivedFrom.branch) { this.branchId = ''; }
+            if (this.derivedFrom.agent)  { this.agentId  = ''; }
+            this.derivedFrom = { branch: false, agent: false, seller: false, expiry: false };
             // The address and expiry STAY: unlinking says "CoreX has no record of this",
             // not "forget what I filed".
         },
