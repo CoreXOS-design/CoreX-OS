@@ -1345,6 +1345,13 @@ Route::middleware(['auth', 'permission:access_filing_register'])->group(function
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
     Route::delete('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'destroy'])->name('filing-register.destroy');
     Route::post('/filing-register/{filing}/restore', [\App\Http\Controllers\DocumentFilingController::class, 'restore'])->name('filing-register.restore')->withTrashed();
+
+    // AT-238 — the filing register's OWN pickers. Deliberately NOT the DR2 endpoints:
+    // those are gated on `create_deals`, so a filing clerk 403s, and widening that
+    // permission to serve a filing screen would hand deal-capture rights to anyone who
+    // files paper. Same canonical primitives underneath, own gate.
+    Route::get('/filing-register/search/properties', [\App\Http\Controllers\DocumentFilingController::class, 'searchProperties'])->name('filing-register.search.properties');
+    Route::get('/filing-register/search/property/{property}/suggestions', [\App\Http\Controllers\DocumentFilingController::class, 'propertySuggestions'])->name('filing-register.search.property-suggestions');
 });
 
 // ===== NEXUS OS ROUTES =====
@@ -2333,6 +2340,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/suburbs/{suburb}/archive',              [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'archive'])->name('suburbs.archive');
             // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
             Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
+
+            // AT-239 — Regions screen (MDB municipality + agency-editable alias).
+            Route::get('/regions',                                [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'index'])->name('regions.index');
+            Route::put('/regions/{municipality}',                 [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'updateAlias'])->name('regions.update')->where('municipality', '.*');
 
             Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
             Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');

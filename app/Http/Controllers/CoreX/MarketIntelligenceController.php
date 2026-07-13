@@ -501,16 +501,28 @@ class MarketIntelligenceController extends Controller
         $activeBuyerId = $selectedBuyerId;
         $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
 
-        // AT-239 — canonical regions for the Region filter, sourced from the
-        // property spine (towns.region). One truth, no new region list.
-        $micRegions = DB::table('towns')
+        // AT-239 region model (Johan-final) — the filter's value is the canonical
+        // MDB municipality (towns.region); its LABEL is the agency alias where set
+        // (Ray Nkonyeni → "Hibiscus Coast"), else the municipal name. One region
+        // list, nationally consistent, agency-relabelled.
+        $municipalities = DB::table('towns')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereNotNull('region')
             ->where('region', '!=', '')
             ->distinct()
-            ->orderBy('region')
             ->pluck('region');
+        $regionAliasMap = DB::table('region_aliases')
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->pluck('alias', 'municipality');
+        $micRegions = $municipalities
+            ->map(fn ($m) => (object) [
+                'value' => $m,
+                'label' => trim((string) ($regionAliasMap[$m] ?? '')) !== '' ? $regionAliasMap[$m] : $m,
+            ])
+            ->sortBy('label')
+            ->values();
 
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
