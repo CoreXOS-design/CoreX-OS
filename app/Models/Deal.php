@@ -98,6 +98,8 @@ class Deal extends Model
         'property_address',
         'attorney_provider_id',
         'attorney_contact_id',
+        'bond_originator_provider_id',
+        'bond_originator_contact_id',
         'seller_name',
         'buyer_name',
         'attorney_name',
