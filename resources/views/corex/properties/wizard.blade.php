@@ -761,17 +761,17 @@ function propertyWizard(config) {
             if (!picked.length) return;
 
             // Mirrors the server rules exactly (PropertyWizardController::
-            // uploadPhotos → image|max:512000). Anything Laravel's `image` rule
+            // uploadPhotos → image|max:204800). Anything Laravel's `image` rule
             // would refuse is caught here WITH a reason, rather than poisoning a
             // whole batch server-side and taking its valid siblings down with it.
-            const MAX_FILE = 500 * 1024 * 1024;
+            const MAX_FILE = 200 * 1024 * 1024;
             const ALLOWED = ['image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp', 'image/svg+xml'];
             const images = [], rejected = [];
             for (const f of picked) {
                 if (!ALLOWED.includes(f.type)) {
                     rejected.push(`"${f.name}" is not a supported image (use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first).`);
                 } else if (f.size > MAX_FILE) {
-                    rejected.push(`"${f.name}" is ${Math.round(f.size / 1048576)}MB — the limit is 500MB per photo.`);
+                    rejected.push(`"${f.name}" is ${Math.round(f.size / 1048576)}MB — the limit is 200MB per photo.`);
                 } else {
                     images.push(f);
                 }
@@ -785,7 +785,10 @@ function propertyWizard(config) {
 
             // Batch by BOTH file count (PHP max_file_uploads, which silently drops
             // the overflow) AND total bytes (a count-only batch of large photos
-            // overruns post_max_size and the server answers 413).
+            // overruns post_max_size and the server answers 413). MAX_BYTES bounds
+            // the POST ENVELOPE against post_max_size (~550M) and is deliberately
+            // NOT the per-file cap above — several 200MB photos still must not be
+            // packed into one request.
             const MAX_COUNT = 10, MAX_BYTES = 500 * 1024 * 1024;
             const batches = [];
             let cur = [], curBytes = 0;

@@ -741,13 +741,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
-            'dawn_images.*'             => 'image|max:512000',
+            'dawn_images.*'             => 'image|max:204800',
             'noon_images'               => 'nullable|array',
-            'noon_images.*'             => 'image|max:512000',
+            'noon_images.*'             => 'image|max:204800',
             'dusk_images'               => 'nullable|array',
-            'dusk_images.*'             => 'image|max:512000',
+            'dusk_images.*'             => 'image|max:204800',
             'gallery_images'            => 'nullable|array',
-            'gallery_images.*'          => 'image|max:512000',
+            'gallery_images.*'          => 'image|max:204800',
             // Create-form extras
             'initial_note'              => 'nullable|string|max:5000',
             'drive_files'               => 'nullable|array',
@@ -1086,13 +1086,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
-            'dawn_images.*'    => 'image|max:512000',
+            'dawn_images.*'    => 'image|max:204800',
             'noon_images'      => 'nullable|array',
-            'noon_images.*'    => 'image|max:512000',
+            'noon_images.*'    => 'image|max:204800',
             'dusk_images'      => 'nullable|array',
-            'dusk_images.*'    => 'image|max:512000',
+            'dusk_images.*'    => 'image|max:204800',
             'gallery_images'   => 'nullable|array',
-            'gallery_images.*' => 'image|max:512000',
+            'gallery_images.*' => 'image|max:204800',
         ]);
 
         // AT-221 — Layer 1: prevent at capture (see store()).
@@ -1321,16 +1321,16 @@ class PropertyController extends Controller
         $request->validate([
             'group'           => 'nullable|in:gallery_images,dawn_images,noon_images,dusk_images',
             'gallery_images'  => 'nullable|array',
-            'gallery_images.*'=> 'image|max:512000',
+            'gallery_images.*'=> 'image|max:204800',
             'dawn_images'     => 'nullable|array',
-            'dawn_images.*'   => 'image|max:512000',
+            'dawn_images.*'   => 'image|max:204800',
             'noon_images'     => 'nullable|array',
-            'noon_images.*'   => 'image|max:512000',
+            'noon_images.*'   => 'image|max:204800',
             'dusk_images'     => 'nullable|array',
-            'dusk_images.*'   => 'image|max:512000',
+            'dusk_images.*'   => 'image|max:204800',
         ], [
             'image' => 'One or more files is not a supported image. Use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first.',
-            'max'   => 'One or more photos is larger than the 500MB limit.',
+            'max'   => 'One or more photos is larger than the 200MB limit.',
         ]);
 
         $groups = ['gallery_images', 'dawn_images', 'noon_images', 'dusk_images'];
@@ -1425,7 +1425,7 @@ class PropertyController extends Controller
             'section'   => 'required|in:in_inspection,out_inspection,custom',
             'custom_id' => 'nullable|string|required_if:section,custom',
             'images'    => 'required|array',
-            'images.*'  => 'image|max:512000',
+            'images.*'  => 'image|max:204800',
         ]);
 
         $structure = $property->rentalImagesStructure();

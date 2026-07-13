@@ -117,6 +117,46 @@ final class PropertyPhotoUploadTest extends TestCase
     }
 
     /**
+     * The ceiling is 200MB per photo, and it is the SAME on every uploader —
+     * store, update, uploadImages, uploadRentalImages and the wizard. Two
+     * different caps is what caused the original bug, so both ends are pinned.
+     */
+    public function test_the_200mb_ceiling_is_enforced_identically_on_both_uploaders(): void
+    {
+        $p = $this->makeProperty();
+
+        // 1KB over the line — refused, with a message the uploader can render.
+        $over = fn () => UploadedFile::fake()->image('huge.jpg')->size(204801);
+
+        $wizard = $this->actingAs($this->user)
+            ->postJson("/corex/properties/wizard/{$p->id}/photos", ['gallery_images' => [$over()]])
+            ->assertStatus(422);
+        $this->assertStringContainsString('200MB', (string) $wizard->json('message'));
+
+        $page = $this->actingAs($this->user)
+            ->postJson("/corex/properties/{$p->id}/upload-images", ['gallery_images' => [$over()]])
+            ->assertStatus(422);
+        $this->assertStringContainsString('200MB', (string) $page->json('message'));
+
+        $this->assertCount(0, $p->fresh()->gallery_images_json ?? []);
+
+        // Just under the line — accepted by both.
+        $this->actingAs($this->user)
+            ->postJson("/corex/properties/wizard/{$p->id}/photos", [
+                'gallery_images' => [UploadedFile::fake()->image('just_under.jpg')->size(204799)],
+            ])
+            ->assertOk();
+
+        $this->actingAs($this->user)
+            ->postJson("/corex/properties/{$p->id}/upload-images", [
+                'gallery_images' => [UploadedFile::fake()->image('just_under2.jpg')->size(204799)],
+            ])
+            ->assertOk();
+
+        $this->assertCount(2, $p->fresh()->gallery_images_json ?? []);
+    }
+
+    /**
      * A refusal must be EXPLAINED. The JSON 422 carries the message the uploader
      * renders — silence is the failure mode we are eliminating.
      */

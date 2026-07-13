@@ -3217,13 +3217,15 @@
                     },
                     async upload() {
                         if (!this.files.length) return;
-                        // Reject anything over the server's per-file limit (500MB) up
+                        // Reject anything over the server's per-file limit (200MB) up
                         // front, with a clear message — beats a raw server error.
-                        const MAX_FILE = 500 * 1024 * 1024;
+                        // Must stay in step with PropertyController's image|max:204800
+                        // and the wizard's MAX_FILE: one ceiling, every uploader.
+                        const MAX_FILE = 200 * 1024 * 1024;
                         const tooBig = this.files.find(f => f.size > MAX_FILE);
                         if (tooBig) {
                             this.errorMsg = '"' + tooBig.name + '" is ' + Math.round(tooBig.size / 1048576) +
-                                'MB — the limit is 500MB per image. Please resize it and try again.';
+                                'MB — the limit is 200MB per image. Please resize it and try again.';
                             return;
                         }
                         this.uploading = true;

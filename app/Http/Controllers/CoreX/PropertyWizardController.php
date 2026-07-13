@@ -286,16 +286,18 @@ class PropertyWizardController extends Controller
     {
         $this->authorizeProperty($property);
 
-        // 500MB/photo matches the property-page uploader (PropertyController::
-        // uploadImages) so a photo that uploads on one uploads on the other. The
-        // old 5MB ceiling silently rejected ordinary listing photography.
+        // 200MB/photo — the SAME ceiling every other property image path enforces
+        // (PropertyController::store/update/uploadImages/uploadRentalImages), so a
+        // photo that uploads in one place uploads in all of them. Two different
+        // caps is exactly what broke this: the wizard's old 5MB ceiling silently
+        // rejected ordinary listing photography the property page accepted.
         $request->validate([
             'gallery_images'   => 'required|array|min:1',
-            'gallery_images.*' => 'image|max:512000',
+            'gallery_images.*' => 'image|max:204800',
         ], [
             'gallery_images.required' => 'No photos reached the server. Please select at least one photo and try again.',
             'gallery_images.*.image'  => 'One or more files is not a supported image. Use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first.',
-            'gallery_images.*.max'    => 'One or more photos is larger than the 500MB limit.',
+            'gallery_images.*.max'    => 'One or more photos is larger than the 200MB limit.',
         ]);
 
         $newUrls = [];
