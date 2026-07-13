@@ -79,7 +79,7 @@
                 @foreach($distParties as $p)
                     @if($p['sendable'])
                         <a href="{{ route('deals-dr2.distribute.compose', ['deal'=>$deal,'party'=>$p['role']]) }}" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">
-                            Send to {{ $p['label'] }}@if(count($p['default_documents'])) · {{ count($p['default_documents']) }} default@endif
+                            Send to {{ $p['label'] }}{{ count($p['default_documents']) ? ' · '.count($p['default_documents']).' default' : '' }}
                         </a>
                     @else
                         <span title="{{ $p['note'] }}" style="font-size:.78rem;padding:.3rem .7rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;">{{ $p['label'] }} — unavailable</span>
@@ -93,7 +93,7 @@
                     @foreach($sentDist as $d)
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.78rem;padding:.35rem .5rem;border:1px solid var(--border,rgba(0,0,0,.06));border-radius:6px;">
                             <span style="min-width:0;">{{ $d->document?->original_name ?? 'Document' }} <span style="color:#9ca3af;">→ {{ ucwords(str_replace('_',' ',$d->party_role)) }} · {{ $d->recipient_email ?: 'recipient' }}</span></span>
-                            <span style="white-space:nowrap;color:#9ca3af;">{{ $d->channel }}/{{ $d->delivery_mode==='secure_link'?'link':'attach' }}@if($d->part_of>1) · pt {{ $d->part_no }}/{{ $d->part_of }}@endif · {{ $d->status }} · {{ $d->sent_at?->format('d M') }}</span>
+                            <span style="white-space:nowrap;color:#9ca3af;">{{ $d->channel }}/{{ $d->delivery_mode==='secure_link'?'link':'attach' }}{{ $d->part_of>1 ? ' · pt '.$d->part_no.'/'.$d->part_of : '' }} · {{ $d->status }} · {{ $d->sent_at?->format('d M') }}</span>
                         </div>
                     @endforeach
                 </div>
