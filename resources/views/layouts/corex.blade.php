@@ -6,7 +6,8 @@
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="corex-auth" content="{{ auth()->check() ? '1' : '0' }}">
 
-        <title>{{ config('app.name', 'Laravel') }}</title>
+        {{-- AT-251 — non-production tab-title prefix ([QA]/[STAGING]); live sets no label → clean. --}}
+        <title>{{ (filled(config('app.env_label')) ? '['.config('app.env_label').'] ' : '') . config('app.name', 'Laravel') }}</title>
 
         <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=4">
         <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
