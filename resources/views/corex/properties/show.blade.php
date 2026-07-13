@@ -4129,14 +4129,33 @@
         @else
 
             {{-- Linked contacts --}}
+            @php
+                /**
+                 * AT-243 — the actual PURCHASER, derived from the deal register (never a stored
+                 * flag): the buyer party of this property's granted/registered deal. The other
+                 * buyers stay listed — a fallen-through grant makes the next buyer gold — but the
+                 * one who bought is sorted to the top and badged, so "who bought this?" is answered
+                 * at a glance instead of by opening the deal.
+                 *
+                 * Grant turns it on; a fall-through turns it off by itself; a resale re-derives it.
+                 */
+                $purchaserIds  = $property->purchaserContactIds();
+                $purchaseDeal  = $purchaserIds ? $property->purchasingDeal() : null;
+                $linkedContacts = $property->contacts
+                    ->sortByDesc(fn ($c) => in_array((int) $c->id, $purchaserIds, true) ? 1 : 0)
+                    ->values();
+            @endphp
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
                     Linked Contacts (<span data-linked-count>{{ $property->contacts->count() }}</span>)
                 </h3>
                 <div id="linked-contacts-list">
-                @forelse($property->contacts as $c)
+                @forelse($linkedContacts as $c)
+                @php($isPurchaser = in_array((int) $c->id, $purchaserIds, true))
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole) }"
-                     class="px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
+                     class="px-4 py-3 rounded-md mb-2"
+                     style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
+                     data-contact-row="{{ $c->id }}" @if($isPurchaser) data-purchaser="1" @endif>
                     <div class="flex items-center gap-3">
                         <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
                              style="background:{{ $c->type?->color ?? '#334155' }};">
@@ -4146,6 +4165,10 @@
                             <a href="{{ route('corex.contacts.show', $c) }}"
                                class="text-sm font-semibold no-underline hover:underline"
                                style="color:var(--text-primary);">{{ $c->full_name }}</a>
+                            @if($isPurchaser)
+                                <span class="ds-badge ds-badge-success" style="margin-left:.4rem;"
+                                      title="Bought this property — buyer on deal {{ $purchaseDeal?->deal_no ?? $purchaseDeal?->id }}, which is {{ $purchaseDeal?->accepted_status === 'R' ? 'registered' : 'granted' }}.">Purchaser</span>
+                            @endif
                             <div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">
                                 @if($c->phone)<span>{{ $c->phone }}</span>@endif
                                 @if($c->email)<span>{{ $c->email }}</span>@endif
@@ -5830,12 +5853,19 @@ window.coreXAppendLinkedContact = function (c) {
     if (c.role)  meta.push('<span class="font-semibold" style="color:var(--brand-icon);">' + escapeHtml(c.role.charAt(0).toUpperCase() + c.role.slice(1)) + '</span>');
     const row = document.createElement('div');
     row.className = 'flex items-center gap-3 px-4 py-3 rounded-md mb-2';
-    row.setAttribute('style', 'background:var(--surface-2); border:1px solid var(--border);');
+    // AT-243 — an AJAX-appended row shows the same Purchaser badge the server-rendered
+    // list does, so the two never disagree until the next reload.
+    const isPurchaser = !!c.is_purchaser;
+    row.setAttribute('style', 'background:var(--surface-2); border:1px solid ' + (isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)') + ';');
     row.setAttribute('data-contact-row', c.id);
+    if (isPurchaser) row.setAttribute('data-purchaser', '1');
+    const purchaserBadge = isPurchaser
+        ? '<span class="ds-badge ds-badge-success" style="margin-left:.4rem;" title="Bought this property — buyer on its granted deal.">Purchaser</span>'
+        : '';
     row.innerHTML =
         '<div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style="background:' + escapeHtml(c.type_color || '#334155') + ';">' + escapeHtml(c.initials || '?') + '</div>' +
         '<div class="flex-1 min-w-0">' +
-            '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' +
+            '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' + purchaserBadge +
             '<div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">' + meta.join('') + '</div>' +
         '</div>' +
         '<button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>';

@@ -44,6 +44,19 @@ use Illuminate\Support\Facades\DB;
 class Dr1PipelineService
 {
     /**
+     * AT-244 — the pipeline lock gate. Every MUTATING method below opens with an
+     * assert, so the rule ("the pipeline is live only on the proceeding offer") holds
+     * for every caller, not just the ones that go through PipelineController.
+     *
+     * The gate lives HERE and not in the controller on purpose: CalendarController
+     * completes DR1-anchored steps by calling completeStep() directly, so a
+     * controller-only gate would be trivially bypassable from the calendar.
+     */
+    public function __construct(private readonly DealPipelineLockService $lock)
+    {
+    }
+
+    /**
      * Attach a pipeline to an existing DR1 deal: materialise the template's steps,
      * wire their trigger + AND-gate dependencies, activate the on-creation steps, and
      * stamp the deal's pipeline pointer. Idempotent guard: refuses if the deal already
@@ -227,6 +240,13 @@ class Dr1PipelineService
      */
     public function completeStep(DealStepInstance $step, ?int $userId = null, array $completionData = []): void
     {
+        // AT-244 — asserted BEFORE the transaction, against the deal's status as it
+        // stands now. A step whose own status_trigger DECLINES the deal is therefore
+        // still legal (the deal is not yet 'D' when we check); it is every step AFTER
+        // that decline which is refused. That is exactly the intent: the pipeline may
+        // kill a deal, it may never resurrect one.
+        $this->lock->assertStepUnlocked($step, "Complete step \"{$step->name}\"");
+
         DB::transaction(function () use ($step, $userId, $completionData) {
             $step->update([
                 'status'          => 'completed',
@@ -427,6 +447,8 @@ class Dr1PipelineService
      */
     public function markNotApplicable(DealStepInstance $step, ?int $userId, ?string $reason): void
     {
+        $this->lock->assertStepUnlocked($step, "Mark step \"{$step->name}\" N/A");
+
         DB::transaction(function () use ($step, $userId, $reason) {
             // N/A rides the existing 'skipped' status (kept, not deleted) distinguished by a
             // non-null na_reason — no status-enum change. It resolves the gate like a skip.
@@ -449,6 +471,8 @@ class Dr1PipelineService
      */
     public function removeStep(DealStepInstance $step, ?int $userId): void
     {
+        $this->lock->assertStepUnlocked($step, "Remove step \"{$step->name}\"");
+
         DB::transaction(function () use ($step, $userId) {
             $this->logActivity($step->dr1Deal, $step, $userId, 'step_removed',
                 "Step \"{$step->name}\" removed");
@@ -464,6 +488,8 @@ class Dr1PipelineService
      */
     public function addCustomStep(Deal $deal, string $name, ?string $dueDate, ?DealStepInstance $afterStep, ?int $userId): DealStepInstance
     {
+        $this->lock->assertUnlocked($deal, "Add custom step \"{$name}\"");
+
         return DB::transaction(function () use ($deal, $name, $dueDate, $afterStep, $userId) {
             $position = $afterStep
                 ? $afterStep->position
@@ -506,6 +532,8 @@ class Dr1PipelineService
      */
     public function updateStepDueDate(DealStepInstance $step, ?string $date, ?int $userId): void
     {
+        $this->lock->assertStepUnlocked($step, "Re-date step \"{$step->name}\"");
+
         $old = optional($step->due_date)->format('Y-m-d');
         $due = $date ? Carbon::parse($date)->startOfDay() : null;
         $step->update([
@@ -525,6 +553,8 @@ class Dr1PipelineService
      */
     public function restoreRemovedStep(Deal $deal, int $stepId, ?int $userId): ?DealStepInstance
     {
+        $this->lock->assertUnlocked($deal, 'Restore a removed step');
+
         $step = DealStepInstance::withTrashed()->where('dr1_deal_id', $deal->id)->find($stepId);
         if (! $step || ! $step->trashed()) {
             return null;
@@ -541,6 +571,10 @@ class Dr1PipelineService
      */
     public function reinstateStep(DealStepInstance $step, ?int $userId): void
     {
+        // NB: this reinstates a STEP (un-N/A), not a DEAL. Reviving a declined DEAL is a
+        // status write on the register, never a pipeline click — so this is gated too.
+        $this->lock->assertStepUnlocked($step, "Reinstate step \"{$step->name}\"");
+
         $step->update([
             'status'       => 'active',
             'na_reason'    => null,

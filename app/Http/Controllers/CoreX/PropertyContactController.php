@@ -330,6 +330,9 @@ class PropertyContactController extends Controller
             'role'       => $role,
             'type_color' => $contact->type?->color ?? '#334155',
             'show_url'   => route('corex.contacts.show', $contact),
+            // AT-243 — the JS row builder renders the same Purchaser badge the Blade list does,
+            // so a row appended by AJAX never disagrees with the one you get on reload.
+            'is_purchaser' => in_array((int) $contact->id, $property->purchaserContactIds(), true),
         ];
     }
 }

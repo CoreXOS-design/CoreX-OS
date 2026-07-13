@@ -157,6 +157,32 @@ class Deal extends Model
     }
 
     /**
+     * AT-243 — the deal's OWN parties (the people on THIS transaction), as opposed to
+     * `contact_property`, which records everyone linked to the property across all its
+     * deals. Capture writes both: the party is linked to the property AND recorded on the
+     * deal. Without the second link a property with several offers cannot say which buyer
+     * belongs to which deal — and therefore cannot say who actually bought.
+     */
+    public function contacts(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Contact::class, 'deal_contacts', 'deal_id', 'contact_id')
+                    ->withPivot('role')
+                    ->withTimestamps();
+    }
+
+    /** The buyer(s) on this deal — joint buyers are normal, so this is multi-valued. */
+    public function buyers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->contacts()->wherePivot('role', 'buyer');
+    }
+
+    /** The seller(s) on this deal. */
+    public function sellers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->contacts()->wherePivot('role', 'seller');
+    }
+
+    /**
      * AT-216 (DR2 · WS-PIPELINE) — the pipeline template driving this deal (nullable
      * until a pipeline is started) and its per-deal step instances anchored to DR1.
      * Reuses the salvaged AT-158 engine (DealPipelineStep / DealStepInstance) on the

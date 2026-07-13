@@ -800,6 +800,12 @@
                         <a href="{{ route('corex.properties.show', $prop) }}"
                            class="text-sm font-semibold no-underline hover:underline"
                            style="color:var(--text-primary);">{{ $prop->title }}</a>
+                        {{-- AT-243 — same derived truth, read from the other side: this contact is the
+                             one who actually bought this property (buyer on its granted/registered deal). --}}
+                        @if(in_array((int) $contact->id, $prop->purchaserContactIds(), true))
+                            <span class="ds-badge ds-badge-success" style="margin-left:.4rem;"
+                                  title="This contact bought this property — they are the buyer on its granted deal.">Purchaser</span>
+                        @endif
                         <div class="text-xs mt-0.5 flex flex-wrap gap-2" style="color:var(--text-muted);">
                             <span style="color:{{ $propSc }};">{{ ucfirst($prop->status) }}</span>
                             <span>{{ $prop->formattedPrice() }}</span>
