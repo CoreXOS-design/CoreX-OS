@@ -16,6 +16,7 @@ use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
 use App\Services\Images\PropertyImageGuard;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -741,13 +742,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
-            'dawn_images.*'             => 'image|max:512000',
+            'dawn_images.*'             => 'image|max:204800',
             'noon_images'               => 'nullable|array',
-            'noon_images.*'             => 'image|max:512000',
+            'noon_images.*'             => 'image|max:204800',
             'dusk_images'               => 'nullable|array',
-            'dusk_images.*'             => 'image|max:512000',
+            'dusk_images.*'             => 'image|max:204800',
             'gallery_images'            => 'nullable|array',
-            'gallery_images.*'          => 'image|max:512000',
+            'gallery_images.*'          => 'image|max:204800',
             // Create-form extras
             'initial_note'              => 'nullable|string|max:5000',
             'drive_files'               => 'nullable|array',
@@ -1086,13 +1087,13 @@ class PropertyController extends Controller
             'p24_hide_address'      => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
-            'dawn_images.*'    => 'image|max:512000',
+            'dawn_images.*'    => 'image|max:204800',
             'noon_images'      => 'nullable|array',
-            'noon_images.*'    => 'image|max:512000',
+            'noon_images.*'    => 'image|max:204800',
             'dusk_images'      => 'nullable|array',
-            'dusk_images.*'    => 'image|max:512000',
+            'dusk_images.*'    => 'image|max:204800',
             'gallery_images'   => 'nullable|array',
-            'gallery_images.*' => 'image|max:512000',
+            'gallery_images.*' => 'image|max:204800',
         ]);
 
         // AT-221 — Layer 1: prevent at capture (see store()).
@@ -1259,17 +1260,28 @@ class PropertyController extends Controller
 
         $clone->title  = ($property->title ?? 'Property') . ' (Copy)';
         $clone->status = 'draft';
-        $clone->price  = null;
+        // The copy starts with NO price so the agent must set one — but `price` is
+        // `bigint unsigned NOT NULL DEFAULT 0`, so writing an explicit NULL threw
+        // 1048 and duplicate 500'd for EVERY property, not just one with odd data.
+        // 0 is this schema's "unset" (604 rows carry it; not one row is NULL), and
+        // empty(0) is true, so publishToggle()'s readiness gate still demands a
+        // real Price before the copy can go live. Same intent, a value the column
+        // actually accepts.
+        $clone->price  = 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
         $clone->pp_syndication_enabled = false;
-        $clone->save();
 
-        // Copy contact links
-        foreach ($property->contacts as $contact) {
-            $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
-        }
+        // Clone + its contact links are one unit of work: a half-copied property
+        // with no seller attached is worse than no copy at all.
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+        });
 
         return redirect()->route('corex.properties.show', $clone)
             ->with('success', 'Property duplicated. Update the details and save.');
@@ -1321,13 +1333,16 @@ class PropertyController extends Controller
         $request->validate([
             'group'           => 'nullable|in:gallery_images,dawn_images,noon_images,dusk_images',
             'gallery_images'  => 'nullable|array',
-            'gallery_images.*'=> 'image|max:512000',
+            'gallery_images.*'=> 'image|max:204800',
             'dawn_images'     => 'nullable|array',
-            'dawn_images.*'   => 'image|max:512000',
+            'dawn_images.*'   => 'image|max:204800',
             'noon_images'     => 'nullable|array',
-            'noon_images.*'   => 'image|max:512000',
+            'noon_images.*'   => 'image|max:204800',
             'dusk_images'     => 'nullable|array',
-            'dusk_images.*'   => 'image|max:512000',
+            'dusk_images.*'   => 'image|max:204800',
+        ], [
+            'image' => 'One or more files is not a supported image. Use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first.',
+            'max'   => 'One or more photos is larger than the 200MB limit.',
         ]);
 
         $groups = ['gallery_images', 'dawn_images', 'noon_images', 'dusk_images'];
@@ -1422,7 +1437,7 @@ class PropertyController extends Controller
             'section'   => 'required|in:in_inspection,out_inspection,custom',
             'custom_id' => 'nullable|string|required_if:section,custom',
             'images'    => 'required|array',
-            'images.*'  => 'image|max:512000',
+            'images.*'  => 'image|max:204800',
         ]);
 
         $structure = $property->rentalImagesStructure();
