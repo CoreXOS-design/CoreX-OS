@@ -195,6 +195,7 @@ class PayrollRunController extends Controller
         // default cut-day; else NULL = full month (cut = period end).
         $cutDate = $this->resolveCutDate($validated['cut_date'] ?? null, $periodMonth, (int) $agencyId);
 
+        try {
         $run = DB::transaction(function () use ($validated, $periodMonth, $payDate, $cutDate, $agencyId, $calculator) {
             // Generate run number: YYYYMM-001
             $ym = $periodMonth->format('Ym');
@@ -404,6 +405,12 @@ class PayrollRunController extends Controller
 
             return $run;
         });
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // AT-237 A1/A2 — any residual unique collision (e.g. two concurrent creates)
+            // surfaces as a plain message, never a raw 500 (BUILD_STANDARD §4).
+            return back()->withInput()->with('error',
+                "A payroll run already exists for {$periodMonth->format('F Y')}. Cancel or open the existing run first.");
+        }
 
         return redirect()->route('payroll.runs.show', $run)
             ->with('success', "Payroll run {$run->run_number} created with {$run->payslip_count} draft payslip(s). Review and finalise when ready.");

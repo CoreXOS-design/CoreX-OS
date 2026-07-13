@@ -4,9 +4,12 @@ namespace App\Models\Payroll;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PayrollPayslipLine extends Model
 {
+    use SoftDeletes; // AT-237 D3 — financial audit records; cancel()/recalculate() must not hard-delete (non-negotiable #1)
+
     protected $fillable = [
         'payroll_payslip_id',
         'line_type',
