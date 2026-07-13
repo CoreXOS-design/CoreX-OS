@@ -580,6 +580,51 @@ class Property extends Model
         })->values();
     }
 
+    /**
+     * AT-243 — the deal that actually BOUGHT this property, if any.
+     *
+     * The deal register is the one truth: the purchasing deal is the property's deal in
+     * the committed lane (Granted or Registered), of which Wave 2 guarantees there is at
+     * most one. Nothing is stored on the property — this is read from deal state, so the
+     * whole lifecycle comes free:
+     *
+     *   grant        → a committed deal exists      → purchaser appears
+     *   fall-through → it is declined, none commits → purchaser disappears by itself
+     *   resale       → a new deal is granted        → the new purchaser is derived
+     *
+     * There is no flag to set, unset, or forget to unset.
+     */
+    public function purchasingDeal(): ?\App\Models\Deal
+    {
+        if (! $this->id) {
+            return null;
+        }
+
+        return app(\App\Services\Deal\DealPropertyStatusService::class)
+            ->committedDealOnProperty((int) $this->id);
+    }
+
+    /**
+     * The contact ids of the actual purchaser(s) — the buyer party of the purchasing deal.
+     * Joint buyers are normal, so this is a set. Empty when nothing has been granted, which
+     * is the honest answer: an offer is not a purchase.
+     *
+     * Legacy deals captured before the deal↔party link existed carry no parties; they were
+     * backfilled where the buyer was unambiguous, and where it genuinely was not, no
+     * purchaser is claimed rather than one being guessed.
+     *
+     * @return array<int,int>
+     */
+    public function purchaserContactIds(): array
+    {
+        $deal = $this->purchasingDeal();
+        if (! $deal) {
+            return [];
+        }
+
+        return $deal->buyers()->pluck('contacts.id')->map(fn ($id) => (int) $id)->all();
+    }
+
     // ── Presentations V2 ──
 
     public function presentations(): HasMany

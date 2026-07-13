@@ -604,6 +604,17 @@ class DealRegisterController extends Controller
 
         $deal->save();
 
+        $sellerIds = $this->parseIdCsv($data['seller_contact_ids'] ?? null);
+        $buyerIds  = $this->parseIdCsv($data['buyer_contact_ids'] ?? null);
+
+        // (AT-243) Record the parties ON THE DEAL. This is the half that was missing: the
+        // ids below were previously used only to link people to the PROPERTY and were then
+        // discarded, so a property with several offers could not say which buyer belonged
+        // to which deal — and therefore could not say who actually bought when one was
+        // granted. The deal register owns the transaction, so it owns its parties.
+        $this->syncDealParties($deal, $sellerIds, 'seller');
+        $this->syncDealParties($deal, $buyerIds, 'buyer');
+
         // (DR2 reverse link — property-spine doctrine) Deal capture is often the
         // moment a buyer/seller enters the story. Linking a party on the deal
         // MUST also link them to the PROPERTY with the correct role, so the
@@ -612,8 +623,8 @@ class DealRegisterController extends Controller
         if ($propertyId) {
             $linkProperty = Property::find($propertyId);
             if ($linkProperty) {
-                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['seller_contact_ids'] ?? null), 'seller');
-                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['buyer_contact_ids'] ?? null), 'buyer');
+                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller');
+                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer');
             }
         }
 
@@ -943,6 +954,51 @@ class DealRegisterController extends Controller
      *
      * @param  int[]  $contactIds
      */
+    /**
+     * AT-243 — persist the deal's party list for one role (buyer | seller).
+     *
+     * Authoritative for THIS role on THIS deal: parties removed on an edit are detached, so
+     * correcting a mis-captured buyer actually corrects it (a purchaser badge derived from a
+     * stale party would be worse than none). Other roles on the deal are left alone, so
+     * syncing buyers never disturbs sellers.
+     *
+     * Empty input is a legitimate path (a deal captured without naming contacts — the lazy-
+     * but-valid shortcut) and simply clears that role. It is never an error.
+     */
+    private function syncDealParties(Deal $deal, array $contactIds, string $role): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $contactIds)));
+
+        // Only contacts that actually exist — a stale id from a stale form must not
+        // explode the capture, and must not create a dangling party row.
+        $valid = $ids ? Contact::whereIn('id', $ids)->pluck('id')->all() : [];
+
+        $existing = DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->where('role', $role)
+            ->pluck('contact_id')->map(fn ($id) => (int) $id)->all();
+
+        $toAdd    = array_diff($valid, $existing);
+        $toRemove = array_diff($existing, $valid);
+
+        if ($toRemove) {
+            DB::table('deal_contacts')
+                ->where('deal_id', $deal->id)->where('role', $role)
+                ->whereIn('contact_id', $toRemove)
+                ->delete();
+        }
+
+        foreach ($toAdd as $cid) {
+            // Idempotent: the unique (deal, contact, role) index makes a double-submit a no-op.
+            DB::table('deal_contacts')->insertOrIgnore([
+                'deal_id'    => $deal->id,
+                'contact_id' => $cid,
+                'role'       => $role,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
     private function syncPartyLinks(Property $property, array $contactIds, string $role): void
     {
         foreach ($contactIds as $cid) {
