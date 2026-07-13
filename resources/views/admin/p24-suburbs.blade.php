@@ -99,8 +99,8 @@
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 6348">
             </div>
             <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Region</label>
-                <input type="text" name="region" value="kzn-south-coast" class="rounded-md px-3 py-2 text-sm w-36"
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Region <span style="color: var(--text-muted);">(municipality — leave blank to auto-assign)</span></label>
+                <input type="text" name="region" value="" placeholder="e.g. Ray Nkonyeni" class="rounded-md px-3 py-2 text-sm w-36"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
