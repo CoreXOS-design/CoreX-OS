@@ -90,6 +90,24 @@ final class SyndicationRefreshPromptTest extends TestCase
             ->update(['compliance_snapshot_at' => now()]);
     }
 
+    /**
+     * Put the listing LIVE on Property24 — a ref, an active status, and the switch on.
+     * This is what Property::portalLinks() reads to report a live portal.
+     *
+     * Deliberately NOT part of markCompliant(): pressing Go Live stamps the compliance
+     * snapshot and enables NO portal, so "compliant but on nothing" is a real, common
+     * state — and it must not prompt. Keeping the two separate is what lets the tests
+     * below tell those cases apart.
+     */
+    private function makeLiveOnP24(): void
+    {
+        DB::table('properties')->where('id', $this->propertyId)->update([
+            'p24_ref'                 => '112233445',
+            'p24_syndication_status'  => 'active',
+            'p24_syndication_enabled' => true,
+        ]);
+    }
+
     /** The payload the edit form actually posts. `status` is a required field on it. */
     private function save(string $status): \Illuminate\Testing\TestResponse
     {
@@ -110,15 +128,17 @@ final class SyndicationRefreshPromptTest extends TestCase
         );
     }
 
-    public function test_saving_a_compliant_active_listing_prompts_for_a_portal_refresh(): void
+    public function test_saving_a_compliant_active_listing_that_is_live_on_a_portal_prompts(): void
     {
         $this->markCompliant();
+        $this->makeLiveOnP24();
 
         $resp = $this->save('active');
 
         $resp->assertSessionHasNoErrors();
         $resp->assertRedirect(route('corex.properties.show', $this->propertyId));
-        $resp->assertSessionHas('open_syndication', true);
+        // The flash carries the SAVED property's id, never a bare `true`.
+        $resp->assertSessionHas('open_syndication', $this->propertyId);
 
         $this->assertEquals(
             2_395_000,
@@ -127,9 +147,27 @@ final class SyndicationRefreshPromptTest extends TestCase
         );
     }
 
+    public function test_a_compliant_active_listing_on_no_portal_is_never_prompted(): void
+    {
+        // THE REGRESSION THIS GUARDS: pressing Go Live stamps compliance_snapshot_at and
+        // enables NO portal, so compliant + Active + on-nothing is the DEFAULT state of
+        // every freshly-compliant listing. Prompting here threw a full-screen modal over
+        // every single save whose only new control — Refresh all portals — is correctly
+        // hidden inside it, because there is nothing to refresh. An empty, unavoidable,
+        // blocking overlay on every save. The prompt must only fire when it has something
+        // to say.
+        $this->markCompliant();   // deliberately NOT live on any portal
+
+        $resp = $this->save('active');
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertSessionMissing('open_syndication');
+    }
+
     public function test_a_compliant_listing_that_is_no_longer_active_is_never_nagged(): void
     {
         $this->markCompliant();
+        $this->makeLiveOnP24();   // live on a portal, but sold — still must not nag
 
         $resp = $this->save('sold');
 
@@ -140,6 +178,8 @@ final class SyndicationRefreshPromptTest extends TestCase
     public function test_a_non_compliant_listing_is_not_prompted_however_active_it_is(): void
     {
         // No compliance snapshot — the listing has nothing it is permitted to publish.
+        $this->makeLiveOnP24();
+
         $resp = $this->save('active');
 
         $resp->assertSessionHasNoErrors();
@@ -154,16 +194,33 @@ final class SyndicationRefreshPromptTest extends TestCase
         $resp->assertSessionMissing('open_syndication');
     }
 
+    public function test_a_switched_off_portal_does_not_count_as_live_even_with_a_stale_active_status(): void
+    {
+        // Turning a portal off leaves *_syndication_status at its last value, so a
+        // disabled listing routinely still reads 'active'. Trusting the status alone
+        // would prompt on a listing that reaches nobody.
+        $this->markCompliant();
+        $this->makeLiveOnP24();
+        DB::table('properties')->where('id', $this->propertyId)
+            ->update(['p24_syndication_enabled' => false]);   // the truth
+
+        $resp = $this->save('active');
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertSessionMissing('open_syndication');
+    }
+
     public function test_the_status_test_ignores_casing(): void
     {
         // Agencies configure their own status list, so the stored value can arrive
         // title-cased ("Active"). The rule must not turn on a capital letter.
         $this->markCompliant();
+        $this->makeLiveOnP24();
 
         $resp = $this->save('Active');
 
         $resp->assertSessionHasNoErrors();
-        $resp->assertSessionHas('open_syndication', true);
+        $resp->assertSessionHas('open_syndication', $this->propertyId);
     }
 
     public function test_the_property_page_opens_the_panel_when_the_save_flashed_the_prompt(): void
@@ -171,11 +228,27 @@ final class SyndicationRefreshPromptTest extends TestCase
         $this->markCompliant();
 
         $resp = $this->actingAs($this->user)
-            ->withSession(['open_syndication' => true])
+            ->withSession(['open_syndication' => $this->propertyId])
             ->get(route('corex.properties.show', $this->propertyId));
 
         $resp->assertOk();
         $resp->assertSee('synOpen: true', false);
+    }
+
+    public function test_a_prompt_flashed_for_another_listing_never_opens_this_ones_panel(): void
+    {
+        // The flash survives one request. If a redirect is never followed (Back into a
+        // cached POST-redirect, a prefetch), a bare truthy flash would still be sitting
+        // there and would pop the panel on whatever property the agent opened next.
+        // The flash carries an id, and it has to match.
+        $this->markCompliant();
+
+        $resp = $this->actingAs($this->user)
+            ->withSession(['open_syndication' => $this->propertyId + 999])
+            ->get(route('corex.properties.show', $this->propertyId));
+
+        $resp->assertOk();
+        $resp->assertSee('synOpen: false', false);
     }
 
     public function test_the_property_page_stays_closed_on_an_ordinary_visit(): void
@@ -199,9 +272,31 @@ final class SyndicationRefreshPromptTest extends TestCase
         // The button, its Alpine component, and the bus the three portal panels
         // answer on. Rendered once, from the one shared panel partial.
         $resp->assertSee('Refresh all portals');
-        $resp->assertSee('syndicationRefreshAll()', false);
         $resp->assertSee('corex-syndication-refresh-all', false);
         $resp->assertSee('corex-syndication-census-request', false);
         $resp->assertSee('onSyndicationRefreshAll($event)', false);
+        $resp->assertSee('onSyndicationCensusRequest($event)', false);
+    }
+
+    public function test_the_bus_is_scoped_to_one_property_so_it_can_never_push_the_wrong_listing(): void
+    {
+        // The refresh bus rides on `window`, and the Properties index reuses ONE modal
+        // for every listing. If a stale panel could ever hear another property's press,
+        // the failure mode is a real, public, wrong-price advert on Property24 / Private
+        // Property. So the id is stamped on the component and checked on both ends —
+        // correctness must not rest on Alpine's MutationObserver destroying the old
+        // panel in time. This test exists to stop anyone quietly deleting that guard.
+        $this->markCompliant();
+
+        $resp = $this->actingAs($this->user)->get(route('corex.properties.show', $this->propertyId));
+
+        $resp->assertOk();
+        // The dispatcher is bound to THIS property, not to "whatever is on screen".
+        $resp->assertSee('syndicationRefreshAll(' . $this->propertyId . ')', false);
+        // Both ends drop a message that isn't theirs.
+        $resp->assertSee('isSameProperty(event)', false);
+        $resp->assertSee('propertyId: this.propertyId', false);
+        // And the un-scoped form is gone for good.
+        $resp->assertDontSee('syndicationRefreshAll()', false);
     }
 }

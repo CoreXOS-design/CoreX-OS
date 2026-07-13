@@ -115,9 +115,20 @@ the modal and clears `synBody.innerHTML` on close.
 
 | Event | Direction | Payload |
 |-------|-----------|---------|
-| `corex-syndication-census-request` | Refresh All → portals | — |
-| `corex-syndication-portal-state` | portal → Refresh All | `{ key, label, live }` |
-| `corex-syndication-refresh-all` | Refresh All → portals | `{ acked: [] }` — each portal that fires pushes its label |
+| `corex-syndication-census-request` | Refresh All → portals | `{ propertyId }` |
+| `corex-syndication-portal-state` | portal → Refresh All | `{ propertyId, key, label, live }` |
+| `corex-syndication-refresh-all` | Refresh All → portals | `{ propertyId, acked: [] }` — each portal that fires pushes its label |
+
+**Every message carries `propertyId`, and both ends drop anything that isn't theirs.** That
+guard is not decoration. On the Properties index one modal is reused for every listing:
+`openSyn()` blanks `synBody`, awaits a fetch, then injects the next property's panel. Today
+the old panel's components are destroyed during that await (Alpine's `MutationObserver` fires
+`destroyTree`, which removes their `.window` listeners), so a stale listener cannot survive
+into the next property — verified against Alpine 3.15.3. But that is an **implicit timing
+guarantee**, and if it ever failed the failure mode is pushing the **wrong listing** to
+Property24 / Private Property: a real, public, wrong-price advert. Correctness here must not
+depend on observer scheduling, so the id check makes cross-property contamination
+structurally impossible. Prevent, don't hope (BUILD_STANDARD §3).
 
 **Why the census-request event exists (the init-order trap):** the portal panels appear
 *before* the Refresh All block in the DOM, so Alpine initialises them first. Their opening
@@ -130,26 +141,60 @@ status change) land normally, because by then both sides are alive.
 `acked` is read back synchronously after `dispatchEvent` — DOM event listeners run
 synchronously — so the button can report exactly which portals it fired without guessing.
 
-### Single source of truth: `isLiveOnPortal()`
+### Single source of truth: `isRefreshable()`
 
-Each portal component gains one predicate — *does this portal currently carry this listing?*
+Each portal component gains one predicate — *is a re-push to this portal meaningful right
+now?*
 
-| Component | `isLiveOnPortal()` |
-|-----------|--------------------|
+| Component | `isRefreshable()` |
+|-----------|-------------------|
 | `websiteSyndication` | `enabled && status ∈ {active, submitted}` |
 | `ppSyndication` | `enabled && ppRef && status ∈ {active, submitted}` |
 | `p24Syndication` | `enabled && p24Ref && status ∈ {active, submitted, submitting}` |
 
 These are **exactly** the conditions that already gated each panel's *View · Refresh ·
-Deactivate* action row. The `x-show` on those rows is rewritten to call `isLiveOnPortal()`,
-so the visible Refresh button and the bulk press can never disagree about what "live" means
-(BUILD_STANDARD §6 — fix the class, not the instance). It also drives the census, so the
-Refresh All button's visibility and its "Live on:" line stay reactive to a toggle made in
-the panel without a page reload.
+Deactivate* action row. The `x-show` on those rows is rewritten to call `isRefreshable()`, so
+the visible Refresh button and the bulk press can never disagree (BUILD_STANDARD §6 — fix the
+class, not the instance). It also drives the census, so the Refresh All button's visibility
+and its "Live on:" line stay reactive to a toggle made in the panel without a page reload.
 
-P24's `submitting` counts as live (the listing IS on the portal; a queued push is merely in
-flight). A portal mid-push is skipped at fire time by the `!loading` guard rather than by
-hiding it — so the button never vanishes underneath the agent mid-sync.
+P24's `submitting` counts (the listing IS on the portal; a queued push is merely in flight).
+A portal mid-push is skipped at fire time by the `!loading` guard rather than by hiding it —
+so the button never vanishes underneath the agent mid-sync.
+
+**It is deliberately NOT called `isLiveOnPortal()`.** P24's `sold` and `rented` listings stay
+publicly visible on the portal (see `statusLabel()`: *"Sold — still on P24"*), so they *are*
+live — but re-pushing a sold listing is not something either button should offer, and the
+action row has always excluded them. A predicate named "is live on the portal" that returned
+`false` for a listing that is demonstrably on the portal would be lying. "Refreshable" is the
+question both callers actually ask. (Behaviour unchanged — only the name is honest.)
+
+### `acked` is a promise, not a guess
+
+`refreshAll()` reports which portals it fired by reading back `detail.acked` after a
+synchronous `dispatchEvent`. A portal therefore signs `acked` only once **every** reason it
+might no-op has been ruled out — `isRefreshable()`, `!loading`, and `canDispatchRefresh()`
+(the website panel's `post()` silently returns when handed no URL, so without that check the
+button could report *"Refreshing on HFC Website…"* having sent nothing).
+
+When nothing goes out, the button says so rather than sitting silent — but it does **not**
+claim *why*. A portal declines for more than one reason (mid-push, or no longer live since the
+last census) and the dispatcher cannot tell them apart, so it points at the per-portal state
+above instead of asserting a reason that might be wrong.
+
+### The census dispatch is deferred, on purpose
+
+`announceSyndicationState()` reads the portal's state **synchronously** (inside the calling
+`x-effect`, so the effect subscribes to `enabled`/`status`/`ref` and re-announces on change)
+but **defers the `dispatchEvent` to a microtask**.
+
+`window.dispatchEvent` runs listeners synchronously, so an immediate dispatch would execute
+`syndicationRefreshAll.onPortalState()` while the *portal's* effect is still the active
+reactive effect — and its first statement reads `portals`, silently subscribing **every**
+portal effect to that object. It cannot loop today only because `onPortalState` mutates a key
+rather than reassigning `portals`; the day anyone adds a prune or a reset (`this.portals =
+{…}` — a natural thing to reach for), all three portal effects re-run. Deferring takes the
+read out of the effect, so that loop cannot be introduced by accident.
 
 ### Prevent-or-absorb
 
@@ -177,20 +222,38 @@ on every underlying refresh route. Anyone who can press *Refresh* on a portal to
 ### Trigger
 
 On **save** of an existing property (`PropertyController@update`), the redirect to the
-property page carries an `open_syndication` flash when **both** hold:
+property page carries an `open_syndication` flash — **carrying the saved property's id** —
+when **all three** hold:
 
 ```php
-$property->compliance_snapshot_at !== null      // marked compliant
-&& strtolower($property->status) === 'active'   // Status * = Active
+$property->compliance_snapshot_at !== null            // 1. marked compliant
+&& strtolower($property->status) === 'active'         // 2. Status * = Active
+&& collect($property->portalLinks())                  // 3. actually live on a portal
+       ->contains(fn ($l) => $l['status'] === 'live')
 ```
 
-`compliance_snapshot_at` is the canonical "marked as compliant" record — there is no boolean
-compliance flag; the timestamp *is* the flag (written by
-`MarketingReadinessService::snapshotCompliance()`, surfaced as `marketing_status = 'live'`).
-`'active'` is the literal value the Status select and the publish wizard write.
+1. `compliance_snapshot_at` is the canonical "marked as compliant" record — there is no
+   boolean compliance flag; the timestamp *is* the flag (written by
+   `MarketingReadinessService::snapshotCompliance()`). Without it the listing has nothing it
+   is permitted to publish.
+2. `'active'` is the literal value the Status select and the publish wizard write. A
+   compliant listing that is **Sold** must never be nagged to re-push itself.
+3. **It is live on at least one portal.** This condition is the whole point, and it was
+   missing from the first cut — caught by the AT-252 audit. Pressing **Go Live** stamps the
+   compliance snapshot and enables **no** portal, so *compliant + Active + on nothing* is the
+   **default state of every freshly-compliant listing**. Without this check, every save of
+   such a listing threw up a full-screen modal whose only new control — *Refresh all portals*
+   — is correctly hidden inside it, because there is nothing to refresh: an empty,
+   unavoidable, blocking overlay on every save, forever, with no dismiss-forever by design.
+   The prompt must only fire when it has something to say.
 
-Both conditions are required. A compliant listing that is **Sold** must not nag the agent to
-re-push it to the portals, and a non-compliant listing has nothing it is allowed to publish.
+`Property::portalLinks()` is the single source of truth for "live on a portal" — the same
+predicate the Properties index uses to decide whether to show the syndication control at all
+(`PropertyController@index`, `$has_syndication`).
+
+The flash carries the property **id**, not a bare `true`. A flash survives one request, so a
+redirect that is never followed (Back into a cached POST-redirect, a prefetch) would otherwise
+still be sitting there and would pop the panel on whatever listing the agent opened next.
 
 ### Effect
 
@@ -271,10 +334,37 @@ reaches the Setup Wizard) does not apply — there is nothing to surface in
    reload; toggling the last one off hides the button.
 6. A portal already mid-push is skipped (no double-push); if all live portals are mid-push, the
    button says so rather than doing nothing silently.
-7. Saving a property with `compliance_snapshot_at` set **and** Status = Active lands on the
+7. Saving a listing that is compliant **and** Active **and** live on ≥1 portal lands on the
    property page with the syndication panel already open.
 8. Saving a compliant listing whose Status is **not** Active does **not** open the panel.
 9. Saving a non-compliant listing (no snapshot) does **not** open the panel, whatever its status.
-10. The Properties index modal and the property page render the identical Refresh All control —
+10. Saving a compliant, Active listing that is live on **no** portal does **not** open the panel
+    — the post-Go-Live default state must not throw an empty overlay over every save.
+11. A portal switched off but still carrying a stale `active` status does **not** count as live.
+12. A prompt flashed for listing A never opens listing B's panel.
+13. The Properties index modal and the property page render the identical Refresh All control —
     one file, two callers.
-11. `php -l` clean on every changed PHP file; the targeted test file passes.
+14. `php -l` clean on every changed PHP file; every Blade view still compiles; the targeted test
+    files pass; and the syndication suites show **no new failures** against the pre-change
+    baseline.
+
+## Audit (2026-07-13)
+
+Adversarially audited for regressions to existing syndication. **None found** — verified
+mechanically, not by inspection:
+
+- The three `x-show` swaps are **exactly equivalent** across every falsy-vs-false combination
+  (`''` refs, `''` status): no state exists where a View/Refresh/Deactivate button changes
+  visibility.
+- **No wrong-property push**, by three independent barriers in Alpine 3.15.3 (`destroyTree`
+  removes `.window` listeners during `openSyn()`'s `await`; `_x_marker` stops the observer
+  double-initialising the manually-`initTree`'d subtree; `loading` is set synchronously before
+  the first `await`). The `propertyId` guard was added anyway — see the bus table above.
+- No name collisions across the `corexCopyLinkMixin` / `corexSyndicationBus` spreads;
+  `refreshListing()` parity with each portal's own Refresh button is exact; no reactive loop;
+  init order works under both `Alpine.start()` and `Alpine.initTree()`; a zero-portal render is
+  safe; `update()` is unchanged for saves that already worked.
+
+The audit **did** find one HIGH defect in the new code — the prompt firing on listings that are
+on no portal (condition 3 above) — plus the `acked` honesty gap, the deferred-dispatch landmine,
+and the `isLiveOnPortal()` misnomer. All four are fixed and specced above.

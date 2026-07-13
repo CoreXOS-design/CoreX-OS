@@ -1235,7 +1235,11 @@ class PropertyController extends Controller
             ->with('tab', 'info');
 
         if ($this->shouldPromptSyndication($property)) {
-            $redirect->with('open_syndication', true);
+            // Scoped to the property that was saved — never a bare `true`. A flash
+            // survives one request, and a redirect that is never followed (Back into a
+            // cached POST-redirect, a prefetch) would otherwise leave it live and pop
+            // the panel on the NEXT property the agent opens.
+            $redirect->with('open_syndication', (int) $property->id);
         }
 
         return $redirect;
@@ -1244,34 +1248,56 @@ class PropertyController extends Controller
     /**
      * Should this save open the syndication panel on the property page?
      *
-     * A compliant, on-market listing has live portal copies riding on it —
-     * Property24, Private Property, the company website. Saving it is the exact
-     * moment those copies go stale, and nothing used to connect the two: the agent
-     * dropped the price, saw "Property updated.", and walked away while the portals
-     * kept advertising yesterday's number.
+     * A listing that is LIVE ON A PORTAL has public copies riding on it — Property24,
+     * Private Property, the company website. Saving it is the exact moment those copies
+     * go stale, and nothing used to connect the two: the agent dropped the price, saw
+     * "Property updated.", and walked away while the portals kept advertising
+     * yesterday's number. A qualifying save opens the panel (show.blade.php seeds
+     * `synOpen` from the `open_syndication` flash), putting "Refresh all portals" in
+     * front of them at the one moment it matters. Every qualifying save, by design — a
+     * save is what makes the portals stale, so there is nothing to remember.
      *
-     * So a qualifying save opens the panel (show.blade.php seeds `synOpen` from the
-     * `open_syndication` flash), putting "Refresh all portals" in front of the agent
-     * at the one moment it matters. Every qualifying save, by design — a save is what
-     * makes the portals stale, so there is nothing to remember and nothing to
-     * dismiss-forever.
+     * ALL THREE conditions are load-bearing:
      *
-     * BOTH halves are required. `compliance_snapshot_at` is the canonical record that
-     * a listing is marked compliant (there is no boolean flag — the timestamp IS the
-     * flag, written by MarketingReadinessService::snapshotCompliance()); without it
-     * the listing has nothing it is permitted to publish. And a compliant listing
-     * that is Sold must never nag the agent to re-push it to the portals.
+     * 1. `compliance_snapshot_at` — the canonical record that a listing is marked
+     *    compliant. There is no boolean flag; the timestamp IS the flag (written by
+     *    MarketingReadinessService::snapshotCompliance()). Without it the listing has
+     *    nothing it is permitted to publish.
+     *
+     * 2. Status = Active — a compliant listing that is SOLD must never be nagged to
+     *    re-push itself to the portals.
+     *
+     * 3. It is actually live on at least one portal. This one is easy to forget and it
+     *    is the whole point: pressing Go Live stamps the compliance snapshot but enables
+     *    NO portal, so "compliant + Active + on nothing" is the default state of every
+     *    freshly-compliant listing. Without this check, every save of such a listing
+     *    threw up a full-screen modal whose only new control — Refresh all portals —
+     *    is correctly hidden inside it, because there is nothing to refresh. An
+     *    unavoidable, empty, blocking overlay on every save. The prompt must only fire
+     *    when it has something to say.
+     *
+     * Property::portalLinks() is the single source of truth for "live on a portal" — the
+     * same predicate the Properties index uses to decide whether to show the syndication
+     * control at all (PropertyController@index, $has_syndication). Mirrored client-side
+     * by isRefreshable() in syndication-scripts.blade.php.
      *
      * Not wired into store(): a brand-new property cannot carry a compliance snapshot
-     * (that is stamped later, by Go Live), so the test can never pass there — and the
-     * >20-image create path returns JSON, then fires several upload-images requests
-     * before it navigates, any one of which would eat a flash. Dead code and an
-     * unreliable channel. Spec: .ai/specs/syndication-refresh-all.md.
+     * (Go Live stamps it later), so the test can never pass there — and the >20-image
+     * create path returns JSON, then fires several upload-images requests before it
+     * navigates, any one of which would eat a flash. Dead code and an unreliable
+     * channel. Spec: .ai/specs/syndication-refresh-all.md.
      */
     private function shouldPromptSyndication(Property $property): bool
     {
-        return $property->compliance_snapshot_at !== null
-            && strtolower((string) $property->status) === 'active';
+        if ($property->compliance_snapshot_at === null) {
+            return false;
+        }
+        if (strtolower((string) $property->status) !== 'active') {
+            return false;
+        }
+
+        return collect($property->portalLinks())
+            ->contains(static fn (array $link): bool => $link['status'] === 'live');
     }
 
     public function destroy(Property $property)

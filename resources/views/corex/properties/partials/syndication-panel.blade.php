@@ -73,7 +73,7 @@
                         @endphp
                         <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-2 mt-2"
                              x-effect="announceSyndicationState()"
-                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-census-request.window="onSyndicationCensusRequest($event)"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
                             {{-- Header card — click toggles active/deactivated (enable = active). --}}
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
@@ -111,10 +111,10 @@
                             </div>
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
-                                 isLiveOnPortal() is the same predicate the "Refresh all
+                                 isRefreshable() is the same predicate the "Refresh all
                                  portals" census reads, so this row and the bulk press can
                                  never disagree about what "live" means. --}}
-                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
+                            <div x-show="isRefreshable()" x-cloak class="flex flex-wrap gap-2">
                                 <a x-show="publicUrl" :href="publicUrl" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -196,7 +196,7 @@
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
                              x-effect="announceSyndicationState()"
-                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-census-request.window="onSyndicationCensusRequest($event)"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
 
                             {{-- Private Property toggle row --}}
@@ -304,7 +304,7 @@
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
-                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
+                            <div x-show="isRefreshable()" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="ppListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -411,7 +411,7 @@
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2"
                              x-effect="announceSyndicationState()"
-                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-census-request.window="onSyndicationCensusRequest($event)"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
                             {{-- P24 exclusive lock warning --}}
                             <div x-show="isPpExclusiveLocked()" x-cloak
@@ -502,7 +502,7 @@
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
-                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
+                            <div x-show="isRefreshable()" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="p24ListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -587,7 +587,7 @@
                          Hidden entirely when nothing is live (no dead buttons — STANDARDS,
                          UX rules). The census keeps that reactive, so toggling the last
                          portal off inside this panel hides the button without a reload. --}}
-                    <div x-data="syndicationRefreshAll()"
+                    <div x-data="syndicationRefreshAll({{ (int) $property->id }})"
                          @corex-syndication-portal-state.window="onPortalState($event.detail)"
                          x-show="liveCount() > 0"
                          x-cloak

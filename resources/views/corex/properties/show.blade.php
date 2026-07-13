@@ -3,11 +3,15 @@
 @section('corex-content')
 @php
     $isNew = !$property->exists;
-    // Saving a compliant, Active listing makes its portal copies stale that instant.
-    // PropertyController::shouldPromptSyndication() flashes open_syndication on that
-    // save, so the agent lands here with the panel already open on "Refresh all
+    // Saving a listing that is live on a portal makes its public copies stale that
+    // instant. PropertyController::shouldPromptSyndication() flashes open_syndication
+    // on that save, so the agent lands here with the panel already open on "Refresh all
     // portals" instead of leaving P24/PP/the website advertising the old listing.
-    $synOpenOnLoad = !$isNew && session('open_syndication');
+    //
+    // The flash carries the saved property's id, and it must MATCH the property being
+    // shown — a bare truthy flash that outlived its redirect (Back into a cached
+    // POST-redirect, a prefetch) would pop this panel on an unrelated listing.
+    $synOpenOnLoad = !$isNew && (int) session('open_syndication') === (int) $property->id;
 @endphp
 <div class="w-full space-y-4"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
