@@ -1709,7 +1709,7 @@
                 {{-- 4. Deal Document Distribution (the distribution-rules matrix) --}}
                 @permission('deals_v2.manage_distribution_rules')
                 @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
-                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Deal Document Distribution</a>
+                <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
                 @endif
                 @endpermission
             </div>
