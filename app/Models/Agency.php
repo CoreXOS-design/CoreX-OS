@@ -139,6 +139,7 @@ class Agency extends Model
         'email',
         'reg_no',
         'vat_no',
+        'vat_registered',
         'ffc_no',
         'ppra_number',
         'public_contact',
@@ -318,6 +319,7 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'vat_registered' => 'boolean',
         'wa_history_backfill' => 'boolean', // AT-135 — read-only WA body backfill toggle (default on)
         'wa_self_link_enabled' => 'boolean', // AT-156 — WhatsApp self-link toggle (default on)
         'outreach_send_window' => 'array', // AT-117 §4a — send-window config (null => defaults)

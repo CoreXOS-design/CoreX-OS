@@ -220,5 +220,10 @@
     <div style="margin-top:1rem;">
         @include('dr2._deal-documents', ['deal' => $deal])
     </div>
+
+    {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
+    <div style="margin-top:1rem;">
+        @include('proforma._deal-section', ['deal' => $deal])
+    </div>
 </div>
 @endsection
