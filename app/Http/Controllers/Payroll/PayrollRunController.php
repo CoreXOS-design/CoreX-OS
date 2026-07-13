@@ -657,7 +657,14 @@ class PayrollRunController extends Controller
         $payslip = PayrollPayslip::where('payroll_run_id', $run->id)->findOrFail($payslipId);
 
         $pdfService = new \App\Services\Payroll\PayslipPdfService();
-        $path = $pdfService->regenerate($payslip);
+        // AT-237 D1 — a FINALISED payslip is a frozen artifact: serve the stored PDF and
+        // never re-render it (the leave footer etc. would drift to live data on every view).
+        // Only a DRAFT gets a fresh live (watermarked) preview.
+        if ($run->isFinalised()) {
+            $path = $pdfService->getStoredPath($payslip) ?: $pdfService->regenerate($payslip);
+        } else {
+            $path = $pdfService->regenerate($payslip);
+        }
 
         return $pdfService->getInlineResponse($payslip, $path);
     }

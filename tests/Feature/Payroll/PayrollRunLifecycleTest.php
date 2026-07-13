@@ -108,4 +108,20 @@ final class PayrollRunLifecycleTest extends TestCase
         $this->assertSame(0, PayrollPayslipLine::whereIn('id', $lineIds)->count(), 'lines gone from the live query');
         $this->assertSame($lineIds->count(), PayrollPayslipLine::withTrashed()->whereIn('id', $lineIds)->count(), 'but recoverable — soft-deleted, not hard-deleted');
     }
+
+    /**
+     * D2 — a non-draft run is rejected by finalise (the guard + the lock-and-recheck use the
+     * same isDraft() verdict, so this covers the concurrency loser's path). The full
+     * files-once + no-duplicate-Documents behaviour is Tinker-verified on qa1 (PDF gen needs
+     * the node/chromium pipeline that the unit test env doesn't wire up).
+     */
+    public function test_finalise_rejects_a_nondraft_run(): void
+    {
+        $run = $this->createRun();
+        PayrollRun::withoutGlobalScopes()->where('id', $run->id)->update(['status' => 'finalised']);
+
+        $res = app(\App\Services\Payroll\PayrollFinaliseService::class)->finalise($run->fresh(), $this->actor);
+
+        $this->assertFalse($res['success'], 'finalise refuses a run that is no longer draft (D2 guard/lock verdict)');
+    }
 }
