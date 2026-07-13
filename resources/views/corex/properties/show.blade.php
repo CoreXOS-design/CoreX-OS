@@ -4151,7 +4151,19 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                @php($isPurchaser = in_array((int) $c->id, $purchaserIds, true))
+                {{-- Keep this a block, never the one-liner form. (The @@ below are Blade
+                     escapes — they must NOT become live directives inside this comment.)
+
+                     Blade lifts raw PHP out with /(?<!@)@@php(.*?)@@endphp/s BEFORE it
+                     strips comments or compiles directives, and that regex has no guard
+                     for the @@php(...) one-liner. So a lone one-liner is read as a block
+                     OPENER and swallows every line up to the next @@endphp in the file.
+                     Here it reached the History tab's block ~280 lines below, so that
+                     tab's @@if never compiled and the page died on "unexpected endif" —
+                     the entire property page 500'd. (AT-243 regression, fixed in AT-252.) --}}
+                @php
+                    $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
+                @endphp
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole) }"
                      class="px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
