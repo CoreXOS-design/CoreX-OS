@@ -70,7 +70,7 @@ class CalendarController extends Controller
         $shared['deckLayout']  = $this->tiles->resolveLayout($user);
         $shared['deckSlots']   = $this->tiles->slotCount($user);
         // AT-164 Gate 7 — live-RAG light-poll interval (agency-configurable).
-        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarPollSeconds();
         // AT-164 Gate 6 — layer toggles: the layer catalogue + the user's active set.
         $shared['layerCatalog'] = \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS;
         $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
@@ -1981,7 +1981,7 @@ class CalendarController extends Controller
             abort(422, 'Invalid range.');
         }
         // Cap the window (agency expansion limit) so the endpoint can't be asked for years.
-        $maxDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarMaxExpansionDays();
+        $maxDays = \App\Models\AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarMaxExpansionDays();
         if ($rangeStart->diffInDays($rangeEnd) > $maxDays) {
             $rangeEnd = $rangeStart->copy()->addDays($maxDays)->endOfDay();
         }
