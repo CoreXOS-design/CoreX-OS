@@ -4151,7 +4151,12 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                @php($isPurchaser = in_array((int) $c->id, $purchaserIds, true))
+                {{-- Block form, NOT @php(...): Blade's inline @php() mis-compiles an expression
+                     containing nested parens (the (int) cast here), emitting a broken "<?php("
+                     that silently stops compiling the rest of the file. --}}
+                @php
+                    $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
+                @endphp
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole) }"
                      class="px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
