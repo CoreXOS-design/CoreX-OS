@@ -105,10 +105,10 @@ class OutboundProvisionalLogger
         ?string $subject,
         ?string $body,
         array $linkModels = [],
-        array $attachments = []
+        array $attachments = [],
+        string $channel = Communication::CHANNEL_EMAIL   // AT-228 — email|whatsapp
     ): Communication {
         $now      = now();
-        $channel  = Communication::CHANNEL_EMAIL;
         $textHash = MessageTextHasher::hash($channel, $subject, $body);
 
         return DB::transaction(function () use (

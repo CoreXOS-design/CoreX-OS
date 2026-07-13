@@ -21,17 +21,20 @@ class AgencyDealSyncSettings extends Model
         'flag_property_under_offer_on_deal',
         'sold_milestone',
         'revert_property_on_deal_declined',
+        'max_email_attachment_mb',
     ];
 
     protected $casts = [
         'flag_property_under_offer_on_deal' => 'boolean',
         'revert_property_on_deal_declined' => 'boolean',
+        'max_email_attachment_mb' => 'integer',
     ];
 
     protected $attributes = [
         'flag_property_under_offer_on_deal' => false,
         'sold_milestone' => null,
         'revert_property_on_deal_declined' => true,
+        'max_email_attachment_mb' => 20,
     ];
 
     /** One row per agency; created with conservative defaults on first access. */
@@ -43,6 +46,7 @@ class AgencyDealSyncSettings extends Model
                 'flag_property_under_offer_on_deal' => false,
                 'sold_milestone' => null,
                 'revert_property_on_deal_declined' => true,
+                'max_email_attachment_mb' => 20,
             ]
         );
     }

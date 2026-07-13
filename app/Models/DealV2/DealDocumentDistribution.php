@@ -32,6 +32,10 @@ class DealDocumentDistribution extends Model
         'recipient_provider_id',
         'recipient_email',
         'delivery_mode',
+        'channel',
+        'group_key',
+        'part_no',
+        'part_of',
         'secure_token',
         'otp_required',
         'status',
@@ -49,6 +53,9 @@ class DealDocumentDistribution extends Model
 
     public const MODE_SECURE_LINK = 'secure_link';
     public const MODE_DIRECT_ATTACHMENT = 'direct_attachment';
+
+    public const CHANNEL_EMAIL = 'email';
+    public const CHANNEL_WHATSAPP = 'whatsapp';
 
     public const STATUS_QUEUED = 'queued';
     public const STATUS_SENT = 'sent';

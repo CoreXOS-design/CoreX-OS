@@ -255,6 +255,18 @@
                 <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney (firm &amp; contact)</button>
             </div>
 
+            {{-- AT-228 — Bond Originator (firm & contact), same picker UX as the attorney field. --}}
+            <div class="field-full" id="dr2-bond">
+                <label class="ds-label block mb-1">Bond originator (firm &amp; contact)</label>
+                <input type="hidden" name="bond_originator_provider_id" id="dr2_bond_provider_id" value="{{ old('bond_originator_provider_id', $deal->bond_originator_provider_id) }}">
+                <input type="hidden" name="bond_originator_contact_id" id="dr2_bond_contact_id" value="{{ old('bond_originator_contact_id', $deal->bond_originator_contact_id) }}">
+                <div style="position:relative;">
+                    <input type="text" id="dr2_bond_search" class="w-full" autocomplete="off" placeholder="Search a bond originator firm or contact…">
+                    <div id="dr2_bond_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                </div>
+                <button type="button" id="dr2_bond_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new bond originator (firm &amp; contact)</button>
+            </div>
+
             {{-- (Enhancement 7 / walk fix 1+2) Financials — commission with a VAT basis toggle
                  and live two-way % ↔ amount binding. Stored truth stays DR1's (Incl-VAT total);
                  Excl + VAT are DERIVED for display, not forked into storage. --}}
@@ -638,6 +650,26 @@
     </div>
 </div>
 
+{{-- AT-228 — Add-new bond originator modal (mirror of the attorney add-new) --}}
+<div id="dr2_bond_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
+        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new bond originator</h3>
+        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the originator and the person you deal with.</p>
+        <div class="deal-grid">
+            <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_nb_firm" class="w-full" placeholder="e.g. BetterBond"></div>
+            <div><label class="ds-label block mb-1">Originator</label><input type="text" id="dr2_nb_attorney" class="w-full" placeholder="the originator"></div>
+            <div><label class="ds-label block mb-1">Contact</label><input type="text" id="dr2_nb_contact" class="w-full" placeholder="assistant"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_nb_email" class="w-full"></div>
+            <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_nb_address" class="w-full"></div>
+        </div>
+        <div id="dr2_nb_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div class="flex items-center justify-end gap-2 mt-4">
+            <button type="button" id="dr2_nb_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_nb_save" class="corex-btn-primary px-4 py-2 text-sm">Save bond originator</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     const csrf = document.querySelector('input[name="_token"]')?.value
@@ -1003,6 +1035,68 @@
         }).catch(() => { mErr.textContent = 'Network error — please try again.'; mErr.style.display = 'block'; })
           .finally(() => { this.disabled = false; });
     });
+
+    // ---------- AT-228: bond originator = FIRM + contact (mirror of the attorney picker) ----------
+    (function () {
+        const bSearch = document.getElementById('dr2_bond_search');
+        if (!bSearch) { return; }
+        const bResults = document.getElementById('dr2_bond_results');
+        const bProvId = document.getElementById('dr2_bond_provider_id');
+        const bContactId = document.getElementById('dr2_bond_contact_id');
+        const SPEC = '&specialty=bond_originator';
+        const closeB = () => { bResults.style.display = 'none'; bResults.innerHTML = ''; };
+        bSearch.addEventListener('input', () => { bProvId.value = ''; bContactId.value = ''; });
+        const runB = debounce(() => {
+            const q = bSearch.value.trim();
+            if (q.length < 2) { closeB(); return; }
+            fetch(R.attorneySearch + '?q=' + encodeURIComponent(q) + SPEC, { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : { results: [] })
+                .then(data => {
+                    const rows = (data && data.results) || [];
+                    if (!rows.length) { closeB(); return; }
+                    bResults.innerHTML = rows.map((row, i) => {
+                        const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
+                        const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
+                        return '<div class="dr2-brow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                    }).join('');
+                    bResults.style.display = 'block';
+                    bResults.querySelectorAll('.dr2-brow').forEach(el => {
+                        const row = rows[parseInt(el.dataset.i, 10)];
+                        el.addEventListener('click', () => {
+                            bSearch.value = row.label; bProvId.value = row.provider_id || ''; bContactId.value = row.contact_id || ''; closeB();
+                        });
+                    });
+                }).catch(closeB);
+        }, 220);
+        bSearch.addEventListener('input', runB);
+        bSearch.addEventListener('focus', runB);
+        document.addEventListener('click', e => { if (!e.target.closest('#dr2-bond')) closeB(); });
+
+        const bModal = document.getElementById('dr2_bond_modal');
+        const nbFirm = document.getElementById('dr2_nb_firm'), nbAtt = document.getElementById('dr2_nb_attorney');
+        const nbContact = document.getElementById('dr2_nb_contact'), nbEmail = document.getElementById('dr2_nb_email');
+        const nbAddress = document.getElementById('dr2_nb_address'), nbErr = document.getElementById('dr2_nb_error');
+        document.getElementById('dr2_bond_addnew').addEventListener('click', () => {
+            nbFirm.value = bSearch.value.trim(); nbAtt.value = nbContact.value = nbEmail.value = nbAddress.value = '';
+            nbErr.style.display = 'none'; bModal.style.display = 'flex'; nbFirm.focus();
+        });
+        document.getElementById('dr2_nb_cancel').addEventListener('click', () => bModal.style.display = 'none');
+        bModal.addEventListener('click', e => { if (e.target === bModal) bModal.style.display = 'none'; });
+        document.getElementById('dr2_nb_save').addEventListener('click', function () {
+            const firm = nbFirm.value.trim();
+            if (!firm) { nbErr.textContent = 'A firm is required.'; nbErr.style.display = 'block'; return; }
+            this.disabled = true;
+            fetch(R.attorneyInline + '?specialty=bond_originator', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrf },
+                body: JSON.stringify({ specialty: 'bond_originator', firm, attorney: nbAtt.value.trim() || null, contact: nbContact.value.trim() || null, email: nbEmail.value.trim() || null, address: nbAddress.value.trim() || null }),
+            }).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
+                if (!ok) { nbErr.textContent = (j && j.message) || 'Could not save the bond originator.'; nbErr.style.display = 'block'; return; }
+                bSearch.value = j.label || firm; bProvId.value = j.provider_id || ''; bContactId.value = j.contact_id || ''; bModal.style.display = 'none';
+            }).catch(() => { nbErr.textContent = 'Network error — please try again.'; nbErr.style.display = 'block'; })
+              .finally(() => { this.disabled = false; });
+        });
+    })();
 
     // On load: in EDIT mode the stored total_commission is the Incl-VAT figure (DR1 truth)
     // but %/amount are UI-only (not persisted) — seed the basis=incl, amount=stored total, and
