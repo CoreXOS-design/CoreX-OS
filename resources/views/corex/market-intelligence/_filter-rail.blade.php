@@ -56,8 +56,21 @@
     };
     $urlClearAll = route('market-intelligence.work');
 
+    // AT-242 / AT-239 — buyer-led prospecting + region.
+    $micBuyers     = $micBuyers ?? collect();
+    $micRegions    = $micRegions ?? collect();
+    $activeBuyerId = request('buyer_id');
+    $activeRegion  = request('region');
+    $selectedBuyerPill = $selectedBuyer ?? ($activeBuyerId ? $micBuyers->firstWhere('id', (int) $activeBuyerId) : null);
+    $buyerLabel = function ($b) {
+        $name = trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? ''));
+        return $name !== '' ? $name : ($b->email ?? 'Buyer #' . ($b->id ?? '?'));
+    };
+
     // Active filter pills
     $activePills = [];
+    if ($selectedBuyerPill)                              $activePills[] = ['label' => 'Buyer · ' . $buyerLabel($selectedBuyerPill), 'remove' => $urlWithout('buyer_id')];
+    if ($activeRegion)                                   $activePills[] = ['label' => 'Region · ' . $activeRegion,               'remove' => $urlWithout('region')];
     if ($activeSearch !== '')                            $activePills[] = ['label' => '"' . $activeSearch . '"',                'remove' => $urlWithout('search')];
     if ($activeSuburb)                                   $activePills[] = ['label' => 'Suburb · ' . $activeSuburb,              'remove' => $urlWithout('suburb')];
     if ($activeType)                                     $activePills[] = ['label' => 'Type · ' . $activeType,                  'remove' => $urlWithout('property_type')];
@@ -117,6 +130,61 @@
                 {{ $pill['label'] }}
                 <span style="font-weight: 700;">×</span>
             </a>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- AT-242 — Buyer-led prospecting. Pick a buyer → the universe narrows to
+         stock matching that buyer's wishlist (canonical Core Matches score),
+         strongest first. Searchable client-side over the buyers that have
+         matched canvass stock. --}}
+    @if($micBuyers->count() > 0)
+    <div x-data="{ open: {{ $activeBuyerId ? 'true' : 'false' }}, q: '' }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
+        </button>
+        <div x-show="open" style="padding: 0 0 6px;">
+            <div style="padding: 2px 12px 6px;">
+                <input type="text" x-model="q" placeholder="Search buyer…"
+                       class="w-full rounded-md px-2 py-1"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
+            </div>
+            @if($activeBuyerId)
+                <a href="{{ $urlWithout('buyer_id') }}" style="{{ $rowStyle }} color: var(--brand-icon);">
+                    <span>← All stock (clear buyer)</span>
+                </a>
+            @endif
+            <div style="max-height: 240px; overflow-y: auto;">
+                @foreach($micBuyers as $b)
+                    @php $bIsActive = (string) $activeBuyerId === (string) $b->id; $bName = $buyerLabel($b); @endphp
+                    <a href="{{ $urlWith(['buyer_id' => $b->id]) }}"
+                       x-show="q === '' || {{ \Illuminate\Support\Js::from(mb_strtolower($bName . ' ' . ($b->email ?? ''))) }}.includes(q.toLowerCase())"
+                       style="{{ $bIsActive ? $activeRowStyle : $rowStyle }}">
+                        <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $bName }}</span>
+                        @if($bIsActive)<span style="font-weight:700;">✓</span>@endif
+                    </a>
+                @endforeach
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- AT-239 — Region. Canonical region from the property spine (towns.region);
+         composes AND with every other filter. --}}
+    @if($micRegions->count() > 0)
+    <div x-data="{ open: {{ $activeRegion ? 'true' : 'false' }} }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By region
+        </button>
+        <div x-show="open" style="padding: 0 0 6px;">
+            @foreach($micRegions as $region)
+                @php $rIsActive = (string) $activeRegion === (string) $region; @endphp
+                <a href="{{ $rIsActive ? $urlWithout('region') : $urlWith(['region' => $region]) }}"
+                   style="{{ $rIsActive ? $activeRowStyle : $rowStyle }}">
+                    <span>{{ $region }}</span>
+                    @if($rIsActive)<span style="font-weight:700;">×</span>@endif
+                </a>
             @endforeach
         </div>
     </div>
