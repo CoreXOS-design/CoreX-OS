@@ -94,6 +94,11 @@ class NotificationEventTypeSeeder extends Seeder
             $this->row('leave.starting_soon', 'agent', 'Leave', 'Leave starting in 3 days', 'none', null, null, null, 24),
             $this->row('leave.ending_soon', 'agent', 'Leave', 'Leave ends today', 'none', null, null, null, 25),
             $this->row('property.feedback_captured', 'property', 'Activity', 'Viewing feedback captured', 'none', null, null, null, 26),
+
+            // AT-235 S1 — the gateway's first citizen. Database-only: the notification
+            // has no toMail()/toFcmPayload(), so supports_email/push are FALSE and the
+            // gateway will never try to render a channel the class cannot produce.
+            $this->row('proforma.created', 'deal', 'Finance', 'Proforma invoice generated', 'none', null, null, null, 27, false, null, inApp: true, email: false, push: false),
         ];
     }
 
@@ -109,6 +114,9 @@ class NotificationEventTypeSeeder extends Seeder
         int $sort,
         bool $isAdapter = false,
         ?string $adapterColumn = null,
+        bool $inApp = true,
+        bool $email = true,
+        bool $push = true,
     ): array {
         return [
             'key'               => $key,
@@ -121,9 +129,12 @@ class NotificationEventTypeSeeder extends Seeder
             'default_threshold' => $default,
             'threshold_min'     => $min,
             'threshold_max'     => $max,
-            'supports_in_app'   => 1,
-            'supports_email'    => 1,
-            'supports_push'     => 1,
+            // Capability — what the notification class can actually RENDER. The
+            // gateway intersects the user's preference with these (AT-235 C11: they
+            // existed and nothing read them).
+            'supports_in_app'   => $inApp ? 1 : 0,
+            'supports_email'    => $email ? 1 : 0,
+            'supports_push'     => $push ? 1 : 0,
             'is_adapter'        => $isAdapter ? 1 : 0,
             'adapter_column'    => $adapterColumn,
             'sort_order'        => $sort,

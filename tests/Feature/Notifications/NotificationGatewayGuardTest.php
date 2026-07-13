@@ -69,7 +69,10 @@ final class NotificationGatewayGuardTest extends TestCase
         'app/Services/Presentations/PresentationDeliveryService.php',
         'app/Http/Controllers/Presentation/PublicPresentationController.php',
         'app/Jobs/PromptOutcomeCaptureJob.php',
-        'app/Notifications/Presentations/RefreshDeclinedNotification.php',
+        // (RefreshDeclinedNotification was listed here in error — it is a notification
+        // CLASS, not a sender; it only mentions Notification::route() in a docblock.
+        // The comment-stripping guard caught my own false entry. The real sender is
+        // RefreshRequestService, listed above.)
 
         // ── Deals ──
         'app/Services/DealV2/NotificationService.php',
@@ -89,24 +92,6 @@ final class NotificationGatewayGuardTest extends TestCase
         'app/Services/CommandCenter/CalendarReminderService.php',
         'app/Console/Commands/CommandCenter/ProcessReminders.php',
         'app/Console/Commands/CheckLeaseExpiry.php',
-
-        // ── Proforma (AT-245's own feature — ALREADY BUILT AS A BYPASS) ──
-        //
-        // ProformaGenerationService::…  Notification::send($admins, new ProformaCreatedNotification(...))
-        //
-        // This landed on Staging on 12 Jul, BEFORE this guard existed, so it is frozen
-        // debt rather than a new violation — the guard is not blocking it retroactively.
-        //
-        // ⚠️ BUT IT IS THE ONE FILE AT-245 IS ABOUT. The AT-235 findings recommended
-        // that AT-245 (proforma admin notify) be the FIRST CITIZEN of the gateway
-        // model — register its key, fire via NotificationDispatcher, inherit prefs +
-        // cooldown + the dispatch ledger for free. It has instead been built the old
-        // way: admins cannot switch it off, and nothing records that it fired.
-        //
-        // Converting it is cheap (it is one call site) and it turns AT-245 into the
-        // reference implementation R5 migrates everything else toward. FLAGGED TO THE
-        // CONDUCTOR — this entry should be DELETED, not inherited.
-        'app/Services/Proforma/ProformaGenerationService.php',
 
         // ── Misc ──
         'app/Jobs/MatchPropertyJob.php',
@@ -186,9 +171,11 @@ final class NotificationGatewayGuardTest extends TestCase
     public function test_the_bypass_debt_is_recorded(): void
     {
         $this->assertLessThanOrEqual(
-            23,
+            21,
             count(self::KNOWN_BYPASSES),
-            'the bypass allow-list may only ever SHRINK — R5 empties it'
+            'the bypass allow-list may only ever SHRINK — S2 empties it. '
+            . '23 -> 22 when AT-245 proforma became citizen #1; -> 21 when a false entry '
+            . '(a notification class, not a sender) was removed.'
         );
     }
 
@@ -196,13 +183,39 @@ final class NotificationGatewayGuardTest extends TestCase
 
     private function sendsANotification(string $source): bool
     {
+        // Scan CODE, not prose. A docblock that quotes the old bypass — e.g.
+        // ProformaGenerationService explaining what it used to do before it became
+        // citizen #1 — must not trip the guard. Strip comments first, or the guard
+        // punishes people for documenting the very fix it asked them to make.
+        $code = $this->stripComments($source);
+
         foreach (['->notify(', 'Notification::send(', 'Notification::sendNow(', 'Notification::route('] as $needle) {
-            if (str_contains($source, $needle)) {
+            if (str_contains($code, $needle)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /** Source with all comments and docblocks removed. */
+    private function stripComments(string $source): string
+    {
+        $out = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $out .= $token[1];
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
     }
 
     /** @return array<string,string> relative path => source */

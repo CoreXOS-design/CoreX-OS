@@ -7657,6 +7657,7 @@ CREATE TABLE `payroll_payslip_lines` (
   `sort_order` tinyint unsigned NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `payroll_payslip_lines_payroll_payslip_id_line_type_index` (`payroll_payslip_id`,`line_type`),
   CONSTRAINT `payroll_payslip_lines_payroll_payslip_id_foreign` FOREIGN KEY (`payroll_payslip_id`) REFERENCES `payroll_payslips` (`id`) ON DELETE CASCADE
@@ -7694,9 +7695,10 @@ CREATE TABLE `payroll_payslips` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_payslip_key` varchar(64) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is null) then `payslip_number` else NULL end)) STORED,
   PRIMARY KEY (`id`),
   UNIQUE KEY `payroll_payslips_payroll_run_id_payroll_employee_id_unique` (`payroll_run_id`,`payroll_employee_id`),
-  UNIQUE KEY `payroll_payslips_payslip_number_unique` (`payslip_number`),
+  UNIQUE KEY `payroll_payslips_active_number_unique` (`agency_id`,`active_payslip_key`),
   KEY `payroll_payslips_agency_id_foreign` (`agency_id`),
   KEY `payroll_payslips_branch_id_foreign` (`branch_id`),
   KEY `payroll_payslips_payroll_employee_id_foreign` (`payroll_employee_id`),
@@ -7738,8 +7740,9 @@ CREATE TABLE `payroll_runs` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_period_key` date GENERATED ALWAYS AS ((case when ((`deleted_at` is null) and (`status` <> _utf8mb4'cancelled')) then `period_month` else NULL end)) STORED,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `payroll_runs_agency_id_period_month_unique` (`agency_id`,`period_month`),
+  UNIQUE KEY `payroll_runs_active_period_unique` (`agency_id`,`active_period_key`),
   KEY `payroll_runs_finalised_by_foreign` (`finalised_by`),
   KEY `payroll_runs_cancelled_by_foreign` (`cancelled_by`),
   KEY `payroll_runs_created_by_foreign` (`created_by`),
@@ -13408,3 +13411,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (980,'2026_07_27_00
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (983,'2026_07_28_100001_add_property_and_seller_links_to_filing_register',227);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (984,'2026_07_28_100002_null_default_p24_suburbs_region',228);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (985,'2026_07_13_100000_at235_retire_dead_contact_notification_toggles',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (986,'2026_07_29_000001_payroll_soft_delete_safe_uniques',230);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (987,'2026_07_28_100003_one_seller_fact_on_filing_register',231);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (988,'2026_07_13_200000_at235_register_proforma_created_notification',232);
