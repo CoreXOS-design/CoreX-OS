@@ -8,6 +8,8 @@ use App\Models\Payroll\PayrollEmployee;
 use App\Models\Payroll\PayrollPayslip;
 use App\Models\Payroll\PayrollPayslipLine;
 use App\Models\Payroll\PayrollRun;
+use App\Models\Payroll\PayrollTaxRebate;
+use App\Models\Payroll\PayrollTaxTable;
 use App\Models\Leave\LeaveApplication;
 use App\Services\Leave\PublicHolidayService;
 use App\Services\Payroll\PayrollCalculator;
@@ -139,6 +141,19 @@ class PayrollRunController extends Controller
         if ($existingDraft) {
             return back()->withInput()->with('error',
                 "A draft run already exists for {$periodMonth->format('F Y')}. Cancel it first or continue editing.");
+        }
+
+        // AT-237 C2 — a missing SARS tax table is a HARD STOP, never a silent R0
+        // payslip. Refuse run creation up front (prevent, per BUILD_STANDARD §3),
+        // before any calculation or row is written — so nobody finalises a run
+        // with everyone under-deducted to zero PAYE.
+        if (! PayrollTaxTable::forTaxYear($periodMonth)->exists()
+            || ! PayrollTaxRebate::forTaxYear($periodMonth)->exists()) {
+            $tyStart = $periodMonth->month >= 3 ? $periodMonth->year : $periodMonth->year - 1;
+            return back()->withInput()->with('error',
+                "Cannot create a payroll run for {$periodMonth->format('F Y')}: no SARS tax tables are "
+                . "loaded for the {$tyStart}/" . ($tyStart + 1) . " tax year. Load the tax tables "
+                . "(deploy:sync-reference-data) before running payroll.");
         }
 
         $agencyId = auth()->user()->effectiveAgencyId();

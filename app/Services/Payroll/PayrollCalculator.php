@@ -267,18 +267,21 @@ class PayrollCalculator
         $annualTaxable = bcmul($monthlyTaxableIncome, '12', 2);
         $trace[] = "PAYE: annualised taxable = R{$annualTaxable}";
 
-        // Get tax brackets
+        // Get tax brackets. AT-237 C2 — a missing statutory table is a HARD STOP,
+        // never a silent PAYE = R0 (which finalised whole runs under-deducted).
         $brackets = PayrollTaxTable::forTaxYear($periodMonth)->get();
         if ($brackets->isEmpty()) {
-            $warnings[] = "No tax tables found for period {$periodMonth->format('Y-m')} — PAYE = R0";
-            return ['amount' => '0.00', 'trace' => $trace, 'warnings' => $warnings];
+            throw new \App\Exceptions\Payroll\MissingTaxDataException(
+                $periodMonth->format('Y-m'), 'tax tables (PAYE brackets)'
+            );
         }
 
         // Get rebate data
         $rebate = PayrollTaxRebate::forTaxYear($periodMonth)->first();
         if (! $rebate) {
-            $warnings[] = "No tax rebate data found for period {$periodMonth->format('Y-m')} — PAYE = R0";
-            return ['amount' => '0.00', 'trace' => $trace, 'warnings' => $warnings];
+            throw new \App\Exceptions\Payroll\MissingTaxDataException(
+                $periodMonth->format('Y-m'), 'tax rebate / threshold data'
+            );
         }
 
         // Determine age
