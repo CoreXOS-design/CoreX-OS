@@ -16,6 +16,7 @@ use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
 use App\Services\Images\PropertyImageGuard;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -1259,17 +1260,28 @@ class PropertyController extends Controller
 
         $clone->title  = ($property->title ?? 'Property') . ' (Copy)';
         $clone->status = 'draft';
-        $clone->price  = null;
+        // The copy starts with NO price so the agent must set one — but `price` is
+        // `bigint unsigned NOT NULL DEFAULT 0`, so writing an explicit NULL threw
+        // 1048 and duplicate 500'd for EVERY property, not just one with odd data.
+        // 0 is this schema's "unset" (604 rows carry it; not one row is NULL), and
+        // empty(0) is true, so publishToggle()'s readiness gate still demands a
+        // real Price before the copy can go live. Same intent, a value the column
+        // actually accepts.
+        $clone->price  = 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
         $clone->pp_syndication_enabled = false;
-        $clone->save();
 
-        // Copy contact links
-        foreach ($property->contacts as $contact) {
-            $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
-        }
+        // Clone + its contact links are one unit of work: a half-copied property
+        // with no seller attached is worse than no copy at all.
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+        });
 
         return redirect()->route('corex.properties.show', $clone)
             ->with('success', 'Property duplicated. Update the details and save.');
