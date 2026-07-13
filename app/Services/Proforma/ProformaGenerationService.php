@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Notifications\Proforma\ProformaCreatedNotification;
 use App\Models\Scopes\AgencyScope;
 use App\Services\DealV2\DealDocumentService;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -201,6 +202,32 @@ class ProformaGenerationService
         }
     }
 
+    /**
+     * AT-235 (S1) — CITIZEN #1 OF THE NOTIFICATION GATEWAY.
+     *
+     * This used to be `Notification::send($admins, new ProformaCreatedNotification(…))`
+     * — a raw send that bypassed everything. An admin could not switch it off (it had
+     * no catalogue row, so no settings toggle existed), it honoured no preference, no
+     * open-hours window and no cooldown, and it wrote nothing to
+     * notification_dispatch_log — so nothing recorded that it had fired.
+     *
+     * The AT-235 build guard caught it on its very first merge, which is fitting: it
+     * is the exact feature the findings recommended be gateway-native from the start.
+     *
+     * It now goes through the gateway. That buys, for free and with no code here:
+     *   - the admin can turn it off (Settings → Notifications → "Proforma invoice generated"),
+     *   - open-hours suppression and the per-user cooldown,
+     *   - an idempotency ledger row, so we can prove what was sent and to whom,
+     *   - and channel resolution in ONE place rather than inside via().
+     *
+     * This is the worked example every other producer migration copies.
+     *
+     * The dedup key is `now()` — passed EXPLICITLY, not defaulted. Generating a
+     * proforma is a DISCRETE event: each generation is a genuinely new fact and
+     * should notify. (A persistent condition — "this deal still has no proforma" —
+     * would need a STABLE key instead, or it would re-notify on every scan tick.
+     * That distinction is what let contact.fica_missing fire 1.9M times; see R3.)
+     */
     private function notifyAdmins(Deal $deal, ProformaInvoice $invoice, User $actor, string $reference): void
     {
         try {
@@ -208,8 +235,17 @@ class ProformaGenerationService
                 ->where('agency_id', $deal->agency_id)
                 ->whereIn('role', ['super_admin', 'admin', 'owner'])
                 ->get();
-            if ($admins->isNotEmpty()) {
-                Notification::send($admins, new ProformaCreatedNotification($invoice, $actor->name ?? 'An agent', $reference));
+
+            $gateway = app(NotificationDispatcher::class);
+
+            foreach ($admins as $admin) {
+                $gateway->send(
+                    $admin,
+                    'proforma.created',
+                    $invoice,
+                    new ProformaCreatedNotification($invoice, $actor->name ?? 'An agent', $reference),
+                    ['threshold_hit_at' => now()], // discrete event — each generation is its own fact
+                );
             }
         } catch (\Throwable $e) {
             Log::warning('Proforma admin notify skipped: ' . $e->getMessage());
