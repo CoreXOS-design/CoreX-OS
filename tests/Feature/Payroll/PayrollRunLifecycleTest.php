@@ -124,4 +124,19 @@ final class PayrollRunLifecycleTest extends TestCase
 
         $this->assertFalse($res['success'], 'finalise refuses a run that is no longer draft (D2 guard/lock verdict)');
     }
+
+    /** A3 — a soft-deleted earning-type code can be re-created (the active-key frees it). */
+    public function test_soft_deleted_type_code_can_be_recreated(): void
+    {
+        $type = PayrollEarningType::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('code', 'basic')->firstOrFail();
+        $type->delete(); // soft-delete
+
+        $new = PayrollEarningType::withoutGlobalScopes()->create([
+            'agency_id' => $this->agencyId, 'code' => 'basic', 'label' => 'Basic Salary (re-created)',
+            'is_taxable' => true, 'affects_uif_remuneration' => true, 'affects_sdl_remuneration' => true,
+            'pro_rates_on_partial' => true, 'sort_order' => 1,
+        ]);
+
+        $this->assertNotSame($type->id, $new->id, 'the same code is re-createable after soft-delete (no 1062)');
+    }
 }
