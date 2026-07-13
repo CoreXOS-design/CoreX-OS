@@ -106,7 +106,10 @@ class Dr2DistributionSendService
                     'deal_id'              => $deal->deal_v2_id,  // FK deals_v2 twin
                     'document_id'          => $doc->id,
                     'party_role'           => $role,
-                    'recipient_contact_id' => ($recipient['type'] ?? null) === 'contact' ? ($recipient['id'] ?? null) : ($recipient['contact_id'] ?? null),
+                    // recipient_contact_id FKs to `contacts` — only a real CoreX contact goes here.
+                    // A provider recipient is tracked by recipient_provider_id (its firm); its
+                    // service-provider-contact id is NOT a contacts.id.
+                    'recipient_contact_id'  => ($recipient['type'] ?? null) === 'contact' ? ($recipient['id'] ?? null) : null,
                     'recipient_provider_id' => ($recipient['type'] ?? null) === 'provider' ? ($recipient['id'] ?? null) : null,
                     'recipient_email'      => $email ?: null,
                     'delivery_mode'        => $mode,
