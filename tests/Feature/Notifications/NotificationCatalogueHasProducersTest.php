@@ -35,27 +35,16 @@ final class NotificationCatalogueHasProducersTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * Toggles with no producer that are NOT dead code — they are UNBUILT FEATURES.
+     * (Was: UNBUILT_PENDING_DECISION — six toggles awaiting a call.)
      *
-     * Six catalogue rows were seeded ahead of a watcher that was never written. They
-     * have never fired once (verified against the live dispatch log: only
-     * contact.fica_missing, property.documents_missing and contact.birthday appear).
+     * RESOLVED 2026-07-13: all six are now SOFT-RETIRED by migration, so they no
+     * longer reach the settings UI and this guard no longer needs to except them.
+     * A visible switch that does nothing is a silent lie to the user.
      *
-     * They are NOT retired here, because deleting a planned feature's switch is
-     * Johan's call, not this test's. They are listed so the debt is explicit and so
-     * this guard still catches the NEXT one.
-     *
-     * ⚠️ ESCALATED TO JOHAN (AT-235 R1): either build the watchers, or retire the rows.
-     * Today a user can switch these on and will never hear a thing.
+     * They remain restorable, and a backlog ticket tracks the build decision for each.
+     * If a watcher is ever written, un-retire the row — and this guard will then
+     * REQUIRE the producer to exist, which is exactly the invariant we want.
      */
-    private const UNBUILT_PENDING_DECISION = [
-        'property.no_activity',
-        'property.compliance_doc_missing',
-        'deal.documents_missing',
-        'deal.commission_unpaid',
-        'deal.milestone_due',
-        'leave.cancelled',
-    ];
 
     /** Fired in code but absent from the catalogue → unconfigurable (AT-235 C9, tracked in R5). */
     private const UNCATALOGUED_KNOWN = [
@@ -74,10 +63,25 @@ final class NotificationCatalogueHasProducersTest extends TestCase
         // below vacuously true. That is exactly how the first draft of this test
         // passed while the settings page was full of dead switches.
         $this->assertGreaterThan(
-            20,
+            10,
             NotificationEventType::count(),
             'the catalogue must be seeded, or the producer checks below prove nothing'
         );
+
+        // A sentinel: a key we KNOW should be live. A count alone could still pass on a
+        // catalogue full of the wrong rows.
+        $this->assertTrue(
+            NotificationEventType::where('key', 'property.documents_missing')->exists(),
+            'the seeded catalogue must contain the keys that actually fire'
+        );
+
+        // And the retired ones must NOT be live — that is the whole point of R1.
+        foreach (['contact.fica_expiring', 'deal.milestone_due', 'leave.cancelled'] as $retired) {
+            $this->assertFalse(
+                NotificationEventType::where('key', $retired)->exists(),
+                "{$retired} was retired — it must not be offered in the settings UI"
+            );
+        }
     }
 
     public function test_every_live_catalogue_toggle_can_actually_be_fired(): void
@@ -90,10 +94,6 @@ final class NotificationCatalogueHasProducersTest extends TestCase
             // have no event-key literal in source.
             if ($type->is_adapter) {
                 continue;
-            }
-
-            if (in_array($type->key, self::UNBUILT_PENDING_DECISION, true)) {
-                continue; // known debt, escalated — see the constant's docblock
             }
 
             if (! $this->hasProducerInSource($type->key)) {

@@ -41,10 +41,45 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
-    /** The toggles with no producer left in the codebase. */
+    /**
+     * Every toggle with no producer — soft-retired so it stops being offered.
+     *
+     * TWO GROUPS, one decision (conductor's ruling, Johan informed, 2026-07-13 21:00):
+     * a visible switch that does nothing is a SILENT LIE to the user, and worse than
+     * the feature simply being absent. So both groups are hidden now; both are
+     * restorable (soft-delete, `down()` brings them back).
+     *
+     *   ORPHANED — their producer (ScanContactNotifications) was deleted on 1 Jul:
+     *     contact.fica_expiring
+     *     contact.no_followup
+     *
+     *   CANDIDATE FEATURES — seeded ahead of a watcher that was never written. These
+     *   have NEVER fired once (verified against the live dispatch log: only
+     *   contact.fica_missing, property.documents_missing and contact.birthday have
+     *   ever produced a dispatch). They are NOT dead code — they are unbuilt features,
+     *   and a backlog ticket tracks the build decision for each, post-launch:
+     *     property.no_activity
+     *     property.compliance_doc_missing
+     *     deal.documents_missing
+     *     deal.commission_unpaid
+     *     deal.milestone_due
+     *     leave.cancelled
+     *
+     * Retiring the row does NOT delete the user's saved preference for it. If a
+     * watcher is built later, restoring the row restores what the user asked for.
+     */
     private const DEAD_KEYS = [
+        // orphaned — producer deleted
         'contact.fica_expiring',
         'contact.no_followup',
+
+        // candidate features — never fired; backlog ticket cut for the build decision
+        'property.no_activity',
+        'property.compliance_doc_missing',
+        'deal.documents_missing',
+        'deal.commission_unpaid',
+        'deal.milestone_due',
+        'leave.cancelled',
     ];
 
     public function up(): void
