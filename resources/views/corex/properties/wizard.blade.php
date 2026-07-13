@@ -367,9 +367,16 @@
                 </svg>
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Drag photos here</div>
                 <div class="text-xs mt-1" style="color:var(--text-muted);">or <span style="color:var(--brand-icon,#0ea5e9);" class="underline font-medium">click to browse</span></div>
-                <div class="text-[11px] mt-2" style="color:var(--text-muted);">JPG / PNG &middot; up to 5 MB each</div>
+                <div class="text-[11px] mt-2" style="color:var(--text-muted);">JPG, PNG, GIF, BMP, WEBP or SVG</div>
                 <input id="wizard-files" type="file" class="hidden" multiple accept="image/*" @change="handleFiles($event.target.files)">
             </label>
+
+            {{-- Upload error banner. Step 2 previously had NO error surface at all,
+                 so a rejected photo had nowhere to report itself. --}}
+            <div x-show="uploadError" x-cloak
+                 class="rounded-md px-4 py-3 text-sm"
+                 style="background:color-mix(in srgb,#ef4444 10%,var(--surface));border:1px solid color-mix(in srgb,#ef4444 35%,transparent);color:var(--text-primary);"
+                 x-text="uploadError"></div>
 
             {{-- Upload progress --}}
             <div x-show="uploading" x-cloak class="rounded-md px-4 py-3" style="background:color-mix(in srgb,var(--brand-icon,#0ea5e9) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--brand-icon,#0ea5e9) 30%,transparent);">
@@ -635,6 +642,7 @@ function propertyWizard(config) {
         uploading: false,
         uploadedCount: 0,
         uploadTotal: 0,
+        uploadError: null,
 
         // Step data — agent_id defaults to current user; the server enforces who can change it.
         s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', city: '', province: '',
@@ -735,36 +743,92 @@ function propertyWizard(config) {
         },
 
         async handleDrop(ev) { this.dragOver = false; await this.handleFiles(ev.dataTransfer.files); },
+
+        // A photo the user selected is either uploaded or EXPLAINED. Never
+        // silently dropped: the previous filter discarded anything over 5MB
+        // without a word, so an agent selecting ordinary listing photography
+        // (routinely 6-15MB) filtered the whole selection down to nothing, the
+        // function returned before the fetch, and the screen simply did not
+        // react — no request, no error, no spinner. Every reject below sets
+        // uploadError, and the drop-zone renders it.
         async handleFiles(files) {
-            if (!this.propertyId || !files || !files.length) return;
-            const images = Array.from(files).filter(f => f.type.startsWith('image/') && f.size <= 5 * 1024 * 1024);
+            this.uploadError = null;
+            if (!this.propertyId) {
+                this.uploadError = 'Save the listing details first, then add photos.';
+                return;
+            }
+            const picked = Array.from(files || []);
+            if (!picked.length) return;
+
+            // Mirrors the server rules exactly (PropertyWizardController::
+            // uploadPhotos → image|max:204800). Anything Laravel's `image` rule
+            // would refuse is caught here WITH a reason, rather than poisoning a
+            // whole batch server-side and taking its valid siblings down with it.
+            const MAX_FILE = 200 * 1024 * 1024;
+            const ALLOWED = ['image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp', 'image/svg+xml'];
+            const images = [], rejected = [];
+            for (const f of picked) {
+                if (!ALLOWED.includes(f.type)) {
+                    rejected.push(`"${f.name}" is not a supported image (use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first).`);
+                } else if (f.size > MAX_FILE) {
+                    rejected.push(`"${f.name}" is ${Math.round(f.size / 1048576)}MB — the limit is 200MB per photo.`);
+                } else {
+                    images.push(f);
+                }
+            }
+            if (rejected.length) this.uploadError = rejected.join(' ');
             if (!images.length) return;
 
             this.uploading = true;
             this.uploadTotal = images.length;
             this.uploadedCount = 0;
 
-            // PHP caps a single POST at max_file_uploads (default 20) and
-            // silently drops the overflow. Upload in batches so every photo
-            // lands no matter how many were selected, and so the counter
-            // advances live as each batch completes.
-            const BATCH = 10;
+            // Batch by BOTH file count (PHP max_file_uploads, which silently drops
+            // the overflow) AND total bytes (a count-only batch of large photos
+            // overruns post_max_size and the server answers 413). MAX_BYTES bounds
+            // the POST ENVELOPE against post_max_size (~550M) and is deliberately
+            // NOT the per-file cap above — several 200MB photos still must not be
+            // packed into one request.
+            const MAX_COUNT = 10, MAX_BYTES = 500 * 1024 * 1024;
+            const batches = [];
+            let cur = [], curBytes = 0;
+            for (const f of images) {
+                if (cur.length && (cur.length >= MAX_COUNT || curBytes + f.size > MAX_BYTES)) {
+                    batches.push(cur); cur = []; curBytes = 0;
+                }
+                cur.push(f); curBytes += f.size;
+            }
+            if (cur.length) batches.push(cur);
+
+            const failures = [];
+            const url = `${this.routes.photos}/${this.propertyId}/photos`;
             try {
-                const url = `${this.routes.photos}/${this.propertyId}/photos`;
-                for (let i = 0; i < images.length; i += BATCH) {
-                    const chunk = images.slice(i, i + BATCH);
+                for (const chunk of batches) {
                     const body = new FormData();
                     body.append('_token', this.csrf);
                     chunk.forEach(f => body.append('gallery_images[]', f));
-                    const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
-                    const j = await r.json();
-                    if (r.ok && j.urls) {
-                        this.photos = this.photos.concat(j.urls);
-                        this.uploadedCount += chunk.length;
+                    try {
+                        const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
+                        const j = await r.json().catch(() => ({}));
+                        if (r.ok && j.urls) {
+                            this.photos = this.photos.concat(j.urls);
+                            this.uploadedCount += chunk.length;
+                        } else if (r.status === 413) {
+                            failures.push(`${chunk.length} photo(s) were too large for the server to accept in one batch.`);
+                        } else {
+                            failures.push(j.message || `${chunk.length} photo(s) failed to upload (HTTP ${r.status}). Please try again.`);
+                        }
+                    } catch (e) {
+                        failures.push(`${chunk.length} photo(s) failed — network error during upload.`);
                     }
                 }
-            } catch (e) { /* silent */ }
-            finally { this.uploading = false; }
+            } finally {
+                this.uploading = false;
+            }
+
+            if (failures.length) {
+                this.uploadError = [this.uploadError, ...failures].filter(Boolean).join(' ');
+            }
         },
 
         reorderPhoto(targetIdx) {
