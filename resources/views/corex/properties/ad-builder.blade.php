@@ -222,6 +222,7 @@
         .layer-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
         .layer-ico { width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:5px; border:none; background:transparent; color:inherit; cursor:pointer; flex-shrink:0; opacity:0.65; }
         .layer-ico:hover { background: var(--chrome-hover); opacity:1; }
+        .layer-ico.danger:hover { background:#e63946; color:#fff; opacity:1; }
         .layer-ico svg { width:13px; height:13px; }
         .layer-swatch { width:16px; height:16px; border-radius:4px; flex-shrink:0; }
         .layer-drop { height:3px; border-radius:2px; background:var(--brand-button,#00b4d8); margin:-1px 0; opacity:0; }
@@ -1007,10 +1008,13 @@
                                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="opacity:0.5;"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>
                             </template>
                         </button>
+                        <button class="layer-ico danger" @click.stop="deleteOne(el)" title="Delete this layer (Ctrl+Z to undo)">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
                     </div>
                 </div>
             </template>
-            <div class="pp-hint" x-show="elements.length" style="margin-top:10px;">Drag a layer to restack it. The top row paints over everything below it.</div>
+            <div class="pp-hint" x-show="elements.length" style="margin-top:10px;">Drag a layer to restack it. The top row paints over everything below it. Deleting a layer is undoable (Ctrl+Z).</div>
         </div>
     </div>
 
@@ -1299,12 +1303,39 @@ function builder() {
             this.canvasH = p.h;
         },
 
+        /**
+         * Delete the selection. A LOCKED element is skipped — the padlock already stops
+         * dragging and nudging, so it must stop the far more destructive Del key too,
+         * or locking a background photo protects it from every accident except the worst
+         * one. To delete a locked element, use its trash button in Layers (an explicit
+         * click on that one row) or unlock it first.
+         */
         deleteSelected() {
             if (!this.selCount) return;
+            const doomed = this.selIdx.map(i => this.elements[i]).filter(e => !e.locked);
+            const skipped = this.selCount - doomed.length;
+
+            if (!doomed.length) {
+                this.toast(this.selCount === 1 ? 'That layer is locked' : 'Those layers are locked');
+                return;
+            }
+
             this.commit();
-            this.elements = this.elements.filter(e => !this.selIds.includes(e.id));
-            this.selIds = [];
+            const ids = doomed.map(e => e.id);
+            this.elements = this.elements.filter(e => !ids.includes(e.id));
+            this.selIds = this.selIds.filter(id => !ids.includes(id));
             this.normalizeZ(false);
+
+            if (skipped) this.toast(skipped + (skipped === 1 ? ' locked layer kept' : ' locked layers kept'));
+        },
+
+        /** Delete one layer from the Layers panel. Explicit, so it overrides the padlock. */
+        deleteOne(el) {
+            this.commit();
+            this.elements = this.elements.filter(e => e.id !== el.id);
+            this.selIds = this.selIds.filter(id => id !== el.id);
+            this.normalizeZ(false);
+            this.toast('Layer deleted — Ctrl+Z to undo');
         },
 
         duplicateSelected() {

@@ -570,11 +570,19 @@ element is selected, to the **selection's bounding box** when several are. Distr
 horizontally/vertically (3+). "Fill canvas" stretches to full bleed.
 
 **Layers panel.** A real stack, top-of-the-ad first: drag to restack, show/hide, lock/unlock,
-click to select. `zIndex` is re-seated as a dense `1..n` run after every reorder — which also
-keeps it **positive**: a negative z-index child would paint *behind* the canvas background,
-because `#canvas` creates no stacking context. **Hidden = absent from the ad** — the generator
-skips hidden elements, so hiding is a design decision, not just an editor convenience.
-Locked elements can't be dragged, marquee-caught or nudged.
+**delete**, click to select. `zIndex` is re-seated as a dense `1..n` run after every reorder —
+which also keeps it **positive**: a negative z-index child would paint *behind* the canvas
+background, because `#canvas` creates no stacking context. **Hidden = absent from the ad** —
+the generator skips hidden elements, so hiding is a design decision, not just an editor
+convenience. The panel is also the only way to reach an element that is completely covered by
+another one, since it can't be clicked on the canvas.
+
+**Lock means lock — including against `Del`.** Locked elements can't be dragged, marquee-caught
+or nudged, and `deleteSelected()` **skips** them (it says how many it kept). A padlock that
+guards a background photo against every accident *except the most destructive one* is not a
+padlock. The escape hatch is the layer row's own **trash button**, which deletes that one
+element regardless of its lock — an unambiguous click on one specific row is an explicit act,
+not an accident. Every deletion is a single undo step.
 
 **Handles.** 8 resize handles (corners + edges), **Shift** keeps the aspect ratio on a corner,
 plus a free rotate handle (**Shift** snaps to 15°). All of it lives in a selection overlay that
