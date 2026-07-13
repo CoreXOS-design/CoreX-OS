@@ -29,6 +29,7 @@ class SyncReferenceData extends Command
 
     /** Idempotent, global-scope reference seeders. */
     private array $seeders = [
+        \Database\Seeders\NotificationEventTypeSeeder::class, // notification catalogue — had NO seeder; a fresh env got an EMPTY settings page (AT-235 R1 / AT-162)
         \Database\Seeders\CalendarEventClassSeeder::class, // calendar event classes/types + natures/occupies_time/autofill (AT-162)
         \Database\Seeders\DataDictionarySeeder::class,     // CoreX-standard SA e-sign data dictionary (AT-177 / WS0)
         \Database\Seeders\ReferencePackDictionarySeeder::class, // 6 entries the 116 reference-proof surfaced (AT-177 / WS5)
