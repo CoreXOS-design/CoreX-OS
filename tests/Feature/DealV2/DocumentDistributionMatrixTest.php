@@ -134,7 +134,9 @@ class DocumentDistributionMatrixTest extends TestCase
             $this->matrix->partyRolesForType($a, $this->otp), 'OTP → all four parties');
         $this->assertEqualsCanonicalizing(['bond_originator', 'transfer_attorney'],
             $this->matrix->partyRolesForType($a, $this->ids), 'ID → originator + attorney');
-        $this->assertSame([$this->otp], $this->matrix->typesForParty($a, 'seller')->pluck('id')->all(),
-            'seller gets only the signed OTP');
+        // Seller receives the signed OTP (and, once proforma is present, the proforma_invoice
+        // type default too — so assert membership, not an exact-only set).
+        $this->assertContains($this->otp, $this->matrix->typesForParty($a, 'seller')->pluck('id')->all(),
+            'seller gets the signed OTP');
     }
 }
