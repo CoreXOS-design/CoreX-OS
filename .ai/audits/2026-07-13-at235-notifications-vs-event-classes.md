@@ -8,8 +8,13 @@
 > settings surface. There are **five independent comms senders and six settings surfaces**, and the
 > preference system governs **8 of ~36 send sites**. The rest bypass it entirely.
 > **The receipt:** one notification fired **1,903,039 times in 24 days** — *inside* the pipeline
-> that has idempotency. It only stopped because someone deleted the scanner.
+> that has idempotency. **Nothing in the system detected or capped it; a human noticed and killed
+> the event type by hand** (19 Jun, ten minutes after the last dispatch).
 > **Author:** m6. Sources: live `nexus_os` (read-only), two full code inventories, and the specs.
+> **Corrections applied 2026-07-13** (found while building R1 — flagged, not quietly patched):
+> (1) the storm was stopped by a **hand soft-delete of the event type**, not by the 1 Jul scanner
+> deletion; (2) **two** dead toggles remain, not three — `contact.fica_missing` was already retired.
+> My first-draft queries did not filter `deleted_at`. Both errors are corrected in §2 and §3-C7.
 
 ---
 
@@ -77,8 +82,13 @@ The storm did not come from the un-governed 80%. It came from **the one pipeline
 preferences, cooldown and an idempotency ledger.** The ledger is only as good as the stability of
 the key it dedups on — and nothing tests that.
 
-**It stopped because the scanner was deleted** (`7e8349a5`, 1 Jul, commit message: *"fix"*), not
-because anything detected it.
+**How it actually stopped — CORRECTED 2026-07-13 (my first draft got this wrong):** the event type
+was **soft-deleted on 19 Jun at 14:26:19 — ten minutes after its last dispatch (14:16:40)**
+(migration `2026_06_30_000001_remove_contact_fica_missing_notifications`, batch 141 on live). So a
+human *was* watching and pulled the plug within minutes. My first draft said it stopped when the
+scanner was deleted on 1 Jul; that is wrong — the scanner deletion was the later cleanup, not the
+kill. The correction matters: the fail-safe here was **a person noticing**, not a control. Nothing
+in the system detected or capped it. That is still the finding.
 
 ---
 
@@ -141,18 +151,23 @@ same event/user.
 across paths.
 
 ### C7 · 🔴 Dead toggles — the settings page is lying to users right now
-`ScanContactNotifications.php` was **deleted** on 1 Jul (`7e8349a5`). Its catalogue rows were not.
+`ScanContactNotifications.php` was **deleted** on 1 Jul (`7e8349a5`). Only ONE of its four
+catalogue rows was retired with it.
+
+**CORRECTED 2026-07-13** — my first draft said three toggles were still shown. It is **two**:
+`contact.fica_missing` was already soft-deleted (19 Jun, the storm kill). Verified against
+`deleted_at` on live, which my first query failed to filter on.
 
 | toggle | producers in code | still shown in UI? | users who saved a preference |
 |---|---|---|---|
-| `contact.fica_missing` | **0** | ✅ yes | 2 (all enabled) |
-| `contact.fica_expiring` | **0** | ✅ yes | 4 (all enabled) |
-| `contact.no_followup` | **0** | ✅ yes | 4 (all enabled) |
-| `contact.birthday` | 4 | ✅ yes | 4 — **now delivered by the CALENDAR digest** (`SendCalendarDigests.php:233`) |
+| `contact.fica_missing` | 0 | ❌ **already retired** (soft-deleted 19 Jun) | 2 (now orphaned rows) |
+| **`contact.fica_expiring`** | **0** | ✅ **YES — dead toggle** | 4 (all enabled) |
+| **`contact.no_followup`** | **0** | ✅ **YES — dead toggle** | 4 (all enabled) |
+| `contact.birthday` | 4 | ✅ yes — **and it works** | 4 — but **delivered by the CALENDAR digest** (`SendCalendarDigests.php:233`) |
 
-**Three switches that can never fire anything, and users have deliberately turned them on.** The
-fourth still works, but it is now produced by the *calendar* system while being configured in the
-*notifications* system — a cross-system dependency nobody would guess from either UI.
+**Two switches that can never fire anything, and users have deliberately turned them on.**
+`contact.birthday` still works, but it is produced by the *calendar* system while being configured
+in the *notifications* system — a cross-system dependency nobody would guess from either UI.
 
 ### C8 · An agency cannot disable a notification type at all
 `notification_event_types` has **no `agency_id` and no `is_active`** (verified on live). Under
@@ -225,7 +240,7 @@ rendered in the UI. A type marked "does not support email" will still email.
 
 | # | Fix | Why now | Size |
 |---|---|---|---|
-| **R1** 🔴 | **Stop the settings page lying.** Remove/retire the 3 dead `contact.*` toggles (or restore a producer); make `contact.birthday`'s cross-system dependency explicit. | Users have *deliberately enabled* switches that do nothing. This is live, today. | **S** |
+| **R1** 🔴 | **Stop the settings page lying.** Retire the **2** dead `contact.*` toggles (`fica_expiring`, `no_followup`); make `contact.birthday`'s cross-system dependency explicit. **Add a guard test so a producer can never be deleted while its toggle survives** — that is the class fix. | Users have *deliberately enabled* switches that do nothing. This is live, today. | **S** |
 | **R2** 🔴 | **Pass `$viaChannels` to `notify()`** (`CalendarNotificationDispatcher.php:59`). | One line. Agency channel config is currently inert — the admin sets it and we ignore it. | **S** |
 | **R3** 🔴 | **Stabilise + test the dedup key.** Assert `threshold_hit_at` is rounded/stable per event type; add a regression test that a scanner run twice in one window fires once. | This is what let 1.9M notifications out. Nothing currently prevents a recurrence. | **S–M** |
 | **R4** | **De-duplicate the calendar triangle** (C5) — one dedup key across the 3 engines; decide which engine owns which fact. | Three emails for one event is the user-visible symptom Elize will hit first. | **M** |
