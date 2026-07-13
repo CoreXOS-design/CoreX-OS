@@ -193,6 +193,11 @@ class PayrollCalculator
             ->with('earningType')
             ->get();
 
+        // AT-237 B3 — keep only the LATEST effective row per earning type. A raise
+        // entered as a new row without end-dating the old one leaves both "current"
+        // at month-end; summing them = double pay. The most recent version wins.
+        $rows = $this->latestEffectivePerType($rows, 'earning_type_id');
+
         $earnings = [];
         foreach ($rows as $row) {
             $type = $row->earningType;
@@ -213,6 +218,19 @@ class PayrollCalculator
         return $earnings;
     }
 
+    /**
+     * AT-237 B3 — reduce effective-dated rows to ONE per type: the row with the
+     * latest effective_from (ties broken by highest id). Prevents overlapping
+     * effective ranges being summed into double pay / double deduction.
+     */
+    private function latestEffectivePerType(\Illuminate\Support\Collection $rows, string $typeKey): \Illuminate\Support\Collection
+    {
+        return $rows
+            ->sort(fn ($a, $b) => [$b->effective_from->timestamp, $b->id] <=> [$a->effective_from->timestamp, $a->id])
+            ->unique($typeKey)
+            ->values();
+    }
+
     private function gatherDeductions(PayrollEmployee $employee, Carbon $asOfDate): array
     {
         $rows = PayrollEmployeeDeduction::withoutGlobalScopes()
@@ -220,6 +238,10 @@ class PayrollCalculator
             ->current($asOfDate)
             ->with('deductionType')
             ->get();
+
+        // AT-237 B3 (fix the class) — same overlapping-effective-rows guard as
+        // earnings: latest row per deduction type, never summed into double deduction.
+        $rows = $this->latestEffectivePerType($rows, 'deduction_type_id');
 
         $deductions = [];
         foreach ($rows as $row) {
