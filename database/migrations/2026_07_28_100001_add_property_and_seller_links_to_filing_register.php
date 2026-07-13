@@ -5,31 +5,23 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * AT-238 — the filing register learns to point at the real records.
+ * AT-238 — NEW filing entries point at the real records instead of retyping them.
  *
- * Today a filing row retypes facts the system already holds: the property as a
- * free-text address, the seller as a free-text name, the expiry by hand. Retyped
- * facts drift — the register says "3 Forset Walk" while the property record says
- * "3 Forest Walk", and neither knows about the other.
+ * A filing row used to retype facts CoreX already held: the property as a free-text
+ * address, the seller as a free-text name, the expiry by hand. Retyped facts drift.
+ * New entries now carry the links.
  *
- * So the row gains LINKS to the canonical records. It does NOT lose its free text:
+ * DELIBERATELY NOT BACKFILLED (Johan, 2026-07-13). The 2,069 historical rows stay exactly
+ * as they are — free text, untouched, forever, still viewable and editable as they always
+ * were. Matching them by address was investigated and rejected: a lone address match is not
+ * a correct one ("32 Queen View" matches only 29 Queens View; "10 Wingate Avenue" matches
+ * only 7 Wingate Avenue), and a confidently wrong link on a legal filing record is worse
+ * than the free text it replaced. So there is no link provenance and no review queue: a
+ * link exists because a human picked it in the form, or it does not exist at all.
  *
- *   property_address / seller_name STAY, and stay authoritative for display when
- *   there is no link. On qa1, ~42% of the 2,069 historical rows match no property
- *   at all — 2020-era files that predate the property records, plus real typos. A
- *   filing register that cannot record those is worse than one that can. Free text
- *   is the permanent fallback, not a temporary crutch.
- *
- * EXPIRY STAYS PER-ROW (Johan's ruling, 2026-07-13). `properties.expiry_date` holds
- * ONE date, but the register legitimately holds several mandate documents per
- * property — on qa1, 68 addresses carry more than one OA/EA, several with genuinely
- * DIFFERENT expiry dates. An OA and an EA are separate documents with their own
- * lifespans. So linking a property AUTO-FILLS the expiry (once, into this row's own
- * column, where the user can override it) and never rewrites it thereafter. The
- * register records what was actually filed; it is a legal record, not a cache.
- *
- * Link provenance mirrors the proven `deals` shape (2026_06_02_080001) so the
- * ambiguous-match review pattern is identical across the system.
+ * The free-text columns therefore STAY, and stay authoritative wherever there is no link —
+ * for every historical row, and for new edge-case entries whose property CoreX does not
+ * hold. Linking is an upgrade, never a gate.
  */
 return new class extends Migration
 {
@@ -48,46 +40,19 @@ return new class extends Migration
                     ->constrained('contacts', 'id', 'dfr_seller_contact_fk')
                     ->nullOnDelete();
             }
-            if (! Schema::hasColumn('document_filing_register', 'link_source')) {
-                $table->enum('link_source', [
-                    'manual',              // a human picked the property in the form
-                    'auto_address_match',  // the backfill matched it unambiguously
-                    'admin_review',        // resolved out of the review queue
-                ])->nullable()->after('expiry_date');
-            }
-            if (! Schema::hasColumn('document_filing_register', 'link_confidence')) {
-                $table->enum('link_confidence', ['exact', 'high', 'medium', 'low'])
-                    ->nullable()->after('link_source');
-            }
-            if (! Schema::hasColumn('document_filing_register', 'link_reviewed_at')) {
-                $table->timestamp('link_reviewed_at')->nullable()->after('link_confidence');
-            }
-            if (! Schema::hasColumn('document_filing_register', 'link_reviewed_by_user_id')) {
-                $table->foreignId('link_reviewed_by_user_id')->nullable()
-                    ->after('link_reviewed_at')
-                    ->constrained('users', 'id', 'dfr_link_reviewer_fk')
-                    ->nullOnDelete();
-            }
-        });
-
-        Schema::table('document_filing_register', function (Blueprint $table) {
-            $table->index('property_id', 'dfr_property_idx');
-            $table->index('seller_contact_id', 'dfr_seller_contact_idx');
         });
     }
 
     public function down(): void
     {
+        // Foreign keys FIRST: MySQL refuses to drop an index a constraint still needs.
         Schema::table('document_filing_register', function (Blueprint $table) {
-            $table->dropIndex('dfr_property_idx');
-            $table->dropIndex('dfr_seller_contact_idx');
             $table->dropForeign('dfr_property_fk');
             $table->dropForeign('dfr_seller_contact_fk');
-            $table->dropForeign('dfr_link_reviewer_fk');
-            $table->dropColumn([
-                'property_id', 'seller_contact_id',
-                'link_source', 'link_confidence', 'link_reviewed_at', 'link_reviewed_by_user_id',
-            ]);
+        });
+
+        Schema::table('document_filing_register', function (Blueprint $table) {
+            $table->dropColumn(['property_id', 'seller_contact_id']);
         });
     }
 };

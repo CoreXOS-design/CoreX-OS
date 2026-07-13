@@ -28,15 +28,10 @@ class DocumentFiling extends Model
         'expiry_date',
         'notes',
         'captured_by',
-        'link_source',
-        'link_confidence',
-        'link_reviewed_at',
-        'link_reviewed_by_user_id',
     ];
 
     protected $casts = [
-        'expiry_date'      => 'date',
-        'link_reviewed_at' => 'datetime',
+        'expiry_date' => 'date',
     ];
 
     /* ── Relationships ── */
@@ -47,10 +42,11 @@ class DocumentFiling extends Model
     }
 
     /**
-     * AT-238 — the canonical property this filing is about, when it could be linked.
-     * Nullable by design: ~42% of the historical register predates the property records
-     * or names an address no property row has. Those rows keep their free text and are
-     * not second-class citizens.
+     * AT-238 — the canonical property this filing is about, when one was picked.
+     *
+     * Nullable by design and permanently so: the 2,069 historical rows were deliberately
+     * NOT backfilled and stay free text forever, and a new entry whose property CoreX does
+     * not hold is a legitimate filing too. An unlinked row is not a second-class citizen.
      */
     public function property()
     {
