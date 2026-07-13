@@ -1280,6 +1280,13 @@ class CalendarController extends Controller
                                 'body'       => $addr . ($buyer ? ' — ' . $buyer : ''),
                                 'action_url' => route('corex.properties.show', $property->id) . '#recent-viewings-feedback',
                                 'severity'   => 'info',
+                                // AT-235 (R3) — the dedup key, now explicit rather than
+                                // defaulted. This is a DISCRETE event: every feedback
+                                // capture is a genuinely new fact, so each one should
+                                // notify. `now()` is the correct key here — unlike a
+                                // persistent condition, which must key off something
+                                // stable so it notifies once instead of every scan tick.
+                                'threshold_hit_at' => now(),
                             ]
                         );
                     } catch (\Throwable $e) {

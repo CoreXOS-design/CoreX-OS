@@ -45,7 +45,58 @@ class NotificationDispatcher
             return false;
         }
 
-        $thresholdHit = $args['threshold_hit_at'] ?? now();
+        // AT-235 (R3) — THE DEDUP KEY MUST BE STABLE. This line used to read
+        // `?? now()`, and that single default let 1,903,039 notifications out.
+        //
+        // The idempotency check below asks: "is there already a log row for this
+        // (user, event, subject) at or after this threshold?" That question only
+        // means anything if `threshold_hit_at` is the SAME value on every scan tick
+        // for the same underlying fact. With `now()` it is a fresh value every
+        // tick, so the check never matched, and `contact.fica_missing` re-told the
+        // same user the same fact about the same contact every 30 minutes for 24
+        // days (26 May → 19 Jun 2026; 286,070 in one day; 99.5% of the entire
+        // dispatch log). A human eventually noticed and soft-deleted the event type
+        // by hand — nothing in the system detected or capped it.
+        //
+        // A caller that omits the key now gets a STABLE hourly bucket instead of a
+        // moving one: worst case the alert repeats hourly (and the cooldown caps
+        // even that), rather than unbounded. And we log the omission loudly, because
+        // an omitted threshold is a caller bug — the caller alone knows which fact
+        // this alert is about, and therefore what "the same fact" means.
+        //
+        // BUILD_STANDARD §3 — PREVENT, do not absorb. The dispatcher cannot invent a
+        // safe default here, because only the CALLER knows what "the same fact" means:
+        //
+        //   - a PERSISTENT condition ("this contact still has no FICA") must key off
+        //     something stable — when the fact became true — so it notifies ONCE.
+        //     ScanPropertyNotifications does this correctly for mandate_expiring:
+        //     `$property->mandate_expires_at->startOfDay()`.
+        //   - a DISCRETE event ("feedback was just captured") is a new fact every
+        //     time, so `now()` is correct — and passing it is a conscious choice.
+        //
+        // Any default the dispatcher picks is a guess at which of those two it is,
+        // and the guess it used to make (`now()`) silently turned every persistent
+        // condition into a discrete one. A time-bucket default (startOfHour) is no
+        // better — it just makes the storm hourly instead of half-hourly.
+        //
+        // So: the key is REQUIRED. A caller that forgets fails immediately and
+        // loudly, in dev, instead of quietly shipping a tap that cannot be turned
+        // off. This cannot fire in production: all 8 call sites pass it, and
+        // NotificationDispatcherDedupTest asserts statically that every `->fire(`
+        // site in app/ still does — so the guard fails the BUILD, not the user.
+        if (! isset($args['threshold_hit_at']) || $args['threshold_hit_at'] === null) {
+            throw new \InvalidArgumentException(sprintf(
+                'NotificationDispatcher::fire("%s") requires an explicit threshold_hit_at. '
+                . 'It is the dedup key: pass a STABLE value derived from the fact for a persistent '
+                . 'condition (so it notifies once), or now() for a discrete one-off event (so each '
+                . 'occurrence notifies). Omitting it is what let contact.fica_missing fire 1,903,039 '
+                . 'times — see .ai/audits/2026-07-13-at235-notifications-vs-event-classes.md §2.',
+                $eventKey
+            ));
+        }
+
+        $thresholdHit = $args['threshold_hit_at'];
+
         $subjectType = $subject->getMorphClass();
         $subjectId   = $subject->getKey();
 
