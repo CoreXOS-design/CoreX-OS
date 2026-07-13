@@ -89,6 +89,7 @@ class P24ImapImportService
                 $messages = $folder->search()
                     ->from('no-reply@property24.com')
                     ->since($since)
+                    ->setFetchBody(false) // AT-257: UIDs only; bodies pulled via BODY.PEEK below (never sets \Seen)
                     ->get();
             } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
                 // "empty response" from the IMAP server means no matches — treat as zero results, not failure.
@@ -102,10 +103,10 @@ class P24ImapImportService
                 return ['status' => 'success', 'message' => 'No P24 emails found', 'stats' => $stats];
             }
 
-            foreach ($messages as $message) {
-                $uid = (string) $message->getUid();
+            foreach ($messages as $liteMessage) {
+                $uid = (string) $liteMessage->getUid();
 
-                // Skip if already processed
+                // Skip if already processed (before the body fetch — never re-reads a done alert)
                 if (P24ImportLog::where('email_uid', $uid)->exists()) {
                     $stats['skipped']++;
                     continue;
@@ -114,6 +115,13 @@ class P24ImapImportService
                 $subject = '';
 
                 try {
+                    // AT-257 — true non-destructive read: BODY.PEEK[], never marks the alert \Seen.
+                    $message = \App\Services\Communications\PeekingMessageFetcher::peek($client, (int) $uid);
+                    if ($message === null) {
+                        $stats['errors']++;
+                        continue;
+                    }
+
                     $subject = (string) $message->getSubject();
                     $date = $message->getDate()->toDate();
 
