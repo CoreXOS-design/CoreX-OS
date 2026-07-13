@@ -1345,6 +1345,13 @@ Route::middleware(['auth', 'permission:access_filing_register'])->group(function
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
     Route::delete('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'destroy'])->name('filing-register.destroy');
     Route::post('/filing-register/{filing}/restore', [\App\Http\Controllers\DocumentFilingController::class, 'restore'])->name('filing-register.restore')->withTrashed();
+
+    // AT-238 — the filing register's OWN pickers. Deliberately NOT the DR2 endpoints:
+    // those are gated on `create_deals`, so a filing clerk 403s, and widening that
+    // permission to serve a filing screen would hand deal-capture rights to anyone who
+    // files paper. Same canonical primitives underneath, own gate.
+    Route::get('/filing-register/search/properties', [\App\Http\Controllers\DocumentFilingController::class, 'searchProperties'])->name('filing-register.search.properties');
+    Route::get('/filing-register/search/property/{property}/suggestions', [\App\Http\Controllers\DocumentFilingController::class, 'propertySuggestions'])->name('filing-register.search.property-suggestions');
 });
 
 // ===== NEXUS OS ROUTES =====

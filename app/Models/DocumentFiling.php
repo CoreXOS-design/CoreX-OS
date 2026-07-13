@@ -18,6 +18,8 @@ class DocumentFiling extends Model
         'agency_id',
         'branch_id',
         'agent_id',
+        'property_id',
+        'seller_contact_id',
         'document_type',
         'file_reference',
         'sequence_number',
@@ -26,10 +28,15 @@ class DocumentFiling extends Model
         'expiry_date',
         'notes',
         'captured_by',
+        'link_source',
+        'link_confidence',
+        'link_reviewed_at',
+        'link_reviewed_by_user_id',
     ];
 
     protected $casts = [
-        'expiry_date' => 'date',
+        'expiry_date'      => 'date',
+        'link_reviewed_at' => 'datetime',
     ];
 
     /* ── Relationships ── */
@@ -37,6 +44,23 @@ class DocumentFiling extends Model
     public function branch()
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * AT-238 — the canonical property this filing is about, when it could be linked.
+     * Nullable by design: ~42% of the historical register predates the property records
+     * or names an address no property row has. Those rows keep their free text and are
+     * not second-class citizens.
+     */
+    public function property()
+    {
+        return $this->belongsTo(Property::class, 'property_id');
+    }
+
+    /** AT-238 — the seller as a real contact, sourced from the property's link roles. */
+    public function sellerContact()
+    {
+        return $this->belongsTo(Contact::class, 'seller_contact_id');
     }
 
     public function agent()
@@ -100,6 +124,40 @@ class DocumentFiling extends Model
     public function getFullReferenceAttribute(): string
     {
         return $this->file_reference . ' / ' . $this->sequence_number;
+    }
+
+    /**
+     * AT-238 — what to SHOW for the property. The linked record wins when there is one:
+     * that is the whole point of linking (the register stops disagreeing with the
+     * property page about the address). The free text is the answer when there is no
+     * link — never a blank.
+     */
+    public function getPropertyDisplayAttribute(): string
+    {
+        if ($this->property) {
+            return $this->property->buildDisplayAddress() ?: (string) $this->property_address;
+        }
+
+        return (string) $this->property_address;
+    }
+
+    /** Same rule for the seller: the linked contact wins, the typed name is the fallback. */
+    public function getSellerDisplayAttribute(): ?string
+    {
+        if ($this->sellerContact) {
+            $name = trim(($this->sellerContact->first_name ?? '') . ' ' . ($this->sellerContact->last_name ?? ''));
+            if ($name !== '') {
+                return $name;
+            }
+        }
+
+        return $this->seller_name ?: null;
+    }
+
+    /** Is this row pointing at the real record, or still just describing it in words? */
+    public function getIsLinkedAttribute(): bool
+    {
+        return $this->property_id !== null;
     }
 
     public function getStatusAttribute(): string
