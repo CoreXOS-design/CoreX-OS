@@ -1328,6 +1328,9 @@ class PropertyController extends Controller
             'noon_images.*'   => 'image|max:512000',
             'dusk_images'     => 'nullable|array',
             'dusk_images.*'   => 'image|max:512000',
+        ], [
+            'image' => 'One or more files is not a supported image. Use JPG, PNG, GIF, BMP, WEBP or SVG — iPhone HEIC photos must be converted first.',
+            'max'   => 'One or more photos is larger than the 500MB limit.',
         ]);
 
         $groups = ['gallery_images', 'dawn_images', 'noon_images', 'dusk_images'];

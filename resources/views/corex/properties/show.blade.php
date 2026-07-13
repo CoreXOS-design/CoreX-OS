@@ -3179,15 +3179,38 @@
                             const xhr = new XMLHttpRequest();
                             xhr.open('POST', endpoint);
                             xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
-                            xhr.setRequestHeader('Accept', 'text/html');
+                            // Ask for JSON, never text/html. With an HTML Accept the
+                            // controller answers a validation failure with back()->
+                            // withErrors — a 302, which XHR follows transparently and
+                            // lands on 200, so the old `status < 400` check read a
+                            // total rejection as success. Worse, that invisible
+                            // redirect-follow CONSUMED the flashed error bag, so the
+                            // window.location.reload() below then rendered a page with
+                            // no errors on it: the upload silently did nothing at all.
+                            // JSON gives us a real 422 and a real message to show.
+                            xhr.setRequestHeader('Accept', 'application/json');
+                            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
                             xhr.upload.onprogress = (ev) => {
                                 if (!ev.lengthComputable) return;
                                 const frac = (this._done + (ev.loaded / ev.total) * chunk.length) / this.files.length;
                                 this.percent = Math.min(99, Math.round(frac * 100));
                             };
-                            xhr.onload = () => (xhr.status >= 200 && xhr.status < 400)
-                                ? resolve()
-                                : reject(new Error('Upload failed (HTTP ' + xhr.status + '). Please try again.'));
+                            xhr.onload = () => {
+                                let body = {};
+                                try { body = JSON.parse(xhr.responseText || '{}'); } catch (e) { /* non-JSON body handled below */ }
+                                if (xhr.status >= 200 && xhr.status < 300 && body.ok) {
+                                    // added === 0 means PHP dropped the files before
+                                    // Laravel ever saw them (max_file_uploads /
+                                    // post_max_size). Silence here is what we are fixing.
+                                    return body.added > 0
+                                        ? resolve()
+                                        : reject(new Error('The server received no images — the batch may have exceeded the upload limit. Please try fewer photos at a time.'));
+                                }
+                                if (xhr.status === 413) {
+                                    return reject(new Error('Those photos were too large for the server to accept in one batch. Please try fewer at a time.'));
+                                }
+                                return reject(new Error(body.message || 'Upload failed (HTTP ' + xhr.status + '). Please try again.'));
+                            };
                             xhr.onerror = () => reject(new Error('Network error during upload.'));
                             xhr.send(fd);
                         });
