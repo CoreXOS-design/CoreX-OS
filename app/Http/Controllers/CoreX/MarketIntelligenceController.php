@@ -499,8 +499,10 @@ class MarketIntelligenceController extends Controller
         // branch (own+branch). Honours branch isolation: 'company' is only offered
         // to a user whose prospecting data-scope is agency-wide ('all'); branch/own
         // users get own+branch. Same one-truth match set — only the LISTING is scoped.
-        $dataScope   = \App\Services\PermissionService::getDataScope($user, 'prospecting') ?: 'own'; // all|branch|own
-        $canCompany  = $dataScope === 'all';
+        // Agency-wide roles (the BuyerPipeline one-truth scope pattern) may pick
+        // 'Whole company'; branch/agent roles get own+branch (honours isolation).
+        $canCompany  = in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner'], true)
+            || \App\Services\PermissionService::getDataScope($user, 'prospecting') === 'all';
         $buyerScopeOptions = $canCompany ? ['own', 'branch', 'company'] : ['own', 'branch'];
         $defaultScope = $canCompany ? 'company' : 'branch';
         $buyerScope = $request->input('buyer_scope');
