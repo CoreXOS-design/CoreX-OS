@@ -4151,9 +4151,9 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                {{-- Block form, NOT @php(...): Blade's inline @php() mis-compiles an expression
-                     containing nested parens (the (int) cast here), emitting a broken "<?php("
-                     that silently stops compiling the rest of the file. --}}
+                {{-- Use the block form below, never the inline one-liner: the inline form
+                     mis-compiles an expression containing nested parens (the int cast here)
+                     and silently stops compiling the rest of the file. --}}
                 @php
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
