@@ -453,6 +453,37 @@
                     <button type="submit" class="corex-btn-primary">Save Company Settings</button>
                 </div>
             </form>
+
+            {{-- Proforma Invoice — Banking & Numbering (Accounting pillar) --}}
+            @php $proformaSettings = \App\Models\Proforma\AgencyProformaSettings::forAgency((int) auth()->user()->effectiveAgencyId()); @endphp
+            <form method="POST" action="{{ route('admin.proforma-settings.update') }}" class="ds-status-card p-4 space-y-4 mt-5">
+                @csrf @method('PUT')
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Proforma Invoice — Banking &amp; Numbering</div>
+                <p class="text-xs" style="color:var(--text-muted);">Banking details print on every proforma invoice (a bordered block; hidden if empty).</p>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Banking details (shown as invoice notes)</label>
+                    <textarea name="bank_details" rows="4" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Bank, Account name, Account no, Branch code, Reference">{{ old('bank_details', $proformaSettings->bank_details) }}</textarea>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div><label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Number prefix</label>
+                        <input name="number_prefix" value="{{ old('number_prefix', $proformaSettings->number_prefix) }}" maxlength="16" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <div><label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Zero-padding</label>
+                        <input name="number_padding" type="number" min="1" max="10" value="{{ old('number_padding', $proformaSettings->number_padding) }}" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <div><label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Start number — next: {{ $proformaSettings->formatNumber($proformaSettings->next_number) }}</label>
+                        <input name="start_number" type="number" min="{{ $proformaSettings->next_number }}" placeholder="{{ $proformaSettings->next_number }}" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div><label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Due-date rule</label>
+                        <select name="due_date_rule" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="end_of_month" @selected(old('due_date_rule',$proformaSettings->due_date_rule)==='end_of_month')>End of current month</option>
+                            <option value="days_after" @selected(old('due_date_rule',$proformaSettings->due_date_rule)==='days_after')>N days after issue</option>
+                            <option value="on_receipt" @selected(old('due_date_rule',$proformaSettings->due_date_rule)==='on_receipt')>On receipt</option>
+                        </select></div>
+                    <div><label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Days (for "N days after")</label>
+                        <input name="due_days" type="number" min="0" max="365" value="{{ old('due_days', $proformaSettings->due_days) }}" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></div>
+                </div>
+                <div class="flex justify-end pt-1"><button type="submit" class="corex-btn-primary">Save Proforma Settings</button></div>
+            </form>
         </div>
 
         {{-- ============================================================

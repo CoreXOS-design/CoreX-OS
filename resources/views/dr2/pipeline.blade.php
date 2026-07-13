@@ -210,4 +210,8 @@
         </div>
     @endif
 </div>
+    {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
+    <div style="margin-top:1rem;">
+        @include('proforma._deal-section', ['deal' => $deal])
+    </div>
 @endsection

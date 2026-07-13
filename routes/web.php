@@ -700,7 +700,23 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
     Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
     Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
+    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware('permission:proforma.generate')->name('proforma.generate');
 });
+
+// ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
+Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function () {
+    Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
+    Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
+    Route::post('/{invoice}/lines',          [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'addLine'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('lines.add');
+    Route::delete('/{invoice}/lines/{line}', [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'removeLine'])->whereNumber(['invoice', 'line'])->middleware('permission:proforma.manage')->name('lines.remove');
+    Route::post('/{invoice}/void',           [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'void'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('void');
+    Route::post('/{invoice}/regenerate',     [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'regenerate'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('regenerate');
+});
+Route::middleware(['auth', 'permission:proforma.manage'])->group(function () {
+    Route::get('/admin/proforma-settings', [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'index'])->name('admin.proforma-settings');
+    Route::put('/admin/proforma-settings', [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'update'])->name('admin.proforma-settings.update');
+});
+
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
 Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
@@ -1001,6 +1017,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
+    Route::get('/admin/settings/document-distribution',  [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution');
+    Route::post('/admin/settings/document-distribution', [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'save'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution.save');
 
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
     Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');

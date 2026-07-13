@@ -2,6 +2,7 @@
 
 namespace App\Services\DealV2;
 
+use App\Models\Deal;
 use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Models\Document;
@@ -33,6 +34,81 @@ class DealDocumentService
 {
     public function __construct(private DealPipelineService $pipelineService)
     {
+    }
+
+    /**
+     * DR2 BRIDGE (AT-226 docs lane) — file a Document uploaded on the canonical DR2
+     * deal view, which is the DR1-faithful twin on the `deals` table (m3's rebuild),
+     * NOT deals_v2. `documents.deal_id` FKs to `deals_v2`, so we bridge via the DR1
+     * deal's twin pointer (`deals.deal_v2_id`), and — because a DR1 deal has no direct
+     * contacts row — we file the CONTACT pillar from the property's linked contacts
+     * (the source the AT-217 capture uses). One upload → 3 pillars: deal (twin) +
+     * property + property-contacts. Idempotent; every missing link is a safe skip.
+     *
+     * @param array{original_name:string,storage_path:string,disk?:string,mime_type?:string,size?:int,document_type_id?:int,source_type?:string,pipeline_step_id?:int} $attrs
+     */
+    public function fileDealDocumentFromDeal(Deal $dr1Deal, array $attrs, User $uploader): Document
+    {
+        return DB::transaction(function () use ($dr1Deal, $attrs, $uploader) {
+            $doc = Document::create([
+                'original_name'    => $attrs['original_name'],
+                'storage_path'     => $attrs['storage_path'],
+                'disk'             => $attrs['disk'] ?? config('filesystems.default', 'local'),
+                'mime_type'        => $attrs['mime_type'] ?? null,
+                'size'             => $attrs['size'] ?? 0,
+                'document_type_id' => $attrs['document_type_id'] ?? null,
+                'source_type'      => $attrs['source_type'] ?? 'deal', // reachable from the DR1 deal
+                'source_id'        => $dr1Deal->id,
+                'deal_id'          => $dr1Deal->deal_v2_id ?: null,    // deals_v2 anchor (null pre-twin)
+                'agency_id'        => $dr1Deal->agency_id,             // explicit — NOT-NULL, no Auth in queue/console
+                'branch_id'        => $dr1Deal->branch_id,
+                'uploaded_by'      => $uploader->id,
+            ]);
+
+            // Property pillar — the deal's property.
+            if ($dr1Deal->property_id) {
+                $doc->properties()->syncWithoutDetaching([$dr1Deal->property_id]);
+            }
+
+            // Contact pillar — the property's linked contacts (owner/seller).
+            $property = $dr1Deal->property;
+            if ($property) {
+                $contactIds = $property->contacts()->pluck('contacts.id')->all();
+                if (!empty($contactIds)) {
+                    $doc->contacts()->syncWithoutDetaching($contactIds);
+                }
+            }
+
+            // Per-step attach (optional) — record on deal_step_documents when a step
+            // is supplied, so the doc lands on its pipeline step (gas CoC → gas step).
+            if (!empty($attrs['pipeline_step_id'])) {
+                $this->attachToStepInstance($doc, (int) $attrs['pipeline_step_id']);
+            }
+
+            return $doc;
+        });
+    }
+
+    /**
+     * Idempotently link a document to a pipeline step instance (deal_step_documents).
+     * agency_id is NOT NULL with no default and a raw insert gets no BelongsToAgency
+     * stamp — supply it from the document (AT-203 landmine class). No updated_at column.
+     */
+    private function attachToStepInstance(Document $doc, int $stepInstanceId): void
+    {
+        try {
+            DB::table('deal_step_documents')->updateOrInsert(
+                ['deal_step_instance_id' => $stepInstanceId, 'document_id' => $doc->id],
+                [
+                    'agency_id'      => $doc->agency_id,
+                    'file_name'      => $doc->original_name,
+                    'uploaded_by_id' => $doc->uploaded_by,
+                    'created_at'     => now(),
+                ]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('fileDealDocumentFromDeal: step link skipped', ['step' => $stepInstanceId, 'e' => $e->getMessage()]);
+        }
     }
 
     /**

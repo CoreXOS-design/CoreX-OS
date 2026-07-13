@@ -57,6 +57,8 @@ return [
         ['key' => 'view_deals',              'label' => 'View Deals',                      'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 12],
         ['key' => 'create_deals',            'label' => 'Create & Edit Deals',             'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 13],
         ['key' => 'settle_deals',            'label' => 'Settle Deals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'deals',            'sort_order' => 14],
+        ['key' => 'proforma.generate',       'label' => 'Generate Proforma Invoices',      'section' => 'agency-tracker',   'type' => 'action',  'module' => 'deals',            'sort_order' => 15],
+        ['key' => 'proforma.manage',         'label' => 'Manage Proforma Invoices (admin)', 'section' => 'agency-tracker',  'type' => 'action',  'module' => 'deals',            'sort_order' => 16],
         ['key' => 'view_listings',           'label' => 'View Listing Stock',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 15],
         ['key' => 'import_listings',         'label' => 'Import Listings',                 'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 16],
         ['key' => 'view_performance',        'label' => 'View Performance',                'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 17],
@@ -630,7 +632,7 @@ return [
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
                 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals', 'proforma.generate',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
@@ -734,7 +736,7 @@ return [
             'include' => [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals',
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate',
                 'view_listings', 'view_performance',
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',

@@ -68,6 +68,9 @@
                     @if(auth()->user()?->hasPermission('deals_v2.manage_distribution_rules') && \Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
                         <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);" title="Configure how deal documents are distributed to each party at each stage">Deal distribution rules &rarr;</a>
                     @endif
+                    @if(auth()->user()?->hasPermission('deals_v2.manage_distribution_rules') && \Illuminate\Support\Facades\Route::has('admin.settings.document-distribution'))
+                        <a href="{{ route('admin.settings.document-distribution') }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);" title="Per document type: which deal parties it may be emailed to">Distribution matrix &rarr;</a>
+                    @endif
                     <a href="{{ route('corex.settings', ['tab' => 'system']) }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">&larr; Back to Settings</a>
                 @else
                     <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">&larr; Back to Splitter</a>
