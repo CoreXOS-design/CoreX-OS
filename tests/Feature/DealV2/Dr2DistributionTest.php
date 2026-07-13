@@ -214,6 +214,24 @@ class Dr2DistributionTest extends TestCase
         Mail::assertNothingSent();   // no real email dispatch for WhatsApp
     }
 
+    public function test_send_to_a_provider_attorney_does_not_write_a_contact_fk(): void
+    {
+        Storage::fake('local');
+        Mail::fake();
+        $ctx = $this->makeDeal();
+        $otp = $this->fileDoc($ctx, 'otp');
+        $this->setMatrix($ctx['agency']->id, 'otp', ['transfer_attorney']);
+
+        $recipient = app(Dr2DistributionComposer::class)->recipientsFor($ctx['deal'], 'transfer_attorney')[0];
+        $this->assertSame('provider', $recipient['type']);
+        app(Dr2DistributionSendService::class)->sendToParty($ctx['deal'], 'transfer_attorney', $recipient, [$otp->id], 'secure_link', 'email', null, $ctx['agent']);
+
+        $dist = DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $ctx['twinId'])->first();
+        $this->assertNull($dist->recipient_contact_id, 'provider recipient must not populate the contacts FK');
+        $this->assertSame($ctx['firm']->id, (int) $dist->recipient_provider_id);
+        $this->assertSame('sent', $dist->status);
+    }
+
     public function test_distribution_is_soft_deletable(): void
     {
         Storage::fake('local');
