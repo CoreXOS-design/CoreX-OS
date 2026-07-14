@@ -14,96 +14,61 @@ class P24SuburbController extends Controller
         abort_unless(Auth::user()?->hasPermission('manage_p24'), 403);
     }
 
-    /**
-     * AT-246 region model (Johan-signed) — ONE screen. Three layers:
-     *   (1) suburb→town  = P24 (p24_suburbs.p24_city_id → p24_cities). READ-ONLY.
-     *   (2) town→region  = MDB municipality per TOWN (towns.region), auto where the
-     *       town-centroid PIP is confident, a plain dropdown to pick/override otherwise.
-     *   (3) region→alias = the agency's display name (region_aliases).
-     * MIC reads this and nothing else. The parallel town_suburbs editor is retired.
-     */
     public function index(Request $request)
     {
         $this->ensureAccess();
-        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?: 0);
-        $search   = trim((string) $request->query('q', ''));
 
-        // (1)+(2) The agency's P24 towns, each with its assigned region (municipality).
-        $towns = \DB::table('towns')
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->orderBy('name')
-            ->get(['id', 'name', 'p24_city_id', 'region']);
+        // p24_suburbs is a shared table: a handful of agency-curated mappings
+        // live alongside the full ~27k-row national P24 location tree that
+        // `php artisan p24:sync-locations` caches here. Rendering every row as
+        // an editable form exhausted PHP memory, so filtering and paging are
+        // done in SQL — only one page (100 rows) is ever materialised. Confirmed
+        // mappings (the agency's verified areas) sort to the top.
+        $search    = trim((string) $request->query('q', ''));
+        $region    = trim((string) $request->query('region', ''));
+        $confirmed = (string) $request->query('confirmed', '');
 
-        // Suburbs per town (P24, read-only).
-        $cityIds = $towns->pluck('p24_city_id')->filter()->all();
-        $suburbsByCity = [];
-        if (! empty($cityIds)) {
-            foreach (\DB::table('p24_suburbs')->whereIn('p24_city_id', $cityIds)->whereNull('deleted_at')
-                        ->orderBy('name')->get(['p24_city_id', 'name']) as $s) {
-                $suburbsByCity[$s->p24_city_id][] = $s->name;
-            }
-        }
-        foreach ($towns as $t) {
-            $t->suburbs = $suburbsByCity[$t->p24_city_id] ?? [];
-        }
+        $query = P24Suburb::query();
 
         if ($search !== '') {
-            $needle = mb_strtolower($search);
-            $towns = $towns->filter(function ($t) use ($needle) {
-                if (str_contains(mb_strtolower((string) $t->name), $needle)) { return true; }
-                foreach ($t->suburbs as $s) { if (str_contains(mb_strtolower((string) $s), $needle)) { return true; } }
-                return false;
-            })->values();
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%');
+                if (ctype_digit($search)) {
+                    $q->orWhere('p24_id', (int) $search);
+                }
+            });
         }
 
-        // (3) Aliases for the municipalities the agency has stock in + the full national
-        //     municipality list for the per-town region dropdown.
-        $municipalitiesWithStock = $towns->pluck('region')->filter()->unique()->sort()->values();
-        $aliases = \DB::table('region_aliases')->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->whereIn('municipality', $municipalitiesWithStock)->orderBy('municipality')->pluck('alias', 'municipality');
-        $allMunicipalities = \DB::table('region_aliases')->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->orderBy('municipality')->pluck('municipality');
-
-        return view('admin.p24-suburbs', compact('towns', 'aliases', 'allMunicipalities', 'municipalitiesWithStock', 'search'));
-    }
-
-    /** (2) Set/override a town's region (the MDB municipality). */
-    public function saveTownRegion(Request $request, int $townId)
-    {
-        $this->ensureAccess();
-        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?: 0);
-        $data = $request->validate(['region' => ['nullable', 'string', 'max:120']]);
-        $region = trim((string) ($data['region'] ?? ''));
-
-        $town = \DB::table('towns')->where('agency_id', $agencyId)->where('id', $townId)->whereNull('deleted_at')->first();
-        abort_unless($town, 404);
-
-        \DB::table('towns')->where('id', $town->id)->update(['region' => $region !== '' ? $region : null, 'updated_at' => now()]);
         if ($region !== '') {
-            \DB::table('region_aliases')->updateOrInsert(
-                ['agency_id' => $agencyId, 'municipality' => $region],
-                ['deleted_at' => null, 'updated_at' => now(), 'created_at' => now()],
-            );
+            $query->where('region', $region);
         }
 
-        return back()->with('success', "Region for {$town->name} set to " . ($region ?: '— (unassigned)') . '.');
-    }
+        if ($confirmed === '1' || $confirmed === '0') {
+            $query->where('confirmed', $confirmed === '1');
+        }
 
-    /** (3) Set the agency alias for a municipality (display name; blank → municipal name). */
-    public function saveAlias(Request $request, string $municipality)
-    {
-        $this->ensureAccess();
-        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?: 0);
-        $data = $request->validate(['alias' => ['nullable', 'string', 'max:120']]);
-        $alias = trim((string) ($data['alias'] ?? ''));
+        $suburbs = $query
+            ->orderByDesc('confirmed')
+            ->orderBy('name')
+            ->paginate(100)
+            ->withQueryString();
 
-        \DB::table('region_aliases')->updateOrInsert(
-            ['agency_id' => $agencyId, 'municipality' => $municipality],
-            ['alias' => $alias !== '' ? $alias : null, 'deleted_at' => null, 'updated_at' => now(), 'created_at' => now()],
-        );
+        // Distinct regions for the filter dropdown — a tiny, cheap projection
+        // (not the full row set), so it stays within budget at 27k rows.
+        $regions = P24Suburb::query()
+            ->whereNotNull('region')
+            ->where('region', '!=', '')
+            ->distinct()
+            ->orderBy('region')
+            ->pluck('region');
 
-        return back()->with('success', "“{$municipality}” now displays as “" . ($alias ?: $municipality) . '”.');
+        return view('admin.p24-suburbs', [
+            'suburbs'         => $suburbs,
+            'regions'         => $regions,
+            'search'          => $search,
+            'selectedRegion'  => $region,
+            'selectedStatus'  => $confirmed,
+        ]);
     }
 
     public function store(Request $request)
@@ -133,7 +98,7 @@ class P24SuburbController extends Controller
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
-            'region'          => $validated['region'] ?? null,
+            'region'          => $validated['region'] ?? 'kzn-south-coast',
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
         ]);
@@ -168,7 +133,7 @@ class P24SuburbController extends Controller
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
-            'region'          => $validated['region'] ?? null,
+            'region'          => $validated['region'] ?? 'kzn-south-coast',
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
         ]);
