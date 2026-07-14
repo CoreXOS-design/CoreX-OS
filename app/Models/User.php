@@ -98,6 +98,12 @@ class User extends Authenticatable
 
         // Property24 importer
         'p24_agent_id',
+        // What P24 currently holds for this agent — the agent-side equivalent of
+        // properties.p24_image_signature. An unchanged agent costs zero P24 calls
+        // on a listing refresh. See Property24SyndicationService::syncAgentIfChanged.
+        'p24_agent_agency_id',
+        'p24_profile_signature',
+        'p24_photo_signature',
         'source_reference',
 
         // Employee screening

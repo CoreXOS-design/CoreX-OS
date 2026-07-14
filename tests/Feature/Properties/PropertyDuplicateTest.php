@@ -203,12 +203,12 @@ final class PropertyDuplicateTest extends TestCase
     /** Change type = new other-type draft AND the original is archived (soft-deleted) + de-listed. */
     public function test_change_type_creates_other_type_draft_and_archives_the_original(): void
     {
+        // AT-262 gate: change-type is ONLY for a draft that has never been advertised.
         $p = $this->makeProperty([
-            'listing_type'            => 'sale',
-            'published_at'            => now(),
-            'p24_syndication_enabled' => true,
-            'pp_syndication_enabled'  => true,
+            'listing_type' => 'sale',
+            'status'       => 'draft',   // never activated, never syndicated → convertible
         ]);
+        $this->assertTrue($p->canChangeType(), 'a never-advertised draft must be convertible');
 
         $this->actingAs($this->user)
             ->post("/corex/properties/{$p->id}/change-type")
@@ -227,6 +227,39 @@ final class PropertyDuplicateTest extends TestCase
         $this->assertSame('rental', $clone->listing_type);
         $this->assertTrue((bool) $clone->listing_type_pending);
         $this->assertSame('draft', $clone->status);
+    }
+
+    /** AT-262 gate: an advertised property CANNOT change type — it's pointed to Duplicate. */
+    public function test_change_type_is_blocked_on_an_advertised_property(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type' => 'sale',
+            'status'       => 'active',
+            'published_at' => now(),   // advertised → NOT convertible
+        ]);
+        $this->assertFalse($p->canChangeType());
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/change-type")
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        // Nothing happened: original untouched, no new draft minted.
+        $p->refresh();
+        $this->assertNull($p->deleted_at, 'an advertised property must NOT be archived by change-type');
+        $this->assertSame('active', $p->status);
+        $this->assertSame(0, Property::where('id', '>', $p->id)->count(), 'no clone created');
+    }
+
+    /** A draft that WAS advertised then reverted is not convertible (history is durable). */
+    public function test_a_draft_that_was_previously_advertised_cannot_change_type(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'    => 'sale',
+            'status'          => 'draft',
+            'p24_activated_at' => now()->subDays(5),   // durable "was on a portal" marker
+        ]);
+        $this->assertFalse($p->canChangeType(), 'a once-advertised draft is not convertible');
     }
 
     /** Completing the draft (a normal save) commits the chosen type and clears the pending flag. */

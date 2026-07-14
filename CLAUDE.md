@@ -314,6 +314,41 @@ test diff landed in a previous commit and the current commit is a
 follow-up cleanup (e.g. a CHAT_STARTER doc update). Never use this
 flag to skirt writing a test when you're touching the runtime.
 
+### Portal sync — the refresh cost contract
+
+**A Refresh of a listing where nothing changed must cost exactly ONE portal
+call: the listing POST.** Never a photo re-upload, an agent profile push, an
+agent photo upload, or a portal-side agent-list scan.
+
+This is a hard contract, not an aspiration, because breaking it is invisible: a
+slow refresh fails no assertion and turns no pipeline red. It has already been
+broken twice in production, and both times the only alarm was an agent saying
+"Refresh feels slow" —
+
+1. Every refresh re-uploaded the entire photo gallery (60s+ per refresh). Fixed
+   by `properties.p24_image_signature` — an unchanged gallery sends `photos: null`.
+2. Months later an unconditional agent profile push + agent photo upload was added
+   to the submit path — per agent, on every refresh — quietly undoing most of that
+   win and putting P24's 15–120s `GET /agencies/{id}/agents` back on the critical
+   path. Fixed by `users.p24_profile_signature` / `users.p24_photo_signature`, and
+   by resolving the agent id from `users.p24_agent_id` instead of scanning the list.
+
+The rule that prevents a third time: **never send a portal bytes it already holds.**
+Anything a refresh pushes is gated on a signature of what the portal currently has.
+If you add a call to the submit path, fingerprint what it sends and skip it when
+unchanged.
+
+Three things enforce it — none optional:
+
+- **Runtime** — `Property24SyndicationService::auditRefreshCost()` counts the P24
+  calls of every submit. An unchanged refresh that exceeds its budget logs
+  `P24 REFRESH COST REGRESSION` (WARNING, `property24` channel) naming the
+  offending calls. When you see it: fix the caller, do NOT raise the budget.
+- **Build** — `tests/Feature/Syndication/Property24RefreshCostTest.php` asserts the
+  one-call budget outright.
+- **Gate** — `dev-check.ps1` §7 fails any change to the portal sync files that lands
+  without a test diff in `tests/Feature/Syndication/`.
+
 ## Subagent file-write rule
 
 When a prompt requires the agent to produce a report file (audit, investigation,
