@@ -1557,9 +1557,23 @@
                                         @endif
                                     </p>
                                 @else
+                                    @php $ltOther = $property->listing_type === 'rental' ? 'sale' : 'rental'; @endphp
                                     <input type="hidden" name="listing_type" value="{{ $property->listing_type }}">
                                     <input type="text" value="For {{ ucfirst($property->listing_type) }}" disabled class="prop-input prop-field-enum">
-                                    <p class="mt-1 text-xs" style="color:var(--text-muted);">Locked. Duplicate to change.</p>
+                                    {{-- AT-262: the type is locked on an established listing (changing it is a real
+                                         operation, not a free field edit) — but the greyed field must LEAD to the action,
+                                         not dead-end. This inline "Change listing type" is the live door. --}}
+                                    <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                                        Locked — changing type archives this {{ ucfirst($property->listing_type) }} listing (recoverable) and opens a fresh {{ ucfirst($ltOther) }} draft.
+                                    </p>
+                                    <form method="POST" action="{{ route('corex.properties.change-type', $property) }}" class="mt-1"
+                                          onsubmit="return confirm('Change this listing from {{ ucfirst($property->listing_type) }} to {{ ucfirst($ltOther) }}?\n\nA new {{ ucfirst($ltOther) }} draft opens with the matching details carried over. The current {{ ucfirst($property->listing_type) }} listing is archived and de-listed from the portals (recoverable by admin).')">
+                                        @csrf
+                                        <button type="submit" class="inline-flex items-center gap-1 text-xs font-semibold underline" style="color:var(--ds-amber, #d97706);">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>
+                                            Change listing type to {{ ucfirst($ltOther) }}
+                                        </button>
+                                    </form>
                                 @endif
                             </div>
                         </div>
