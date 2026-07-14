@@ -1,11 +1,12 @@
 # Atlas — Compliance (FICA · POPIA/CPA consent · Whistleblower)
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-07-14
 > Pillars: **Contact** (consent) × **Agent/User** (FFC, screening) × **Deal/Property** (FICA gating).
 > Regulator: **PPRA** (Property Practitioners Regulatory Authority) — never EAAB. Companion specs:
 > `.ai/specs/compliance.md`, `.ai/specs/contact-consent.md`, `.ai/specs/contact-communication-status.md`,
 > `.ai/specs/whistleblower-compliance-spec.md`. Cited audits: `compliance-audit-2026-06.md`,
-> `popia-columns-investigation-2026-05-25.md`. Cited tickets: AT-45→50 (consent), AT-47 (templates).
+> `popia-columns-investigation-2026-05-25.md`. Cited tickets: AT-45→50 (consent), AT-47 (templates),
+> **AT-236 (FICA two-station review + Refer-to-CO)**.
 
 ---
 
@@ -27,8 +28,9 @@ All web routes in `routes/web.php`, grouped by prefix/name; controllers under
 
 | Sub-module | Route group | Controller |
 |------------|-------------|------------|
-| FICA (internal) | `compliance.fica.*` `:1561-1581` | `FicaController.php` |
-| FICA (public token form) | `fica.form/submit/confirmation` | `FicaPublicController.php` |
+| FICA (internal — two-station review + Refer-to-CO, AT-236) | `compliance.fica.*` `:1961-1980+` (incl. `refer-to-co` `:1973`, `return-to-referrer` `:1974`) | `FicaController.php` + `Services/Compliance/FicaReferralService.php` |
+| FICA (public token form) | `fica.form/submit/confirmation` `:4074+` | `FicaPublicController.php` |
+| FICA referral settings | `corex.settings.fica-referral.save` `:2458` | `FicaOfficerAppointmentsController::saveReferralSettings` |
 | RMCP manager / dashboard / staff ack | `compliance.rmcp.*` `:1478-1500`, `.dashboard.*` `:1379-1384`, `rmcp.ack.*` `:1359-1375` | `RmcpController`, `RmcpDashboardController`, `RmcpAcknowledgementController` |
 | RCR (FIC Directive 11/2026) | `corex.compliance.rcr.*` `:165-180+` | `Compliance/Rcr/RcrSubmissionController` |
 | Screening | `compliance.screenings.*` `:1386-1410` | `EmployeeScreeningController`, `…DashboardController` |
@@ -46,17 +48,66 @@ Nav: Compliance sidebar group `corex-sidebar.blade.php:949-1035`.
 
 ---
 
-## 3. FICA
+## 3. FICA — two-station review + Refer-to-CO (AT-236)
 
-**Model `app/Models/FicaSubmission.php`:** token + `token_expires_at` `:21-23`; tri-actor verification
-(agent `:36-39`, compliance officer `:42-45`, wet-ink `:47-49`); **FICA validity `fica_expires_at` `:51`**.
-Lifecycle `draft → submitted → agent_approved → approved` (also under_review/corrections/rejected/cancelled)
-`:191-204`; `isFicaExpired()` `:154`, `scopeExpiringSoon($days=60)` `:159`.
+**Model `app/Models/FicaSubmission.php`:** token + `token_expires_at` `:21-23`; tri-actor stamps (agent
+`:36-39`, compliance officer `:42-45`, wet-ink `:47-49`); **FICA validity `fica_expires_at` `:51`**;
+`isFicaExpired()` `:154`, `scopeExpiringSoon($days=60)` `:159`. Status enum **extended AT-236** (migration
+`2026_08_03_000002`): `draft → submitted → under_review → agent_approved → {approved | corrections_requested
+| rejected | cancelled}` **plus the new `referred_to_co`** state. Referral provenance columns `referred_by` /
+`referred_at` / `referral_note` added in the same migration.
 
-**Flow:** public token form (no auth) `FicaPublicController::form` `:16`, `uploadDocument` `:198`, `submit`
-→ `submitted` `:172-192` → agent review `FicaController::agentApprove` → `agent_approved` `:278-292` →
-compliance officer `complianceApprove` → `approved` **+ stamps `fica_expires_at = now()->addMonths(24)`**
-`:326-347`. Wet-ink intake path `createWetInk`/`storeWetInk` `:1565-1566`.
+**Two review stations (Johan's model — `FicaController::index:59-107`).** After agent approval a pack no
+longer flows to a single "compliance officer review" step; it enters one of two stations:
+
+| Station | Queue tab | Status worked | Who acts |
+|---------|-----------|---------------|----------|
+| **RO Approvals** (Reviewing-Officer pool) | `ro_queue` | `agent_approved` | ANY active FICA officer — `isComplianceOfficer()` (primary CO *or* MLRO); shared pool, oldest-first by `agent_verified_at` `:78-83` |
+| **CO Approvals Needed** (escalation) | `co_queue` | `referred_to_co` | the **primary CO only** — `isPrimaryComplianceOfficer()` (Elize) `:65-66,80-83`; `coQueueStats` = count + oldest_days `:98-106` |
+
+`roQueueCount` populates only for officers (`isCO`); `coQueueCount` only for the primary CO `:64-67`.
+
+**Flow / handoff:**
+1. Public token form (no auth) `FicaPublicController::form` `:16` / `uploadDocument` `:198` / `submit` → `submitted` `:172-192`. Wet-ink intake `createWetInk`/`storeWetInk` `:1565-1566`.
+2. Agent review `FicaController::agentApprove` → `agent_approved` `:250-281` (lands in **RO Approvals**; stamps risk_rating / verification_method / agent_verified_*).
+3. At the RO station an officer takes ONE of three actions from the compliance-review screen (`complianceReview:287-297`):
+   - **Approve** `complianceApprove` → `approved` **+ `fica_expires_at = now()->addMonths(24)`** `:303-386`, files docs to the contact, fires `Fica\FicaApproved` domain event.
+   - **Reject / return** `complianceReject` → `rejected` or `corrections_requested` `:388+`.
+   - **Refer to CO** `referToCo` → `referred_to_co` (Station-2 handoff, below).
+
+**Self-approval separation (the reason two stations exist — `complianceApprove:311-334`):** the same person
+may NOT approve their own FICA (they are `requested_by` or did the stage-1 `agent_verified_by`) **unless they
+are the primary CO** — secondaries never self-approve; only the primary may (`isSelfApproval` `:971-978`). A
+blocked attempt is audit-logged as `self_approval_blocked` and the officer is told to ask another officer or
+use **Refer to CO**.
+
+**Refer-to-CO referral mechanism — `app/Services/Compliance/FicaReferralService.php` (single seat of the transition):**
+- **Refer** `referToCo` (route `compliance.fica.refer-to-co` `:1973`): a reviewer escalates with a **MANDATORY
+  reason** (`referral_note` min 3, max 2000 `:462`). Referable only from `REFERABLE_FROM = [submitted,
+  under_review, agent_approved, corrections_requested]` `:34`. `FicaReferralService::refer()` `:60-104` sets
+  status → `referred_to_co`, stamps `referred_by/referred_at/referral_note`, writes the audit row, and notifies
+  the recipient CO through the **AT-235 gateway** (`NotificationDispatcher->send('fica.referred_to_co', …,
+  FicaReferredToCoNotification)`). Notification failure is caught — it never blocks the legally-recorded referral.
+- **Recipient resolution** `resolveRecipient()` `:46-58`: the agency's configured
+  `fica_referral_recipient_user_id` **if set AND still an active officer**, else
+  `FicaOfficerAppointment::currentPrimary()`. **Can return null** (see §9-7).
+- **Return path** `returnToReferrer` (route `compliance.fica.return-to-referrer` `:1974`): the CO sends a
+  referred pack BACK to its referrer with comments — status → `corrections_requested`, `co_notes` = comments,
+  `referred_by` retained as audit (distinct from return-to-agent). Only from `referred_to_co` `:475-488`;
+  service `:107-127`; audit action `co_returned_to_referrer`.
+
+**Immutable audit ledger — `fica_status_history` / `app/Models/FicaStatusHistory.php`** (migration
+`2026_08_03_000001`): **append-only** (no `updated_at`, no soft-delete), one row per hop via `::record()`,
+capturing the actor's `actor_tier` at action time (`primary_compliance_officer` / `mlro` / `admin` / `agent`
+/ `system` `:tierFor`) and stamping `agency_id` from the submission (AT-203-safe in queue/console). Records
+transitions AND non-transition events: `agent_approved`, `co_approved`, `self_approval_blocked`,
+`referred_to_co`, `co_returned_to_referrer`.
+
+**Agency-configurable referral settings** (migration `2026_08_03_000004`): `agencies.fica_referral_enabled`
+(default **true** — is Refer-to-CO offered) and `agencies.fica_referral_recipient_user_id` (null = primary CO).
+Saved via `FicaOfficerAppointmentsController::saveReferralSettings` (route `corex.settings.fica-referral.save`
+`:2458-2459`, perm `manage_compliance_officer`, screen `resources/views/corex/settings.blade.php`).
+`FicaReferralService::referralEnabled()` `:38-44` reads defensively — defaults ON before the column exists.
 
 **FFC (Fidelity Fund Certificate) — per agent, on the User model** (not FICA):
 `User.ffc_certificate_path` `:56`, `ffc_number` `:69`, `ffc_expiry_date` `:70`. Agency `Agency.ffc_no` `:57`.
@@ -193,11 +244,34 @@ Governance surface.
    the audit flags it as effectively the FFC and recommends a true separate column
    (`popia-columns-investigation-2026-05-25.md:113-115`). FFC ≠ PPRA registration.
 6. **Whistleblower is not anonymous** (§5) — agent-attributed by design; no anonymous intake path.
+7. **FICA referral can orphan when no primary CO is appointed (NEW, real).** `FicaReferralService::resolveRecipient()`
+   returns **null** when no active configured recipient exists AND `FicaOfficerAppointment::currentPrimary()` is
+   empty (`FicaReferralService.php:46-58`). `refer()` still transitions the pack to `referred_to_co` and writes the
+   immutable audit row, but the `if ($recipient)` guard `:81` means **no notification is sent**. At the escalation
+   station the `co_queue` tab and `coQueueCount` populate **only for `isPrimaryComplianceOfficer`**
+   (`FicaController:66,80-83,99`), so with no primary CO appointed the referred pack is invisible in the CO station
+   and no one is alerted — a referral with no owner. Mitigation only: agencies are expected to have a primary CO
+   (Elize) and defaults are ON / primary CO. No in-app guard blocks a referral when the recipient resolves to null.
+8. **CO-station ownership is queue-only, not action-enforced (NEW, real).** "CO Approvals Needed" is framed in the
+   code as the primary CO's station and only the primary CO *sees* the `co_queue` list, but the actions on a
+   `referred_to_co` pack — `complianceReview:290`, `complianceApprove:307`, `returnToReferrer:478` — gate on
+   `isComplianceOfficer()` (**any** active officer), not `isPrimaryComplianceOfficer()`. A secondary officer who is
+   not the referrer can therefore open a referred pack by URL and approve it (the self-approval guard only blocks
+   when they are the requester/agent-reviewer AND not primary). Escalation *visibility* is primary-only; escalation
+   *authority* is any-officer. May be intentional (any officer can help clear the CO queue), but the enforcement is
+   weaker than the "primary CO only" framing.
+
+**RESOLVED (AT-236):** the prior single downstream compliance-officer station (agent → one CO approve) is
+superseded by the **two-station RO/CO model + Refer-to-CO escalation** documented in §3. The self-approval hole
+(a reviewer approving their own FICA work) is now server-gated with an audit-logged block, and every
+approval-workflow hop — including blocked and referral hops — is recorded append-only in `fica_status_history`.
 
 ---
 
 ## Key file:line index
-- `app/Models/FicaSubmission.php` — `:51,154,191-204`; `app/Http/Controllers/Compliance/FicaController.php:278-347`, `FicaPublicController.php:16-192`.
+- `app/Models/FicaSubmission.php` — `:51,154,191-204` (+ AT-236 `referred_to_co` status, `referred_by/at/note`); `FicaPublicController.php:16-192`.
+- **FICA two-station + Refer-to-CO (AT-236):** `app/Http/Controllers/Compliance/FicaController.php` — index/two-station `:33-107`, `agentApprove:250-281`, `complianceReview:287-297`, `complianceApprove:303-386` (self-approval guard `:311-334`), `referToCo:450-468`, `returnToReferrer:475-488`, `isSelfApproval:971-978`. Service `app/Services/Compliance/FicaReferralService.php` (`REFERABLE_FROM:34`, `referralEnabled:38-44`, `resolveRecipient:46-58`, `refer:60-104`, `returnToReferrer:107-127`). Audit `app/Models/FicaStatusHistory.php` (append-only ledger, `::record`, `tierFor`). Notification `app/Notifications/FicaReferredToCoNotification.php`.
+- **FICA migrations (AT-236):** `database/migrations/2026_08_03_000001_create_fica_status_history_table.php`, `…_000002_add_referred_to_co_to_fica_submissions.php`, `…_000003_register_fica_referred_to_co_notification.php`, `…_000004_add_fica_referral_settings_to_agencies.php`. Settings save `FicaOfficerAppointmentsController::saveReferralSettings` (route `:2458`), view `resources/views/corex/settings.blade.php`. Officer roles `app/Models/Compliance/FicaOfficerAppointment.php` (`ROLE_PRIMARY:18`, `ROLE_MLRO:19`, `currentPrimary:130`); user checks `app/Models/User.php:485-513`.
 - `app/Services/SellerOutreach/MarketingConsentService.php` — `:62-117,165-203,216-274`.
 - `app/Models/Contact.php` — `:561-633` comm status; `ContactConsentRecord.php:14-51`; `MarketingSuppression.php:21-26`.
 - `app/Http/Controllers/SellerOutreach/PublicOptOutController.php:54-150`; `bootstrap/app.php:48-91`.
