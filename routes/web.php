@@ -2446,6 +2446,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.mlros');
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
+    Route::post('/settings/fica-referral', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveReferralSettings'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-referral.save');
 
     // ── Phase 9c-2 — Information Officer Appointments (POPIA s55) ──
     Route::post('/settings/information-officers/primary', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'savePrimary'])
