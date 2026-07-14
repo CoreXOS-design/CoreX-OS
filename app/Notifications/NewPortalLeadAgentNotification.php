@@ -96,7 +96,7 @@ class NewPortalLeadAgentNotification extends Notification
             }
             return $mail
                 ->line('They have been added to your buyer pipeline with a wishlist derived from the property.')
-                ->action('Open the lead', route('corex.portal-leads.index', ['highlight' => $this->lead->id]))
+                ->action($this->lead->contact_id ? "Open {$name}" : 'Open the lead', $this->actionUrl())
                 ->line('Reach out while the enquiry is hot.');
         }
 
@@ -114,7 +114,28 @@ class NewPortalLeadAgentNotification extends Notification
         if ($message !== '') {
             $mail->line('Their message:')->line('> ' . $message);
         }
-        return $mail->action('View lead (oversight)', route('corex.portal-leads.index', ['highlight' => $this->lead->id]));
+        return $mail->action('View lead (oversight)', $this->actionUrl());
+    }
+
+    /**
+     * AT-261 — where the email actually takes the agent.
+     *
+     * It used to land on the portal-leads LIST, which is a list of rows, not a person: the
+     * agent then had to find the lead and click through to the human they were told to phone.
+     * Every P24 lead already resolves (or creates) a Contact during ingest — `contact_id` is
+     * populated before this notification is ever built — so the email links straight to the
+     * contact, where the pipeline, the wishlist and the phone number are.
+     *
+     * The list remains the honest fallback for the case that genuinely has no person yet: a
+     * lead can arrive with no email and no phone, and then no contact is resolved.
+     */
+    private function actionUrl(): string
+    {
+        if ($this->lead->contact_id) {
+            return route('corex.contacts.show', $this->lead->contact_id);
+        }
+
+        return route('corex.portal-leads.index', ['highlight' => $this->lead->id]);
     }
 
     public function toArray(object $notifiable): array
@@ -131,7 +152,8 @@ class NewPortalLeadAgentNotification extends Notification
             'body'           => $owns
                 ? trim("{$name} — {$property}")
                 : trim("{$name} enquired on {$this->listingAgentName()}'s listing — {$property} ({$this->listingAgentName()} notified)"),
-            'action_url'     => route('corex.portal-leads.index', ['highlight' => $this->lead->id]),
+            // AT-261 — the bell goes to the same place as the email: the person, not the list.
+            'action_url'     => $this->actionUrl(),
             'icon'           => 'inbox',
             'is_oversight'   => ! $owns,
             'portal_lead_id' => $this->lead->id,

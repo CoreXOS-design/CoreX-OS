@@ -325,3 +325,51 @@ FK agency column (that is the FK-1452 on write).
   hardcoded or sentinel stamp into a NOT-NULL column.
 - Sentinel `0` is safe ONLY if the consumer guards `<= 0`. A `?: 0` that flows
   unguarded into a NOT-NULL / FK insert is a latent 1452 — treat it as a bug.
+
+---
+
+## Conductor & Lane Intake Protocol
+
+**This applies to the CONDUCTOR FIRST.** The conductor is the most common source of unchained build orders — an aside in conversation becomes a lane spending hours on code nobody specced. The protocol binds the conductor before it binds any lane.
+
+### 1. Classify before any code moves
+
+Every incoming instruction is classified BEFORE a lane touches code:
+
+- **BUG** → **INVESTIGATE first.** Report the truth with `file:line` references. Get the diagnosis **confirmed**. *Then* fix. Never fix on a guess; never fix before the reporter agrees the diagnosis is right.
+- **IDEA / DESIGN** → **DISCUSS to settled** → **written spec** → **Johan's explicit sign-off** → **ticket** → **queue**. No code before that chain is complete.
+
+### 2. MODE:BUILD is only legal with the chain in the prompt
+
+`MODE:BUILD` requires **BOTH**:
+
+1. a **ticket reference**, AND
+2. **either** Johan's **quoted word** **or** a **signed spec**, present in the prompt.
+
+**`MODE:INVESTIGATION` is the default for everything else.** Absence of the chain does not mean "use judgement" — it means investigate and report.
+
+### 3. No lane accepts an unchained build order
+
+A lane receiving a build order without that chain **pushes back to the conductor**. "The conductor told me to" is **not** authorization. Relayed authority is not authority.
+
+### 4. QA refuses certification of work built outside the chain
+
+**No chain, no certification.** QA does not certify code that skipped classification, spec, or sign-off — regardless of whether it happens to work.
+
+### 5. Spec-conformance line (mandatory)
+
+Every **READY-TO-LAND** report must carry a **spec-conformance line**:
+
+- which spec **§§** the landing implements, **and**
+- any **deviation DECLARED** explicitly,
+- **or** the words **"no governing spec"** stated outright.
+
+QA enforces this at certification: **no conformance line, no certification.**
+
+### Why this rule exists — today's cost cases
+
+- **Region seed / town remodel** — built from a conversational aside. No ticket, no spec, no sign-off. It consumed a lane and landed on qa1 before anyone asked whether it was wanted.
+- **AT-220 connection light** — the spec said a **persistent header indicator on every long-lived screen**. What shipped was an indicator at the **bottom of two DocuPerfect pages**. Nobody compared the artifact to the spec. Conformance is now **audited, not assumed**.
+- **Green-for-mechanics vs proven-in-data** — a gate passed on *import mechanics* (a marked document parses to 29 fields) was read as proof the *contract existed in data*. It did not: no template row was ever saved. A check that measures whether a pipeline **can** work is not evidence that it **has** worked on real data. State which noun you measured.
+
+The common failure in all three: **the check measured the wrong noun, and drift survived because nobody compared the artifact to the spec.**
