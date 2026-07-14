@@ -168,6 +168,7 @@ CREATE TABLE `agencies` (
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `reg_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -533,6 +534,22 @@ CREATE TABLE `agency_dashboard_settings` (
   CONSTRAINT `agency_dashboard_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_deal_sync_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_deal_sync_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `flag_property_under_offer_on_deal` tinyint(1) NOT NULL DEFAULT '0',
+  `sold_milestone` enum('granted','registered') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `revert_property_on_deal_declined` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_deal_sync_settings_agency_id_unique` (`agency_id`),
+  CONSTRAINT `agency_deal_sync_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_document_type_compliance`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -666,15 +683,15 @@ DROP TABLE IF EXISTS `agency_onboarding_setups`;
 CREATE TABLE `agency_onboarding_setups` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `slug` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_by` bigint unsigned DEFAULT NULL,
   `admin_user_id` bigint unsigned DEFAULT NULL,
   `current_step` tinyint unsigned NOT NULL DEFAULT '1',
   `completed_steps` json DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
-  `revoked_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `revoked_reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `last_opened_at` timestamp NULL DEFAULT NULL,
   `open_count` int unsigned NOT NULL DEFAULT '0',
   `completed_at` timestamp NULL DEFAULT NULL,
@@ -709,6 +726,24 @@ CREATE TABLE `agency_policies` (
   UNIQUE KEY `agency_policies_agency_id_policy_key_unique` (`agency_id`,`policy_key`),
   KEY `agency_policies_agency_id_is_active_index` (`agency_id`,`is_active`),
   CONSTRAINT `agency_policies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_proforma_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_proforma_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `number_prefix` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PRO-',
+  `next_number` int unsigned NOT NULL DEFAULT '1',
+  `number_padding` tinyint unsigned NOT NULL DEFAULT '4',
+  `due_date_rule` enum('end_of_month','days_after','on_receipt') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'end_of_month',
+  `due_days` int unsigned NOT NULL DEFAULT '30',
+  `bank_details` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_proforma_settings_agency_id_unique` (`agency_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_service_provider_contacts`;
@@ -1849,7 +1884,7 @@ DROP TABLE IF EXISTS `calendar_event_invitations`;
 CREATE TABLE `calendar_event_invitations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `event_id` bigint unsigned NOT NULL,
-  `agency_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
   `invitee_user_id` bigint unsigned NOT NULL,
   `inviter_user_id` bigint unsigned NOT NULL,
   `status` enum('pending','accepted','tentative','declined','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
@@ -1865,7 +1900,7 @@ CREATE TABLE `calendar_event_invitations` (
   KEY `calendar_event_invitations_inviter_user_id_foreign` (`inviter_user_id`),
   KEY `calendar_event_invitations_invitee_user_id_status_index` (`invitee_user_id`,`status`),
   KEY `calendar_event_invitations_agency_id_idx` (`agency_id`),
-  CONSTRAINT `calendar_event_invitations_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `calendar_event_invitations_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `calendar_event_invitations_event_id_foreign` FOREIGN KEY (`event_id`) REFERENCES `calendar_events` (`id`) ON DELETE CASCADE,
   CONSTRAINT `calendar_event_invitations_invitee_user_id_foreign` FOREIGN KEY (`invitee_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `calendar_event_invitations_inviter_user_id_foreign` FOREIGN KEY (`inviter_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -1877,7 +1912,7 @@ DROP TABLE IF EXISTS `calendar_event_links`;
 CREATE TABLE `calendar_event_links` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `calendar_event_id` bigint unsigned NOT NULL,
-  `agency_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
   `linkable_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `linkable_id` bigint unsigned NOT NULL,
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'attendee',
@@ -1890,7 +1925,7 @@ CREATE TABLE `calendar_event_links` (
   KEY `calendar_event_links_created_by_user_id_foreign` (`created_by_user_id`),
   KEY `cel_linkable_idx` (`linkable_type`,`linkable_id`),
   KEY `calendar_event_links_agency_id_idx` (`agency_id`),
-  CONSTRAINT `calendar_event_links_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `calendar_event_links_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `calendar_event_links_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE CASCADE,
   CONSTRAINT `calendar_event_links_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -4533,11 +4568,11 @@ DROP TABLE IF EXISTS `demo_access_grants`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `demo_access_grants` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `company_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contact_email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `contact_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
-  `credential_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `credential_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `expiry_hours` int unsigned NOT NULL,
   `first_login_at` timestamp NULL DEFAULT NULL,
   `expires_at` timestamp NULL DEFAULT NULL,
@@ -4545,7 +4580,7 @@ CREATE TABLE `demo_access_grants` (
   `revoked_by_user_id` bigint unsigned DEFAULT NULL,
   `archived_at` timestamp NULL DEFAULT NULL,
   `issued_by_user_id` bigint unsigned NOT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4564,9 +4599,9 @@ DROP TABLE IF EXISTS `demo_connectors`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `demo_connectors` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Demo connector',
-  `key_prefix` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `secret_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Demo connector',
+  `key_prefix` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `secret_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `last_used_at` timestamp NULL DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
   `created_by` bigint unsigned DEFAULT NULL,
@@ -4585,9 +4620,9 @@ DROP TABLE IF EXISTS `demo_page_views`;
 CREATE TABLE `demo_page_views` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `demo_session_id` bigint unsigned NOT NULL,
-  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `route_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `route_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `viewed_at` timestamp NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -4602,11 +4637,11 @@ DROP TABLE IF EXISTS `demo_sessions`;
 CREATE TABLE `demo_sessions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `demo_access_grant_id` bigint unsigned NOT NULL,
-  `session_token` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `session_token` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `started_at` timestamp NOT NULL,
   `last_seen_at` timestamp NOT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4623,8 +4658,8 @@ CREATE TABLE `demo_tnc_acceptances` (
   `demo_access_grant_id` bigint unsigned NOT NULL,
   `demo_tnc_version_id` bigint unsigned NOT NULL,
   `accepted_at` timestamp NOT NULL,
-  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -4640,7 +4675,7 @@ DROP TABLE IF EXISTS `demo_tnc_versions`;
 CREATE TABLE `demo_tnc_versions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `version` int unsigned NOT NULL,
-  `body` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `published_at` timestamp NOT NULL,
   `published_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -8941,6 +8976,86 @@ CREATE TABLE `price_bands` (
   CONSTRAINT `price_bands_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `proforma_invoice_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `proforma_invoice_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `proforma_invoice_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `event` enum('generated','line_added','line_removed','voided','regenerated','number_changed','emailed') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_id` bigint unsigned DEFAULT NULL,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `proforma_invoice_audit_proforma_invoice_id_index` (`proforma_invoice_id`),
+  KEY `proforma_invoice_audit_agency_id_index` (`agency_id`),
+  CONSTRAINT `proforma_invoice_audit_proforma_invoice_id_foreign` FOREIGN KEY (`proforma_invoice_id`) REFERENCES `proforma_invoices` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `proforma_invoice_lines`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `proforma_invoice_lines` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `proforma_invoice_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `description` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount_excl` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `vat_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `amount_incl` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `kind` enum('commission','adjustment') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'adjustment',
+  `is_locked` tinyint(1) NOT NULL DEFAULT '0',
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `pil_invoice_sort_idx` (`proforma_invoice_id`,`sort_order`),
+  KEY `proforma_invoice_lines_agency_id_index` (`agency_id`),
+  CONSTRAINT `proforma_invoice_lines_proforma_invoice_id_foreign` FOREIGN KEY (`proforma_invoice_id`) REFERENCES `proforma_invoices` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `proforma_invoices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `proforma_invoices` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `number` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sequence_no` int unsigned NOT NULL,
+  `status` enum('issued','voided') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'issued',
+  `issued_to_contact_id` bigint unsigned DEFAULT NULL,
+  `issued_to_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `care_of_provider_id` bigint unsigned DEFAULT NULL,
+  `care_of_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reference` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `due_date` date NOT NULL,
+  `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
+  `vat_rate` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `subtotal_excl` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `vat_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `total_incl` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `document_id` bigint unsigned DEFAULT NULL,
+  `communication_id` bigint unsigned DEFAULT NULL,
+  `created_by_id` bigint unsigned DEFAULT NULL,
+  `voided_by_id` bigint unsigned DEFAULT NULL,
+  `voided_at` timestamp NULL DEFAULT NULL,
+  `void_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `pi_agency_seq_unique` (`agency_id`,`sequence_no`),
+  UNIQUE KEY `pi_agency_number_unique` (`agency_id`,`number`),
+  KEY `pi_agency_status_idx` (`agency_id`,`status`),
+  KEY `proforma_invoices_agency_id_index` (`agency_id`),
+  KEY `proforma_invoices_deal_id_index` (`deal_id`),
+  CONSTRAINT `proforma_invoices_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `properties`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -9016,6 +9131,7 @@ CREATE TABLE `properties` (
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `pre_deal_offer_status` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
   `status_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
   `images_json` json DEFAULT NULL,
   `dawn_images_json` json DEFAULT NULL,
@@ -13310,3 +13426,11 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (991,'2026_07_11_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (992,'2026_07_11_100004_create_demo_sessions_table',228);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (993,'2026_07_11_100005_create_demo_page_views_table',228);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (994,'2026_07_11_100006_create_demo_connectors_table',228);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (995,'2026_07_11_000003_create_agency_deal_sync_settings_and_property_pre_offer_status',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (996,'2026_07_14_090000_make_calendar_child_agency_id_nullable',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (997,'2026_07_25_120001_create_agency_proforma_settings_table',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (998,'2026_07_25_120002_create_proforma_invoices_table',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (999,'2026_07_25_120003_create_proforma_invoice_lines_table',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1000,'2026_07_25_120004_create_proforma_invoice_audit_table',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1001,'2026_07_25_120005_add_vat_registered_to_agencies_table',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1002,'2026_07_25_120006_register_proforma_invoice_document_type',229);

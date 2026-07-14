@@ -88,7 +88,20 @@ class CalendarEventCreator
                 'source_type'   => 'manual',
                 'user_id'       => $user->id,
                 'created_by_id' => $user->id,
-                'agency_id'     => $user->agency_id ?: 1,
+                // AT-241 — stamp the acting-context agency, NOT the raw column.
+                // effectiveAgencyId() honours the branch/switcher context; the
+                // old `$user->agency_id ?: 1` ignored it and stamped agency 1
+                // for any user whose raw agency_id column is NULL (a branch-
+                // seated global owner, or a switched-in super user). That both
+                // LEAKED the event into agency 1 and made it INVISIBLE to the
+                // creator, because the read-side isolation guard
+                // (CalendarVisibilityResolver::canSee) rejects an event whose
+                // agency_id differs from the viewer's effectiveAgencyId().
+                // NULL is a legitimate value here — calendar_events.agency_id
+                // is nullable (a genuinely agency-less super-user/global event);
+                // BelongsToAgency still force-scopes ordinary agents to their
+                // own agency, overriding this on create. Rule 17 (.ai/STANDARDS.md).
+                'agency_id'     => $user->effectiveAgencyId(),
                 'branch_id'     => $user->branch_id,
                 'property_id'   => $data['property_id'] ?? ($propertyIds[0] ?? null),
                 'contact_id'    => ($data['contact_ids'] ?? [])[0] ?? ($data['contact_id'] ?? null),
@@ -145,18 +158,19 @@ class CalendarEventCreator
 
         $links = [];
         $now = now();
-        // CAL-3 — every calendar_event_links row carries the parent event's
-        // agency_id. The column is NOT NULL (migration
-        // 2026_05_23_080300_add_agency_id_to_calendar_event_links_table)
-        // and DB::table()->insert() bypasses BelongsToAgency's creating
-        // hook, so we source it explicitly. The event's agency_id is the
-        // canonical link — a link row cannot meaningfully belong to a
-        // different agency than the event it points at. Falls back to the
-        // creating user's effective agency only in the (impossible-by-
-        // schema) case where the event row arrives with NULL agency_id;
-        // the fallback exists so a malformed input still produces a
-        // user-clear validation failure rather than another raw 500.
-        $agencyId = (int) ($event->agency_id ?? $user->effectiveAgencyId() ?? 0);
+        // CAL-3 / AT-241 — every calendar_event_links row MIRRORS the parent
+        // event's agency_id exactly. The event's agency_id is the canonical
+        // source: a link row cannot meaningfully belong to a different agency
+        // than the event it points at, and the read-side keys visibility off
+        // the EVENT's agency, never the link's. DB::table()->insert() bypasses
+        // BelongsToAgency's creating hook, so we source it explicitly.
+        //
+        // NULL is a legitimate value: a genuinely agency-less super-user /
+        // global event has agency-less links (calendar_event_links.agency_id
+        // is nullable since 2026_07_14_090000). We deliberately do NOT fall
+        // back to a sentinel — `?? 0` would be an FK-1452 500, and the raw
+        // user column would re-introduce the AT-241 wrong-agency stamp.
+        $agencyId = $event->agency_id !== null ? (int) $event->agency_id : null;
 
         // Multi-property support: use property_ids[] if available, else single property_id
         $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
@@ -244,6 +258,12 @@ class CalendarEventCreator
                 \App\Models\CommandCenter\CalendarEventInvitation::updateOrCreate(
                     ['event_id' => $event->id, 'invitee_user_id' => $link['linkable_id']],
                     [
+                        // AT-241 — mirror the parent event's agency (may be NULL for
+                        // a global/super-user event; the column is nullable since
+                        // 2026_07_14_090000). Explicit so BelongsToAgency's single-
+                        // agency console fallback can't stamp the wrong tenant, and a
+                        // null-agency event never trips the old NOT-NULL FK-1452.
+                        'agency_id' => $event->agency_id,
                         'inviter_user_id' => $user->id,
                         'status' => 'pending',
                         'conflict_at_invite' => !empty($conflicts) ? $conflicts : null,

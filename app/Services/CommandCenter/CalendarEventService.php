@@ -433,7 +433,12 @@ class CalendarEventService
                 'source_type'   => 'manual',
                 'user_id'       => $user->id,
                 'created_by_id' => $user->id,
-                'agency_id'     => $user->agency_id ?: 1,
+                // AT-241 — acting-context agency, not the raw column. See the
+                // canonical fix + rationale in CalendarEventCreator::create.
+                // (This createManualWithLinks path is currently uncalled but
+                //  carried the same `?: 1` landmine — killed here so the class
+                //  is dead across the file.)
+                'agency_id'     => $user->effectiveAgencyId(),
                 'branch_id'     => $user->branch_id,
                 'property_id'   => $propertyIds[0] ?? ($data['property_id'] ?? null),
                 'contact_id'    => $this->firstContactId($data),
@@ -518,7 +523,9 @@ class CalendarEventService
 
         $links = [];
         $now = now();
-        $agencyId = (int) ($event->agency_id ?? $user->effectiveAgencyId() ?? 0);
+        // AT-241 — mirror the parent event's agency exactly (NULL allowed; the
+        // child columns are nullable since 2026_07_14_090000). No sentinel.
+        $agencyId = $event->agency_id !== null ? (int) $event->agency_id : null;
 
         $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
         if (empty($propertyIds) && ! empty($data['property_id'])) {
@@ -601,6 +608,8 @@ class CalendarEventService
                 CalendarEventInvitation::updateOrCreate(
                     ['event_id' => $event->id, 'invitee_user_id' => $link['linkable_id']],
                     [
+                        // AT-241 — mirror the parent event's agency (NULL allowed).
+                        'agency_id'          => $event->agency_id,
                         'inviter_user_id'    => $user->id,
                         'status'             => 'pending',
                         'conflict_at_invite' => ! empty($conflicts) ? $conflicts : null,
