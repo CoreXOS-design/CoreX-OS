@@ -23,6 +23,6 @@ return [
         'title'        => 'Mobile app',
         'description'  => 'Take CoreX with you. Get the CoreX mobile app on your phone so your contacts, listings and diary are with you out on show.',
         'external_url' => 'https://corexweb.co.za/mobile-app',
-        'cta'          => 'Get the app',
+        'cta'          => 'App tour',
     ],
 ];
