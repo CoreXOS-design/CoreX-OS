@@ -1,6 +1,6 @@
 # Atlas — Deal Register / Commission
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-07-14
 > Pillar: **Deal** (× Property, Contact, Agent). Companion specs: `.ai/specs/deals.md` (stub),
 > `.ai/specs/deal-register-v2-spec.md`, `.ai/specs/commission_engine_spec.md`,
 > `.ai/specs/VS_CODE_Commission_Phase1.md`. **This doc separates BUILT from BACKLOG/V2 explicitly.**
@@ -101,7 +101,39 @@ unbalanced `:737-748`, writes in a transaction `:750`.
 lifecycle: `activateStep` `:169`, `completeStep` `:188` (positive/negative outcome, BM-approval gate),
 `approveStep` `:251`, `rejectStep` `:284`, `changeDealStatus` `:340` (sets `actual_registration` on
 `completed` `:345-347`), RAG `:356`. Deal status driven by per-step `status_trigger`/`negative_status_trigger`
-— fully configurable, no hardcoded stages.
+— fully configurable, no hardcoded stages. **Due-date model: this engine does NOT pre-project — a
+not-started step's `due_date` stays null until `activateStep` sets it from the real anchor, so it is correct
+by construction (unchanged by AT-216).**
+
+### DR2 pipeline overlay (BUILT — AT-216) — `app/Services/Deal/Dr1PipelineService.php`
+DR2 doctrine (Johan): DR2 is an exact duplicate of DR1 on the SAME `deals` tables, plus a pipeline. Rather
+than entangle the AT-158 `DealV2` engine (which sunsets with the `deals_v2` module) with two models, this is
+a **parallel overlay** that anchors a template's steps to a DR1 `deals` row via
+`deal_step_instances.dr1_deal_id` (`deal_id`/deals_v2 pointer stays null). It reuses the same
+`DealStepInstance` model + AND-gate dependency tables as V2.
+- `createPipeline()` `:67` — materialises the template's steps against the DR1 deal, wires the primary
+  `trigger_step_instance_id` chain + additional AND-gate dependencies (`deal_step_instance_dependencies`),
+  stamps `deals.deal_pipeline_template_id` + `pipeline_started_at`, activates the `on_creation` steps, and
+  queues the calendar sync.
+- **Due-date PROJECTION at attach (R2, `:159-180`):** projects EVERY step's `due_date` = `anchor +
+  cumulative offset up the PRIMARY trigger chain` (anchor = `from_date` opt, else `deal_date`, else now),
+  so RAG warnings apply across the whole pipeline **from day one**. This projection is an ESTIMATE — it
+  ignores when predecessors actually complete and ignores AND-gate deps.
+- **RE-ANCHOR on real activation (AT-216, `activateStep` `:217`):** when a step truly activates, its clock
+  runs from the REAL anchor: `$fromDate + days_offset`, where `$fromDate` = the LATEST predecessor
+  completion (AND-gate) returned by `dependencyReadiness()` `:381` (a resolved predecessor = completed /
+  N-A / skipped; `$fromDate` = max `completed_at` across the full predecessor set). Only a genuine agent
+  edit (`due_date_manual = true`, `:231-233`) is preserved — the stale system estimate is always
+  overwritten.
+- **`due_date_manual` flag** (migration `2026_07_14_120000_add_due_date_manual_to_deal_step_instances.php`,
+  default false; `DealStepInstance` fillable/`boolean` cast): `updateStepDueDate()` `:547` sets it true on
+  an inline agent edit (false again when the date is cleared → re-anchors on next activation);
+  `addCustomStep()` `:502` sets it true when the agent supplies a due date.
+- Completion (`completeStep` `:254`, the single choke point for board / My Deals / calendar) cascades via
+  `activateDownstreamSteps` `:346` and fires the step's `status_trigger` onto the DR1 deal's
+  `accepted_status` (P→G→R/D, forward-only — Sweep #2). Deal-level machinery (overall_rag,
+  expected_registration, BM-approval holds) is NOT ported — DR1 has no such columns. Ticket AT-216;
+  QA1 only. Tested: `tests/Feature/DealV2/Dr1PipelineAttachTest.php`.
 
 ---
 
@@ -180,6 +212,14 @@ before/after snapshot `:637-655`. SoftDeletes on Deal/DealSettlement/DealMoneyLi
 4. **Legacy unlinked data:** deals without `branch_id` only visible to `branches.view_all` (`Deal.php:22-24`);
    deals without `property_id` rely on the link-review queue.
 5. **PAYE duality** (§6) — deal-settlement PAYE independent of the real payroll PAYE engine.
+6. **DR2 pipeline due-date anchoring — RESOLVED (AT-216, 2026-07-14).** The DR1 overlay projects every
+   step's `due_date` at attach for day-one RAG (an estimate). Previously `activateStep` kept that stale
+   estimate (`$step->due_date ??`), so an AND-gated step showed `deal_date + offset` instead of its real
+   `latest-predecessor-completion + offset` (evidence: a Lodgement step showed deal_date+12 = 2026-03-13
+   instead of latest-completion 03-25 + 7 = 2026-04-01). Fix: `activateStep` now re-anchors to
+   `$fromDate + days_offset` unless `due_date_manual` marks a genuine agent edit — see §4 "DR2 pipeline
+   overlay" + `Dr1PipelineService.php:217-244`. The V2 `DealPipelineService` never pre-projected, so it
+   was correct by construction (unchanged).
 
 ### Explicit V2 / future backlog (specs)
 - V1→V2 migration tool — Phase 7, unbuilt (`deal-register-v2-spec.md:11,836`).
@@ -199,6 +239,11 @@ before/after snapshot `:637-655`. SoftDeletes on Deal/DealSettlement/DealMoneyLi
 - `app/Http/Controllers/Admin/DealController.php` — `:231` store, `:622-750` saveSettlement.
 - `app/Services/Finance/CommissionCalculator.php:11-98`; `app/Services/DealMoneyLineRebuilder.php`.
 - `app/Models/DealV2/DealV2.php:23-280`; `app/Services/DealV2/DealPipelineService.php:18-402`.
+- `app/Services/Deal/Dr1PipelineService.php` — DR2 overlay: `:67` createPipeline (`:159-180` due-date
+  projection), `:217` activateStep (re-anchor), `:381` dependencyReadiness, `:547` updateStepDueDate,
+  `:502` addCustomStep. `DealStepInstance` `due_date_manual` fillable/cast; migration
+  `database/migrations/2026_07_14_120000_add_due_date_manual_to_deal_step_instances.php`; test
+  `tests/Feature/DealV2/Dr1PipelineAttachTest.php`.
 - `app/Services/CommissionCalculationService.php:20-233` (orphaned); `app/Models/CommissionLedger.php:124-213`.
 - `app/Services/Payroll/PayrollCalculator.php:27-131`.
 - Specs: `.ai/specs/deal-register-v2-spec.md`, `.ai/specs/commission_engine_spec.md`, `.ai/specs/deals.md`.

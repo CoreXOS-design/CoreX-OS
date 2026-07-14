@@ -8,7 +8,15 @@
 > **This is documentation only.** No code, no migrations, no data writes are made by the
 > atlas. It is a living, version-controlled backend reference that grows one feature at a time.
 >
-> Last updated: 2026-06-22 · Maintainer: Johan / CC
+> Last updated: 2026-07-14 · Maintainer: Johan / CC
+>
+> **2026-07-14 atlas sync (AT-255).** Refreshed to today's landed truth (QA1): region rebuilt to the
+> signed per-town model (market-intelligence · AT-246); permissions fail-**closed** + connection guard
+> replaces the header light (platform · AT-265/AT-263, Andre's design); DR2 pipeline due-date re-anchoring
+> (deals-commission · AT-216); OTP slug consolidation + splitter canonical filing (esign · AT-254) and pack-link one-OTP (AT-264); FICA two-station +
+> referral (compliance); notification gateway slices (communications-capture · AT-235); change-type + address
+> one-truth/reconciler (properties). Fragility register carries the resolved eras (two-source address,
+> double-listener, fail-open) + two new region-data items. See FRAGILITY_REGISTER.md → "RESOLVED — 2026-07-14".
 
 ---
 

@@ -1,9 +1,10 @@
 # Atlas — Market Intelligence Centre (MIC) + buyer-property matching
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-07-14
 > Pillars: **Property** × **Contact** (matches properties/listings to buyer wishlists).
 > Companion: `.ai/specs/build-f-market-intelligence-redesign-spec.md`. Cited audits/tickets: AT-71→AT-75
-> (canonical scoring), AT-73 (engine on surfaces), AT-74 (presentations/staleness), AT-72 (buyer auto-land).
+> (canonical scoring), AT-73 (engine on surfaces), AT-74 (presentations/staleness), AT-72 (buyer auto-land),
+> **AT-246 / AT-239** (TOWN-level region model — §8; deployed **QA1 only** at time of writing).
 
 ---
 
@@ -185,6 +186,93 @@ competitor stock (`PresentationController.php:339-340`, `AnalysisDataService.php
 6. **`buyers_matched` truth depends on the countability invariant.** The tile equates distinct cached
    contact_id with distinct countable buyers (AT-71) — correct only because non-countable buyers are never
    cached. If that invariant breaks upstream, the tile over/under-counts.
+7. **`p24_suburbs.region` is stale/vestigial (AT-246).** Region moved to TOWN level (`towns.region`, §8);
+   the suburb-level `p24_suburbs.region` column is now written ONLY for a truly-townless manual suburb (no
+   `p24_city_id`) and is otherwise dead. Historic rows still carry `kzn-south-coast` values that NO read
+   path consults — a reader that queries `p24_suburbs.region` directly instead of the town read-through
+   (`p24_suburbs.p24_city_id → towns.p24_city_id → towns.region`) gets stale data. Do not resurrect it.
+8. **`p24_cities` carries duplicate rows — a data-dupe fragility.** The synced P24 tree has genuine
+   duplicates (e.g. two "Durban North" cities with different `id`/`p24_id`). Because region is keyed on
+   `p24_cities.id`, assigning a region to one duplicate does NOT cover suburbs filed under the other — a
+   suburb can render "unassigned" even though a same-named city already has a region. P24-city dedup/merge
+   is not built; the region surface trusts P24's local `id` as canonical.
+
+---
+
+## 8. REGION MODEL — the MIC "By region" surface (AT-246 / AT-239)
+
+Region is **TOWN-level**, not suburb-level. There is now **one region surface**: `/settings/p24-suburbs`
+(`admin.p24-suburbs.index`, controller `app/Http/Controllers/Admin/P24SuburbController.php`, view
+`resources/views/admin/p24-suburbs.blade.php`, perm `manage_p24`, routes `routes/web.php:1250-1266`). The
+parallel **"Towns & Suburbs" tab and the standalone "Regions" door were retired** — one region truth, one
+screen. *(Deployed to **QA1 only** at last verify.)*
+
+### The read-through chain
+A suburb's region is read **THROUGH its P24 town**, never from the suburb's own column:
+
+```
+p24_suburbs.p24_city_id ─→ p24_cities.id ←─ towns.p24_city_id → towns.region → region_aliases.alias (label)
+```
+
+**JOIN KEY is `p24_cities.id`** (the local PK) — **NOT** `p24_cities.p24_id` (the external Property24 id).
+Both `p24_suburbs.p24_city_id` and `towns.p24_city_id` hold `p24_cities.id`; the FK
+`p24_suburbs.p24_city_id → p24_cities(id)` confirms it (schema `:7484`). suburb→town→province is P24's
+**read-only** hierarchy; only `towns.region` (the MDB municipality) is agency-editable.
+
+### Index read-through (`P24SuburbController::index` `:23-128`)
+Server-side filter + paginate — the shared `p24_suburbs` table holds the full ~27k national P24 tree, so
+only 100 rows/page are materialised, confirmed rows sorting to the top. For the page's rows it builds
+budget-safe maps: `townsByCity` (agency `towns` keyed by `p24_city_id`, carries the region) `:90-91`,
+`citiesById` (P24 city name + province) `:93`, `provincesById` `:94-96`, `aliases` (municipality → display
+label) `:99-100`. Filters compose in SQL: province (`p24_cities.p24_province_id` → city ids) `:59-62`, town
+(exact `p24_city_id`) `:65-67`, region (town-level: `towns.region` → its `p24_city_id`s → suburbs) `:70-74`,
+confirmed `:76-78`.
+
+### Editing region (three doors)
+- **`saveCityRegion(cityId)` `:270-309`** (route `admin.p24-suburbs.city-region`; the per-row Region select
+  in the table): assigns a region to a P24 **city**. Because ~88% of suburbs carry a `p24_city_id` but have
+  no agency `towns` row, it **FIND-OR-CREATEs** the agency's town for that city (materialise-on-assign) then
+  sets `towns.region` — so EVERY suburb with a P24 city is assignable and no row is a dead end; the change
+  applies to every suburb P24 files under that town. Guards `agencyId <= 0` `:274`.
+- **`saveTownRegion(townId)` `:136-160`** (route `admin.p24-suburbs.town-region`): the same set/override
+  keyed by an existing agency `towns.id`. Blank clears the region (→ NULL / unassigned).
+- **`saveAlias(municipality)` `:166-179`** (route `admin.p24-suburbs.alias`): sets the agency display alias
+  for a municipality (Ray Nkonyeni → "Hibiscus Coast") in `region_aliases`; blank falls back to the
+  municipal name.
+
+Both region-setters upsert a `region_aliases` row for the municipality so it can be relabelled later
+(`:151-156`, `:300-305`).
+
+### Suburb-level fallback (truly-townless only)
+`update()` `:219-260` **does NOT touch `region` for a town-linked row** — writing a default there would
+clobber every suburb in the town (the region-clobber guard `:240-256`). The ONLY time the suburb-level
+`p24_suburbs.region` is written is a **truly-townless** suburb (a manual suburb with no `p24_city_id`): that
+row alone submits a `region` field, marked in the UI "suburb-level (no P24 town) · press Save". `store()`
+`:181-217` no longer pins the retired `kzn-south-coast` default — a new suburb's `region` is NULL and
+inherits from its town once mapped `:203-213`.
+
+### View surfaces (`p24-suburbs.blade.php`)
+Flat paginated list; per-town **Region read-through column** rendering the town's region via a sibling HTML5
+`form=` city-region form `:216-247`, `:289-296` (nesting forms is invalid, so the select associates OUT of
+the suburb row-form); province/town/region filters `:56-82`; alias editor "Region display names" card
+`:136-159`. **No legacy banner, no Add-form region field** `:116-118`.
+
+### MIC "By region" consumer (`MarketIntelligenceController`)
+The MIC prospecting filter reads **`towns.region` and nothing else**: region → `towns` (agency-scoped,
+non-deleted, has `p24_city_id`) → `p24_city_id`s → `p24_suburbs` under those cities → match listing `suburb`
+by normalised name `:171-198`. The region dropdown value is the canonical municipality (`towns.region`); its
+LABEL is the `region_aliases` alias where set, else the municipal name `:534-555`.
+
+### Schema (region tables)
+- **`towns`** `:11383` — `agency_id`, `name`, `slug`, **`p24_city_id`** (→ `p24_cities.id`), **`region`**
+  (the MDB municipality, agency-editable), `display_order`, SoftDeletes; UNIQUE(`agency_id`,`slug`).
+- **`region_aliases`** `:10137` — `agency_id`, **`municipality`**, **`alias`** (display override),
+  `alias_suggestion`, `display_order`, SoftDeletes; UNIQUE(`agency_id`,`municipality`).
+- **`p24_suburbs`** `:7463` — `name`, `slug`, `p24_id`, **`p24_city_id`** (FK → `p24_cities.id`, ON DELETE
+  SET NULL), lat/long, **`region`** (now **stale/vestigial** — §7.7), `surrounding_ids`, `confirmed`.
+- **`p24_cities`** `:7221` — `p24_id` (external, UNIQUE), `p24_province_id`, `name`; the JOIN target via
+  local `id`. Carries genuine duplicates (§7.8).
+- **`p24_provinces`** `:7444` — `p24_id`, `p24_country_id`, `name`.
 
 ---
 
@@ -198,3 +286,10 @@ competitor stock (`PresentationController.php:339-340`, `AnalysisDataService.php
 - `resources/views/corex/market-intelligence/_stats-strip.blade.php` — `:50-80` tile, `:106-144` slider.
 - Observers/jobs: `ContactMatchObserver.php:185-189`, `ProspectingListingObserver.php:30-55`,
   `RegenerateBuyerMatchesJob.php`, `routes/console.php:162,165`.
+- **Region model (§8, AT-246/AT-239):** `app/Http/Controllers/Admin/P24SuburbController.php` — `:23-128`
+  index read-through, `:136-160` saveTownRegion, `:166-179` saveAlias, `:219-260` update region-clobber
+  guard, `:270-309` saveCityRegion find-or-create. `resources/views/admin/p24-suburbs.blade.php` — `:56-82`
+  filters, `:116-118` no Add-form region field, `:136-159` alias editor, `:216-247` per-town Region column,
+  `:289-296` sibling city-region forms. `MarketIntelligenceController.php:171-198` region filter, `:534-555`
+  region label composition. Schema: `towns:11383`, `region_aliases:10137`, `p24_suburbs:7463`,
+  `p24_cities:7221`, `p24_provinces:7444`. Routes `routes/web.php:1250-1266`.
