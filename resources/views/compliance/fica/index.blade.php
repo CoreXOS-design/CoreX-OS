@@ -266,6 +266,9 @@
                                         <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Verify</a>
                                     @elseif($sub->status === 'agent_approved' && $canCoReview)
                                         <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Review &amp; Approve</a>
+                                    @elseif($sub->status === 'referred_to_co' && (($isPrimaryCo ?? false) || $isAdmin))
+                                        {{-- AT-236 — escalated pack: the CO opens the FULL review station --}}
+                                        <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">Review &amp; Decide</a>
                                     @elseif($sub->status === 'corrections_requested' && $isMySubmission)
                                         <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Fix</a>
                                     @endif
