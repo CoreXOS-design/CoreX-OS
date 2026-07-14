@@ -18,15 +18,25 @@ not-yet-live QA config. So between the sanitize and the proof-gate/resume the sy
   DR2 pipeline templates, the distribution matrix (`DealStageDocumentRuleSeeder`), and the
   deal-property-sync settings. Idempotent; refuses on production.
 - **Preserve (user-maintained data)** — snapshotted from qa1 **before** the load and re-inserted
-  **after**: `sessions` (Johan + the rig stay logged in across syncs) and the attorney/supplier
-  directory (`agency_service_providers` + `agency_service_provider_contacts`).
+  **after**: `sessions` (Johan + the rig stay logged in across syncs), the attorney/supplier
+  directory (`agency_service_providers` + `agency_service_provider_contacts`), the **DR2 Wave 2
+  cascade toggles** (`agency_deal_sync_settings` — flag-under-offer / sold-milestone /
+  revert-on-declined / distribution-size-limit) and the **proforma invoice config**
+  (`agency_proforma_settings` — prefix, next-number sequence, due rule, bank details).
 
 The proof gate now also fails (qa1 stays down) if templates or distribution rules came back empty.
 
 ### THE CLASS RULE
 > **Any feature not yet live MUST register its QA seed in the post-load step, or the next sync eats it.**
-> - Deterministic config (defaults) → add its seeder to `database/seeders/QaConfigSeeder.php`.
-> - User-maintained data (no canonical default) → add its table to `PRESERVE_TABLES` in `sync-from-live.sh`.
+> - Deterministic config the SPEC fixes (defaults) → add its seeder to `database/seeders/QaConfigSeeder.php`.
+> - User-maintained data a HUMAN tunes (no canonical default) → add its table to `PRESERVE_TABLES` in `sync-from-live.sh`.
+>
+> **Watch the sneaky case:** a table can be *live-schema* yet still need PRESERVE. If live has the
+> table but live agencies have **not configured** the (not-yet-surfaced) feature, the live load
+> overwrites qa1 with live's empty/default rows and a `firstOrCreate` reseed only re-lays DEFAULTS —
+> so Johan's qa1 tuning is silently reverted. That is exactly what happened to `agency_deal_sync_settings`
+> on 2026-07-14. Rule of thumb: **does a human tune it on qa1 for the walkthrough, and is live NOT the
+> source of truth for that value? → PRESERVE it**, regardless of whether the table exists on live.
 
 ## Guarantees
 - **Live is read-only** — `mysqldump --single-transaction`; live is never locked or written.

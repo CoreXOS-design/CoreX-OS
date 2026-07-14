@@ -136,16 +136,30 @@ ev "qa1 quiesced BEFORE load: maintenance ON + worker \`$QA1_WORKER\` stopped."
 #   sessions                        → keep Johan + the rig logged in across the sync
 #   agency_service_providers        → the attorney/supplier directory Johan curates
 #   agency_service_provider_contacts → its contact persons
-# (Deterministic QA config — pipeline templates, distribution rules, sync settings — is NOT
-#  preserved here; it is RE-SEEDED in PHASE 5b via QaConfigSeeder. THE CLASS RULE: any feature
-#  not yet live registers its QA seed in QaConfigSeeder, or adds its user-data table here.)
-PRESERVE_TABLES="sessions agency_service_providers agency_service_provider_contacts"
+#   agency_deal_sync_settings       → DR2 Wave 2 cascade toggles (flag-under-offer / sold-milestone /
+#                                     revert-on-declined / distribution-size-limit). The table IS on
+#                                     live, so the live load OVERWRITES qa1 with live's values, and the
+#                                     PHASE-5b reseed only firstOrCreate-pre-warms DEFAULTS — so Johan's
+#                                     qa1 toggles were silently reverted every sync (the 2026-07-14 wipe).
+#                                     Live agencies have not configured this not-yet-surfaced feature, so
+#                                     live is NOT the source of truth for it — qa1's values must win.
+#   agency_proforma_settings        → Proforma invoice config (prefix, next_number SEQUENCE, due rule,
+#                                     bank details). NOT yet live → PHASE-2d drop + migrate re-creates it
+#                                     EMPTY every sync, resetting Johan's config and the invoice counter.
+# (Deterministic QA config — pipeline templates, distribution rules, the AT-227 distribution matrix — is
+#  NOT preserved here; it is RE-SEEDED in PHASE 5b via QaConfigSeeder. THE CLASS RULE: any feature not yet
+#  live, OR any live-schema table holding qa1-only config for a feature live has not configured, registers
+#  its deterministic seed in QaConfigSeeder, or adds its user-data table here. When in doubt: a value a
+#  human TUNES → PRESERVE here; a value the SPEC fixes → seed in QaConfigSeeder.)
+PRESERVE_TABLES="sessions agency_service_providers agency_service_provider_contacts agency_deal_sync_settings agency_proforma_settings"
 PRESERVE_FILE="$WORKDIR/qa1-preserve-${STAMP}.sql.gz"
 log "PHASE 2c — snapshot preserved QA-only tables (sessions + attorney directory)"
 SESS_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.sessions;" 2>/dev/null || echo 0)
 FIRMS_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_service_providers;" 2>/dev/null || echo 0)
+DSYNC_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_deal_sync_settings;" 2>/dev/null || echo 0)
+PROF_PRE=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_proforma_settings;" 2>/dev/null || echo 0)
 mysqldump --no-tablespaces --add-drop-table "$QA1_DB" $PRESERVE_TABLES | gzip > "$PRESERVE_FILE"
-ok "preserved sessions=$SESS_PRE, attorney firms=$FIRMS_PRE → $PRESERVE_FILE"
+ok "preserved sessions=$SESS_PRE, attorney firms=$FIRMS_PRE, deal-sync settings=$DSYNC_PRE, proforma settings=$PROF_PRE → $PRESERVE_FILE"
 
 # storage rsync in the background (reads live, writes qa1) while we load the DB
 log "PHASE 2b — storage rsync live → qa1 (background; live is source, read-only)"
@@ -224,8 +238,10 @@ log "PHASE 5b — restore preserved QA data + reseed QA config"
 gunzip -c "$PRESERVE_FILE" | mysql "$QA1_DB"
 SESS_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.sessions;" 2>/dev/null || echo 0)
 FIRMS_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_service_providers;" 2>/dev/null || echo 0)
-ok "restored sessions $SESS_PRE→$SESS_POST, attorney firms $FIRMS_PRE→$FIRMS_POST"
-ev "**Preserved across the restore:** sessions ($SESS_PRE→$SESS_POST — Johan + the rig stay logged in), attorney directory firms ($FIRMS_PRE→$FIRMS_POST)."
+DSYNC_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_deal_sync_settings;" 2>/dev/null || echo 0)
+PROF_POST=$(mysql -N -e "SELECT COUNT(*) FROM $QA1_DB.agency_proforma_settings;" 2>/dev/null || echo 0)
+ok "restored sessions $SESS_PRE→$SESS_POST, attorney firms $FIRMS_PRE→$FIRMS_POST, deal-sync settings $DSYNC_PRE→$DSYNC_POST, proforma settings $PROF_PRE→$PROF_POST"
+ev "**Preserved across the restore:** sessions ($SESS_PRE→$SESS_POST — Johan + the rig stay logged in), attorney directory firms ($FIRMS_PRE→$FIRMS_POST), DR2 Wave 2 deal-sync settings ($DSYNC_PRE→$DSYNC_POST — cascade toggles no longer reverted), proforma settings ($PROF_PRE→$PROF_POST)."
 # (2) Reseed deterministic QA-only config wiped by the live load (DR2 pipeline templates,
 #     distribution matrix, deal-property-sync settings). Idempotent; refuses on production.
 RESEED_OUT=$("${ARTISAN[@]}" db:seed --class=QaConfigSeeder --force 2>&1 | grep -iE "reseeded|rule|template|error" | tail -3 || true)
