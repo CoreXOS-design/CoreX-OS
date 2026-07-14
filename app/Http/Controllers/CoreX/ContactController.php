@@ -297,7 +297,7 @@ class ContactController extends Controller
         $outreachClickCounts = collect();
         $outreachOutcomeOptions = [];
         if ($request->user()->hasPermission('outreach.compose')) {
-            $agencyId = $request->user()->effectiveAgencyId();
+            $agencyId = $request->user()?->effectiveAgencyId();
             if ($agencyId !== null && (int) $contact->agency_id === (int) $agencyId) {
                 $timeline = app(\App\Http\Controllers\SellerOutreach\ContactTimelineController::class)
                     ->buildTimelineData((int) $agencyId, $contact);

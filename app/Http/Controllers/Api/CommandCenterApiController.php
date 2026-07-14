@@ -251,7 +251,7 @@ class CommandCenterApiController extends Controller
      */
     public function calendarOptions(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->effectiveAgencyId();
+        $agencyId = $request->user()?->effectiveAgencyId();
 
         $settings = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
             ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)

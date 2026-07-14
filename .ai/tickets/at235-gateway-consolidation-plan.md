@@ -20,7 +20,7 @@
 |---|---|---|
 | **S0** | Gateway core — `send()` can carry ANY notification class | ✅ **DONE** (+ C11 closed: capability now caps preference) |
 | **S1** | AT-245 proforma converted — **citizen #1, the reference implementation** | ✅ **DONE** — allow-list 23 → 21 |
-| **S2** | Migrate producers, module by module | 🔄 **(a) Leads DONE** (deployed) · **(b) Comms DONE** — allow-list 20 → 18. **NEXT: slice (c) Misc** |
+| **S2** | Migrate producers, module by module | 🔄 **(a) Leads ✅ deployed** · **(b) Comms ✅ deployed** — allow-list 23 → **18**. **NEXT: slice (c) Misc** |
 | **S3** | Fold `CalendarNotificationDispatcher` in; kill the three-engine calendar mess | ⬜ |
 | **S4** | One ledger — retire the 4 competing idempotency mechanisms | ⬜ |
 | **S5** | Agency governance (`agency_id` + `is_active`) + Setup Wizard (CLAUDE.md #10a) | ⬜ |
@@ -218,6 +218,31 @@ seed it** — never rely on the migration. This is AT-162 in a new disguise.
 **2. Retiring a class needs `composer dump-autoload -o` on deploy.** The optimised classmap
 still points at the deleted file and the autoloader warns on every request. Part of the deploy
 sequence for any slice that removes a producer.
+
+---
+
+## 7b. ⚠️ EVERY LISTENER IN THIS APP IS REGISTERED TWICE (separate ticket — do NOT fix here)
+
+Laravel's event auto-discovery registers every listener in `app/Listeners`, **and**
+`AppServiceProvider` registers many of them again explicitly. So those handlers **fire twice
+per event**. `AppServiceProvider` already carries a warning comment about it (a previous
+double-email incident).
+
+**The conductor is cutting a ticket. Do not fix it in this lane** — it is a framework-wiring
+bug, not a notification bug, and folding it in would make these slices unreviewable.
+
+**But know which producers currently MASK it,** because when the wiring is fixed their
+behaviour must not change:
+
+| Producer | Status | What the double-fire does today |
+|---|---|---|
+| `EmailPortalLeadToAgent` (S2a) | ✅ migrated | Handler fires twice; the **gateway's dedup absorbs it** (same lead key → one notification, one push). **Before S2a it meant TWO in-app notifications for every portal lead.** |
+| `LogPortalLeadReceived` | not a notifier | Logs twice — harmless but wrong. |
+| Non-migrated producers | ❌ still bypasses | **Anything still on the allow-list that is driven by a double-registered listener is double-sending today.** Worth checking as each slice lands. |
+
+**The pattern to keep:** a stable, fact-derived dedup key makes a producer *immune* to
+double-registration. `now()` does not — it would send twice. Another reason the key is never
+the clock.
 
 ---
 

@@ -54,7 +54,7 @@ class StaffTakeOnController extends Controller
 
     public function create()
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $eligibleUsers = User::withoutGlobalScopes()
             ->where('agency_id', $agencyId)

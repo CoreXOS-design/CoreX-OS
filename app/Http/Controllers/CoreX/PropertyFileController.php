@@ -86,7 +86,7 @@ class PropertyFileController extends Controller
     {
         abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);
         abort_unless(
-            auth()->id() === $document->uploaded_by || in_array(auth()->user()->effectiveRole(), ['super_admin', 'admin']),
+            auth()->id() === $document->uploaded_by || in_array(auth()->user()?->effectiveRole(), ['super_admin', 'admin']),
             403
         );
 

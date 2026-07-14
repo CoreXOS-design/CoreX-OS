@@ -192,7 +192,7 @@ class PresentationController extends Controller
 
         $branchId = $isAdmin
             ? (int) $validated['branch_id']
-            : (int) auth()->user()->effectiveBranchId();
+            : (int) auth()->user()?->effectiveBranchId();
 
         $presentation = Presentation::create([
             'title'              => $validated['title'],
@@ -949,7 +949,7 @@ class PresentationController extends Controller
         // A1: non-admins are bound to their own branch — ignore any posted branch_id
         $effectiveBranchId = $isAdmin
             ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
-            : (int) auth()->user()->effectiveBranchId();
+            : (int) auth()->user()?->effectiveBranchId();
 
         $maInput = new MarketAnalyticsInput(
             suburb:          $validated['suburb'],
@@ -1267,7 +1267,7 @@ class PresentationController extends Controller
         $isAdmin           = $scope === 'all';
         $effectiveBranchId = $isAdmin
             ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
-            : (int) auth()->user()->effectiveBranchId();
+            : (int) auth()->user()?->effectiveBranchId();
 
         $subjectPrice = isset($validated['price']) ? (float) $validated['price'] : null;
 
@@ -1447,7 +1447,7 @@ class PresentationController extends Controller
         $isAdmin           = $scope === 'all';
         $effectiveBranchId = $isAdmin
             ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
-            : (int) auth()->user()->effectiveBranchId();
+            : (int) auth()->user()?->effectiveBranchId();
 
         $baseInputs = [
             'suburb'        => $validated['suburb'],
@@ -1494,7 +1494,7 @@ class PresentationController extends Controller
         $isAdmin           = $scope === 'all';
         $effectiveBranchId = $isAdmin
             ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
-            : (int) auth()->user()->effectiveBranchId();
+            : (int) auth()->user()?->effectiveBranchId();
 
         $baseInputs = [
             'suburb'        => $validated['suburb'],

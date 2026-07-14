@@ -69,7 +69,7 @@ class LeaveReportController extends Controller
 
     public function branchSummary(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $balanceService = new LeaveBalanceService();
 
         $branches = \App\Models\Branch::where('agency_id', $agencyId)->orderBy('name')->get();
@@ -115,7 +115,7 @@ class LeaveReportController extends Controller
     public function accrualStatement($employeeId)
     {
         $employee = PayrollEmployee::with('user', 'user.branch')->findOrFail($employeeId);
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $balanceService = new LeaveBalanceService();
 
         $leaveTypes = LeaveType::withoutGlobalScopes()

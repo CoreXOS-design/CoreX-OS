@@ -44,7 +44,7 @@ class AgencyDocumentTypeConfigController extends Controller
             'name'                   => 'required|string|max:100',
             'slug'                   => [
                 'required', 'string', 'max:100', 'regex:/^[a-z0-9_]+$/',
-                Rule::unique('agency_document_type_configs')->where('agency_id', auth()->user()->effectiveAgencyId()),
+                Rule::unique('agency_document_type_configs')->where('agency_id', auth()->user()?->effectiveAgencyId()),
             ],
             'description'            => 'nullable|string|max:500',
             'has_expiry'             => 'boolean',
@@ -77,7 +77,7 @@ class AgencyDocumentTypeConfigController extends Controller
             'slug'                   => [
                 'required', 'string', 'max:100', 'regex:/^[a-z0-9_]+$/',
                 Rule::unique('agency_document_type_configs')
-                    ->where('agency_id', auth()->user()->effectiveAgencyId())
+                    ->where('agency_id', auth()->user()?->effectiveAgencyId())
                     ->ignore($type->id),
             ],
             'description'            => 'nullable|string|max:500',

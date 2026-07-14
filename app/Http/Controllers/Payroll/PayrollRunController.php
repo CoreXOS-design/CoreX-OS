@@ -94,7 +94,7 @@ class PayrollRunController extends Controller
         }
 
         // AT-237 B1 — default cut date for the form (agency default, else full month).
-        $defaultCutDate = $this->resolveCutDate(null, $defaultPeriod, (int) auth()->user()->effectiveAgencyId());
+        $defaultCutDate = $this->resolveCutDate(null, $defaultPeriod, (int) auth()->user()?->effectiveAgencyId());
 
         // Check for existing run in default period
         $existingRun = PayrollRun::forMonth($defaultPeriod)
@@ -189,7 +189,7 @@ class PayrollRunController extends Controller
                 . "(deploy:sync-reference-data) before running payroll.");
         }
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $calculator = new PayrollCalculator();
         // AT-237 B1 — resolve the cut date: operator input wins; else the agency
         // default cut-day; else NULL = full month (cut = period end).

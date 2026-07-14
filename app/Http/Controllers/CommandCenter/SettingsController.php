@@ -64,7 +64,7 @@ class SettingsController extends Controller
      */
     public function eventClasses(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $globals = CalendarEventClassSetting::withoutGlobalScopes()
             ->whereNull('agency_id')
@@ -101,7 +101,7 @@ class SettingsController extends Controller
      */
     public function updateEventClass(Request $request, string $eventClass)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         if (!$agencyId) {
             return back()->with('error', 'Unable to save — no active agency context.');
         }
@@ -198,7 +198,7 @@ class SettingsController extends Controller
      */
     public function resetEventClass(Request $request, string $eventClass)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         if (!$agencyId) {
             return back()->with('error', 'No active agency context.');
         }

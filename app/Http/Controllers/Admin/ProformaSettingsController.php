@@ -19,7 +19,7 @@ class ProformaSettingsController extends Controller
 
     private function agencyId(Request $request): int
     {
-        return (int) $request->user()->effectiveAgencyId();
+        return (int) $request->user()?->effectiveAgencyId();
     }
 
     public function index(Request $request)

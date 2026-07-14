@@ -32,7 +32,10 @@ class BuyerPortalController extends Controller
         if (!$contact) {
             return response()->view('buyer-portal.revoked', [], 410);
         }
-        $agencyId = (int) ($contact->agency_id ?? $link->agency_id ?? 1);
+        // AT-253 Rule 17 — derive from the CONTACT, then the LINK. No hardcoded tenant tail:
+        // publicBrandingFor() already degrades to CoreX defaults for an unknown agency, so an
+        // un-derivable one shows neutral branding rather than impersonating Home Finders.
+        $agencyId = (int) ($contact->agency_id ?: $link->agency_id ?: 0);
         $agency = Agency::withoutGlobalScopes()->find($agencyId);
         // Agency-driven public branding (logo, colours) — the shared foundation
         // consumed by every tokenised public page (AT-204 / cc1 shared contract).

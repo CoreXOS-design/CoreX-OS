@@ -32,7 +32,7 @@ class LeaveBalanceController extends Controller
 
         $employees = $query->paginate(25)->withQueryString();
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $balanceService = new LeaveBalanceService();
         $annualType = LeaveType::where('code', 'annual_leave')->where('agency_id', $agencyId)->first();
         $sickType = LeaveType::where('code', 'sick_leave')->where('agency_id', $agencyId)->first();
@@ -56,7 +56,7 @@ class LeaveBalanceController extends Controller
     {
         $employee = PayrollEmployee::with('user', 'user.branch')->findOrFail($employeeId);
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $balanceService = new LeaveBalanceService();
         $leaveTypes = LeaveType::withoutGlobalScopes()
             ->where('agency_id', $agencyId)

@@ -50,7 +50,7 @@ class PayrollDeductionTypeController extends Controller
 
     public function store(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate([
             'code'             => [
@@ -90,7 +90,7 @@ class PayrollDeductionTypeController extends Controller
     public function update(Request $request, $id)
     {
         $type = PayrollDeductionType::findOrFail($id);
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate([
             'code'             => [
