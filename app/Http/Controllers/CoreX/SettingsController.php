@@ -99,6 +99,7 @@ class SettingsController extends Controller
         // Feature Settings: list page sizes (how many rows show per page)
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
         $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
+        $data['filingRegisterPerPage'] = (int) PerformanceSetting::get('filing_register_page_size', 50);
 
         // Feature Settings tab: Properties
         $data['propCategories']     = PropertySettingItem::group('category')->get();
@@ -609,6 +610,15 @@ class SettingsController extends Controller
         ])['properties_per_page'];
         PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
+    }
+
+    public function updateFilingRegisterPerPage(Request $request)
+    {
+        $perPage = $request->validate([
+            'filing_register_page_size' => 'required|integer|min:10|max:200',
+        ])['filing_register_page_size'];
+        PerformanceSetting::updateOrCreate(['key' => 'filing_register_page_size'], ['value' => (int) $perPage]);
+        return redirect()->route('corex.settings', ['s' => 'feature-filing'])->with('success', 'Filing register page size updated.');
     }
 
     /**
