@@ -1,6 +1,6 @@
 # Atlas — E-Sign / DocuPerfect
 
-> **Status: DONE** · Last verified: 2026-06-22
+> **Status: DONE** · Last verified: 2026-07-14 (AT-254 splitter canonical filing + one-OTP pack; AT-263 connection guard)
 > Pillars: **Property** (document subject) × **Contact** (recipients/parties) × Compliance (FICA gate).
 > **Source of truth:** `.ai/specs/claude_esignature_v2_spec.md` (V2, audit-verified Mar 2026) +
 > `.ai/specs/esign-v3-complete-spec.md` (V3, Jun 2026). **Current code has FIXED several V2 "BROKEN"
@@ -52,6 +52,17 @@ Views (`resources/views/docuperfect/`): `esign/wizard.blade.php`, `signatures/si
 (`layouts/corex-sidebar.blade.php`): Create Document `:874`, **E-Sign Document `:875`**, My E-Sign Docs
 `:876`, Packs/Web Packs `:885-886`, Clause Library `:889`, Template Management `:892`.
 
+**Editor connection guard (AT-263, 2026-07-14).** The DocuPerfect editors — `documents/edit.blade.php:169`
+and `templates/edit.blade.php:135` — now load the reworked `public/js/corex-connection-guard.js` (the old
+`corex-session-guard.js` is **deleted**). The AT-220 header "connection light" is **gone**; instead every
+save PRE-FLIGHTS connectivity — a GET `/api/v1/csrf-token` ping is the truth, the browser `offline` event
+is the instant signal. Offline → the mutating write is BLOCKED (typed work preserved, no navigation) and a
+"You got disconnected" popup shows; online / our-own-check-errors → **fail-open**, the write proceeds. The
+existing `guardedSubmit` editor callers still work via the back-compat alias
+`window.CoreXSessionGuard = window.CoreXConnectionGuard` (`corex-connection-guard.js:217-249`). The AT-220
+heartbeat + CSRF-token refresh runs unchanged underneath. NOTE: this guard is for the **editors**, not the
+signing view — the P0 signing-view invariant (§3.4, no `location.reload()` during signing) is untouched.
+
 ---
 
 ## 3. THE FLOW
@@ -76,6 +87,28 @@ Views (`resources/views/docuperfect/`): `esign/wizard.blade.php`, `signatures/si
 7. **Signed-PDF storage** — individual PDFs under `docuperfect/signed-documents/{id}/individual`
    (`SignatureService.php:1923`); `Document` records `:1870` (`source_type='esign'`) linked via
    `linkFiledDocumentToContactsAndProperty` `:2091`.
+8. **Canonical split-doc filing (AT-254 decision B).** The general PDF splitter tool
+   (`PdfSplitterController`) no longer files inline — every classified page-group funnels through the ONE
+   document spine `App\Services\DealV2\DealDocumentService::fileClassifiedDocument` `:119`, so a split OTP
+   files by the SAME rules as a DR2 / e-sign filing of that type: one `Document::create` + attach `:128-177`,
+   **`contact_roles` (the pivot `party_role`) is the party authority** `:157-164`, AT-167 no-orphan fallback
+   `:166-177` (contact-only with no ticked contact → `unfiled`, surfaces in the Misfiled register), and
+   deal-step auto-complete when the split is deal-anchored `:182-192`. The splitter keeps only per-group
+   orchestration (`fileGroupsToDestinations` `:751`, funnels each group at `:794`). The
+   `DocumentDistributionMatrix` (AT-228 send rules) stays a distinct authority.
+9. **ONE OTP slug (AT-254 decision A).** The catalogue carried two OTP document-types — `otp` (ES-1 /
+   e-sign, the slug the 20 distribution rules key to) and the splitter's pre-ES-1 `offer_to_purchase` — so a
+   split OTP never matched a distribution rule. Migration `2026_07_31_000001_consolidate_otp_document_type`
+   merges them onto canonical `otp`: carries `contact_roles`, repoints `documents` + `docuperfect_templates`
+   FKs, soft-deletes + deactivates the duplicate (admin-recoverable, slug-based/idempotent). The splitter
+   classifier now scores a single `otp` keyword group (`PdfSplitterController.php:1161`). `offer_to_purchase`
+   stays in the e-sign **block list** for the 6 legacy templates still carrying it (`Template.php:390-398`).
+10. **ONE OTP per pack link (AT-264, landed with AT-254).** A secure-link "Send" groups its documents under a
+    single `group_key`; the recipient gets ONE pack link (`deals-v2.secure-doc.pack`) and ONE email-scoped OTP
+    that unlocks the WHOLE pack — not one link + one PIN per sub-document. Built once after the send loop in
+    `Dr2DistributionSendService.php:149-159`; pack landing/PIN gate in `SecureDocumentController::packShow`
+    `:153` / `packRequestOtp` `:185` (AT-264 note `:144-150`). A single-document send is a pack of one, so the
+    same flow serves it. Existing per-token links already in inboxes keep working.
 
 ---
 
@@ -189,6 +222,18 @@ Party→contact mapping at the wizard: sales per-linked-contact with role from `
    **V2 BUGs now FIXED in current code:** #1 contact filtering (`esign_role` wired `:511-514` + rental
    support), #2 rental-shows-sales-fields (`isSalesDocument` reworked `Template.php:284-313`), #5 initials
    in PDF (`embedInitialsIntoHtml` + per-document-DOM PDF, V3 §19.7), #7 documents-list memory (paginate).
+10. **✅ RESOLVED (AT-254 decision A) — dual OTP document-type slug.** The catalogue carried both `otp`
+    (ES-1 / e-sign, the slug the 20 distribution rules key to) and the splitter's pre-ES-1
+    `offer_to_purchase`, so a splitter-filed OTP never matched a distribution rule. Consolidated onto
+    canonical `otp` by migration `2026_07_31_000001_consolidate_otp_document_type` (carries `contact_roles`,
+    repoints FKs, soft-deletes the duplicate). `offer_to_purchase` is retained ONLY in the e-sign block list
+    for 6 legacy templates (`Template.php:390-398`). See §3.9.
+11. **✅ RESOLVED (AT-254 decision B) — PDF splitter bypassed the canonical filing path.** The splitter used
+    to create + attach documents inline, so a split OTP did NOT file by the same rules as a DR2 / e-sign
+    filing. Every classified group now funnels through the ONE document spine
+    `DealDocumentService::fileClassifiedDocument` `:119` (one create + attach, `contact_roles` party
+    authority, AT-167 no-orphan fallback, deal-step auto-complete). See §3.8. The splitter keeps only
+    per-group orchestration (`PdfSplitterController::fileGroupsToDestinations` `:751`).
 
 ---
 
@@ -197,4 +242,7 @@ Party→contact mapping at the wizard: sales per-linked-contact with role from `
 - `app/Http/Controllers/Docuperfect/ESignWizardController.php` — `:138,1465` legal block, `:493-562` recipients, `:1124-1130` esign_role filter.
 - `app/Services/Docuperfect/SignatureService.php` — `:1804` autoFileSignedDocument, `:2009` splitMergedHtml, `:2652/2872` the two signer emails.
 - `app/Models/Docuperfect/Template.php` — `:282,331,396-419`; `ESignConsentLog.php:61-66` (immutable).
+- **AT-254 canonical split filing:** `app/Services/DealV2/DealDocumentService.php:119` (`fileClassifiedDocument`); `app/Http/Controllers/Tools/PdfSplitterController.php:751` (`fileGroupsToDestinations`), `:1161` (one `otp` classifier group); migration `database/migrations/2026_07_31_000001_consolidate_otp_document_type.php`.
+- **AT-264 one-OTP pack:** `app/Services/DealV2/Dr2DistributionSendService.php:149-159`; `app/Http/Controllers/DealV2/SecureDocumentController.php:144-185` (`packShow`/`packRequestOtp`).
+- **AT-263 editor connection guard:** `public/js/corex-connection-guard.js` (`:217-249` back-compat alias); loaded by `resources/views/docuperfect/documents/edit.blade.php:169` + `resources/views/docuperfect/templates/edit.blade.php:135` (old `corex-session-guard.js` deleted).
 - Specs: `.ai/specs/claude_esignature_v2_spec.md`, `.ai/specs/esign-v3-complete-spec.md`. Audit: `.ai/audits/esign-reset-investigation-2026-05-27.md`.
