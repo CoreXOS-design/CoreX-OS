@@ -1178,7 +1178,7 @@ class PdfSplitterController extends Controller
                 'house rules', 'conduct rules', 'rules of the scheme',
                 'homeowners association', 'scheme rules',
             ]),
-            'offer_to_purchase' => $this->scoreKeywords($t, [
+            'otp' => $this->scoreKeywords($t, [ // AT-254 A — one OTP slug (was offer_to_purchase)
                 'offer to purchase', 'agreement of sale',
                 'purchase price', 'purchaser', 'offer and acceptance',
             ]),
@@ -1225,7 +1225,7 @@ class PdfSplitterController extends Controller
     private function resolveLabel(array $scores, string $t): string
     {
         $priority = [
-            'mandate', 'offer_to_purchase', 'fica', 'ids', 'por',
+            'mandate', 'otp', 'fica', 'ids', 'por',
             'rates_taxes', 'body_corporate', 'house_rules',
             'condition_report', 'listing_form', 'disclosure',
         ];
