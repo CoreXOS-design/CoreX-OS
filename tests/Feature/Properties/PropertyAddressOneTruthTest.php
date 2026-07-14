@@ -147,6 +147,92 @@ final class PropertyAddressOneTruthTest extends TestCase
         $this->assertSame('Umzimkhulu Court, 40 Bulwer Street', $r['after']['address']);
     }
 
+    /**
+     * qa1 #1293 — the scheme is in the street box and the complex column is EMPTY.
+     * The first cut of the reconciler destroyed the comma and left the scheme
+     * inside the street: "Unit 3, 3 Aqua Pearl 55 Queen Street". Caught by the
+     * report-only run, before a single row was written.
+     */
+    public function test_the_reconciler_lifts_a_scheme_out_of_the_street_when_no_complex_is_recorded(): void
+    {
+        $p = $this->property([
+            'address' => '3 Aqua Pearl, 55 Queen Street',
+            'street_number' => '3',
+            'street_name' => 'Aqua Pearl, 55 Queen Street',
+            'unit_number' => '3',
+            'complex_name' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
+        $this->assertSame('Aqua Pearl', $r['after']['complex_name']);
+        $this->assertSame('55', $r['after']['street_number']);
+        $this->assertSame('Queen Street', $r['after']['street_name']);
+        $this->assertSame('Unit 3, Aqua Pearl, 55 Queen Street', $r['after']['address']);
+    }
+
+    /** qa1 #1297 — street_number holds the UNIT, and the "street" is really the scheme. */
+    public function test_the_reconciler_recognises_a_unit_masquerading_as_a_street_number(): void
+    {
+        $p = $this->property([
+            'address' => '9 Casa Montana',
+            'street_number' => '9',
+            'street_name' => 'Casa Montana',
+            'unit_number' => '9',
+            'complex_name' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
+        $this->assertSame('Casa Montana', $r['after']['complex_name']);
+        $this->assertSame('', $r['after']['street_name']);
+        $this->assertSame('Unit 9, Casa Montana', $r['after']['address']);
+    }
+
+    /** qa1 #1301 — street_number is not a house number at all ("The"). */
+    public function test_the_reconciler_repairs_a_non_numeric_street_number(): void
+    {
+        $p = $this->property([
+            'address' => 'The Farm Estates',
+            'street_number' => 'The',
+            'street_name' => 'Farm Estates',
+            'unit_number' => '19',
+            'complex_name' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
+        $this->assertSame('The Farm Estates', $r['after']['complex_name']);
+        $this->assertSame('Unit 19, The Farm Estates', $r['after']['address']);
+    }
+
+    /**
+     * The safety invariant. A repair may never lose information — if a rule would
+     * drop a word from the address, it is not a repair, it is a guess, and it goes
+     * to a human instead.
+     */
+    public function test_a_repair_that_would_lose_a_word_is_refused(): void
+    {
+        $p = $this->property([
+            'address' => '55 Queen Street, Block C, Erf 1290',
+            'street_number' => '55',
+            'street_name' => 'Queen Street',
+            'complex_name' => 'Block C',
+            'unit_number' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        // "Erf 1290" exists in the address and in no structured column — any
+        // recomposition would silently delete it.
+        $this->assertSame(PropertyAddressReconciler::REVIEW, $r['status']);
+        $this->assertStringContainsString('refusing to guess', $r['reason']);
+        $this->assertSame($r['before'], $r['after']);
+    }
+
     /** A coherent row is left alone — the reconciler is not a rewriter. */
     public function test_a_coherent_property_is_reported_as_ok(): void
     {
