@@ -9,20 +9,20 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * AT-239 region engine (Johan-final 2026-07-13, national) — mechanical, NEVER hardcoded.
+ * AT-246 corrected region engine (Johan-final) — TOWN-level, never suburb-level.
  *
- * The region is the official MDB local municipality, assigned by point-in-polygon.
- * The region SET is driven by the MDB boundary layer + our actual suburb data, NOT
- * by any curated seed:
- *   • region_aliases carries EVERY MDB local municipality in SA (nationally complete —
- *     "CoreX already knows every municipality"), each with an agency-editable alias.
- *   • Every distinct geocoded prospecting suburb is PIP'd to its municipality and a
- *     town(=municipality) + town_suburb mapping is built, so EVERY municipality that
- *     has stock appears in the MIC region filter (eThekwini included).
- *   • Suburbs with no usable coordinate go to the unmapped queue — never a default.
+ * Three layers, each from its natural source, zero duplication:
+ *   (1) suburb→town  = P24 (p24_suburbs.p24_city_id → p24_cities). Read-only.
+ *   (2) town→region  = MDB municipality by spatial lookup of the TOWN's centroid.
+ *   (3) region→alias = agency alias (region_aliases; national 212 municipalities).
  *
- * Boundary layer cached on disk (geoBoundaries ADM3-ZAF, MDB source, vintage 2020) —
- * downloaded once, then fully offline.
+ * `towns` now mirrors the P24 towns the agency has stock in (name + p24_city_id +
+ * region = its municipality). Suburbs are NOT stored in an editable town_suburbs
+ * tree — they come from p24_suburbs; the parallel tree is retired (soft-deleted).
+ *
+ * Fixes yesterday's fault: assigning each SUBURB's own coordinate put Albersville
+ * (a Port Shepstone suburb) in "Umzumbe". Now Port Shepstone the TOWN is placed
+ * once (→ Ray Nkonyeni → alias "Hibiscus Coast") and all its suburbs inherit it.
  */
 class AssignMunicipalities extends Command
 {
@@ -31,13 +31,12 @@ class AssignMunicipalities extends Command
         {--refresh-boundaries : re-download the MDB boundary layer}
         {--dry-run : report only, write nothing}';
 
-    protected $description = 'Assign every geocoded suburb to its MDB municipality (PIP); seed the national region list + agency aliases.';
+    protected $description = 'Assign each P24 town (with stock) to its MDB municipality by town-centroid PIP; seed national region list.';
 
     private const BOUNDARY_URL = 'https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/ZAF/ADM3/geoBoundaries-ZAF-ADM3_simplified.geojson';
     private const BOUNDARY_VINTAGE = 'MDB via geoBoundaries ADM3-ZAF, vintage 2020';
     private const CACHE_PATH = 'mdb/zaf_adm3.geojson';
 
-    /** Municipality (canonical MDB) → P24 alias, pre-filled as the agency alias. */
     private const P24_ALIAS_MAP = [
         'Ray Nkonyeni' => 'Hibiscus Coast',
     ];
@@ -51,11 +50,7 @@ class AssignMunicipalities extends Command
             $this->error('Could not load the MDB boundary layer.');
             return self::FAILURE;
         }
-
-        // The national municipality list — driven by the MDB layer, never a seed.
-        $allMunicipalities = collect($features)
-            ->map(fn ($f) => $f['properties']['shapeName'] ?? null)
-            ->filter()->unique()->values();
+        $allMunicipalities = collect($features)->map(fn ($f) => $f['properties']['shapeName'] ?? null)->filter()->unique()->values();
         $this->info('Boundary layer: ' . self::BOUNDARY_VINTAGE . ' — ' . $allMunicipalities->count() . ' local municipalities (national).');
 
         $agencyIds = $this->option('agency')
@@ -64,14 +59,13 @@ class AssignMunicipalities extends Command
 
         $now = now();
         foreach ($agencyIds as $agencyId) {
-            // (1) NATIONAL region list — a region_aliases row for every MDB municipality.
+            // (1) National region list.
             if (! $dry) {
                 $order = 0;
                 foreach ($allMunicipalities as $munic) {
                     $order++;
                     $suggestion = self::P24_ALIAS_MAP[$munic] ?? null;
-                    $existing = RegionAlias::withoutGlobalScopes()
-                        ->where('agency_id', $agencyId)->where('municipality', $munic)->first();
+                    $existing = RegionAlias::withoutGlobalScopes()->where('agency_id', $agencyId)->where('municipality', $munic)->first();
                     if ($existing) {
                         $existing->alias_suggestion = $suggestion;
                         if ($suggestion && ! $existing->alias) { $existing->alias = $suggestion; }
@@ -86,48 +80,43 @@ class AssignMunicipalities extends Command
                 }
             }
 
-            // (2) Rebuild towns(=municipality) + town_suburbs from EVERY geocoded suburb.
-            //     Soft-clear first so retired curated towns drop out; municipality towns
-            //     are un-soft-deleted by the upsert below.
-            if (! $dry) {
-                DB::table('towns')->where('agency_id', $agencyId)->whereNull('deleted_at')->update(['deleted_at' => $now]);
-                DB::table('town_suburbs')->where('agency_id', $agencyId)->whereNull('deleted_at')->update(['deleted_at' => $now]);
-            }
-
-            $centroids = DB::table('prospecting_listings')
-                ->where('agency_id', $agencyId)
-                ->whereNotNull('latitude')->whereNotNull('longitude')->whereNotNull('suburb')
-                ->selectRaw('LOWER(TRIM(suburb)) sub, MAX(suburb) label, AVG(latitude) la, AVG(longitude) lo')
-                ->groupBy(DB::raw('LOWER(TRIM(suburb))'))
+            // (2) Per-P24-town centroid (from that town's geocoded listings), grouped by
+            //     the P24 city id — the town, not the suburb.
+            $townCentroids = DB::table('prospecting_listings as pl')
+                ->join('p24_suburbs as ps', DB::raw('LOWER(TRIM(ps.name))'), '=', DB::raw('LOWER(TRIM(pl.suburb))'))
+                ->where('pl.agency_id', $agencyId)
+                ->whereNotNull('pl.latitude')->whereNotNull('pl.longitude')
+                ->whereNotNull('ps.p24_city_id')
+                ->groupBy('ps.p24_city_id')
+                ->selectRaw('ps.p24_city_id, AVG(pl.latitude) la, AVG(pl.longitude) lo, COUNT(*) c')
                 ->get();
 
+            // Retire the parallel town_suburbs tree + rebuild towns (soft — no data loss).
+            if (! $dry) {
+                DB::table('town_suburbs')->where('agency_id', $agencyId)->whereNull('deleted_at')->update(['deleted_at' => $now]);
+                DB::table('towns')->where('agency_id', $agencyId)->whereNull('deleted_at')->update(['deleted_at' => $now]);
+            }
+
             $placed = 0; $queued = 0; $munisWithStock = [];
-            foreach ($centroids as $c) {
-                $munic = $this->municipalityAt($features, (float) $c->lo, (float) $c->la);
+            foreach ($townCentroids as $t) {
+                $townName = DB::table('p24_cities')->where('id', $t->p24_city_id)->value('name') ?: ('P24 town ' . $t->p24_city_id);
+                $munic = $this->municipalityAt($features, (float) $t->lo, (float) $t->la);
                 if ($munic === null) { $queued++; continue; }
                 $munisWithStock[$munic] = ($munisWithStock[$munic] ?? 0) + 1;
+                $this->line(($dry ? '[dry] ' : '') . "  {$townName} (P24 town {$t->p24_city_id}) → {$munic}");
                 if (! $dry) {
-                    $slug = Str::slug($munic);
+                    $slug = Str::slug($townName) . '-' . $t->p24_city_id;
                     DB::table('towns')->updateOrInsert(
                         ['agency_id' => $agencyId, 'slug' => $slug],
-                        ['name' => $munic, 'region' => $munic, 'display_order' => 0, 'deleted_at' => null, 'updated_at' => $now, 'created_at' => $now],
-                    );
-                    $townId = (int) DB::table('towns')->where('agency_id', $agencyId)->where('slug', $slug)->value('id');
-                    DB::table('town_suburbs')->updateOrInsert(
-                        ['agency_id' => $agencyId, 'suburb_normalised' => $c->sub],
-                        ['town_id' => $townId, 'suburb_name' => $c->label, 'deleted_at' => null, 'updated_at' => $now, 'created_at' => $now],
+                        ['name' => $townName, 'p24_city_id' => $t->p24_city_id, 'region' => $munic,
+                         'display_order' => 0, 'deleted_at' => null, 'updated_at' => $now, 'created_at' => $now],
                     );
                 }
                 $placed++;
             }
 
-            arsort($munisWithStock);
-            $this->info(($dry ? '[dry-run] ' : '') . "agency {$agencyId}: {$placed} suburbs placed across " . count($munisWithStock)
-                . ' municipalities-with-stock, ' . $queued . ' queued (no coordinate). National region rows: ' . $allMunicipalities->count() . '.');
-            foreach ($munisWithStock as $m => $n) {
-                $alias = self::P24_ALIAS_MAP[$m] ?? null;
-                $this->line("   {$m}" . ($alias ? " (shows as \"{$alias}\")" : '') . ": {$n} suburbs");
-            }
+            $this->info(($dry ? '[dry-run] ' : '') . "agency {$agencyId}: {$placed} P24 towns placed across " . count($munisWithStock)
+                . ' municipalities, ' . $queued . ' town-centroids outside boundaries. National region rows: ' . $allMunicipalities->count() . '.');
         }
 
         return self::SUCCESS;
