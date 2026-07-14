@@ -291,6 +291,7 @@
             {{-- Bookmark / Claim button --}}
             @if($showBookmark)
             <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}"
+                  data-tour="mic-claim"
                   onclick="event.stopPropagation();"
                   style="margin: 0; line-height: 0;">
                 @csrf
