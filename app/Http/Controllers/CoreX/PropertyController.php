@@ -1379,6 +1379,16 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
+        // AT-262 (Johan's gate) — change-type is ONLY for a draft that has never been
+        // advertised. Server-side guard so the rule holds even if the UI is bypassed:
+        // an advertised/active listing must use Duplicate (its live history is never
+        // archived out from under the portals).
+        if (! $property->canChangeType()) {
+            return back()->with('error',
+                'Change listing type is only available for a draft listing that has never been advertised. '
+                . 'To offer this property as a different type, use Duplicate.');
+        }
+
         $currentType = $property->listing_type ?: 'sale';
         $targetType  = $currentType === 'rental' ? 'sale' : 'rental';
 

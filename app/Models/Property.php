@@ -122,6 +122,53 @@ class Property extends Model
     }
 
     /**
+     * AT-262 — has this listing EVER been advertised (website or a portal)?
+     *
+     * "Ever", not "now": these markers are set when a listing goes public and are
+     * NOT cleared on withdrawal (a delisted P24 listing keeps its ref/activated_at),
+     * so a withdrawn-back-to-draft listing still answers true. A listing with none
+     * of them has genuinely never been public.
+     */
+    public function wasEverAdvertised(): bool
+    {
+        if ($this->published_at !== null) {
+            return true;                                                    // HFC website publish flag
+        }
+        if ($this->p24_activated_at !== null || $this->pp_activated_at !== null) {
+            return true;                                                    // portal activation
+        }
+        if ($this->p24_last_submitted_at !== null || $this->pp_last_submitted_at !== null) {
+            return true;                                                    // portal submission
+        }
+        if (filled($this->p24_ref) || filled($this->pp_ref)) {
+            return true;                                                    // a portal listing was created
+        }
+
+        // Own website (property_website_syndication) — ever enabled / submitted /
+        // activated, INCLUDING rows soft-deleted when the site was later disabled.
+        // DB::table sees soft-deleted rows, so this reads true history.
+        return \Illuminate\Support\Facades\DB::table('property_website_syndication')
+            ->where('property_id', $this->id)
+            ->where(function ($q) {
+                $q->where('enabled', true)
+                  ->orWhereNotNull('activated_at')
+                  ->orWhereNotNull('last_submitted_at');
+            })
+            ->exists();
+    }
+
+    /**
+     * AT-262 (Johan's gate) — "Change listing type" is available ONLY for a draft
+     * that has NEVER been advertised. It is the "I loaded a rental that should have
+     * been a sale" fix, nothing more. Any advertised/active listing uses Duplicate
+     * instead, so its live history is never archived out from under the portals.
+     */
+    public function canChangeType(): bool
+    {
+        return $this->isDraft() && ! $this->wasEverAdvertised();
+    }
+
+    /**
      * Whether this property type is a habitable dwelling that is normally
      * listed with bedroom/bathroom counts. Land, farms, commercial and
      * industrial stock are not — so readiness/completeness gates must not
