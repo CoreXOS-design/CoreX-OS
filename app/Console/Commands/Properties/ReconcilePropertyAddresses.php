@@ -34,6 +34,7 @@ final class ReconcilePropertyAddresses extends Command
         {--apply : Write the proposed values (default is report-only)}
         {--agency= : Restrict to one agency}
         {--ids= : Comma-separated property ids}
+        {--limit=25 : How many proposals to print (0 = all)}
         {--rollback= : Restore a previous run from its JSON snapshot}';
 
     protected $description = 'AT-266 — report (and optionally repair) properties whose address and structured columns disagree';
@@ -74,10 +75,34 @@ final class ReconcilePropertyAddresses extends Command
         $this->line('');
         $this->line(sprintf('<comment>%d</comment> repairable, <comment>%d</comment> need a human.',
             count($drifted), count($review)));
+
+        // Break it down by rule — "2,139 rows" is not a thing anyone can approve.
+        // Knowing that most are a benign re-compose and only a handful are real
+        // corruption repairs IS.
+        $byRule = [];
+        foreach ($drifted as $r) {
+            $byRule[$r['rule']] = ($byRule[$r['rule']] ?? 0) + 1;
+        }
+        arsort($byRule);
+        $this->line('');
+        foreach ($byRule as $rule => $count) {
+            $this->line(sprintf('  %-18s %5d   %s', $rule, $count, match ($rule) {
+                'recompose'        => 'parts are sound — the display string was merely stale (enrichment, not repair)',
+                'scheme-in-street' => 'the scheme name was sitting in the street-name box',
+                'newline-glue'     => 'a single-line input deleted the line break',
+                default            => '',
+            }));
+        }
         $this->line('');
 
-        foreach ($drifted as $r) {
+        $limit = (int) $this->option('limit');
+        $show  = $limit > 0 ? $limit : count($drifted);   // --limit=0 prints all
+        foreach (array_slice($drifted, 0, $show) as $r) {
             $this->renderRow($r);
+        }
+        if (count($drifted) > $show) {
+            $this->line(sprintf('  … and %d more (--limit=0 for all)', count($drifted) - $show));
+            $this->line('');
         }
 
         if (!empty($review)) {

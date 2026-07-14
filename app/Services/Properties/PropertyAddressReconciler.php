@@ -142,10 +142,25 @@ final class PropertyAddressReconciler
             $segments = self::segments($street);
             if (count($segments) >= 2) {
                 $tail = array_pop($segments);
-                $complex = trim(implode(', ', $segments));
+                $complex = self::stripUnitWord(trim(implode(', ', $segments)), $unit);
+
+                // A tail with no letters in it is not a street — it is the unit
+                // ("1 Uvongo Garden Estate, 4"). Repairing it as a street produced
+                // the nonsense "1 4". The scheme stands alone, with no street.
+                if (!preg_match('/[A-Za-z]/u', $tail)) {
+                    if ($unit === '') {
+                        $unit = trim($tail);
+                    }
+                    return [['number' => '', 'street' => '', 'complex' => $complex, 'unit' => $unit],
+                        'scheme-in-street',
+                        'the scheme name was in the street-name box and the trailing number is the unit, not a street'];
+                }
+
                 [$number2, $street] = self::splitHouseNumber($tail);
                 if ($number2 !== '') {
                     $number = $number2;
+                } elseif (!self::isHouseNumber($number)) {
+                    $number = '';
                 }
                 return [compact('number', 'street', 'complex', 'unit'),
                     'scheme-in-street',
@@ -157,10 +172,23 @@ final class PropertyAddressReconciler
         // "26 Stafford Close Marine Drive" with complex "26 Stafford Close".
         if ($complex !== '') {
             $cleanComplex = self::stripUnitWord($complex, $unit);
-            $stripped = self::stripLeading($street, $cleanComplex);
-            if ($stripped === null) {
-                $stripped = self::stripTrailingSegment($street, $cleanComplex, $unit);
+
+            // Try the scheme as RECORDED first ("26 Stafford Close"), then the
+            // unit-stripped form ("Stafford Close"), then unit-prefixed. The street
+            // may carry any of those spellings; the complex column keeps the clean
+            // one either way, so the unit is never said twice.
+            $stripped = null;
+            foreach ([$complex, $cleanComplex, trim($unit . ' ' . $cleanComplex)] as $candidate) {
+                if ($candidate === '') {
+                    continue;
+                }
+                $stripped = self::stripLeading($street, $candidate)
+                    ?? self::stripTrailingSegment($street, $candidate, $unit);
+                if ($stripped !== null && $stripped !== '') {
+                    break;
+                }
             }
+
             if ($stripped !== null && $stripped !== '') {
                 return [['number' => $number, 'street' => $stripped, 'complex' => $cleanComplex, 'unit' => $unit],
                     'scheme-in-street',
@@ -266,12 +294,22 @@ final class PropertyAddressReconciler
         return trim(implode(', ', $segments), " \t,");
     }
 
-    /** "Esmezee Unit 4" → "Esmezee"; "Del Este  unit 6" → "Del Este". */
+    /**
+     * "Esmezee Unit 4" → "Esmezee"; "Del Este  unit 6" → "Del Este";
+     * "6 Margate Sun" (unit 6) → "Margate Sun".
+     *
+     * The unit belongs in the unit column, not baked into the scheme name — leaving
+     * it there renders "Unit 6, 6 Margate Sun", saying the 6 twice.
+     */
     private static function stripUnitWord(string $complex, string $unit): string
     {
         $out = $complex;
         if ($unit !== '') {
-            $out = (string) preg_replace('/\bunit\s*' . preg_quote($unit, '/') . '\b/iu', '', $out);
+            $q = preg_quote($unit, '/');
+            $out = (string) preg_replace('/\bunit\s*' . $q . '\b/iu', '', $out);
+            // A bare leading unit number ("6 Margate Sun") — only when the scheme
+            // still has a name left behind it.
+            $out = (string) preg_replace('/^\s*' . $q . '\s+(?=\D)/u', '', $out);
         }
         $out = (string) preg_replace('/\s+/u', ' ', $out);
 

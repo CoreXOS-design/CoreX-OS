@@ -126,8 +126,11 @@ final class PropertyAddressOneTruthTest extends TestCase
 
         $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
         $this->assertSame('Marine Drive', $r['after']['street_name']);
-        // The agent's enrichment is PRESERVED — not thrown away.
-        $this->assertSame('Unit 26, 26 Stafford Close, 73 Marine Drive', $r['after']['address']);
+        // The agent's enrichment is PRESERVED — not thrown away. The unit moves OUT
+        // of the scheme name ("26 Stafford Close" → unit 26 + "Stafford Close"), so
+        // the address does not say 26 twice.
+        $this->assertSame('Stafford Close', $r['after']['complex_name']);
+        $this->assertSame('Unit 26, Stafford Close, 73 Marine Drive', $r['after']['address']);
     }
 
     /** Live property 2725 — a single-line input deleted the newline. */
@@ -207,6 +210,50 @@ final class PropertyAddressOneTruthTest extends TestCase
         $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
         $this->assertSame('The Farm Estates', $r['after']['complex_name']);
         $this->assertSame('Unit 19, The Farm Estates', $r['after']['address']);
+    }
+
+    /**
+     * qa1 #1291 — "1 Uvongo Garden Estate, 4". The trailing ", 4" is the UNIT, not a
+     * street (the earlier cut repaired it as one and produced the nonsense "1 4").
+     * But repairing it drops the leading "1", and nobody can say what that 1 was —
+     * a second unit? a building? So the safety invariant catches it and it goes to a
+     * human. The right outcome is REVIEW, not a confident guess.
+     */
+    public function test_a_trailing_bare_number_is_never_repaired_into_a_street(): void
+    {
+        $p = $this->property([
+            'address' => '1 Uvongo Garden Estate, 4',
+            'street_number' => '1',
+            'street_name' => 'Uvongo Garden Estate, 4',
+            'unit_number' => '4',
+            'complex_name' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        $this->assertSame(PropertyAddressReconciler::REVIEW, $r['status']);
+        $this->assertStringContainsString('refusing to guess', $r['reason']);
+        $this->assertSame($r['before'], $r['after'], 'a REVIEW row is left exactly as it was');
+        // ...and specifically, it never becomes the nonsense street "1 4".
+        $this->assertNotSame('1 4', $r['after']['street_number'] . ' ' . $r['after']['street_name']);
+    }
+
+    /** qa1 #1296 — the unit must not stay baked into the scheme name ("6 Margate Sun"). */
+    public function test_the_unit_is_not_left_inside_the_scheme_name(): void
+    {
+        $p = $this->property([
+            'address' => '6 Margate Sun, 6 Marine Drive',
+            'street_number' => null,
+            'street_name' => '6 Margate Sun, 6 Marine Drive',
+            'unit_number' => '6',
+            'complex_name' => null,
+        ], sync: false);
+
+        $r = app(PropertyAddressReconciler::class)->analyse($p);
+
+        $this->assertSame(PropertyAddressReconciler::HIGH, $r['status']);
+        $this->assertSame('Margate Sun', $r['after']['complex_name'], 'the unit belongs in the unit column');
+        $this->assertSame('Unit 6, Margate Sun, 6 Marine Drive', $r['after']['address']);
     }
 
     /**
