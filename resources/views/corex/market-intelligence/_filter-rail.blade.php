@@ -151,7 +151,7 @@
     {{-- ALWAYS rendered (no invisible door — AT-242 escalation). Open by default so
          the headline buyer-led control is visible on landing; empty state explains
          itself when no buyer matches are computed yet. --}}
-    <div x-data="{ open: true, q: '' }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: true, q: '' }" data-tour="mic-prospect-buyer" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
         </button>
@@ -159,7 +159,7 @@
             {{-- AT-242 scope toggle — My buyers / My branch / Whole company. Same match
                  set, scoped listing. 'Whole company' only shown to agency-wide roles. --}}
             @if(count($buyerScopeOptions) > 1)
-                <div style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
+                <div data-tour="mic-buyer-scope" style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
                     @foreach($buyerScopeOptions as $sc)
                         @php $scActive = $buyerScope === $sc; @endphp
                         <a href="{{ $urlWith(['buyer_scope' => $sc]) }}"
@@ -173,7 +173,7 @@
                 </div>
             @endif
             @if($micBuyers->count() > 0)
-                <div style="padding: 2px 12px 6px;">
+                <div data-tour="mic-buyer-select" style="padding: 2px 12px 6px;">
                     <input type="text" x-model="q" placeholder="Search buyer…"
                            class="w-full rounded-md px-2 py-1"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
@@ -204,7 +204,7 @@
 
     {{-- AT-239 — Region. Canonical region from the property spine (towns.region).
          ALWAYS rendered; empty state explains where region data comes from. --}}
-    <div x-data="{ open: true }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: true }" data-tour="mic-by-region" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By region
         </button>
@@ -228,7 +228,7 @@
 
     {{-- By town --}}
     @if($agg['by_suburb']->count() > 0)
-    <div x-data="{ open: true, showAll: false }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: true, showAll: false }" data-tour="mic-by-town" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By town
         </button>
