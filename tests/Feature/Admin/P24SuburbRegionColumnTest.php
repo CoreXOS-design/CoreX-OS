@@ -126,4 +126,68 @@ class P24SuburbRegionColumnTest extends TestCase
         $resp->assertStatus(200);
         $resp->assertSee('Albersville', false);
     }
+
+    /**
+     * A suburb WITH a P24 city but NO agency town (the 88% case — Durban North) is
+     * NOT a dead end: it renders an assignable region dropdown, and assigning it
+     * materialises the agency town and applies to the whole town.
+     */
+    public function test_city_without_agency_town_is_assignable_and_materialises_the_town(): void
+    {
+        $provId = (int) DB::table('p24_provinces')->where('name', 'KwaZulu Natal')->value('id');
+        $cityId = (int) DB::table('p24_cities')->insertGetId([
+            'p24_id' => 90331, 'p24_province_id' => $provId, 'name' => 'Durban North',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        // Suburb has the city, but there is NO towns row for it.
+        $subId = (int) DB::table('p24_suburbs')->insertGetId([
+            'name' => 'Durban North', 'slug' => 'durban-north-x', 'p24_id' => 6077,
+            'p24_city_id' => $cityId, 'region' => null, 'confirmed' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertSame(0, DB::table('towns')->where('agency_id', $this->agencyId)->where('p24_city_id', $cityId)->count());
+
+        // Screen: the row is assignable (city-region form present), NOT a dead end.
+        $resp = $this->actingAs($this->admin())->get(route('admin.p24-suburbs.index', ['q' => 'Durban North']));
+        $resp->assertStatus(200);
+        $resp->assertSee('id="cityrgn-' . $subId . '"', false);   // an assignable region control
+        $resp->assertSee('Durban North', false);
+        $resp->assertDontSee('no P24 town', false);               // no dead-end message
+
+        // Assigning materialises the agency town + sets the region.
+        $put = $this->actingAs($this->admin())
+            ->put(route('admin.p24-suburbs.city-region', $cityId), ['region' => 'eThekwini']);
+        $put->assertRedirect();
+        $this->assertDatabaseHas('towns', [
+            'agency_id' => $this->agencyId, 'p24_city_id' => $cityId, 'name' => 'Durban North', 'region' => 'eThekwini',
+        ]);
+    }
+
+    /** The Add New Suburb form no longer ships the stale hardcoded region field. */
+    public function test_add_form_has_no_hardcoded_region(): void
+    {
+        $resp = $this->actingAs($this->admin())->get(route('admin.p24-suburbs.index'));
+        $resp->assertStatus(200);
+        $resp->assertDontSee('kzn-south-coast', false);
+    }
+
+    /** Truly-townless suburb (no P24 city) keeps a marked suburb-level fallback that persists. */
+    public function test_townless_suburb_uses_suburb_level_fallback(): void
+    {
+        $subId = (int) DB::table('p24_suburbs')->insertGetId([
+            'name' => 'Manual Place', 'slug' => 'manual-place', 'p24_id' => null,
+            'p24_city_id' => null, 'region' => null, 'confirmed' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $resp = $this->actingAs($this->admin())->get(route('admin.p24-suburbs.index', ['q' => 'Manual Place']));
+        $resp->assertStatus(200);
+        $resp->assertSee('suburb-level (no P24 town)', false);
+
+        // A row Save with a region writes the suburb-level region (fallback).
+        $put = $this->actingAs($this->admin())->put(route('admin.p24-suburbs.update', $subId), [
+            'name' => 'Manual Place', 'region' => 'Ray Nkonyeni',
+        ]);
+        $put->assertRedirect();
+        $this->assertDatabaseHas('p24_suburbs', ['id' => $subId, 'region' => 'Ray Nkonyeni']);
+    }
 }
