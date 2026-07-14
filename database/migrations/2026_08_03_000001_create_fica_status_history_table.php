@@ -32,8 +32,8 @@ return new class extends Migration
             $table->string('action', 60);
             $table->unsignedBigInteger('actor_user_id')->nullable();
             // The actor's officer tier at the moment of the action, captured for the
-            // audit (primary_co / mlro / agent / admin / system).
-            $table->string('actor_tier', 20)->nullable();
+            // audit (primary_compliance_officer / mlro / agent / admin / system).
+            $table->string('actor_tier', 40)->nullable();
             // Mandatory reason on a referral / return; optional elsewhere.
             $table->text('note')->nullable();
             $table->json('meta')->nullable();
