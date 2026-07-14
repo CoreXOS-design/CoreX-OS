@@ -699,7 +699,7 @@
         @php
             $images = $property->allImages();
             $thumb  = $images[0] ?? null;
-            $listingTypeLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+            $listingTypeLabel = $property->isRental() ? 'For Rent' : 'For Sale';
             $statusKey   = strtolower((string) ($property->status ?: 'draft'));
             $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
             $brandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
@@ -920,7 +920,7 @@
                 @php
                     $rowImages = $property->allImages();
                     $rowThumb  = $rowImages[0] ?? null;
-                    $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+                    $rowListingLabel = $property->isRental() ? 'For Rent' : 'For Sale';
                     $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
                     $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
                     $rowBrandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';

@@ -13,8 +13,15 @@
 
     // Status → over-gallery badge. "Sold"-style states use the loud brand-red;
     // everything else uses the translucent ink glass badge.
+    //
+    // The LIVE state is the only one that depends on listing type — an active
+    // rental reads "To Let", never "For Sale". The dead/interim states (sold,
+    // withdrawn, draft, pending) mean the same thing on both sides of the
+    // sale/rental line, so they are listing-type agnostic.
+    $isRental = $property->isRental();
+
     $statusMap = [
-        'active'    => ['For Sale',  false],
+        'active'    => [$isRental ? 'To Let' : 'For Sale', false],
         'draft'     => ['Draft',     false],
         'sold'      => ['Sold',      true],
         'withdrawn' => ['Withdrawn', true],
@@ -273,8 +280,12 @@
                 </section>
             @endif
 
-            {{-- Bond calculator --}}
-            <section class="mt-10" x-data="mortgageCalc({{ (int) ($property->price ?? 0) }})">
+            {{-- Bond calculator — sales only. A tenant takes no bond out on a rental,
+                 and the sale `price` column is 0/null on a rental anyway, so on a
+                 rental this section rendered a repayment schedule for a purchase
+                 that will never happen. --}}
+            @unless($isRental)
+            <section class="mt-10" x-data="mortgageCalc({{ (int) $property->effectivePrice() }})">
                 <h2 class="text-navy text-2xl font-light">Bond calculator</h2>
                 <p class="mt-1 text-sm text-neutral-500">Estimate your monthly repayment. Indicative only.</p>
                 <div class="mt-4 rounded-sm border border-slate-200 bg-slate-50 p-6">
@@ -314,6 +325,7 @@
                     </div>
                 </div>
             </section>
+            @endunless
 
             {{-- Virtual tour --}}
             @if($property->virtual_tour_url)
@@ -347,8 +359,10 @@
 
                 {{-- Price card --}}
                 <div class="rounded-sm border border-slate-200 bg-slate-50 p-6" id="enquire">
-                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">Asking price</p>
-                    <p class="text-brand-red mt-2 text-2xl font-semibold num">{{ $property->formattedPrice() }}</p>
+                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">{{ $isRental ? 'Monthly rental' : 'Asking price' }}</p>
+                    <p class="text-brand-red mt-2 text-2xl font-semibold num">
+                        {{ $property->formattedPrice() }}{{ $isRental ? ' / month' : '' }}
+                    </p>
                     @if($property->suburb || $property->city)
                         <p class="mt-1 text-sm text-neutral-500">{{ $property->suburb }}{{ $property->city ? ', '.$property->city : '' }}</p>
                     @endif
