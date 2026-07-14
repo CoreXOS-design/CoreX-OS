@@ -168,24 +168,26 @@ class MarketIntelligenceController extends Controller
             }
         }
 
-        // AT-239 — Region filter. Canonical region lives on towns.region (the
-        // property spine — one truth, no new region list). Resolve region → its
-        // towns → their suburbs, then reuse the same LOWER(TRIM(suburb)) match the
-        // town_id filter uses. Composes AND with every other filter.
+        // AT-246 — Region filter, corrected TOWN-level model. A region (MDB
+        // municipality) → the P24 TOWNS in it (towns.p24_city_id) → the suburbs P24
+        // files under those towns (p24_suburbs) → the listings. suburb→town is P24's
+        // truth (never re-derived here); town→municipality is towns.region. Composes
+        // AND with every other filter.
         if ($request->filled('region')) {
             $region = (string) $request->query('region');
-            $regionTownIds = \DB::table('towns')
+            $regionCityIds = \DB::table('towns')
                 ->where('agency_id', $agencyId)
                 ->where('region', $region)
                 ->whereNull('deleted_at')
-                ->pluck('id')
+                ->whereNotNull('p24_city_id')
+                ->pluck('p24_city_id')
                 ->all();
-            $regionSuburbs = !empty($regionTownIds)
-                ? \DB::table('town_suburbs')
-                    ->where('agency_id', $agencyId)
-                    ->whereIn('town_id', $regionTownIds)
+            $regionSuburbs = !empty($regionCityIds)
+                ? \DB::table('p24_suburbs')
+                    ->whereIn('p24_city_id', $regionCityIds)
                     ->whereNull('deleted_at')
-                    ->pluck('suburb_normalised')
+                    ->selectRaw('DISTINCT LOWER(TRIM(name)) sub')
+                    ->pluck('sub')
                     ->all()
                 : [];
             if (!empty($regionSuburbs)) {
