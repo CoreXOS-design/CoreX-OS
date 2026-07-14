@@ -1241,6 +1241,11 @@ Route::middleware(['auth', 'permission:manage_performance_settings'])->group(fun
 Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::get('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'index'])
         ->name('admin.p24-suburbs.index');
+    // AT-246 — town→region + region alias (the signed region model, one screen).
+    Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
+        ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
+    Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
+        ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
         ->name('admin.p24-suburbs.store');
     Route::put('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'update'])
@@ -2808,6 +2813,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{property}',           [\App\Http\Controllers\CoreX\PropertyController::class, 'destroy'])->name('destroy');
         Route::post('/{property}/restore',     [\App\Http\Controllers\CoreX\PropertyController::class, 'restore'])->name('restore')->withTrashed();
         Route::post('/{property}/duplicate',   [\App\Http\Controllers\CoreX\PropertyController::class, 'duplicate'])->name('duplicate');
+        // AT-262 — change listing type = duplicate to the other type + archive (de-list) the original.
+        Route::post('/{property}/change-type', [\App\Http\Controllers\CoreX\PropertyController::class, 'changeType'])->name('change-type');
         Route::post('/{property}/publish-toggle', [\App\Http\Controllers\CoreX\PropertyController::class, 'publishToggle'])->name('publish-toggle');
         Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');
@@ -2998,6 +3005,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{contact}/properties/{property}', [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'unlink'])->name('properties.unlink');
         // Core Matches
         Route::post('/{contact}/matches',                              [\App\Http\Controllers\CoreX\ContactMatchController::class, 'store'])->name('matches.store');
+        Route::get('/{contact}/matches/{match}/edit',                  [\App\Http\Controllers\CoreX\ContactMatchController::class, 'edit'])->name('matches.edit');
         Route::put('/{contact}/matches/{match}',                       [\App\Http\Controllers\CoreX\ContactMatchController::class, 'update'])->name('matches.update');
         Route::post('/{contact}/matches/{match}/status',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'setStatus'])->name('matches.setStatus');
         Route::get('/{contact}/matches/{match}/results',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'results'])->name('matches.results');
