@@ -675,6 +675,15 @@ class DealRegisterController extends Controller
             }
         }
 
+        // AT-245 — mint the DR2 twin now that the listing agent is on deal_user.
+        // Without this, a newly-captured deal has no twin and is invisible to
+        // distribution ("no DR2 record") — the overnight backfill was one-time.
+        try {
+            app(\App\Services\DealV2\DealSyncService::class)->ensureTwin($deal);
+        } catch (\Throwable $e) {
+            \Log::error('DR2 ensureTwin on capture failed', ['deal_id' => $deal->id, 'error' => $e->getMessage()]);
+        }
+
         // Sliding scale recalculation: only when accepted_status crosses Granted (DR1 parity).
         $newAcceptedStatus = (string) ($deal->accepted_status ?? '');
         if ($oldAcceptedStatus !== $newAcceptedStatus && ($oldAcceptedStatus === 'G' || $newAcceptedStatus === 'G')) {
