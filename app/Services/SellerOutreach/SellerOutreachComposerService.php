@@ -110,13 +110,15 @@ final class SellerOutreachComposerService
         // surfaces (submit()/queue() already hard-block on validationIssues), so
         // no send path can slip a blank/placeholder address through.
         //
-        // Preserves AT-61: OutreachAddress::isEmpty() is false whenever EITHER a
-        // linked property OR the contact's structured address yields a real
-        // street/suburb — only a genuinely empty address (no usable component from
-        // either source) blocks. The controller still blocks the "no property and
-        // no address at all" case earlier; this catches the subtler "has a
-        // property/address record but its address fields are blank" case.
-        if ($address->isEmpty()) {
+        // AT-266 — the gate now requires a STREET, which is what its message has
+        // always promised ("a complete address (street and suburb)"). The old check
+        // was isEmpty(), which only fired when street AND suburb were both missing.
+        // A property carrying a suburb but no street therefore sailed through and
+        // rendered "your property at Uvongo" — a pitch that names no address. That
+        // was 46 live properties and 211 contacts. Preserves AT-61: the address may
+        // still come from EITHER a linked property or the contact's structured
+        // AT-60 columns; it simply has to be a real address in both modes.
+        if ($address->isIncomplete()) {
             $validationIssues['no_address'] = 'No property address to reference — link a property with a complete address (street and suburb) before sending.';
         }
 
