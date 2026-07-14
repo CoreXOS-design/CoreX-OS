@@ -1244,9 +1244,18 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
         ->name('admin.p24-suburbs.store');
     Route::put('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'update'])
-        ->name('admin.p24-suburbs.update');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.update');
     Route::delete('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'destroy'])
-        ->name('admin.p24-suburbs.destroy');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.destroy');
+    // AT-246 — town-level region assignment (applies to all a town's suburbs) + region display alias.
+    Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
+        ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
+    // AT-246 — assign region by P24 CITY (find-or-create the agency town) so EVERY
+    // suburb is assignable even before an agency towns row exists — no dead-end rows.
+    Route::put('/settings/p24-suburbs/city/{cityId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveCityRegion'])
+        ->whereNumber('cityId')->name('admin.p24-suburbs.city-region');
+    Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
+        ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
 });
 
 
@@ -2341,9 +2350,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
             Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
 
-            // AT-239 — Regions screen (MDB municipality + agency-editable alias).
-            Route::get('/regions',                                [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'index'])->name('regions.index');
-            Route::put('/regions/{municipality}',                 [\App\Http\Controllers\Settings\Prospecting\RegionsController::class, 'updateAlias'])->name('regions.update')->where('municipality', '.*');
 
             Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
             Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');

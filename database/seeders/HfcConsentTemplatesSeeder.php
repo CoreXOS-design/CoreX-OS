@@ -319,6 +319,53 @@ Kind regards,
 Manage your preferences or opt out anytime: {opt_out_link}
 TXT,
             ],
+
+            // ── AT-263 — Johan's prospecting introduction ─────────────────────
+            // His copy, verbatim, with his placeholders mapped to the REAL merge
+            // fields. No new merge field was needed — every token he wrote already
+            // has a live data source:
+            //
+            //   {first_name}   → {seller_name}            (contact first name)
+            //   {ffc_number}   → {agent_ffc}              (users.ffc_number — the
+            //        SENDING AGENT's Fidelity Fund Certificate, which is what he
+            //        asked for; NOT {agency_ffc} and NOT {agency_ppra_no}. Wrapped
+            //        in the optional segment so an agent without one on file reads
+            //        "(registered with the PPRA)" rather than a dangling "FFC ".)
+            //   {area}         → {property_suburb}        (as every other template)
+            //   {property_ref} → {property_address}       (there is no listing-ref
+            //        token, and a prospecting target is not our listing, so it HAS
+            //        no reference — the thing he means by "your property at …" is
+            //        the street address, which is also the anchor the blank-address
+            //        send-gate already enforces)
+            //   {agency_phone} → {branch_or_company_tel}  (AT-48 branch-then-company)
+            //
+            // Two compliance additions his draft could not have known about: the
+            // {opt_out_link} one-tap link is MANDATORY on every outreach template
+            // (AT-49/POPIA — the validator hard-blocks without it), so it joins his
+            // STOP sentence rather than replacing it; and include_tracking_link is
+            // false because a cold introduction carries no live-demand link.
+            //
+            // Ships ACTIVE, and NOT default-for-channel — the standing defaults stay
+            // where Johan put them.
+            [
+                'name' => 'Prospecting Introduction — Sales & Rentals',
+                'is_active' => true,
+                'is_default_for_channel' => false,
+                'description' => "Prospecting introduction (AT-263, Johan's copy) — introduces the agent and agency to a property owner and asks for a short call about marketing their property. Carries the agent's own FFC.",
+                'email_subject' => 'Marketing your property in {property_suburb} — a short call?',
+                'body' => <<<'TXT'
+Good day {seller_name},
+
+My name is {agent_name} from {agency_name} (registered with the PPRA{?agent_ffc}, FFC {agent_ffc}{/agent_ffc}). We assist property owners in {property_suburb} with sales and rentals, and I would like to discuss marketing your property at {property_address}.
+
+When would be a good time for a short call?
+
+If you would prefer not to receive marketing messages from us, simply reply STOP and we will remove you from our list immediately — or opt out here: {opt_out_link}
+
+Kind regards,
+{agent_name} | {agency_name} | {branch_or_company_tel}
+TXT,
+            ],
         ];
     }
 }
