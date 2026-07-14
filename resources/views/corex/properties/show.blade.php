@@ -49,6 +49,22 @@
         @endif
     </div>
 
+    {{-- AT-262 (Johan's ruling): a duplicated / switched-type listing is a completable
+         DRAFT — the matching fields were copied onto the new type; the rest is the agent's
+         to finish. Save is lenient here; full requirements bite at completion / syndication.
+         This banner is the "notify — moved" step: tell the agent what happened and what's owed. --}}
+    @if(!$isNew && $property->listing_type_pending)
+        <div class="mt-3 rounded-md border px-4 py-3 text-sm flex items-start gap-2.5"
+             style="background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent); border-color:color-mix(in srgb, var(--ds-amber, #d97706) 35%, transparent); color:var(--ds-amber, #d97706);">
+            <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+            <span>
+                <strong>Listing moved to {{ $property->listing_type === 'rental' ? 'Rental' : 'Sale' }}.</strong>
+                The matching details were copied across — please complete the listing before saving or syndicating.
+                The {{ $property->listing_type === 'rental' ? 'rental (monthly, deposit, lease)' : 'sale (asking price)' }} fields are still yours to fill.
+            </span>
+        </div>
+    @endif
+
     {{-- Readiness bar removed --}}
 
     {{-- Two-column layout on large screens --}}

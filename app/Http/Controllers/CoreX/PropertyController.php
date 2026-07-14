@@ -1006,17 +1006,41 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
-        if ($property->contacts()->count() === 0) {
+        // AT-262 — a completable DRAFT (a duplicated / switched-type listing not yet
+        // completed) saves PARTIALLY; the full listing requirements are enforced only
+        // at completion / go-live (MarketingReadinessService::checkDetailsComplete on
+        // publish). A live/active listing keeps strict validation so an agent can't
+        // blank a marketed listing. This is what fixes "change type → save" erroring
+        // for price/suburb/beds/baths/garages/agent on a half-filled handed-over draft.
+        $publishing  = $request->boolean('publish');
+        $isDraftSave = ($property->isDraft() || $property->listing_type_pending) && ! $publishing;
+
+        // A contact is required to COMPLETE a listing, not to save a draft in progress.
+        if (! $isDraftSave && $property->contacts()->count() === 0) {
             return back()
                 ->withInput()
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
         }
 
+        // Category-awareness (m3 portal finding): land / commercial / industrial / farm
+        // stock is not listed with bed/bath/garage counts — never require them there,
+        // even on a completed listing. Mirrors Property::requiresBedsBaths() and the
+        // publish readiness gate so validation and go-live agree.
+        $needsBedsBaths = $property->requiresBedsBaths();
+        // A rental prices via rental_amount, not the sale `price` field (the rental form
+        // does not render an asking price) — so never demand `price` on a rental.
+        $isRental = strtolower((string) $request->input('listing_type', $property->listing_type)) === 'rental';
+
+        $reqIf = static fn (bool $required, string $rest): string => ($required ? 'required' : 'nullable') . $rest;
+        $coreRequired  = ! $isDraftSave;                    // suburb, agent — at completion
+        $priceRequired = ! $isDraftSave && ! $isRental;     // sale price — a completed SALE
+        $bbRequired    = ! $isDraftSave && $needsBedsBaths; // beds/baths/garages — a completed RESIDENTIAL listing
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
-            'price'            => 'required|integer|min:0',
+            'price'            => $reqIf($priceRequired, '|integer|min:0'),
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
@@ -1032,7 +1056,7 @@ class PropertyController extends Controller
             'levy'             => 'nullable|integer|min:0',
             'special_levy'     => 'nullable|integer|min:0',
             'city'             => 'nullable|string|max:100',
-            'suburb'           => 'required|string|max:100',
+            'suburb'           => $reqIf($coreRequired, '|string|max:100'),
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
             'latitude'         => 'nullable|numeric|between:-90,90',
@@ -1040,10 +1064,10 @@ class PropertyController extends Controller
             'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
             'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
             'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
-            'beds'             => 'required|integer|min:0|max:20',
-            'baths'            => 'required|integer|min:0|max:20',
+            'beds'             => $reqIf($bbRequired, '|integer|min:0|max:20'),
+            'baths'            => $reqIf($bbRequired, '|integer|min:0|max:20'),
             'half_baths'       => 'nullable|integer|min:0|max:20',
-            'garages'          => 'required|integer|min:0|max:20',
+            'garages'          => $reqIf($bbRequired, '|integer|min:0|max:20'),
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
             'property_type'    => 'nullable|string|max:50',
@@ -1081,7 +1105,7 @@ class PropertyController extends Controller
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
-            'agent_id'         => 'required|exists:users,id',
+            'agent_id'         => $reqIf($coreRequired, '|exists:users,id'),
             'pp_second_agent_id' => 'nullable|exists:users,id',
             'pp_agent_image'           => 'nullable|image|max:1024',
             'pp_second_agent_image'    => 'nullable|image|max:1024',
@@ -1219,6 +1243,17 @@ class PropertyController extends Controller
         // real save commits the chosen type and locks it (clears the pending window).
         if ($property->listing_type_pending) {
             $data['listing_type_pending'] = false;
+        }
+
+        // AT-262 — price/beds/baths/garages/suburb/agent_id are NOT NULL columns. When
+        // a draft (or a land/commercial listing) saves with one of these relaxed and
+        // the field arrives empty (null via ConvertEmptyStringsToNull), never overwrite
+        // the stored value with null — that 1048s. Drop the null key so the column keeps
+        // its existing value; a real value is enforced at completion / go-live.
+        foreach (['price', 'beds', 'baths', 'garages', 'suburb', 'agent_id'] as $notNullField) {
+            if (array_key_exists($notNullField, $data) && $data[$notNullField] === null) {
+                unset($data[$notNullField]);
+            }
         }
 
         $previousP24SuburbId = $property->p24_suburb_id;
