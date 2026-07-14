@@ -263,6 +263,78 @@ final class PropertyDuplicateTest extends TestCase
         $this->assertSame('sale', $p->listing_type, 'the chosen type is committed on save');
     }
 
+    /** A stamped, in-scope seller contact (visible under any ContactScope). */
+    private function linkSeller(Property $p): void
+    {
+        $contact = Contact::create([
+            'agency_id'          => $this->agency->id,
+            'branch_id'          => $this->branch->id,
+            'created_by_user_id' => $this->user->id,
+            'first_name'         => 'Seller',
+            'last_name'          => 'One',
+        ]);
+        $p->contacts()->attach($contact->id, ['role' => 'seller']);
+    }
+
+    /* ─── AT-262 draft-lenient + category-aware save (Johan's repro: change-type→save 500'd) ─── */
+
+    /** The handed-over draft saves PARTIALLY — no price/suburb/beds/baths/garages/agent required. */
+    public function test_a_pending_draft_saves_partially_without_full_requirements(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'         => 'rental',
+            'listing_type_pending' => true,
+            'status'               => 'draft',
+            'property_type'        => 'House',
+        ]);
+
+        // Only a title — everything else left for completion. No contact linked either:
+        // a draft in progress must not be blocked on the completion requirements.
+        $this->actingAs($this->user)->put("/corex/properties/{$p->id}", [
+            'title' => 'Half-filled switched draft',
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $p->refresh();
+        $this->assertSame('Half-filled switched draft', $p->title);
+        $this->assertSame('rental', $p->listing_type);
+    }
+
+    /** A completed (active) RESIDENTIAL listing still enforces beds — leniency is draft-only. */
+    public function test_active_residential_listing_still_requires_beds(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'sale', 'status' => 'active', 'property_type' => 'House']);
+        $this->linkSeller($p);
+
+        $this->actingAs($this->user)->put("/corex/properties/{$p->id}", [
+            'title' => 'Home', 'price' => 1_000_000, 'suburb' => 'Uvongo',
+            'baths' => 2, 'garages' => 1, 'agent_id' => $this->user->id, // beds omitted
+        ])->assertSessionHasErrors('beds');
+    }
+
+    /** A COMMERCIAL listing never requires beds/baths/garages, even when active (m3 portal finding). */
+    public function test_active_commercial_listing_does_not_require_beds(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'sale', 'status' => 'active', 'property_type' => 'Commercial Office']);
+        $this->linkSeller($p);
+
+        $this->actingAs($this->user)->put("/corex/properties/{$p->id}", [
+            'title' => 'Shop', 'price' => 2_000_000, 'suburb' => 'Margate',
+            'agent_id' => $this->user->id, // beds/baths/garages omitted — commercial
+        ])->assertSessionHasNoErrors()->assertRedirect();
+    }
+
+    /** A RENTAL never requires the sale `price` field (it prices via rental_amount). */
+    public function test_active_rental_does_not_require_sale_price(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'rental', 'status' => 'active', 'property_type' => 'Flat']);
+        $this->linkSeller($p);
+
+        $this->actingAs($this->user)->put("/corex/properties/{$p->id}", [
+            'title' => 'To let', 'suburb' => 'Shelly Beach',
+            'beds' => 2, 'baths' => 1, 'garages' => 1, 'agent_id' => $this->user->id, // price omitted
+        ])->assertSessionHasNoErrors()->assertRedirect();
+    }
+
     public function test_cannot_duplicate_another_agencys_property(): void
     {
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
