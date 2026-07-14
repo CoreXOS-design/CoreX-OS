@@ -126,4 +126,39 @@ class FicaOfficerAppointmentsController extends Controller
         return back()->with('success', "{$appointment->full_name}'s appointment ended.")
             ->with('tab', 'user');
     }
+
+    /**
+     * AT-236 — save the agency's Refer-to-CO settings (feature on/off + recipient CO).
+     * Defaults are ON / primary CO; a chosen recipient must be an active officer, else
+     * it falls back to the primary. The boolean is only written when the form actually
+     * rendered it (§6.1 — a subset post must never silently wipe the toggle).
+     */
+    public function saveReferralSettings(Request $request)
+    {
+        abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
+        $agencyId = (int) (Auth::user()->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403);
+
+        $validated = $request->validate([
+            'fica_referral_recipient_user_id' => 'nullable|integer|exists:users,id',
+        ]);
+
+        $recipientId = $validated['fica_referral_recipient_user_id'] ?? null;
+        if ($recipientId) {
+            $isOfficer = FicaOfficerAppointment::where('agency_id', $agencyId)
+                ->where('user_id', $recipientId)->active()->exists();
+            if (! $isOfficer) {
+                $recipientId = null; // only an active officer may receive referrals
+            }
+        }
+
+        $update = ['fica_referral_recipient_user_id' => $recipientId];
+        if ($request->has('fica_referral_settings_present')) {
+            $update['fica_referral_enabled'] = $request->boolean('fica_referral_enabled');
+        }
+
+        \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->update($update);
+
+        return back()->with('success', 'Refer-to-CO settings saved.')->with('tab', 'user');
+    }
 }
