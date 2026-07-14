@@ -145,10 +145,16 @@ final class ReconcilePropertyAddresses extends Command
         }
 
         $this->line('');
-        $this->info("Wrote {$written} properties. Snapshot: storage/app/{$path}");
+        $this->info("Wrote {$written} properties. Snapshot: {$this->snapshotPath($path)}");
         $this->line("Reverse with: php artisan corex:reconcile-property-addresses --rollback={$path}");
 
         return self::SUCCESS;
+    }
+
+    /** The real on-disk path — Laravel's `local` disk roots at storage/app/private. */
+    private function snapshotPath(string $relative): string
+    {
+        return Storage::path($relative);
     }
 
     private function renderRow(array $r): void
@@ -174,7 +180,7 @@ final class ReconcilePropertyAddresses extends Command
     private function rollback(string $file): int
     {
         if (!Storage::exists($file)) {
-            $this->error("Snapshot not found: storage/app/{$file}");
+            $this->error("Snapshot not found: {$this->snapshotPath($file)}");
             return self::FAILURE;
         }
 
