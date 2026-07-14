@@ -123,6 +123,7 @@ class RoleManagerController extends Controller
             'roles'            => 'Role Manager',
             'data_scope'       => 'Data Scope',
             'sidebar'          => 'Sidebar',
+            'assistants'       => 'Assistants',
         ];
 
         $sectionLabels = [
@@ -157,6 +158,7 @@ class RoleManagerController extends Controller
             'role-manager'           => 'Settings & Roles',
             'data-scope'             => 'Data Scope',
             'sidebar'                => 'Sidebar',
+            'assistants'             => 'Assistants',
         ];
 
         $matrixSections = [];

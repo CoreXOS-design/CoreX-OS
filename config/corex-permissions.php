@@ -572,6 +572,28 @@ return [
         // ── Misfiled Documents register (AT-167) ──
         ['key' => 'access_misfiled_documents',       'label' => 'Access Misfiled Documents Register', 'section' => 'admin', 'type' => 'access', 'module' => 'filing', 'sort_order' => 5],
         ['key' => 'misfiled_documents.refile',       'label' => 'Refile Misfiled Documents',          'section' => 'admin', 'type' => 'action', 'module' => 'filing', 'sort_order' => 6],
+
+        // ── Assistants (AT-267) ──
+        // These gate the ADMIN surface — who may create an assistant and hand them to an
+        // agent. They do NOT gate what an assistant can do: an assistant's own permissions
+        // come entirely from their assignment matrix (assistant_assignment_permissions),
+        // resolved by AssistantPermissionResolver, and are always the intersection of that
+        // matrix with the Assigned Agent's live permissions.
+        //
+        // `admin` picks these up automatically via its all-minus-exclude default.
+        // `branch_manager` gets NOTHING by default — but because these keys are declared
+        // here they render as an "Assistants" section in Role Manager, so an admin can
+        // grant them to branch_manager (or any role) from the UI with no code change.
+        //
+        // There is deliberately NO `assistants.manage-own` key: an agent's right to
+        // configure their OWN assistant's matrix is an ownership right, not a role right —
+        // it derives from assistant_assignments.agent_user_id === auth()->id(). Making it
+        // grantable would allow an agent to have an assistant they cannot configure.
+        ['key' => 'assistants.view',                 'label' => 'View Assistants',                    'section' => 'assistants', 'type' => 'access', 'module' => 'assistants', 'sort_order' => 1],
+        ['key' => 'assistants.create',               'label' => 'Create & Assign Assistant',          'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 2],
+        ['key' => 'assistants.reassign',             'label' => 'Reassign to Another Agent',          'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 3],
+        ['key' => 'assistants.revoke',               'label' => 'Revoke Assistant Access',            'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 4],
+        ['key' => 'assistants.view_all',             'label' => 'View All Assistants (agency-wide)',  'section' => 'assistants', 'type' => 'access', 'module' => 'assistants', 'sort_order' => 5],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -863,6 +885,28 @@ return [
             'include' => [
                 'communications.view',
             ],
+        ],
+
+        /*
+         * AT-267 — the assistant role holds ZERO grants, deliberately and permanently.
+         *
+         * An assistant's permissions come entirely from their assignment matrix, resolved
+         * by AssistantPermissionResolver as (matrix ∩ the Assigned Agent's live permissions)
+         * minus the property-upload locked set. The role is an IDENTITY LABEL, not a bundle.
+         *
+         * The role has to exist at all because `users.role` is NOT NULL DEFAULT 'agent' — a
+         * user created without an explicit role IS a full agent. So an assistant must carry
+         * an explicit role, and that role must grant nothing.
+         *
+         * Keeping it empty is also the last line of defence: PermissionService fails closed
+         * on a role with zero grants (AT-265), so if the assistant resolver hook were ever
+         * bypassed by some future code path, an assistant would get NOTHING — not everything.
+         *
+         * Do not "helpfully" add keys here. Anything an assistant needs is granted per
+         * assignment, by their agent, from the agent's own permissions.
+         */
+        'assistant' => [
+            'include' => [],
         ],
     ],
 
