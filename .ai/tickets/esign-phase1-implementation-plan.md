@@ -287,3 +287,22 @@ templates **by document_type + name** (never by hard-coded id), registers in
 
 **Not blocking anything else.** Track B (HD-5 → HD-8) is independent of the pack's contents and is
 where the night went.
+
+### D-2 (HD-6) — `agencies.esign_checkpoint_mode` is a SETTING, and settings have an obligation
+
+Plan §6 wants `esign_checkpoint_mode` (mandatory | auto_advance). It is **not built**, and that is a
+decision rather than an omission.
+
+It is a **setting**, so non-negotiable **#10a** applies: the same prompt that adds it must surface it
+in the Agency Onboarding Setup Wizard (`config/agency-onboarding-copy.php`) with its `explain`, its
+`affects`, and a saver guarded per `agency-onboarding-setup.md` §6.1 (a wizard step posts a SUBSET of
+the saver's fields — an unguarded boolean write silently wipes settings the step never rendered).
+That is a proper piece of work, not a column bolted on at 01:00 next to a ceremony change.
+
+**The checkpoint is correct without it:** `mandatory` is the default and the safe posture, and it is
+what HD-5/HD-6 implement. `auto_advance` only ever *removes* a control. Nothing is blocked.
+
+**When it is built:** it is one column + one wizard control + one saver + the §6.1 guard, and it
+belongs in a settings-shaped prompt, not a ceremony-shaped one. Johan's call whether it is launch
+scope at all — an agency that wants no agent checkpoint is asking for less oversight than the
+doctrine's default, so it may legitimately be a "deliberately NOT in the wizard" item (spec §5.1).
