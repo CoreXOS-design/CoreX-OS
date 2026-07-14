@@ -81,6 +81,33 @@ class PropertyObserver
             }
         }
 
+        // AT-266 — ONE TRUTH for the address.
+        //
+        // `address` is DERIVED from the structured address columns, exactly as
+        // title_type is derived from property_type immediately below. The two-copy
+        // era ends here: an agent edits the parts (street / complex / unit) and the
+        // display string follows, atomically, in the same save. It can no longer sit
+        // frozen while the parts move underneath it.
+        //
+        // Only fires when a part actually changed, so a save that touches price or
+        // status never rewrites the address of a row nobody asked us to touch. And
+        // an empty composition is ignored rather than blanking a row we know nothing
+        // better about.
+        $addressParts = ['street_number', 'street_name', 'complex_name', 'unit_number', 'unit_section_block'];
+        $partsDirty = !$property->exists;
+        foreach ($addressParts as $part) {
+            if ($property->isDirty($part)) {
+                $partsDirty = true;
+                break;
+            }
+        }
+        if ($partsDirty) {
+            $composed = $property->composeAddressFromParts();
+            if ($composed !== '') {
+                $property->address = $composed;
+            }
+        }
+
         // Keystone — derive title_type whenever the inputs change OR
         // when the column is currently NULL (self-heal for rows that
         // pre-date the backfill). Fires on insert OR when property_type
