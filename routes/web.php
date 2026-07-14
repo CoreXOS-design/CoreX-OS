@@ -1244,9 +1244,14 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
         ->name('admin.p24-suburbs.store');
     Route::put('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'update'])
-        ->name('admin.p24-suburbs.update');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.update');
     Route::delete('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'destroy'])
-        ->name('admin.p24-suburbs.destroy');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.destroy');
+    // AT-246 — town-level region assignment (applies to all a town's suburbs) + region display alias.
+    Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
+        ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
+    Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
+        ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
 });
 
 
