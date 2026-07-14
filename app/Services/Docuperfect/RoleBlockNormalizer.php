@@ -54,8 +54,16 @@ final class RoleBlockNormalizer
 {
     private const BLOCK_TAGS = ['div', 'p', 'li', 'tr', 'td', 'section', 'article', 'aside', 'header', 'footer'];
 
-    private const IDENTITY_SUBS = ['first_name', 'last_name', 'name', 'full_name', 'id_number', 'id', 'name_surname_id', 'surname'];
-    private const ADDRESS_SUBS  = ['address', 'address_1', 'address_line_1', 'physical_address'];
+    // `first_name+last_name` is the composite full-name column the CDS generator really
+    // emits for a party's name field — it must read as identity, not fall through to `data`.
+    //
+    // `full_names` (PLURAL) is what the CDS BUILDER actually writes for a party's name field
+    // (`contact.full_names` — a mandate is signed by "I / We", so the column is plural). The
+    // singular `full_name` was here; the plural was not, so the one field the whole role block
+    // is named for was classified as a generic `data` segment. Same mistake as the attribute
+    // name, one level down: the list was written to the assumed shape, not the emitted one.
+    private const IDENTITY_SUBS = ['first_name', 'last_name', 'first_name+last_name', 'name', 'full_name', 'full_names', 'id_number', 'id', 'name_surname_id', 'surname'];
+    private const ADDRESS_SUBS  = ['address', 'address_1', 'address_line_1', 'address_residential', 'address_postal', 'physical_address'];
     private const CONTACT_SUBS  = ['phone', 'cell_phone', 'cell', 'mobile', 'email'];
 
     public function __construct(
@@ -78,7 +86,10 @@ final class RoleBlockNormalizer
         }
 
         $xpath = new DOMXPath($dom);
-        $fieldNodes = $xpath->query('//*[@data-field]');
+        // Both shapes: `data-field` (role-anchored, legacy) and `data-field-name` (what the
+        // CDS builder actually writes). Selecting only the former matched zero nodes on every
+        // CDS template ever imported — which is why nothing was ever stamped.
+        $fieldNodes = $xpath->query('//*[@data-field] | //*[@data-field-name]');
         if ($fieldNodes === false || $fieldNodes->length === 0) {
             return $html;
         }
@@ -93,11 +104,19 @@ final class RoleBlockNormalizer
             if (!$field instanceof DOMElement) {
                 continue;
             }
-            $name = $field->getAttribute('data-field');
-            $parsed = $this->detector->parseFieldName($name);
-            if ($parsed['role_base'] === null) {
+            // Resolve through the canonical bridge so the normalizer and the renderer
+            // read field roles the SAME way — including the CDS/pillar shape the importer
+            // actually emits (`contact.first_name` + `data-contact-type="Seller"`), which
+            // parseFieldName() alone cannot see. See RoleBlockDetectionService::resolveFieldElement().
+            $parsed = $this->detector->resolveFieldElement($field);
+
+            $role = $parsed['role_base'] !== null ? strtolower($parsed['role_base']) : null;
+            $sub  = $parsed['sub_name'] !== null ? strtolower($parsed['sub_name']) : null;
+
+            if ($role === null) {
                 continue;
             }
+
             $blockAncestor = $this->findBlockAncestor($field);
             if ($blockAncestor === null) {
                 continue;
@@ -106,7 +125,7 @@ final class RoleBlockNormalizer
             // If the ancestor already has data-role-block for a
             // DIFFERENT role, this is a conflict — leave it alone.
             $existingRole = $blockAncestor->getAttribute('data-role-block');
-            if ($existingRole !== '' && strtolower($existingRole) !== strtolower($parsed['role_base'])) {
+            if ($existingRole !== '' && strtolower($existingRole) !== $role) {
                 continue;
             }
 
@@ -114,12 +133,12 @@ final class RoleBlockNormalizer
             if (!isset($stamps[$hash])) {
                 $stamps[$hash] = [
                     'node' => $blockAncestor,
-                    'role' => strtolower($parsed['role_base']),
+                    'role' => $role,
                     'subs' => [],
                 ];
             }
-            if ($parsed['sub_name'] !== null) {
-                $stamps[$hash]['subs'][] = strtolower($parsed['sub_name']);
+            if ($sub !== null) {
+                $stamps[$hash]['subs'][] = $sub;
             }
         }
 

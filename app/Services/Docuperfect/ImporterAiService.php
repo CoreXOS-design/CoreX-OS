@@ -239,37 +239,99 @@ RULES:
 - If a blank is a signature line, witness line, or initials block: use key "skip"
 - If you cannot determine what a blank is for: use key "manual" with confidence "low"
 
+STEP 0 — DECIDE THE DOCUMENT TYPE FIRST. THIS CHANGES EVERY PARTY ASSIGNMENT.
+
+Before assigning a single blank, read the document and decide which it is:
+
+- SALE document — an Exclusive Authority To Sell / mandate, an Offer To Purchase, a
+  Seller's Mandatory Disclosure, or a FICA form taken in a sale.
+  Tell-tales: "AUTHORITY TO SELL", "OFFER TO PURCHASE", "SELLER", "PURCHASER",
+  "purchase price", "transfer", "conveyancer", "occupation date", "sole mandate".
+  → the parties are the SELLER and the PURCHASER. NEVER Lessor/Lessee.
+
+- LEASE document — a lease, letting mandate, or rental application. Tell-tales: "LEASE",
+  "LESSOR", "LESSEE", "TENANT", "rental amount", "escalation", "occupation by the tenant".
+  → the parties are the LESSOR and the LESSEE. NEVER Seller/Purchaser.
+
+Getting this wrong mislabels EVERY party field in the document. A seller is not a landlord.
+If the document sells a property, there is no lessor in it anywhere.
+
 CRITICAL — FIELD IDENTIFICATION BY CONTEXT:
 - Each blank shows context BEFORE and AFTER the blank: "...context_before [___] context_after..."
-- IMPORTANT: In South African lease agreements, the blank often appears BEFORE the party label. Example: "[___] (Lessor / Landlord)" means the blank is the Lessor's full name. Always check context_after for party labels, not just context_before.
-- A blank immediately next to or after "Lessor" / "Landlord" label text → contact.full_name, assigned_to "lessor"
-- A blank immediately next to or after "Lessee" / "Tenant" / "Occupant" label text → contact.full_name, assigned_to "lessee"
-- A blank with "(Lessor / Landlord)" or "(Lessee / Tenant / Occupant)" in context_after → that blank is the party's full_name
-- "of (address)" context → contact.address_residential for whoever was named in the line above
-- "ID/Passport/Registration No" context → contact.id_number for whoever was named above
-- NEVER assign address to a blank whose immediate context is a person label (Lessor/Lessee/Landlord/Tenant/Occupant)
-- The standard SA lease pattern for each party is always: Name → Address → ID Number, in that exact order
-- If you see three consecutive blanks for a party, they are ALWAYS: [1] full_name, [2] address_residential, [3] id_number
+- IMPORTANT: in SA documents the blank often appears BEFORE the party label. Example:
+  "[___] (Lessor / Landlord)" — the blank is the Lessor's name; "I / We [___] ... (the Seller)"
+  — the blank is the Seller's name. ALWAYS read context_after for party labels, not only
+  context_before.
+- "of (address)" context → the address of whoever was named in the line above
+- "ID/Passport/Registration No" context → the id_number of whoever was named above
+- NEVER assign an address to a blank whose immediate context is a person label
+  (Seller/Purchaser/Lessor/Lessee/Landlord/Tenant/Occupant)
+- The standard SA party pattern is always: Name → Address → ID Number, in that exact order.
+  Three consecutive blanks for one party are ALWAYS [1] name, [2] address, [3] id_number.
 
-Available field keys:
+ON A SALE DOCUMENT:
+- A blank next to or after "Seller" / "I / We ... the undersigned" / "(the Seller)" → the
+  seller's name, assigned_to "seller"
+- A blank next to or after "Purchaser" / "Buyer" / "(the Purchaser)" → the purchaser's name,
+  assigned_to "buyer"
+- The EATS (Exclusive Authority To Sell) names the seller FIRST ("I / We ..."), then the
+  property, then the price and the mandate period. Sellers 2/3/4 may follow — they are all
+  assigned_to "seller".
+- "gross price" / "purchase price" / "the sum of R..." → the price. The amount-in-words blank
+  that FOLLOWS a price blank is the price in words, not another price.
+- "Erf / Sectional Scheme / Unit no", "Complex / Estate known as", "(Street)", "(District)"
+  → property fields, assigned_to "property"
+- Commission ("%", "plus VAT") → the commission field, assigned_to "property"
+
+ON A LEASE DOCUMENT:
+- A blank next to or after "Lessor" / "Landlord" → contact.full_name, assigned_to "lessor"
+- A blank next to or after "Lessee" / "Tenant" / "Occupant" → contact.full_name, assigned_to "lessee"
+
+Available field keys — SALE documents:
+Seller/Purchaser: contact.full_name, contact.id_number, contact.address, contact.phone, contact.email
+Property: property.erf_number, property.erf_portion, property.complex_name, property.address, property.city
+Price: property.gross_price, property.price, deal.sale_price, computed.price_in_words, property.deposit_amount, property.commission_percent
+Agent: agent.full_name, agent.ffc_number, agent.cell
+
+Available field keys — LEASE documents:
 Contact: contact.full_name, contact.id_number, contact.address_residential, contact.cell, contact.email
 Property: property.address_full, property.erf_number, property.unit_number, property.complex_name
 Deal: deal.rental_amount, deal.rental_in_words, deal.deposit_amount, deal.lease_start, deal.lease_end, deal.commission_percent, deal.escalation_percentage, deal.renewal_months, deal.number_of_occupants, deal.pet_description, deal.bank_name, deal.account_holder, deal.account_number, deal.branch_code
 Agent: agent.full_name, agent.ffc_number, agent.cell
-Special: skip (signature/witness lines), manual (unknown fields)
 
-assigned_to values:
-- "lessor" = landlord/owner (SA: Lessor)
-- "lessee" = tenant/occupant (SA: Lessee)
-- "agent" = estate agent
-- "property" = property-related field
+Both: skip (signature/witness/initial lines), manual (unknown fields)
+
+assigned_to values — USE THE ONE THAT MATCHES THE DOCUMENT TYPE:
+- "seller"  = the seller on a SALE document
+- "buyer"   = the purchaser on a SALE document. SA documents say "Purchaser"; the system calls
+              this role "buyer". Recognise "Purchaser", emit "buyer".
+- "lessor"  = landlord/owner on a LEASE document (SA: Lessor)
+- "lessee"  = tenant/occupant on a LEASE document (SA: Lessee)
+- "agent"   = estate agent / practitioner
+- "property" = property-related field (price, erf, complex, commission)
+
+LABELS — name the field the way the system does, so it can be matched:
+- Sale: "Seller Name", "Seller Address", "Seller Id Number", "Seller Phone", "Seller Email",
+  "Buyer Full Name", "Buyer Address", "Buyer Id Number", "Buyer Phone", "Buyer Email",
+  "Gross Price", "Price[words]", "Erf Number", "Complex Name", "Commission Percent"
+- Lease: "Lessor Name", "Lessor Address", "Lessor Id Number", "Lessee Name", ...
+Use the party's word in the label — "Seller Id Number", never a bare "Id Number".
 
 Confidence:
 - "high": surrounding text clearly names the field
 - "medium": likely correct but context is ambiguous
 - "low": cannot confidently determine
 
-South African context: R = ZAR, Lessor = Landlord/Owner, Lessee = Tenant/Occupant.
+South African context: R = ZAR. On a SALE: Seller = owner disposing, Purchaser = buyer
+(assigned_to "buyer"). On a LEASE: Lessor = Landlord/Owner, Lessee = Tenant/Occupant.
+
+WORKED EXAMPLE — a SALE document (Exclusive Authority To Sell):
+{
+  "1": {"label": "Seller Name", "key": "contact.full_name", "pillar": "contact", "assigned_to": "seller", "confidence": "high"},
+  "2": {"label": "Erf Number", "key": "property.erf_number", "pillar": "property", "assigned_to": "property", "confidence": "high"},
+  "3": {"label": "Gross Price", "key": "property.gross_price", "pillar": "property", "assigned_to": "property", "confidence": "high"},
+  "4": {"label": "Price[words]", "key": "computed.price_in_words", "pillar": "computed", "assigned_to": "property", "confidence": "high"}
+}
 
 IMPORTANT — DATE AND SIGNING BLANKS:
 - Blanks for "day of", "month of", "year", signing date, or "signed at" are NOT system fields. Use key "manual" with an appropriate label (e.g. "Signing Day", "Signing Month", "Signing Location").

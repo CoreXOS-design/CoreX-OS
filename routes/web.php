@@ -803,6 +803,14 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
 // No auth: the unguessable 40-char token is the credential; identity is proven
 // by an OTP to the recipient's own email before the document ever streams.
 Route::prefix('deals-v2/secure-doc')->group(function () {
+    // AT-264 — PACK flow: ONE link + ONE OTP unlocks the whole group. Registered
+    // BEFORE the /{token} routes (literal 'pack' prefix → zero ambiguity).
+    Route::get('/pack/{groupKey}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packShow'])->name('deals-v2.secure-doc.pack');
+    Route::post('/pack/{groupKey}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packRequestOtp'])->name('deals-v2.secure-doc.pack.otp');
+    Route::post('/pack/{groupKey}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packVerifyOtp'])->name('deals-v2.secure-doc.pack.verify');
+    Route::get('/pack/{groupKey}/download/{distribution}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packDownload'])->name('deals-v2.secure-doc.pack.download');
+
+    // Per-document flow (unchanged — keeps already-sent links working).
     Route::get('/{token}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'show'])->name('deals-v2.secure-doc.show');
     Route::post('/{token}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'requestOtp'])->name('deals-v2.secure-doc.otp');
     Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->name('deals-v2.secure-doc.verify');
@@ -1962,6 +1970,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{submission}/compliance-review', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceReview'])->name('compliance-review');
         Route::post('/{submission}/compliance-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceApprove'])->name('compliance-approve');
         Route::post('/{submission}/compliance-reject', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceReject'])->name('compliance-reject');
+        Route::post('/{submission}/refer-to-co', [\App\Http\Controllers\Compliance\FicaController::class, 'referToCo'])->name('refer-to-co');
+        Route::post('/{submission}/return-to-referrer', [\App\Http\Controllers\Compliance\FicaController::class, 'returnToReferrer'])->name('return-to-referrer');
         Route::post('/{submission}/reject', [\App\Http\Controllers\Compliance\FicaController::class, 'reject'])->name('reject');
         Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
         Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
@@ -2319,6 +2329,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
     Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');
     Route::post('/settings/properties-per-page', [CoreXSettingsController::class, 'updatePropertiesPerPage'])->middleware('permission:access_settings')->name('corex.settings.properties-per-page');
+    Route::post('/settings/filing-register-per-page', [CoreXSettingsController::class, 'updateFilingRegisterPerPage'])->middleware('permission:access_settings')->name('corex.settings.filing-register-per-page');
     Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
@@ -2444,6 +2455,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.mlros');
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
+    Route::post('/settings/fica-referral', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveReferralSettings'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-referral.save');
 
     // ── Phase 9c-2 — Information Officer Appointments (POPIA s55) ──
     Route::post('/settings/information-officers/primary', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'savePrimary'])
@@ -2814,6 +2827,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{property}',           [\App\Http\Controllers\CoreX\PropertyController::class, 'destroy'])->name('destroy');
         Route::post('/{property}/restore',     [\App\Http\Controllers\CoreX\PropertyController::class, 'restore'])->name('restore')->withTrashed();
         Route::post('/{property}/duplicate',   [\App\Http\Controllers\CoreX\PropertyController::class, 'duplicate'])->name('duplicate');
+        // AT-262 — change listing type = duplicate to the other type + archive (de-list) the original.
+        Route::post('/{property}/change-type', [\App\Http\Controllers\CoreX\PropertyController::class, 'changeType'])->name('change-type');
         Route::post('/{property}/publish-toggle', [\App\Http\Controllers\CoreX\PropertyController::class, 'publishToggle'])->name('publish-toggle');
         Route::post('/{property}/upload-images',[\App\Http\Controllers\CoreX\PropertyController::class, 'uploadImages'])->name('upload-images');
         Route::post('/{property}/delete-image',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteImage'])->name('deleteImage');

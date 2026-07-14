@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Create Ad — {{ $property->title }}</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet">
+    @include('corex.properties._ad-fonts')
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    {{-- The shared render kernel — the SAME frameStyle/contentHtml the Ad Builder
+         previews with, so a custom template renders here exactly as it was designed.
+         Spec: ad-manager.md §12. --}}
+    <script src="{{ asset('js/corex-ad-render.js') }}?v=1"></script>
     {{-- Agency brand tokens (UI_DESIGN_SYSTEM.md §1.4) — this standalone page does
          not load corex.css, so we declare the brand vars here for a branded header
          + brand-consistent accents. Falls back to the safe navy/sky defaults. --}}
@@ -484,17 +487,9 @@
 const PREBUILT_NAMES = @json(collect($prebuilt)->pluck('name', 'key'));
 const PREBUILT_SEARCH = @json(collect($prebuilt)->map(fn($t) => strtolower($t['name'].' '.$t['desc'].' '.$t['tags']))->values());
 
-const IMAGE_FIELDS = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agent_2_avatar','agency_logo'];
-const NON_TEXT_FIELDS = [...IMAGE_FIELDS, 'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape', 'custom_image', 'custom_video'];
-// Shape geometry — mirrors the Ad Builder (ad-builder.blade.php SHAPE_CLIPS).
-const SHAPE_CLIPS = {
-    triangle: 'polygon(50% 0,100% 100%,0 100%)',
-    diamond:  'polygon(50% 0,100% 50%,50% 100%,0 50%)',
-    pentagon: 'polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)',
-    hexagon:  'polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)',
-    star:     'polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)',
-    chevron:  'polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%)',
-};
+// Element geometry, style and value resolution all live in the shared render kernel
+// (public/js/corex-ad-render.js) — the one the Ad Builder previews with. Nothing about
+// how an element looks is decided in this file any more.
 
 function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
     agentCfg = agentCfg || { listing: null, co: null };
@@ -789,157 +784,30 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
             return parts.length ? base + '?' + parts.join('&') : base;
         },
 
-        isImageField(f) { return IMAGE_FIELDS.includes(f); },
-        isTextField(f)  { return !NON_TEXT_FIELDS.includes(f); },
+        isImageField(f) { return CoreXAd.isImageField(f); },
+        isTextField(f)  { return CoreXAd.isTextField(f); },
 
-        hexToRgba(hex, a) {
-            const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
-            if (!m) return hex;
-            return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`;
-        },
-
+        /**
+         * Custom templates are drawn by the shared render kernel — the SAME code the
+         * Ad Builder previews with — so what the designer built is what the agent gets.
+         *
+         *   overrides — the "change photo" swaps, keyed by element id, so a re-render
+         *               (agent switch, platform switch) keeps the chosen photo.
+         *   tagPhotos — stamp data-el-id / data-orig-src on the property photos so the
+         *               overlay can target them and "reset to original" can restore.
+         */
         renderCustomTemplate() {
             const root = document.getElementById('custom-canvas-root');
             if (!root || !this._customLayout) return;
-            root.innerHTML = '';
-            const layout = this._customLayout;
-            const prop = this.propertyData;
-            (layout.elements || []).forEach(el => {
-                const div = document.createElement('div');
-                let css = `position:absolute;left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;z-index:${el.zIndex || 1};overflow:hidden;border-radius:${el.borderRadius || 0}px;`;
-                if (el.rotation) css += `transform:rotate(${el.rotation}deg);`;
-                if (el.frameBorderWidth) css += `border:${el.frameBorderWidth}px solid ${el.frameBorderColor || '#fff'};`;
-                div.style.cssText = css;
-                const field = el.field;
-
-                if (this.isImageField(field)) {
-                    const isPhoto = /^image_[1-5]$/.test(field);
-                    const baseSrc = field === 'agency_logo' ? prop.logo : prop[field];
-                    // A gallery swap wins over the slot's default (persists re-renders).
-                    const src = (isPhoto && priv.imgOverrides[el.id]) ? priv.imgOverrides[el.id] : baseSrc;
-                    if (src) {
-                        const img = document.createElement('img');
-                        img.src = src;
-                        img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
-                        // Tag so the "change photo" overlay targets property photos only
-                        // (a logo or an agent avatar is not swapped from the gallery).
-                        if (field === 'agency_logo') img.classList.add('js-ad-logo');
-                        else if (field.endsWith('avatar')) img.classList.add('js-ad-avatar');
-                        else if (isPhoto) { img.dataset.elId = el.id; img.dataset.origSrc = baseSrc || ''; }
-                        div.appendChild(img);
-                    } else if (String(field).startsWith('agent_2')) {
-                        // Co-agent absent (single-agent listing) → leave the slot empty,
-                        // never a placeholder box on a real ad.
-                    } else {
-                        div.style.background = 'linear-gradient(135deg,#0b2a4a,#143d6e)';
-                        Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.2)', fontSize:'11px' });
-                        div.textContent = el.label;
-                    }
-                } else if (field === 'custom_image') {
-                    // Editable like a photo slot: a gallery swap overrides the uploaded
-                    // image and persists across re-renders; reset restores the upload.
-                    const src = priv.imgOverrides[el.id] || el.src;
-                    if (src) {
-                        const img = document.createElement('img');
-                        img.src = src;
-                        img.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
-                        img.dataset.elId = el.id; img.dataset.origSrc = el.src || '';
-                        div.appendChild(img);
-                    }
-                } else if (field === 'custom_video') {
-                    if (el.src) {
-                        const v = document.createElement('video');
-                        v.src = el.src; v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
-                        v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
-                        v.style.cssText = `width:100%;height:100%;object-fit:${el.objectFit || 'cover'};display:block;`;
-                        div.appendChild(v);
-                        v.play?.().catch(() => {});
-                    }
-                } else if (field === 'color_block') {
-                    div.style.background = el.bg || '#07111e';
-                    div.style.opacity = el.opacity ?? 1;
-                } else if (field === 'shape') {
-                    div.style.background = el.bg || '#00b4d8';
-                    div.style.opacity = el.opacity ?? 1;
-                    const t = el.shapeType;
-                    if (!t) { div.style.borderRadius = (el.borderRadius ?? 50) + '%'; }  // legacy %
-                    else if (SHAPE_CLIPS[t]) { div.style.clipPath = SHAPE_CLIPS[t]; div.style.borderRadius = '0'; }
-                    else if (t === 'circle') div.style.borderRadius = '50%';
-                    else if (t === 'pill')   div.style.borderRadius = '9999px';
-                    else if (t === 'rounded') div.style.borderRadius = (el.borderRadius ?? 24) + 'px';
-                    else div.style.borderRadius = '0';
-                } else if (field === 'gradient') {
-                    div.style.background = `linear-gradient(${el.gradAngle || 180}deg, ${el.gradFrom || '#071325'}, ${el.gradTo || 'rgba(7,19,37,0)'})`;
-                    div.style.opacity = el.opacity ?? 1;
-                } else if (field === 'line') {
-                    const bar = document.createElement('div');
-                    bar.style.cssText = `width:100%;height:${el.borderWidth || 3}px;background:${el.color || '#00b4d8'};border-radius:2px;`;
-                    Object.assign(div.style, { display:'flex', alignItems:'center' });
-                    div.appendChild(bar);
-                } else if (field === 'logo') {
-                    Object.assign(div.style, { display:'flex', alignItems:'center', padding:(el.padding || 0) + 'px' });
-                    if (prop.logo) {
-                        const img = document.createElement('img');
-                        img.src = prop.logo;
-                        img.style.cssText = 'max-height:100%;max-width:100%;object-fit:contain;object-position:left center;';
-                        div.appendChild(img);
-                    } else {
-                        div.style.fontFamily = "'Figtree',Arial,sans-serif";
-                        div.style.fontWeight = '900';
-                        div.style.fontSize = (el.fontSize || 28) + 'px';
-                        div.style.color = el.color || '#fff';
-                        div.innerHTML = 'corex<span style="color:#33c4e0">os</span>';
-                    }
-                } else if (field === 'watermark') {
-                    Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Figtree',Arial,sans-serif", fontWeight:'900', letterSpacing:'0.06em', textTransform:'uppercase' });
-                    div.style.fontSize = (el.fontSize || 60) + 'px';
-                    div.style.color = el.color || '#fff';
-                    div.style.opacity = el.opacity ?? 0.06;
-                    div.textContent = prop.watermark || el.text || 'COREX';
-                } else {
-                    // Text field
-                    let value;
-                    if (field === 'custom_text' || field === 'badge') {
-                        value = el.text || el.label;
-                    } else if (field === 'features') {
-                        // Show the chosen amenities (null selection = all of them).
-                        const all = Array.isArray(prop.features_list) ? prop.features_list : [];
-                        const chosen = (el.selectedFeatures == null) ? all : all.filter(f => el.selectedFeatures.includes(f));
-                        value = chosen.length ? chosen.join('  ·  ') : (prop.features || el.preview || '');
-                    } else {
-                        value = (prop[field] !== undefined && prop[field] !== null && prop[field] !== '') ? prop[field] : (String(field).startsWith('agent_2') ? '' : (el.preview || el.label));
-                    }
-                    Object.assign(div.style, { display:'flex', alignItems:'center', overflow:'hidden', fontFamily:"'Figtree',Arial,sans-serif" });
-                    div.style.fontSize = (el.fontSize || 18) + 'px';
-                    div.style.fontWeight = el.fontWeight || '600';
-                    div.style.color = el.color || '#fff';
-                    div.style.textAlign = el.textAlign || 'left';
-                    div.style.textTransform = el.textTransform || 'none';
-                    div.style.letterSpacing = (el.letterSpacing || 0) + 'em';
-                    div.style.lineHeight = el.lineHeight ?? 1.2;
-                    div.style.padding = (el.padding || 8) + 'px';
-                    const op = el.bgOpacity ?? 0;
-                    if (op > 0) {
-                        div.style.background = this.hexToRgba(el.bgColor || '#000000', op);
-                        if (el.textAlign === 'center') div.style.justifyContent = 'center';
-                        if (el.textAlign === 'right')  div.style.justifyContent = 'flex-end';
-                    }
-                    const span = document.createElement('span');
-                    span.style.width = '100%';
-                    span.textContent = value;
-                    div.appendChild(span);
-                }
-                root.appendChild(div);
+            CoreXAd.renderLayout(this._customLayout, this.propertyData, root, {
+                overrides: priv.imgOverrides,
+                tagPhotos: true,
             });
             this.scheduleMountTools();
         },
 
         _canvasBg() {
-            if (this.template === 'custom' && this._customLayout) {
-                const l = this._customLayout;
-                if (l.canvasBgMode === 'gradient') return l.canvasBgFrom || '#071325';
-                return l.canvasBg || '#071325';
-            }
+            if (this.template === 'custom' && this._customLayout) return CoreXAd.canvasBgSolid(this._customLayout);
             return '#071325';
         },
 
@@ -950,13 +818,14 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
             if (this.template === 'custom' && this._customLayout) {
                 canvas.style.width  = (this._customLayout.canvasW || 1200) + 'px';
                 canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
-                const l = this._customLayout;
-                canvas.style.background = (l.canvasBgMode === 'gradient')
-                    ? `linear-gradient(${l.canvasBgAngle ?? 160}deg, ${l.canvasBgFrom}, ${l.canvasBgTo})`
-                    : (l.canvasBg || '#071325');
+                canvas.style.background = CoreXAd.canvasBackground(this._customLayout);
             }
             const saved = wrapper.style.transform;
             wrapper.style.transform = 'none';
+            // A template can pick any of the ad fonts — if the face has not finished
+            // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
+            // from the preview the agent approved.
+            if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
             await new Promise(r => setTimeout(r, 80));
             const c = await html2canvas(canvas, {
                 width: cfg.w, height: cfg.h, scale: 2,

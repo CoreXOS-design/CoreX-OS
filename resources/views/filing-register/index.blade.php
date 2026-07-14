@@ -487,6 +487,17 @@
                 </tbody>
             </table>
         </div>
+
+        {{-- Pagination — load-limited on entry; filters/search preserved across pages --}}
+        @if($filings->hasPages())
+            <div class="px-4 py-3 flex items-center justify-between flex-wrap gap-2" style="border-top:1px solid var(--border);">
+                <div class="text-xs" style="color:var(--text-muted);">
+                    Showing {{ number_format($filings->firstItem() ?? 0) }}–{{ number_format($filings->lastItem() ?? 0) }}
+                    of {{ number_format($filings->total()) }} entries
+                </div>
+                <div>{{ $filings->onEachSide(1)->links() }}</div>
+            </div>
+        @endif
     </div>
 
 </div>

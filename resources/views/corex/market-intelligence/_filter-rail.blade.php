@@ -58,11 +58,18 @@
 
     // AT-242 / AT-239 — buyer-led prospecting + region.
     $micBuyers     = $micBuyers ?? collect();
+    $micRegions    = $micRegions ?? collect();
     // Buyer-selector scope (My buyers / My branch / Whole company).
     $buyerScope        = $buyerScope ?? 'branch';
     $buyerScopeOptions = $buyerScopeOptions ?? ['own', 'branch'];
     $buyerScopeLabels  = ['own' => 'My buyers', 'branch' => 'My branch', 'company' => 'Whole company'];
     $activeBuyerId = request('buyer_id');
+    $activeRegion  = request('region'); // canonical municipality value
+    // AT-239 — display the agency alias for the active region (municipality → "Hibiscus Coast").
+    $regionLabelFor = function ($value) use ($micRegions) {
+        $hit = $micRegions->firstWhere('value', $value);
+        return $hit->label ?? $value;
+    };
     $selectedBuyerPill = $selectedBuyer ?? ($activeBuyerId ? $micBuyers->firstWhere('id', (int) $activeBuyerId) : null);
     $buyerLabel = function ($b) {
         $name = trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? ''));
@@ -72,6 +79,7 @@
     // Active filter pills
     $activePills = [];
     if ($selectedBuyerPill)                              $activePills[] = ['label' => 'Buyer · ' . $buyerLabel($selectedBuyerPill), 'remove' => $urlWithout('buyer_id')];
+    if ($activeRegion)                                   $activePills[] = ['label' => 'Region · ' . $regionLabelFor($activeRegion), 'remove' => $urlWithout('region')];
     if ($activeSearch !== '')                            $activePills[] = ['label' => '"' . $activeSearch . '"',                'remove' => $urlWithout('search')];
     if ($activeSuburb)                                   $activePills[] = ['label' => 'Suburb · ' . $activeSuburb,              'remove' => $urlWithout('suburb')];
     if ($activeType)                                     $activePills[] = ['label' => 'Type · ' . $activeType,                  'remove' => $urlWithout('property_type')];
@@ -143,7 +151,7 @@
     {{-- ALWAYS rendered (no invisible door — AT-242 escalation). Open by default so
          the headline buyer-led control is visible on landing; empty state explains
          itself when no buyer matches are computed yet. --}}
-    <div x-data="{ open: true, q: '' }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: true, q: '' }" data-tour="mic-prospect-buyer" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
         </button>
@@ -151,7 +159,7 @@
             {{-- AT-242 scope toggle — My buyers / My branch / Whole company. Same match
                  set, scoped listing. 'Whole company' only shown to agency-wide roles. --}}
             @if(count($buyerScopeOptions) > 1)
-                <div style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
+                <div data-tour="mic-buyer-scope" style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
                     @foreach($buyerScopeOptions as $sc)
                         @php $scActive = $buyerScope === $sc; @endphp
                         <a href="{{ $urlWith(['buyer_scope' => $sc]) }}"
@@ -165,7 +173,7 @@
                 </div>
             @endif
             @if($micBuyers->count() > 0)
-                <div style="padding: 2px 12px 6px;">
+                <div data-tour="mic-buyer-select" style="padding: 2px 12px 6px;">
                     <input type="text" x-model="q" placeholder="Search buyer…"
                            class="w-full rounded-md px-2 py-1"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
@@ -194,9 +202,33 @@
         </div>
     </div>
 
+    {{-- AT-239 — Region. Canonical region from the property spine (towns.region).
+         ALWAYS rendered; empty state explains where region data comes from. --}}
+    <div x-data="{ open: true }" data-tour="mic-by-region" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By region
+        </button>
+        <div x-show="open" style="padding: 0 0 6px;">
+            @if($micRegions->count() > 0)
+                @foreach($micRegions as $region)
+                    @php $rIsActive = (string) $activeRegion === (string) $region->value; @endphp
+                    <a href="{{ $rIsActive ? $urlWithout('region') : $urlWith(['region' => $region->value]) }}"
+                       style="{{ $rIsActive ? $activeRowStyle : $rowStyle }}">
+                        <span>{{ $region->label }}</span>
+                        @if($rIsActive)<span style="font-weight:700;">×</span>@endif
+                    </a>
+                @endforeach
+            @else
+                <p style="padding: 4px 12px 10px; font-size: 0.75rem; line-height: 1.4; color: var(--text-muted);">
+                    No region data yet. Regions are read from your prospecting towns (populated from P24 import data). Once towns carry a region, they appear here as filters.
+                </p>
+            @endif
+        </div>
+    </div>
+
     {{-- By town --}}
     @if($agg['by_suburb']->count() > 0)
-    <div x-data="{ open: true, showAll: false }" style="border-bottom: 1px solid var(--border);">
+    <div x-data="{ open: true, showAll: false }" data-tour="mic-by-town" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By town
         </button>

@@ -68,10 +68,10 @@
                         <div class="text-sm text-muted">{{ $p->suburb ?? $p->town ?? '' }}</div>
                         <div class="font-semibold mt-1 line-clamp-1">{{ $p->headline ?? $p->title ?? 'Property' }}</div>
                         <div class="mt-2 font-bold" style="color:var(--brand-icon, #0ea5e9);">
-                            @if($p->listing_type === 'Rental')
-                                R {{ number_format((float) ($p->rental_amount ?? $p->price ?? 0), 0, '.', ',') }} <span class="text-xs text-muted font-normal">/ month</span>
+                            @if($p->isRental())
+                                R {{ number_format((float) $p->effectivePrice(), 0, '.', ',') }} <span class="text-xs text-muted font-normal">/ month</span>
                             @else
-                                R {{ number_format((float) ($p->price ?? 0), 0, '.', ',') }}
+                                R {{ number_format((float) $p->effectivePrice(), 0, '.', ',') }}
                             @endif
                         </div>
                         <div class="flex items-center gap-3 mt-3 text-xs text-muted">

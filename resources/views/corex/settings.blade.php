@@ -1192,6 +1192,39 @@
                     </form>
                 </div>
             </div>
+
+            {{-- AT-236 — Refer-to-CO settings (feature on/off + recipient CO) --}}
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>Refer to Compliance Officer</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
+                    <form method="POST" action="{{ route('corex.settings.fica-referral.save') }}">
+                        @csrf
+                        <input type="hidden" name="fica_referral_settings_present" value="1">
+                        <label class="flex items-center gap-2 text-sm cursor-pointer mb-3" style="color:var(--text-primary);">
+                            <input type="checkbox" name="fica_referral_enabled" value="1"
+                                   {{ (bool) ($agency->fica_referral_enabled ?? true) ? 'checked' : '' }}
+                                   style="accent-color: var(--brand-button, #0ea5e9);">
+                            <span>Allow reviewers to <strong>refer a FICA to the Compliance Officer</strong> (a third action, with a mandatory reason).</span>
+                        </label>
+                        <div class="text-xs font-semibold mb-1" style="color:var(--text-secondary);">Referrals go to</div>
+                        <select name="fica_referral_recipient_user_id"
+                                class="w-full rounded-md px-3 py-2 text-sm mb-1"
+                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="">Primary Compliance Officer (default)</option>
+                            @foreach($agencyUsers as $u)
+                                <option value="{{ $u->id }}" {{ (int)($agency->fica_referral_recipient_user_id ?? 0) === (int)$u->id ? 'selected' : '' }}>{{ $u->name }}</option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs mb-3" style="color:var(--text-muted);">The recipient must be an active compliance officer; otherwise referrals fall back to the primary CO.</p>
+                        <button type="submit" class="corex-btn-primary text-xs">Save Referral Settings</button>
+                    </form>
+                </div>
+            </div>
             @endpermission
 
             {{-- Phase 9c-2: Information Officers (POPIA s55) — mirrors FICA pattern --}}
@@ -2071,6 +2104,22 @@
                         @csrf
                         <input type="number" name="properties_per_page" min="1" max="200" step="1" required
                                value="{{ old('properties_per_page', $propertiesPerPage) }}"
+                               class="w-24 rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </form>
+                </div>
+
+                {{-- Filing register per page --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Filing register per page</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many entries to load on each page of the Filing Register before paging to the next. Keeps the page light on agencies with thousands of filings. Any number from 10 to 200 (default 50).</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.filing-register-per-page') }}" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        <input type="number" name="filing_register_page_size" min="10" max="200" step="1" required
+                               value="{{ old('filing_register_page_size', $filingRegisterPerPage ?? 50) }}"
                                class="w-24 rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>

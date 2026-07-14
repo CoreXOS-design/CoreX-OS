@@ -1093,6 +1093,41 @@ class SignatureService
 
             // If an external party (non-agent, non-supervisor) just completed, require agent approval
             if ($completedParty !== 'agent' && $completedParty !== 'supervisor' && $completedParty !== 'supervisor_final') {
+
+                // HD-5 (§4) — the checkpoint fires between GROUPS, not between people.
+                //
+                // Joint sellers signing the same mandate are one group: asking the agent to authorise
+                // the gap between seller 1 and seller 2 is friction with no decision in it. So if this
+                // party's group still has someone to sign, hand straight on to them — no checkpoint.
+                //
+                // A party with NO group (signing_group NULL) is a group of one and checkpoints on its
+                // own, exactly as every ceremony does today. That is the default, so nothing that
+                // exists changes behaviour until a ceremony deliberately groups its parties.
+                $nextInGroup = $request ? $this->nextWaitingInGroup($template, $request) : null;
+
+                if ($nextInGroup) {
+                    SignatureAuditLog::log(
+                        $template,
+                        'group_member_completed',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'completed_party' => $completedParty,
+                            'signer_name'     => $request?->signer_name,
+                            'signing_group'   => $request?->signing_group,
+                            'next_in_group'   => $nextInGroup->signer_name,
+                        ],
+                    );
+
+                    // Hand the pen to the next member of the SAME group. Sequential within the group is
+                    // deliberate: two people inside one signing view at once is how captured-but-unsaved
+                    // signatures get destroyed (STANDARDS, the P0 signing-view invariant).
+                    $this->advanceToNextParty($template, $completedParty, $nextInGroup);
+
+                    return;
+                }
+
+                // The group is finished (or this party was a group of one) → the agent checkpoint.
                 $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
 
                 SignatureAuditLog::log(
@@ -1367,11 +1402,39 @@ class SignatureService
     /**
      * Advance to next party in signing order (used after agent signs).
      */
-    private function advanceToNextParty(SignatureTemplate $template, string $completedParty): void
+    /**
+     * HD-5 — the next party still to sign INSIDE this request's group, or null if the group is done.
+     *
+     * NULL `signing_group` is not "group zero" — it means the party stands alone, so it never has a
+     * next-in-group and always reaches the agent checkpoint. This is what makes the feature opt-in
+     * and every existing ceremony byte-for-byte unchanged.
+     */
+    private function nextWaitingInGroup(SignatureTemplate $template, SignatureRequest $completed): ?SignatureRequest
+    {
+        if ($completed->signing_group === null) {
+            return null;
+        }
+
+        return $template->requests()
+            ->where('signing_group', $completed->signing_group)
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->first();
+    }
+
+    /**
+     * @param  SignatureRequest|null  $only  HD-5 — release THIS request specifically (the next member of
+     *                                       the completing party's group). Without it the method takes
+     *                                       the next waiting request globally, which is right at a group
+     *                                       boundary but would skip a group whose members are not
+     *                                       contiguous in signing_order. Passing the target explicitly
+     *                                       means the caller's intent cannot be lost to a data ordering.
+     */
+    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null): void
     {
         // Find the next WAITING request by signing_order — not by role name
         // This correctly handles co-owners who share the same party_role string
-        $nextRequest = $template->requests()
+        $nextRequest = $only ?: $template->requests()
             ->where('status', SignatureRequest::STATUS_WAITING)
             ->orderBy('signing_order', 'asc')
             ->first();

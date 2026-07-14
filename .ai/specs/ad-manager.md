@@ -423,6 +423,199 @@ silently falls back to the listing agent). No client value is trusted to widen s
 - [x] Brochure honours `?ad_agent` / `?co=1`; Both renders two agent blocks and
       stays one A4 page; bad/foreign `ad_agent` falls back to the listing agent.
 
+## 12. The Ad render kernel — one renderer, three surfaces (AT-252)
+
+> Status: LIVE · 2026-07-13 (Andre)
+
+### 12.1 Why this exists
+
+A custom template's `layout_json` is rendered on **three** surfaces: the Ad Builder
+(reactive, Alpine), the single-property generator (`ad.blade.php`), and the bulk Ad
+Manager (`tools/ad-manager.blade.php`). Each carried its **own copy** of the geometry,
+the style computation and the value resolution. They drifted — and by the time it was
+caught, the bulk manager's copy was four features behind, all of them visible on ads
+that went to clients:
+
+| Drift | What the agent actually got |
+|-------|-----------------------------|
+| No `shapeType` / `SHAPE_CLIPS` | A star/triangle/hexagon rendered as a rounded blob |
+| No `custom_image` / `custom_video` | Uploaded media rendered as an empty box |
+| No `selectedFeatures` | The features chooser was a no-op; the raw placeholder printed |
+| No agent-2 empty-slot rule | A single-agent listing printed the literal words **"Agent 2 · Name"** onto the artwork |
+
+Three renderers meant every new element property had to be hand-written three times,
+and the third one was always forgotten. **The renderer is now one file.**
+
+### 12.2 `public/js/corex-ad-render.js` — `window.CoreXAd`
+
+The single source of truth for how an element becomes pixels. Not Vite-bundled: the ad
+pages are standalone Blade documents that never load the app bundle (same reason
+`corex-session-guard.js` and `docuperfect-editor.js` live in `public/js`).
+
+| Export | Role |
+|--------|------|
+| `frameStyle(el, opts)` | The absolutely-positioned frame — position, size, z-index, rotation, border, `elOpacity`, `display:none` when hidden, box-shadow |
+| `contentHtml(el, prop, opts)` | The element's inner HTML. **The whole point of the kernel** — one function decides what every field type looks like |
+| `renderLayout(layout, prop, root, opts)` | Draws a whole `layout_json` into a DOM node (used by the two non-Alpine surfaces) |
+| `textStyle` · `shapeCss` · `gradientCss` · `lineCss` · `watermarkCss` | Per-kind style computation |
+| `textValue(el, prop, opts)` · `imageSrc(el, prop, opts)` | Value resolution |
+| `canvasBackground(l)` · `canvasBgSolid(l)` | Canvas paint (the latter for html2canvas, which needs a flat colour) |
+| `makeElement(type, x, y, z)` | A new element seeded from `FIELD_DEFAULTS` |
+| `FIELDS` · `FIELD_GROUPS` · `FIELD_DEFAULTS` · `SHAPES` · `SHAPE_CLIPS` · `FONTS` · `CANVAS_PRESETS` | The catalogues |
+
+**`opts` is how the three surfaces differ — and it is the only way they may differ:**
+
+- `placeholders` — the **builder** designs against a property that may lack values, so an
+  empty field falls back to its preview copy. The **generator must not**: an Agent-2 slot
+  on a single-agent listing renders **empty**, never the words "Agent 2 · Name".
+- `overrides` — the generator's "change photo" swaps, keyed by element id, so a re-render
+  (agent switch, platform switch) keeps the chosen photo.
+- `tagPhotos` — stamp `data-el-id` / `data-orig-src` so the overlay can target property
+  photos and "reset to original" can restore them.
+- `paintBackground` — the bulk manager draws into a bare div, so the kernel paints the
+  canvas colour/gradient onto it.
+- `showHidden` — render a hidden element anyway (unused; the escape hatch is deliberate).
+
+The builder does **not** re-implement any of this: it binds `:style="CoreXAd.frameStyle(el)"`
+and `x-html="CoreXAd.contentHtml(el, propertyData, { placeholders: true })"`, so Alpine's
+reactivity drives the *same* functions the generator calls. What you design is what ships.
+
+### 12.3 New element properties (all three surfaces, automatically)
+
+`elOpacity` (per-element opacity) · `fontFamily` · `verticalAlign` (top/middle/bottom) ·
+`hidden` · `locked` (editor-only) · and a shadow group (`shadowOn`, `shadowX`, `shadowY`,
+`shadowBlur`, `shadowColor`, `shadowOpacity`).
+
+**Where a shadow is painted depends on what carries the geometry** — this is not cosmetic,
+it is the difference between a correct shadow and a wrong one:
+
+- **text** → `text-shadow` on the text node
+- **shape** (rounded/circle/pill/rect) → `box-shadow` on the *shape* node, so it follows the radius
+- **line** → `box-shadow` on the bar, not the taller container
+- **everything else** → `box-shadow` on the frame
+
+**Clip-path shapes (triangle, diamond, pentagon, hexagon, star, chevron) cannot carry a
+shadow at all** — `clip-path` clips the element's own box-shadow away to nothing. The
+control is hidden for them (`CoreXAd.canShadow(el)`) with the reason stated in the panel.
+`filter: drop-shadow()` *would* trace the silhouette, but html2canvas ignores CSS filters,
+so the preview would show a shadow the downloaded PNG does not have — a WYSIWYG break.
+Both `text-shadow` and `box-shadow` are html2canvas-safe. This is a deliberate, honest
+limit, not an oversight.
+
+Legacy templates are untouched: every field falls back through `def()`, so an element
+saved before this change renders **byte-identically** (a legacy shape with no `shapeType`
+still reads `borderRadius` as a %). Covered by the back-compat block in the JS test.
+
+### 12.4 Typography
+
+`resources/views/corex/properties/_ad-fonts.blade.php` is the **one** stylesheet every ad
+surface loads: Figtree, Inter, Poppins, Montserrat, Oswald, Bebas Neue, Playfair Display,
+Lora. A family the builder offers but an ad page never loads would silently fall back to
+Figtree — the designer approves the preview and the PNG comes out in the wrong face. Adding
+a family means adding it to `FONTS` in the kernel **and** to that partial; nothing else.
+`AdRenderKernelTest` fails if the two lists drift apart.
+
+Every capture path now `await document.fonts.ready` before html2canvas, or the rasteriser
+snapshots the fallback face.
+
+### 12.5 The drift guard
+
+`tests/Feature/Properties/AdRenderKernelTest.php` (runs in `dev-check`) asserts that:
+- every ad surface loads the kernel and the font sheet;
+- **no ad surface re-declares** `SHAPE_CLIPS`, `IMAGE_FIELDS`, `NON_TEXT_FIELDS`,
+  `FIELD_DEFAULTS` or `hexToRgba` — a bare declaration means a second renderer has been
+  born, and second renderers drift;
+- every font in the kernel's `FONTS` is actually loaded by `_ad-fonts`.
+
+`tests/js/ad-render-kernel.mjs` (`node tests/js/ad-render-kernel.mjs`) exercises the render
+logic itself against the shipped kernel — the four drift bugs, the new properties, legacy
+back-compat, HTML escaping, and the photo-override path. 31 checks.
+
+---
+
+## 13. Ad Builder — the editor (AT-252)
+
+> Status: LIVE · 2026-07-13 (Andre)
+
+The builder was a drag-and-drop canvas with no history, no alignment, no layers and no
+keyboard. Designing anything precise meant nudging numbers in the side panel. It is now a
+real editor.
+
+**History.** Full undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`), 120 deep. Continuous
+changes are **coalesced** — dragging a slider or holding an arrow key is one history entry,
+not one per frame — via `commitCoalesced(key)`, which opens a burst on the first change and
+closes it after 600ms of quiet. A drag/resize/rotate gesture snapshots on mousedown and
+commits **once** on mouseup, and only if something actually changed. `Clear` is undoable, so
+it no longer needs a confirm dialog.
+
+**Snapping.** Two independent modes, both suspended while **Alt** is held:
+- **Guides** — snaps the moving element's left/centre/right and top/middle/bottom edges to
+  the same six lines on every *unselected* element, plus the canvas edges and centre.
+  Magenta guide lines show what caught. Object guides **win over the grid** (a designer means
+  the other element, not the nearest 10px), and each axis resolves independently.
+- **Grid** — snap to a configurable grid (default 10px), with an optional visible overlay.
+  Resizing snaps the **moving edges**, not the origin: dragging the east handle snaps the
+  right edge, and leaves the untouched left edge alone.
+
+The snap threshold is `6 / zoom`, so it stays a constant ~6px on *screen* at any zoom.
+
+**Selection.** Multi-select by shift-click or by marquee-dragging the canvas. Selection is
+tracked by element **id**, not index, so it survives restacking and undo. Every panel control
+applies to the **whole selection** — restyling six labels is one action. Dragging a
+multi-selection moves the element under the cursor with snapping and the rest follow by the
+same delta, so relative layout is preserved.
+
+**Align & distribute.** Left/centre/right/top/middle/bottom — to the **canvas** when one
+element is selected, to the **selection's bounding box** when several are. Distribute
+horizontally/vertically (3+). "Fill canvas" stretches to full bleed.
+
+**Layers panel.** A real stack, top-of-the-ad first: drag to restack, show/hide, lock/unlock,
+**delete**, click to select. `zIndex` is re-seated as a dense `1..n` run after every reorder —
+which also keeps it **positive**: a negative z-index child would paint *behind* the canvas
+background, because `#canvas` creates no stacking context. **Hidden = absent from the ad** —
+the generator skips hidden elements, so hiding is a design decision, not just an editor
+convenience. The panel is also the only way to reach an element that is completely covered by
+another one, since it can't be clicked on the canvas.
+
+**Lock means lock — including against `Del`.** Locked elements can't be dragged, marquee-caught
+or nudged, and `deleteSelected()` **skips** them (it says how many it kept). A padlock that
+guards a background photo against every accident *except the most destructive one* is not a
+padlock. The escape hatch is the layer row's own **trash button**, which deletes that one
+element regardless of its lock — an unambiguous click on one specific row is an explicit act,
+not an accident. Every deletion is a single undo step.
+
+**Handles.** 8 resize handles (corners + edges), **Shift** keeps the aspect ratio on a corner,
+plus a free rotate handle (**Shift** snaps to 15°). All of it lives in a selection overlay that
+is a **sibling** of the elements, not a child — an element box is `overflow:hidden` and would
+clip any handle sitting on its edge (which is why the old single SE handle rendered half-cut).
+Everything counter-scales by `1/zoom` so it stays a constant size on screen.
+
+**Keyboard.** Arrows nudge 1px (Shift = 10px / one grid step) · `Ctrl+D` duplicate ·
+`Ctrl+C/X/V` copy/cut/paste (repeat-paste steps, never stacks) · `Ctrl+A` select all ·
+`Del` delete · `Esc` deselect · `Ctrl+S` save · `Ctrl+]`/`[` forward/backward,
+`+Shift` to front/back · `Ctrl +/−/0/1` and `Ctrl+scroll` zoom · `?` opens the shortcuts
+panel. Shortcuts are inert while a form field has focus.
+
+**Zoom.** Real controls (in/out/fit/100%, `Ctrl+scroll`) replacing an auto-fit *getter* that
+read `offsetWidth` on every evaluation and so never recomputed reliably on resize. Zoom is now
+reactive state; "fit" re-fits on window resize and on canvas-size change.
+
+**Safety.**
+- An **unsaved-changes guard** on navigation (`beforeunload`) — the builder could previously
+  lose an hour's work to a stray Back click. A dot next to the name shows unsaved state.
+- **Editor chrome is excluded from the export.** `exportForMarketing()` captures `#canvas`,
+  and the selection toolbar/handles/empty-state live *inside* it — they were being rasterised
+  into the exported PNG. Capture now clears the selection, sets a `capturing` flag that
+  suppresses every outline, and all overlays carry `data-html2canvas-ignore`.
+- **Preview mode** hides all editor chrome to check the artwork alone.
+
+**Deliberately NOT in this slice:** inline text editing on the canvas (the panel's Text field
+is the single entry point); grouping; free rotation of a multi-selection (the bounding box is
+axis-aligned); starting a custom template from a pre-built one (pre-builts are server-rendered
+Blade, not `layout_json` — a real conversion, specced separately if wanted).
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -450,3 +643,16 @@ silently falls back to the listing agent). No client value is trusted to widen s
 - `app/Http/Controllers/Tools/AdManagerController.php` + `resources/views/tools/ad-manager.blade.php`
   — brochure first in the catalogue + A4 preview + per-property PDF links.
 - `tests/Feature/Properties/BrochurePdfTest.php` — route/scope/data coverage (new).
+
+### Render kernel + Ad Builder editor (§12, §13 — AT-252)
+- `public/js/corex-ad-render.js` — **the** renderer; `window.CoreXAd` (new).
+- `resources/views/corex/properties/_ad-fonts.blade.php` — the one ad font sheet (new).
+- `resources/views/corex/properties/ad-builder.blade.php` — history, snapping, multi-select,
+  align/distribute, layers, 8 handles + rotate, zoom, keyboard, preview, unsaved guard;
+  renders through the kernel instead of its own copy.
+- `resources/views/corex/properties/ad.blade.php` — renders through the kernel; awaits
+  `document.fonts.ready` before capture.
+- `resources/views/tools/ad-manager.blade.php` — renders through the kernel (fixes the four
+  drift bugs in §12.1).
+- `tests/Feature/Properties/AdRenderKernelTest.php` — the drift guard (new).
+- `tests/js/ad-render-kernel.mjs` — render-logic checks against the shipped kernel (new).

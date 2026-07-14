@@ -26,6 +26,13 @@ namespace App\Support\Tours;
  * Selectors target dedicated data-tour="…" anchors added to the real DOM of each
  * screen, NOT volatile utility classes — so a Tailwind/markup refactor never
  * silently breaks a tour.
+ *
+ * EXTERNAL-LINK entries (e.g. defs/mobile-app.php) are the one other shape: they
+ * declare `external_url` (https) and an optional `cta` INSTEAD of `route`/`steps`,
+ * and render in the Guided Tours directory as a card that opens that URL in a new
+ * tab. They drive nothing on-page — forRoute() never matches them (no route), the
+ * spotlight engine never sees them, and Ellie's TourKnowledgeService skips them
+ * (it requires steps).
  */
 class TourRegistry
 {
@@ -284,32 +291,56 @@ class TourRegistry
             ],
 
             // ── Market Intelligence / MIC (queue #3) ─────────────────────────
+            // Flagship: buyer-led prospecting (AT-242). Key kept stable ('mic-work')
+            // so the launcher binding + saved progress on market-intelligence.work
+            // carry over; the tour now walks the "Prospect for a buyer" flow —
+            // today's headline way to work the MIC page.
             'mic-work' => [
                 'key'         => 'mic-work',
-                'title'       => 'Using Market Intelligence',
-                'description' => 'Your daily prospecting worklist — what to action next, plus uploading a CMA.',
+                'title'       => 'Prospect for a buyer',
+                'description' => 'The fastest way to work Market Intelligence: start from a buyer on your books, let CoreX surface the tracked properties that match them, then claim the best lead.',
                 'route'       => 'market-intelligence.work',
                 'setup'       => [['action' => 'scrollTop']],
                 'steps' => [
                     [
                         'element' => '[data-tour="mic-tabs"]',
-                        'title'   => 'Market Intelligence',
-                        'body'    => 'Your prospecting command centre. Work is your daily to-do list of listings to act on; Opportunities, Analyse and Market Pulse sit alongside it on these tabs.',
+                        'title'   => 'Your prospecting command centre',
+                        'body'    => 'This is Market Intelligence. The fastest way to work it is buyer-led — start from a real buyer and let CoreX bring you the stock that fits them. Let\'s walk it.',
                     ],
                     [
-                        'element' => '[data-tour="mic-hero"]',
-                        'title'   => 'This week',
-                        'body'    => 'Your hottest prompts for the week — the handful of listings CoreX thinks deserve your attention first, ranked by the suggested next step.',
+                        'element' => '[data-tour="mic-prospect-buyer"]',
+                        'title'   => 'Start with a buyer',
+                        'body'    => 'Instead of scrolling all stock, open "Prospect for buyer". CoreX will narrow the whole list to the tracked properties that match a buyer\'s wishlist — strongest first.',
                     ],
                     [
-                        'element' => '[data-tour="mic-upload"]',
-                        'title'   => 'Got a CMA? Drop it here',
-                        'body'    => 'Upload a CMA or sales report and CoreX reads it for you — pulling out the comparable sales and feeding them into your valuations. No retyping.',
+                        'element' => '[data-tour="mic-buyer-scope"]',
+                        'title'   => 'Whose buyers?',
+                        'body'    => 'Choose the pool: My buyers, My branch, or Whole company. Same matching engine — it only changes which buyers you can pick from. (Company-wide shows for managers and owners.)',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-buyer-select"]',
+                        'title'   => 'Pick the buyer',
+                        'body'    => 'Search and select a buyer. The list instantly re-ranks to the stock that best matches their wishlist, using the same Core Matches score you already trust — no re-scoring, no waiting.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-by-region"]',
+                        'title'   => 'Narrow by region',
+                        'body'    => 'Optionally focus on a region (e.g. Hibiscus Coast). Regions come from your prospecting towns, so you work the buyer\'s matches in the area you actually cover.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-by-town"]',
+                        'title'   => '…or drill to a town',
+                        'body'    => 'Go finer with a specific town. Buyer, region and town stack — so in two clicks you get to exactly "this buyer\'s matches, in this town".',
                     ],
                     [
                         'element' => '[data-tour="mic-list"]',
-                        'title'   => 'Your worklist',
-                        'body'    => 'Each row is a property with a suggested next move. Filter on the left, click a row to see why it matched and what to do. Work top-down — close this and action your first one.',
+                        'title'   => 'Your matched tracked properties',
+                        'body'    => 'Each row is a tracked property that matches the buyer — its address (or "Address pending"), suburb, and match strength. The best leads sit at the top.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-claim"]',
+                        'title'   => 'Claim your lead',
+                        'body'    => 'Found the one? Claim it to reserve it as yours before another agent does. A claim is time-boxed — work it, or it releases back to the pool. That\'s the full loop: buyer → matches → claim.',
                     ],
                 ],
             ],

@@ -57,6 +57,12 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
                         Compliance Review
                     </a>
+                @elseif($submission->status === 'referred_to_co' && ($viewerIsPrimaryCo ?? false))
+                    {{-- AT-236 — escalated pack: the primary CO opens the FULL review station (approve/reject/return) --}}
+                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+                        Review Escalated FICA
+                    </a>
                 @endif
             </div>
         </div>
@@ -416,15 +422,24 @@
                         </button>
                     </div>
                 </form>
+
+                {{-- AT-236 — Escalate to CO (third action for a non-primary-CO reviewer) --}}
+                @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
             @endif
 
-            {{-- Awaiting CO — message for non-CO users --}}
-            @if($submission->status === 'agent_approved' && !auth()->user()->isComplianceOfficer())
-                <div class="rounded-md p-5 text-sm"
-                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent); color:var(--text-primary);">
-                    <p class="font-semibold">Awaiting Compliance Officer Review</p>
-                    <p class="mt-1 text-xs" style="color:var(--text-secondary);">This submission has been approved by the agent and is now waiting for a compliance officer to perform the final review.</p>
-                </div>
+            {{-- RO Approvals stage — an authorized reviewer (RO) can review via the CO
+                 review screen, or escalate straight from here. --}}
+            @if($submission->status === 'agent_approved')
+                @if(auth()->user()->isComplianceOfficer())
+                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary w-full justify-center text-sm mb-3">Open review</a>
+                    @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
+                @else
+                    <div class="rounded-md p-5 text-sm"
+                         style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent); color:var(--text-primary);">
+                        <p class="font-semibold">In RO Approvals</p>
+                        <p class="mt-1 text-xs" style="color:var(--text-secondary);">The agent has reviewed this submission; it is now with the Reporting / Compliance Officers for their decision.</p>
+                    </div>
+                @endif
             @endif
 
             {{-- Final approved summary --}}

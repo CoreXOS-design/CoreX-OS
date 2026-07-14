@@ -1006,17 +1006,41 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
-        if ($property->contacts()->count() === 0) {
+        // AT-262 — a completable DRAFT (a duplicated / switched-type listing not yet
+        // completed) saves PARTIALLY; the full listing requirements are enforced only
+        // at completion / go-live (MarketingReadinessService::checkDetailsComplete on
+        // publish). A live/active listing keeps strict validation so an agent can't
+        // blank a marketed listing. This is what fixes "change type → save" erroring
+        // for price/suburb/beds/baths/garages/agent on a half-filled handed-over draft.
+        $publishing  = $request->boolean('publish');
+        $isDraftSave = ($property->isDraft() || $property->listing_type_pending) && ! $publishing;
+
+        // A contact is required to COMPLETE a listing, not to save a draft in progress.
+        if (! $isDraftSave && $property->contacts()->count() === 0) {
             return back()
                 ->withInput()
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
         }
 
+        // Category-awareness (m3 portal finding): land / commercial / industrial / farm
+        // stock is not listed with bed/bath/garage counts — never require them there,
+        // even on a completed listing. Mirrors Property::requiresBedsBaths() and the
+        // publish readiness gate so validation and go-live agree.
+        $needsBedsBaths = $property->requiresBedsBaths();
+        // A rental prices via rental_amount, not the sale `price` field (the rental form
+        // does not render an asking price) — so never demand `price` on a rental.
+        $isRental = strtolower((string) $request->input('listing_type', $property->listing_type)) === 'rental';
+
+        $reqIf = static fn (bool $required, string $rest): string => ($required ? 'required' : 'nullable') . $rest;
+        $coreRequired  = ! $isDraftSave;                    // suburb, agent — at completion
+        $priceRequired = ! $isDraftSave && ! $isRental;     // sale price — a completed SALE
+        $bbRequired    = ! $isDraftSave && $needsBedsBaths; // beds/baths/garages — a completed RESIDENTIAL listing
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
-            'price'            => 'required|integer|min:0',
+            'price'            => $reqIf($priceRequired, '|integer|min:0'),
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
@@ -1032,7 +1056,7 @@ class PropertyController extends Controller
             'levy'             => 'nullable|integer|min:0',
             'special_levy'     => 'nullable|integer|min:0',
             'city'             => 'nullable|string|max:100',
-            'suburb'           => 'required|string|max:100',
+            'suburb'           => $reqIf($coreRequired, '|string|max:100'),
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
             'latitude'         => 'nullable|numeric|between:-90,90',
@@ -1040,10 +1064,10 @@ class PropertyController extends Controller
             'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
             'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
             'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
-            'beds'             => 'required|integer|min:0|max:20',
-            'baths'            => 'required|integer|min:0|max:20',
+            'beds'             => $reqIf($bbRequired, '|integer|min:0|max:20'),
+            'baths'            => $reqIf($bbRequired, '|integer|min:0|max:20'),
             'half_baths'       => 'nullable|integer|min:0|max:20',
-            'garages'          => 'required|integer|min:0|max:20',
+            'garages'          => $reqIf($bbRequired, '|integer|min:0|max:20'),
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
             'property_type'    => 'nullable|string|max:50',
@@ -1081,7 +1105,7 @@ class PropertyController extends Controller
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
-            'agent_id'         => 'required|exists:users,id',
+            'agent_id'         => $reqIf($coreRequired, '|exists:users,id'),
             'pp_second_agent_id' => 'nullable|exists:users,id',
             'pp_agent_image'           => 'nullable|image|max:1024',
             'pp_second_agent_image'    => 'nullable|image|max:1024',
@@ -1215,6 +1239,23 @@ class PropertyController extends Controller
             }
         }
 
+        // AT-262 — a duplicated draft opened with an editable listing type; the first
+        // real save commits the chosen type and locks it (clears the pending window).
+        if ($property->listing_type_pending) {
+            $data['listing_type_pending'] = false;
+        }
+
+        // AT-262 — price/beds/baths/garages/suburb/agent_id are NOT NULL columns. When
+        // a draft (or a land/commercial listing) saves with one of these relaxed and
+        // the field arrives empty (null via ConvertEmptyStringsToNull), never overwrite
+        // the stored value with null — that 1048s. Drop the null key so the column keeps
+        // its existing value; a real value is enforced at completion / go-live.
+        foreach (['price', 'beds', 'baths', 'garages', 'suburb', 'agent_id'] as $notNullField) {
+            if (array_key_exists($notNullField, $data) && $data[$notNullField] === null) {
+                unset($data[$notNullField]);
+            }
+        }
+
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
         if (isset($data['p24_suburb_id'])
@@ -1240,9 +1281,48 @@ class PropertyController extends Controller
             app(\App\Services\AI\PropertyAiSuggestionService::class)->markReviewed($property);
         }
 
-        return redirect()->route('corex.properties.show', $property)
+        $redirect = redirect()->route('corex.properties.show', $property)
             ->with('success', 'Property updated.')
             ->with('tab', 'info');
+
+        if ($this->shouldPromptSyndication($property)) {
+            $redirect->with('open_syndication', true);
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Should this save open the syndication panel on the property page?
+     *
+     * A compliant, on-market listing has live portal copies riding on it —
+     * Property24, Private Property, the company website. Saving it is the exact
+     * moment those copies go stale, and nothing used to connect the two: the agent
+     * dropped the price, saw "Property updated.", and walked away while the portals
+     * kept advertising yesterday's number.
+     *
+     * So a qualifying save opens the panel (show.blade.php seeds `synOpen` from the
+     * `open_syndication` flash), putting "Refresh all portals" in front of the agent
+     * at the one moment it matters. Every qualifying save, by design — a save is what
+     * makes the portals stale, so there is nothing to remember and nothing to
+     * dismiss-forever.
+     *
+     * BOTH halves are required. `compliance_snapshot_at` is the canonical record that
+     * a listing is marked compliant (there is no boolean flag — the timestamp IS the
+     * flag, written by MarketingReadinessService::snapshotCompliance()); without it
+     * the listing has nothing it is permitted to publish. And a compliant listing
+     * that is Sold must never nag the agent to re-push it to the portals.
+     *
+     * Not wired into store(): a brand-new property cannot carry a compliance snapshot
+     * (that is stamped later, by Go Live), so the test can never pass there — and the
+     * >20-image create path returns JSON, then fires several upload-images requests
+     * before it navigates, any one of which would eat a flash. Dead code and an
+     * unreliable channel. Spec: .ai/specs/syndication-refresh-all.md.
+     */
+    private function shouldPromptSyndication(Property $property): bool
+    {
+        return $property->compliance_snapshot_at !== null
+            && strtolower((string) $property->status) === 'active';
     }
 
     public function destroy(Property $property)
@@ -1253,10 +1333,93 @@ class PropertyController extends Controller
             ->with('success', 'Property listing removed.');
     }
 
-    public function duplicate(Property $property)
+    /**
+     * AT-262 (Andre's design + Johan's extension) — Duplicate a listing, optionally
+     * AS the other listing type. Same type = full copy; cross type = matching fields
+     * only (the type-specific fields are left for the user). The clone opens in a
+     * completable DRAFT where the listing type is NOT locked until completion.
+     */
+    public function duplicate(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
 
+        $currentType = $property->listing_type ?: 'sale';
+        $targetType  = $request->input('target_type', $currentType);
+        if (! in_array($targetType, ['sale', 'rental'], true)) {
+            $targetType = $currentType;
+        }
+
+        $clone = $this->makeClone($property, $targetType);
+
+        // Clone + its contact links are one unit of work: a half-copied property
+        // with no seller attached is worse than no copy at all.
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+        });
+
+        $msg = $targetType === $currentType
+            ? 'Property duplicated as a draft. Complete the details and save.'
+            : 'Duplicated as ' . ($targetType === 'rental' ? 'a Rental' : 'a Sale')
+                . ' — the matching details carried over; fill the '
+                . ($targetType === 'rental' ? 'rental (monthly, deposit, lease)' : 'sale (asking price)')
+                . ' fields, then save.';
+
+        return redirect()->route('corex.properties.show', $clone)->with('success', $msg);
+    }
+
+    /**
+     * AT-262 — "Change listing type" = duplicate to the OTHER type, then ARCHIVE the
+     * current listing (soft-delete, history preserved, syndication de-listed) and hand
+     * the user the completable draft. No hard delete (non-negotiable #1).
+     */
+    public function changeType(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        // AT-262 (Johan's gate) — change-type is ONLY for a draft that has never been
+        // advertised. Server-side guard so the rule holds even if the UI is bypassed:
+        // an advertised/active listing must use Duplicate (its live history is never
+        // archived out from under the portals).
+        if (! $property->canChangeType()) {
+            return back()->with('error',
+                'Change listing type is only available for a draft listing that has never been advertised. '
+                . 'To offer this property as a different type, use Duplicate.');
+        }
+
+        $currentType = $property->listing_type ?: 'sale';
+        $targetType  = $currentType === 'rental' ? 'sale' : 'rental';
+
+        $clone = $this->makeClone($property, $targetType);
+
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+            // Archive the original — de-list syndication (the syndication path withdraws
+            // it from the portals) and soft-delete so history is preserved. saveQuietly so
+            // the observer's re-syndication hooks don't fight the withdrawal.
+            $property->p24_syndication_enabled = false;
+            $property->pp_syndication_enabled  = false;
+            $property->p24_syndication_status  = 'withdrawn';
+            $property->pp_syndication_status   = 'withdrawn';
+            $property->status                  = 'archived';
+            $property->saveQuietly();
+            $property->delete(); // soft delete
+        });
+
+        return redirect()->route('corex.properties.show', $clone)->with('success',
+            'Changed to ' . ($targetType === 'rental' ? 'Rental' : 'Sale')
+            . '. The old ' . ($currentType === 'rental' ? 'Rental' : 'Sale')
+            . ' listing was archived and de-listed. Complete the new listing and save.');
+    }
+
+    /** Build a draft clone as $targetType — shared fields carried, other-type fields cleared. */
+    private function makeClone(Property $property, string $targetType): Property
+    {
         $clone = $property->replicate([
             'external_id', 'published_at', 'p24_ref', 'p24_syndication_enabled',
             'p24_syndication_status', 'p24_last_submitted_at', 'p24_activated_at',
@@ -1269,31 +1432,30 @@ class PropertyController extends Controller
 
         $clone->title  = ($property->title ?? 'Property') . ' (Copy)';
         $clone->status = 'draft';
-        // The copy starts with NO price so the agent must set one — but `price` is
-        // `bigint unsigned NOT NULL DEFAULT 0`, so writing an explicit NULL threw
-        // 1048 and duplicate 500'd for EVERY property, not just one with odd data.
-        // 0 is this schema's "unset" (604 rows carry it; not one row is NULL), and
-        // empty(0) is true, so publishToggle()'s readiness gate still demands a
-        // real Price before the copy can go live. Same intent, a value the column
-        // actually accepts.
-        $clone->price  = 0;
+        $clone->listing_type = $targetType;
+        // Type NOT locked until the user completes the draft.
+        $clone->listing_type_pending = true;
+        // `price` is bigint unsigned NOT NULL DEFAULT 0; 0 is this schema's "unset"
+        // (empty(0) is true, so the publish-readiness gate still demands a real price).
+        $clone->price = 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
         $clone->pp_syndication_enabled = false;
 
-        // Clone + its contact links are one unit of work: a half-copied property
-        // with no seller attached is worse than no copy at all.
-        DB::transaction(function () use ($clone, $property) {
-            $clone->save();
-
-            foreach ($property->contacts as $contact) {
-                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+        // Cross-type: carry only the matching fields — clear the fields specific to the
+        // type we are NOT becoming, so the user completes the target-type fields fresh.
+        if ($targetType === 'sale') {
+            foreach (['rental_amount', 'deposit_amount', 'commission_percent', 'admin_fee',
+                      'marketing_fee', 'lease_start_date', 'lease_end_date', 'rental_images_json'] as $rentalField) {
+                if (\Illuminate\Support\Facades\Schema::hasColumn('properties', $rentalField)) {
+                    $clone->{$rentalField} = null;
+                }
             }
-        });
+        }
+        // target === 'rental': the sale price is already reset to 0; rental fields start blank.
 
-        return redirect()->route('corex.properties.show', $clone)
-            ->with('success', 'Property duplicated. Update the details and save.');
+        return $clone;
     }
 
     public function publishToggle(Request $request, Property $property)

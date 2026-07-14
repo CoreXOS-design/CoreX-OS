@@ -595,8 +595,25 @@ class TemplateController extends Controller
         // Going forward every imported template carries the contract
         // from day one. Existing templates need the one-time backfill:
         //   php artisan docuperfect:normalize-templates
+        // ── PROJECT THE BINDINGS INTO THE MARKUP FIRST ─────────────────────────────
+        //
+        // The normalizer reads roles out of the HTML, but the CDS builder never puts them
+        // there: it writes `data-field-name="contact.full_names"` and keeps the actual
+        // binding (which contact type) in the mappings JSON, keyed by data-tag-id. So the
+        // normalizer saw no role-bearing fields, stamped nothing, and every CDS template in
+        // every database fell through to legacy clustering — contract coverage has been ZERO
+        // since the engine shipped. The engine was never broken; its input was never produced.
+        //
+        // Projection makes the binding visible to the engine that has to read it. It must run
+        // BEFORE normalize(), or there is still nothing for the normalizer to see.
+        $projector = app(\App\Services\Docuperfect\CdsBindingProjector::class);
+        $projected = $projector->project(
+            (string) ($draft->tagged_html ?? ''),
+            (array) ($draft->mappings ?? []),
+        );
+
         $normalizer = app(\App\Services\Docuperfect\RoleBlockNormalizer::class);
-        $normalisedTaggedHtml = $normalizer->normalize((string) ($draft->tagged_html ?? ''));
+        $normalisedTaggedHtml = $normalizer->normalize($projected);
         if ($normalisedTaggedHtml !== ($draft->tagged_html ?? '')) {
             $draft->tagged_html = $normalisedTaggedHtml;
             // Persist on the draft so re-opening the builder shows the

@@ -119,6 +119,8 @@ class Agency extends Model
     protected $fillable = [
         'name',
         'slug',
+        'fica_referral_enabled', // AT-236 — is "Refer to CO" available (default ON)
+        'fica_referral_recipient_user_id', // AT-236 — CO who receives referrals (null = primary CO)
         'payroll_default_cut_day', // AT-237 — default run cut day-of-month (null => full month)
         'payroll_default_daily_rate_basis', // AT-237 — default proration basis for employees not individually set
         'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
@@ -321,6 +323,7 @@ class Agency extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
+        'fica_referral_enabled' => 'boolean', // AT-236
         'vat_registered' => 'boolean',
         'payroll_default_cut_day' => 'integer', // AT-237
 

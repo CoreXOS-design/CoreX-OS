@@ -131,7 +131,8 @@ class Dr2DistributionSendService
                 $rows++;
 
                 if ($isSecure) {
-                    $secureLinks[] = ['title' => $doc->original_name, 'url' => route('deals-v2.secure-doc.show', ['token' => $token])];
+                    // AT-264 — one pack link (built once, after the loop) unlocks the
+                    // whole group with one OTP; no per-document link here anymore.
                 } else {
                     $abs = Storage::disk($doc->disk ?? 'local')->path($doc->storage_path);
                     $attachments[] = [
@@ -143,6 +144,18 @@ class Dr2DistributionSendService
                         'size'         => (int) ($doc->size ?? 0),
                     ];
                 }
+            }
+
+            // AT-264 — a secure-link send emits ONE pack link (keyed on the group_key)
+            // that unlocks every document in the group behind a single OTP, instead of
+            // one link + one PIN per document. The mail view loops $secureLinks, so a
+            // single entry renders as one link.
+            if ($mode === DealDocumentDistribution::MODE_SECURE_LINK && ! empty($partRows)) {
+                $count = count($partRows);
+                $secureLinks = [[
+                    'title' => "View {$count} secure " . ($count === 1 ? 'document' : 'documents'),
+                    'url'   => route('deals-v2.secure-doc.pack', ['groupKey' => $groupKey]),
+                ]];
             }
 
             // Deliver (email real via Mailer; WhatsApp = log-only deeplink idiom on staging).

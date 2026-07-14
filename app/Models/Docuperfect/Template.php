@@ -2,6 +2,7 @@
 
 namespace App\Models\Docuperfect;
 
+use Illuminate\Support\Facades\Log;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -316,17 +317,73 @@ class Template extends Model
     }
 
     /**
+     * THE LAST LINE — an alienation document can never be persisted as e-signable.
+     *
+     * `is_esign` had SEVEN writers and no guard: the importer hardcoded `is_esign => true`
+     * on every document it created (the OTP included), TemplateController let a user flip the
+     * flag straight from the settings screen with no check, the wizard "repairs" templates by
+     * stamping it true, and migrations/seeders set it directly. Any one of them could mark a
+     * deed of alienation e-signable — and a sale e-signed under ECTA §13(1) is VOID. Not
+     * "flagged". Void. The deal does not exist.
+     *
+     * Guarding each writer is whack-a-mole and the next writer arrives unguarded. So the rule
+     * lives where the data does: if the law blocks this template, `is_esign` cannot be true
+     * when it hits the database — no matter who is writing, or how.
+     *
+     * This does not replace the wizard gate or the pack-eligibility computation; it is the
+     * floor beneath them.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $template): void {
+            // Only interesting when someone is trying to turn e-signing ON.
+            if (! $template->is_esign) {
+                return;
+            }
+
+            if ($template->isEsignBlocked()) {
+                $template->is_esign = false;
+
+                Log::warning('ECTA §13(1): refused to persist is_esign=true on an alienation document', [
+                    'template_id'   => $template->id,
+                    'template_name' => $template->name,
+                    'template_type' => $template->template_type,
+                ]);
+            }
+        });
+    }
+
+    /**
      * Check if this template type is legally blocked from e-signing.
      * Sale agreements and OTPs must be signed with wet ink per Alienation of
      * Land Act §2(1) + ECTA §13(1).
      *
      * Spec: .ai/specs/esign-v3-complete-spec.md §5
      *
-     * Four-layer defence:
-     *   Layer 1 — document_type_id slug match (the canonical classification)
-     *   Layer 2 — template_type string fallback (for templates without a slug)
-     *   Layer 3 — name regex with word boundaries (catches unclassified inputs)
-     *   Layer 5 — every trigger writes to legal_block_audit_log (insert-only)
+     * Layered defence — with an honest note on what each layer really does:
+     *
+     *   Layer 1 — document_type slug (`document_types.slug`). **LIVE, and the strongest.**
+     *             Five live OTPs are blocked by it today. It is the only layer that survives a
+     *             RENAME, because it asks what the document IS, not what it is called.
+     *             (Correction: an earlier version of this docblock called Layer 1 dead. That was
+     *             wrong — it was read against `docuperfect_document_types`, a legacy table with
+     *             no slug. The FK points at `document_types`, which has slugs for all five
+     *             blocked types. The layer was never dead; nothing was ever CLASSIFIED.)
+     *   Layer 2 — template_type string. Effectively inert: the values in the wild are
+     *             `sales` / `rental` / `standard` / `general`, none of which is a blocked slug.
+     *   Layer 3 — name regex. The fallback for anything unclassified. Load-bearing precisely
+     *             because classification was missing — "Contract of Sale" is on live today and
+     *             the old pattern did NOT match it.
+     *   Layer 4 — the saving guard above: a blocked template cannot be STORED e-signable, by
+     *             any of the seven writers of `is_esign`.
+     *   Layer 5 — every trigger writes to legal_block_audit_log (insert-only).
+     *
+     * The real fix was never a longer regex — it was classifying documents at all.
+     * `DocumentTypeClassifier` now classifies on import, and a migration backfills the
+     * templates nobody ever classified. A classified sale stays blocked whatever it is renamed.
+     *
+     * A mandate (Authority to Sell / sole mandate) is NOT an alienation document and must stay
+     * e-signable: it authorises a sale, it does not effect one.
      */
     public function isEsignBlocked(): bool
     {
@@ -347,9 +404,30 @@ class Template extends Model
             return true;
         }
 
-        // Layer 3 — name regex with word boundaries.
-        // "Photoshop" / "Photoshop Workflow" must NOT match; "SB 2026 OTP" must.
-        $pattern = '/\b(otp|deed of alienation|agreement for sale|sale agreement|agreement of sale|deed of sale|offer to purchase)\b/i';
+        // Layer 3 — name regex with word boundaries. THE ONLY LIVE LAYER (see the docblock),
+        // so it must cover how these documents are really named in South Africa.
+        //
+        // "Contract of Sale - Serenity Hills Eco Estate" is on LIVE right now and was NOT
+        // matched by the old pattern — an alienation document one toggle away from being
+        // e-signed and void. "Purchase agreement", "agreement of purchase and sale" and
+        // "koopkontrak" are the same document under different names.
+        //
+        // What must NOT match, and this is the point of the word boundaries:
+        //   - a MANDATE. "Exclusive Authority To Sell", "sole mandate" — a mandate AUTHORISES
+        //     a sale, it does not EFFECT one. It is e-signable and blocking it would break the
+        //     launch document.
+        //   - "Photoshop" / "Photoshop Workflow" (the original reason for \b).
+        $pattern = '/\b('
+            . 'otp'
+            . '|offer to purchase'
+            . '|deed of (sale|alienation|transfer)'
+            . '|(sale|purchase) agreement'
+            . '|agreement (of|for) sale'
+            . '|agreement of purchase and sale'
+            . '|contract of sale'
+            . '|sale of immovable property'
+            . '|koopkontrak'
+            . ')\b/i';
         if (preg_match($pattern, $this->name ?? '', $matches)) {
             $this->logBlockTrigger('name_pattern_match', $matches[0]);
             return true;

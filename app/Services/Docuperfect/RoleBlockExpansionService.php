@@ -568,7 +568,7 @@ final class RoleBlockExpansionService
         array $editableByByField,
     ): void {
         $xpath = new DOMXPath($dom);
-        $fields = $xpath->query('//*[@data-field]');
+        $fields = $xpath->query('//*[@data-field] | //*[@data-field-name]');   // both shapes (CDS writes data-field-name)
         if ($fields === false) {
             return;
         }
@@ -1190,7 +1190,7 @@ final class RoleBlockExpansionService
     private function subtreeOnlyContainsRoleIndex(DOMElement $node, string $role, int $idx): bool
     {
         $xpath = new DOMXPath($node->ownerDocument);
-        $allFields = $xpath->query('.//*[@data-field]', $node);
+        $allFields = $xpath->query('.//*[@data-field] | .//*[@data-field-name]', $node);   // both shapes
         if ($allFields === false) {
             return false;
         }
@@ -1634,7 +1634,7 @@ final class RoleBlockExpansionService
 
         // descendant-or-self so a clone whose root IS the field element
         // (single-field cluster edge case) still gets stamped.
-        $fields = $xpath->query('descendant-or-self::*[@data-field]', $clone);
+        $fields = $xpath->query('descendant-or-self::*[@data-field] | descendant-or-self::*[@data-field-name]', $clone);   // both shapes
         if ($fields === false) {
             return;
         }
@@ -1644,7 +1644,13 @@ final class RoleBlockExpansionService
                 continue;
             }
             $origName = $f->getAttribute('data-field');
-            $parsed = $this->detector->parseFieldName($origName);
+            // Resolve through the canonical bridge, NOT parseFieldName() alone. A CDS-named
+            // field (`contact.first_name` + `data-contact-type="Seller"`) is invisible to
+            // parseFieldName, so every such field was skipped here: the block cloned, but the
+            // fields inside kept the SAME data-field across clones — colliding in the DOM, so
+            // the second seller's input would land on the first seller's field — and were
+            // never identity-stamped or prefilled. Same root cause as the normalizer's.
+            $parsed = $this->detector->resolveFieldElement($f);
             if ($parsed['role_base'] === null) {
                 continue;
             }
@@ -1819,6 +1825,9 @@ final class RoleBlockExpansionService
                 return (string) $contact->last_name;
             case 'name':
             case 'full_name':
+            // The composite full-name column the CDS generator really emits for a party's
+            // name blank — without this the seller's name simply never prefills.
+            case 'first_name+last_name':
                 return trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));

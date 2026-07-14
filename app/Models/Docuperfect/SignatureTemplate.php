@@ -18,6 +18,7 @@ class SignatureTemplate extends Model
         'status',
         'parties_json',
         'signing_order_json',
+        'group_order_json',
         'created_by',
         'is_candidate_flow',
         'supervisor_user_id',
@@ -40,6 +41,7 @@ class SignatureTemplate extends Model
     protected $casts = [
         'parties_json' => 'array',
         'signing_order_json' => 'array',
+        'group_order_json' => 'array',
         'flattened_pages_json' => 'array',
         'sections_json' => 'array',
         'is_candidate_flow' => 'boolean',
