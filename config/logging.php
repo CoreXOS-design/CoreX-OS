@@ -65,6 +65,23 @@ return [
             'replace_placeholders' => true,
         ],
 
+        /*
+         * AT-265 — security events that must NEVER be lost in the application-log firehose:
+         * the permission-lockdown alarm (role_permissions empty → all non-owners denied) and every
+         * use of the owner break-glass while that condition holds.
+         *
+         * Its own file, kept for a year, and NOT level-gated by LOG_LEVEL — a production box
+         * running LOG_LEVEL=error must still record a break-glass warning, because that line is
+         * the audit trail for "who was operating the platform while permissions were down".
+         */
+        'security' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/security.log'),
+            'level' => 'info',
+            'days' => 365,
+            'replace_placeholders' => true,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
