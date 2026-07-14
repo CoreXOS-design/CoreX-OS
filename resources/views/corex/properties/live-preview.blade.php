@@ -11,23 +11,48 @@
     $agency   = $property->agency;
     $showAgent = $showAgent ?? ($displayAgent !== null);
 
-    // Status → over-gallery badge. "Sold"-style states use the loud brand-red;
+    // Status → over-gallery badge. Concluded/dead states use the loud brand-red;
     // everything else uses the translucent ink glass badge.
     //
-    // The LIVE state is the only one that depends on listing type — an active
-    // rental reads "To Let", never "For Sale". The dead/interim states (sold,
-    // withdrawn, draft, pending) mean the same thing on both sides of the
-    // sale/rental line, so they are listing-type agnostic.
+    // Keyed off normalizedStatus(), NEVER the raw column: `status` is mixed-case in
+    // production (P24 writes 'Active' — 444 rows — and 'Sold'), so a raw lookup here
+    // missed the map entirely and printed the internal value back at the client.
+    //
+    // The LIVE states are the only ones that depend on listing type — an active
+    // rental reads "To Let", never "For Sale". Concluded and interim states mean the
+    // same thing on both sides of the sale/rental line, so they ignore listing type.
     $isRental = $property->isRental();
+    $liveLabel = $isRental ? 'To Let' : 'For Sale';
 
     $statusMap = [
-        'active'    => [$isRental ? 'To Let' : 'For Sale', false],
-        'draft'     => ['Draft',     false],
-        'sold'      => ['Sold',      true],
-        'withdrawn' => ['Withdrawn', true],
-        'pending'   => ['Pending',   false],
+        // Live — advertised as available.
+        'active'        => [$liveLabel,   false],
+        'for_sale'      => [$liveLabel,   false],
+        'to_let'        => [$liveLabel,   false],
+        'sales_listing' => [$liveLabel,   false],
+        'pending'       => ['Pending',    false],
+        'draft'         => ['Draft',      false],
+        'under_offer'   => ['Under Offer', false],
+
+        // Concluded — the deal is done. Never advertise these as available.
+        'sold'          => ['Sold',       true],
+        'transferred'   => ['Sold',       true],
+        'rented'        => ['Rented',     true],
+        'let_out'       => ['Let Out',    true],
+
+        // Off-market.
+        'withdrawn'     => ['Withdrawn',  true],
+        'cancelled'     => ['Cancelled',  true],
+        'expired'       => ['Expired',    true],
+        'unavailable'   => ['Unavailable', true],
+        'archived'      => ['Archived',   true],
     ];
-    [$statusLabel, $statusLoud] = $statusMap[$property->status] ?? [ucfirst((string) $property->status), false];
+
+    // Fallback title-cases and de-underscores, so an unmapped status can never show
+    // a client a raw DB value like "Let_out".
+    $normStatus = $property->normalizedStatus();
+    [$statusLabel, $statusLoud] = $statusMap[$normStatus]
+        ?? [ucwords(str_replace('_', ' ', $normStatus)) ?: $liveLabel, false];
 
     $features  = $property->features_json ?? [];
     $spaces    = $property->spaces_json   ?? [];

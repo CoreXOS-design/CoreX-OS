@@ -141,6 +141,80 @@ final class PropertyLivePreviewListingTypeTest extends TestCase
     }
 
     /**
+     * `status` is mixed-case in production too — the P24 sync writes 'Active'
+     * (444 rows live) while the wizard writes 'active'. The preview's badge map
+     * was keyed on the RAW column, so a capitalised status missed every key and
+     * the fallback printed the internal value straight back at the client.
+     */
+    public function test_a_capitalised_status_still_resolves_to_a_marketing_badge(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithAgent();
+
+        $rental = $this->property($agencyId, $agent, 'ZZZ-Caps-Active-Rental', [
+            'status'        => 'Active',   // exactly as the P24 sync stores it
+            'listing_type'  => 'rental',
+            'rental_amount' => 11000,
+        ]);
+
+        $res = $this->get($this->previewUrl($rental))->assertOk();
+
+        $res->assertSee('To Let', false);
+        // The raw internal value must never be shown to a client.
+        $res->assertDontSee('>Active<', false);
+        $res->assertDontSee('For Sale', false);
+    }
+
+    /**
+     * The worst instance of the casing bug: 60 live properties are stored 'Sold'
+     * with a capital S, and every badge compared case-sensitively against
+     * lowercase 'sold' — so they fell through to the default arm and were
+     * advertised FOR SALE on the pickers and on generated ad cards.
+     */
+    public function test_a_capitalised_sold_is_never_advertised_for_sale(): void
+    {
+        $sold = new Property(['status' => 'Sold', 'listing_type' => 'sale']);
+
+        $this->assertTrue($sold->isConcluded());
+        $this->assertSame('Sold', $sold->statusBadge());          // picker
+        $this->assertSame('SOLD', $sold->adData()['status_badge']); // generated ad card
+
+        // The lowercase twin must be unaffected — this is a widening, not a swap.
+        $lower = new Property(['status' => 'sold', 'listing_type' => 'sale']);
+        $this->assertSame('Sold', $lower->statusBadge());
+        $this->assertSame('SOLD', $lower->adData()['status_badge']);
+    }
+
+    /** A tenanted property is not "To Let". Rented/let_out are the rental "sold". */
+    public function test_a_concluded_rental_is_not_advertised_as_available(): void
+    {
+        foreach (['rented', 'Rented', 'let_out'] as $status) {
+            $p = new Property(['status' => $status, 'listing_type' => 'rental']);
+
+            $this->assertTrue($p->isConcluded(), "'{$status}' must count as concluded.");
+            $this->assertNotSame('To Let', $p->statusBadge(),
+                "'{$status}' is tenanted — it must never advertise as To Let.");
+        }
+    }
+
+    /** No client is ever shown a raw DB value like "Let_out" or "Under_offer". */
+    public function test_the_preview_badge_never_leaks_a_raw_underscored_status(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithAgent();
+
+        $p = $this->property($agencyId, $agent, 'ZZZ-Underscore-Status', [
+            'status'       => 'under_offer',
+            'listing_type' => 'sale',
+            'price'        => 990000,
+        ]);
+
+        $res = $this->get($this->previewUrl($p))->assertOk();
+
+        $res->assertSee('Under Offer', false);
+        $res->assertDontSee('under_offer', false);
+        $res->assertDontSee('Under_offer', false);
+    }
+
+    /**
      * Property::isRental() is THE predicate. Pin the whole vocabulary, because
      * the column is not normalised on write and each writer picked its own.
      */
