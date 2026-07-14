@@ -11,11 +11,6 @@
                 <h1 class="text-xl font-bold text-white leading-tight mt-1">Prospecting Setup</h1>
                 <p class="text-sm text-white/60">Towns, property types, bedroom segments and price bands for your agency's prospecting.</p>
             </div>
-            {{-- AT-239 — Regions door (MDB municipality + agency alias). --}}
-            <a href="{{ route('settings.prospecting.regions.index') }}" class="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold no-underline"
-               style="background: rgba(255,255,255,0.14); color: #fff;" data-tour="regions-door">
-                🗺️ Regions
-            </a>
         </div>
     </div>
 

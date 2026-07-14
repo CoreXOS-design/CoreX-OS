@@ -168,34 +168,8 @@ class MarketIntelligenceController extends Controller
             }
         }
 
-        // AT-246 — Region filter, corrected TOWN-level model. A region (MDB
-        // municipality) → the P24 TOWNS in it (towns.p24_city_id) → the suburbs P24
-        // files under those towns (p24_suburbs) → the listings. suburb→town is P24's
-        // truth (never re-derived here); town→municipality is towns.region. Composes
-        // AND with every other filter.
-        if ($request->filled('region')) {
-            $region = (string) $request->query('region');
-            $regionCityIds = \DB::table('towns')
-                ->where('agency_id', $agencyId)
-                ->where('region', $region)
-                ->whereNull('deleted_at')
-                ->whereNotNull('p24_city_id')
-                ->pluck('p24_city_id')
-                ->all();
-            $regionSuburbs = !empty($regionCityIds)
-                ? \DB::table('p24_suburbs')
-                    ->whereIn('p24_city_id', $regionCityIds)
-                    ->whereNull('deleted_at')
-                    ->selectRaw('DISTINCT LOWER(TRIM(name)) sub')
-                    ->pluck('sub')
-                    ->all()
-                : [];
-            if (!empty($regionSuburbs)) {
-                $query->whereIn(\DB::raw('LOWER(TRIM(suburb))'), $regionSuburbs);
-            } else {
-                $query->whereRaw('1 = 0');
-            }
-        }
+        // AT-246 region filter REMOVED — region model reverted off Staging (Johan
+        // ruling: Option A). Buyer selector + town_id filter retained.
 
         // AT-242 — Buyer-led prospecting. Selecting a buyer restricts the
         // prospecting universe to stock that matches THAT buyer's wishlist,
@@ -531,28 +505,7 @@ class MarketIntelligenceController extends Controller
         $activeBuyerId = $selectedBuyerId;
         $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
 
-        // AT-239 region model (Johan-final) — the filter's value is the canonical
-        // MDB municipality (towns.region); its LABEL is the agency alias where set
-        // (Ray Nkonyeni → "Hibiscus Coast"), else the municipal name. One region
-        // list, nationally consistent, agency-relabelled.
-        $municipalities = DB::table('towns')
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->whereNotNull('region')
-            ->where('region', '!=', '')
-            ->distinct()
-            ->pluck('region');
-        $regionAliasMap = DB::table('region_aliases')
-            ->where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->pluck('alias', 'municipality');
-        $micRegions = $municipalities
-            ->map(fn ($m) => (object) [
-                'value' => $m,
-                'label' => trim((string) ($regionAliasMap[$m] ?? '')) !== '' ? $regionAliasMap[$m] : $m,
-            ])
-            ->sortBy('label')
-            ->values();
+        // AT-246 region dropdown REMOVED — region model reverted off Staging (Johan ruling: Option A).
 
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
@@ -693,7 +646,7 @@ class MarketIntelligenceController extends Controller
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount',
             // AT-242 buyer-led prospecting + AT-239 region filter
-            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
+            'micBuyers', 'activeBuyerId', 'selectedBuyer',
             'buyerScope', 'buyerScopeOptions',
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt'
