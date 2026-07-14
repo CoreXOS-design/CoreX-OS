@@ -123,7 +123,7 @@ final class RoleBlockDetectionService
      */
     public function resolveFieldElement(\DOMElement $field): array
     {
-        $name   = $field->getAttribute('data-field');
+        $name   = $this->fieldNameOf($field);
         $parsed = $this->parseFieldName($name);
 
         // Shape 1 — the role is in the name. Nothing to bridge.
@@ -153,6 +153,34 @@ final class RoleBlockDetectionService
             'sub_name'       => $subName,
             'pattern'        => 'cds_contact_type',
         ];
+    }
+
+    /**
+     * The field's NAME, whichever attribute the producer happened to write it in.
+     *
+     * ── THE THIRD SHAPE (the one nobody bridged) ────────────────────────────────
+     *
+     * The docblock above says the CDS importer produces `data-field="contact.first_name"`.
+     * It does not. The CDS BUILDER — the editor the import actually goes through — writes:
+     *
+     *     <span data-field-name="contact.full_names"
+     *           data-field-label="Owner Name(s)"
+     *           data-tag-id="tag-…">[Owner Name(s)]</span>
+     *
+     * `data-field-NAME`, not `data-field`. So every selector in the engine
+     * (`//*[@data-field]`) matched ZERO nodes on every CDS template in every database, the
+     * normalizer stamped nothing, and every document — including every multi-party mandate —
+     * fell through to legacy clustering. The bridge existed; it was built to the wrong side
+     * of the gap.
+     *
+     * Both names are read here, and ONLY here, so the normalizer (stamping) and the expansion
+     * service (rendering) cannot drift apart again — which is the whole point of this class.
+     */
+    public function fieldNameOf(\DOMElement $field): string
+    {
+        $name = trim($field->getAttribute('data-field'));
+
+        return $name !== '' ? $name : trim($field->getAttribute('data-field-name'));
     }
 
     /**

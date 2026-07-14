@@ -568,7 +568,7 @@ final class RoleBlockExpansionService
         array $editableByByField,
     ): void {
         $xpath = new DOMXPath($dom);
-        $fields = $xpath->query('//*[@data-field]');
+        $fields = $xpath->query('//*[@data-field] | //*[@data-field-name]');   // both shapes (CDS writes data-field-name)
         if ($fields === false) {
             return;
         }
@@ -1190,7 +1190,7 @@ final class RoleBlockExpansionService
     private function subtreeOnlyContainsRoleIndex(DOMElement $node, string $role, int $idx): bool
     {
         $xpath = new DOMXPath($node->ownerDocument);
-        $allFields = $xpath->query('.//*[@data-field]', $node);
+        $allFields = $xpath->query('.//*[@data-field] | .//*[@data-field-name]', $node);   // both shapes
         if ($allFields === false) {
             return false;
         }
@@ -1634,7 +1634,7 @@ final class RoleBlockExpansionService
 
         // descendant-or-self so a clone whose root IS the field element
         // (single-field cluster edge case) still gets stamped.
-        $fields = $xpath->query('descendant-or-self::*[@data-field]', $clone);
+        $fields = $xpath->query('descendant-or-self::*[@data-field] | descendant-or-self::*[@data-field-name]', $clone);   // both shapes
         if ($fields === false) {
             return;
         }
