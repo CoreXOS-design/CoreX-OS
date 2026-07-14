@@ -63,6 +63,9 @@ final class OutreachAddress
          * NULL for a contact-sourced address (see the class docblock).
          */
         public readonly ?string $addressOfRecord = null,
+        /** Sectional scheme identity — a unit has no street of its own. */
+        public readonly ?string $complexName = null,
+        public readonly ?string $unitNumber = null,
     ) {}
 
     public static function fromProperty(Property $property): self
@@ -77,6 +80,11 @@ final class OutreachAddress
             town:         null,
             p24SuburbId:  $property->p24_suburb_id !== null ? (int) $property->p24_suburb_id : null,
             addressOfRecord: self::clean($property->address),
+            complexName: self::clean($property->complex_name),
+            // unit_section_block is the model's own documented blank-unit fallback
+            // (Property::buildDisplayAddress, "old-import safety") — a scheme unit
+            // identified by its section/block is still identified.
+            unitNumber:  self::clean($property->unit_number) ?? self::clean($property->unit_section_block),
         );
     }
 
@@ -91,23 +99,33 @@ final class OutreachAddress
             // Deliberately NOT $contact->address — that is where the person LIVES,
             // not the property being pitched. See the class docblock.
             addressOfRecord: null,
+            complexName: self::clean($contact->complex_name),
+            unitNumber:  self::clean($contact->unit_number) ?? self::clean($contact->unit_section_block),
         );
     }
 
     /**
-     * The street line the seller is shown: the property's address of record when
-     * it has one, otherwise the structured columns.
+     * The property line the seller is shown: the address of record when there is
+     * one, otherwise composed from the structured columns — scheme identity first
+     * (Unit 6, Arista) then the street, mirroring Property::buildDisplayAddress.
      */
     public function streetLine(): string
     {
         if ($this->addressOfRecord !== null && $this->addressOfRecord !== '') {
             return self::flatten($this->addressOfRecord);
         }
-        return $this->composeStreetFromColumns();
+
+        $parts = array_filter([
+            $this->unitNumber !== null ? 'Unit ' . $this->unitNumber : null,
+            $this->complexName,
+            $this->composeStreetFromColumns() ?: null,
+        ]);
+
+        return implode(', ', $parts);
     }
 
     /**
-     * Composed one-line address — street line + suburb. Returns a clear stand-in
+     * Composed one-line address — property line + suburb. Returns a clear stand-in
      * rather than an empty string so a send log line is never blank.
      */
     public function displayAddress(): string
@@ -133,26 +151,54 @@ final class OutreachAddress
             && ($this->suburb === null || $this->suburb === '');
     }
 
-    /** True when there is a street to name — not just a suburb. */
+    /** Full-title shape: a street of one's own. */
     public function hasStreet(): bool
     {
-        return $this->streetLine() !== '';
+        return $this->addressOfRecord !== null && $this->addressOfRecord !== ''
+            ? true
+            : $this->composeStreetFromColumns() !== '';
+    }
+
+    /**
+     * Sectional shape: a unit in a named scheme. A sectional-title unit has NO
+     * street of its own — it is identified by the scheme name plus the unit
+     * number, which is exactly how the Deeds Office and every SA seller refer to
+     * it ("Unit 6, Arista"). The complex ALONE is not enough: "Arista, Uvongo"
+     * does not say which of the forty units we mean, so we do not pitch it.
+     */
+    public function hasSchemeIdentity(): bool
+    {
+        return $this->complexName !== null && $this->complexName !== ''
+            && $this->unitNumber !== null && $this->unitNumber !== '';
     }
 
     /**
      * AT-266 — what the blank-address send-gate actually needs.
      *
-     * Every template opens with "your property at {property_address}". A suburb
-     * alone renders "your property at Uvongo" — a pitch that names no address.
-     * The old gate was OR-shaped (isEmpty() only blocked when street AND suburb
-     * were both missing), so 46 live properties and 211 contacts could send a
-     * street-less pitch. Its error message already promised "street and suburb";
-     * this is the check finally saying what the message says.
+     * Every template opens with "your property at {property_address}", so the
+     * address has to NAME the property. There are two legitimate shapes in South
+     * African stock and the gate must accept both:
+     *
+     *   full title  — a street (14 Marine Drive) + suburb
+     *   sectional   — a scheme name + unit (Unit 6, Arista) + suburb; a unit in a
+     *                 sectional scheme HAS no street of its own
+     *
+     * The first cut of this gate demanded a street, full stop. That was a
+     * property-law error, not just a bug: it would have silently blocked every
+     * sectional-title unit — flats, complexes, the bulk of coastal rental stock —
+     * from ever being pitched. Blocked only when NEITHER shape is present, which
+     * is the honest condition: we cannot name the property at all.
+     *
+     * Deliberately keyed on the SHAPE of the address, not on `title_type`. The
+     * classifier is derived and nullable, contacts have no title_type column at
+     * all, and an unclassified property must still be able to send.
      */
     public function isIncomplete(): bool
     {
-        return !$this->hasStreet()
-            || $this->suburb === null || $this->suburb === '';
+        if ($this->suburb === null || $this->suburb === '') {
+            return true;
+        }
+        return !$this->hasStreet() && !$this->hasSchemeIdentity();
     }
 
     /**
