@@ -2680,7 +2680,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // Properties — listing sync to website
-    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required'])->name('corex.properties.')->group(function () {
+    // AT-267 — `deny_assistant_property_write` guards the WHOLE group, not a hand-picked list
+    // of routes. An assistant may never create or import a listing, and several creation paths
+    // in here carry no permission key at all (the classic store, every wizard mutation, the
+    // sold-CSV and p24-fix uploads). Gating the group means a property-write route added later
+    // is covered by DEFAULT: it fails closed until someone deliberately adds it to the
+    // middleware's ASSISTANT_MAY allow list. Reads and the allow-listed edits pass straight
+    // through — an assistant is supposed to work the agent's listings, just not create them.
+    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
 

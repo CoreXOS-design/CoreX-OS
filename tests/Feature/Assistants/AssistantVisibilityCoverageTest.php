@@ -148,6 +148,58 @@ final class AssistantVisibilityCoverageTest extends TestCase
         ));
     }
 
+    /**
+     * The THIRD family, and the one that actually bit during the build.
+     *
+     * scopeVisibleTo() decides what an assistant can LIST. A per-record authorization helper
+     * decides what they can OPEN and MUTATE. If the two disagree, the assistant sees their
+     * agent's listing in the index and is then 403'd trying to edit it — which is worse than
+     * useless, because it looks like the feature works right up until they try to use it.
+     *
+     * AuthorizesPropertyAccess was exactly this: it compared $property->agent_id to $user->id,
+     * so a correctly-swept scopeVisibleTo showed the assistant the listing and the trait then
+     * refused the edit. Caught by AssistantCannotCreateListingsTest, not by inspection.
+     */
+    public function test_per_record_authorization_traits_resolve_ownership_through_data_identity_ids(): void
+    {
+        $offenders = [];
+
+        // EVERY Concerns directory, not just Controllers/Concerns. The mobile app has its own
+        // (Api/Concerns/ResolvesMobileDataScope) and it was missed on the first pass precisely
+        // because the glob was too narrow — an assistant would have opened the mobile app to an
+        // empty list while the web worked fine.
+        $traits = array_merge(
+            glob(app_path('Http/Controllers/Concerns/*.php')) ?: [],
+            glob(app_path('Http/Controllers/*/Concerns/*.php')) ?: [],
+        );
+
+        foreach ($traits as $path) {
+            $source = (string) file_get_contents($path);
+            $name   = basename($path, '.php');
+
+            // Does this trait gate a record on WHO the acting user is?
+            $comparesOwnership = preg_match('/\$user->id\b|auth\(\)->id\(\)/', $source);
+
+            if (!$comparesOwnership) {
+                continue;
+            }
+
+            $handlesAssistants = str_contains($source, 'dataIdentityIds()')
+                || str_contains($source, 'ownershipUserId()');
+
+            if (!$handlesAssistants) {
+                $offenders[] = $name;
+            }
+        }
+
+        $this->assertSame([], $offenders, sprintf(
+            "These per-record authorization traits compare ownership against \$user->id:\n  - %s\n\n"
+            . "An assistant would SEE their agent's record in the list and then be 403'd opening it.\n"
+            . "Fix: in_array((int) \$record->owner_col, \$user->dataIdentityIds(), true).",
+            implode("\n  - ", $offenders)
+        ));
+    }
+
     public function test_the_allowlisted_models_still_exist_and_still_have_the_scope(): void
     {
         // An allowlist entry for a model that has been deleted or refactored is a lie that

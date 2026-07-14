@@ -338,11 +338,15 @@ Route::middleware('auth:sanctum')->group(function () {
             ->name('v1.mobile.visibility');
 
         // ── Prospecting ────────────────────────────────────────────
-        Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->name('v1.prospecting.import');
+        // AT-267 — /import creates tracked-property records and carries NO permission key of
+        // its own; an assistant may never bring a property onto the books by any path.
+        Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── Properties — portal pull ───────────────────────────────
-        Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
+        // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no
+        // permission key of its own, and it creates stock.
+        Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->middleware('deny_assistant_property_write')->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');
 
         // ── Properties — geocoding (Map strip → AddressResolverService) ──
@@ -360,7 +364,11 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // ── Mobile Properties ────────────────────────────────────────
-        Route::prefix('mobile/properties')->group(function () {
+        // AT-267 — the mobile create + image-upload endpoints had NO permission middleware at
+        // all, so the app was the widest-open route onto the agency's books. Gated at the group
+        // so a new mobile property-write endpoint is covered by default; `update` is on the
+        // middleware's allow list, because editing the agent's listing IS the assistant's job.
+        Route::prefix('mobile/properties')->middleware('deny_assistant_property_write')->group(function () {
             Route::get('/',         [MobilePropertyController::class, 'index'])->name('v1.mobile.properties.index');
             Route::post('/',        [MobilePropertyController::class, 'store'])->name('v1.mobile.properties.store');
 

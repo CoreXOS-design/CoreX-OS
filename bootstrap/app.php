@@ -83,6 +83,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
+                // AT-267 — an assistant may never create a listing. Layer 2 of the
+                // property-upload lock: covers the creation paths that carry NO permission
+                // key at all, which a slug-based lock cannot reach.
+                'deny_assistant_property_write' => \App\Http\Middleware\DenyAssistantPropertyWrite::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,

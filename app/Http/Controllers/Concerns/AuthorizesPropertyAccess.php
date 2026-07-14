@@ -30,7 +30,15 @@ trait AuthorizesPropertyAccess
         if ($scope === 'branch' && (int) $property->branch_id === (int) $user->effectiveBranchId()) {
             return;
         }
-        if ($scope === 'own' && (int) $property->agent_id === (int) $user->id) {
+        // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their Assigned
+        // Agent's book (dataIdentityIds()), so an assistant may act on the listings their agent
+        // owns — which is the entire job. For everyone else this is exactly [$user->id] and the
+        // behaviour is unchanged.
+        //
+        // This trait is the SINGLE-RECORD sibling of scopeVisibleTo(): the scope decides what an
+        // assistant can LIST, this decides what they can OPEN and MUTATE. Both have to agree, or
+        // the assistant sees their agent's listing and is then 403'd trying to edit it.
+        if ($scope === 'own' && in_array((int) $property->agent_id, $user->dataIdentityIds(), true)) {
             return;
         }
 
