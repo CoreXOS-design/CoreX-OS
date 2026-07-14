@@ -122,12 +122,25 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateSplitBranches'],
+            // AT-267 — both boolean writes in updateAssistants() are guarded with $request->has(),
+            // so this step posting a subset cannot wipe a setting it never rendered (§6.1).
+            ['controller' => SettingsController::class, 'method' => 'updateAssistants'],
         ],
         'controls' => [
             ['key' => 'split_branches_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
              'label' => 'Keep each branch\'s data separate',
              'explain' => 'Turn this on if your offices should operate as separate books — an agent in one branch will not see another branch\'s properties, contacts or deals. Leave it off if your team works one shared pool of stock.',
              'affects' => 'What an agent standing in one office can see of another office\'s work. Turning it on later will hide records people are used to seeing, so decide this with your principal.'],
+
+            ['key' => 'assistants_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Allow agents to have assistants',
+             'explain' => 'An assistant is a person who works for one of your agents — a PA, or the office administrator who does an agent\'s paperwork. They get their own login instead of borrowing the agent\'s, and they start with a copy of that agent\'s permissions, which the agent then switches off item by item. An assistant can never do more than the agent they work for, and can never create or import a listing.',
+             'affects' => 'What this changes: an "Assistants" page appears under Company for your admins, and any agent who has an assistant gets a "My Assistants" entry in their sidebar to control what that assistant may do. Everything the assistant does is recorded as being on their agent\'s behalf, so your audit trail stops saying the agent did work they did not do.'],
+
+            ['key' => 'assistant_fica_required_default', 'source' => 'agency', 'type' => 'toggle', 'default' => 1,
+             'label' => 'New assistants must complete FICA verification',
+             'explain' => 'Whether a newly-created assistant is asked for their identity documents — an ID copy and proof of residence — as part of their onboarding. This sets the default; you can still change it for an individual assistant when you create them.',
+             'affects' => 'What this changes: when on, a new assistant sees a Compliance tab on their profile asking for an ID copy and proof of residence, and they appear on your compliance dashboards. When off, that tab is hidden and they are skipped by compliance reminders.'],
         ],
         'aux_partial' => 'agency-setup.steps.branches',
     ],

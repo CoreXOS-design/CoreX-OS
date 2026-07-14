@@ -2504,6 +2504,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Split Branches toggle (Agency Settings tab)
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
+
+    // AT-267 — Assistants toggle (Agency Settings tab). This is the control the Assistants
+    // admin page points at when the feature is off, and the one the Setup Wizard writes.
+    Route::put('/settings/agency/assistants', [CoreXSettingsController::class, 'updateAssistants'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.assistants');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 

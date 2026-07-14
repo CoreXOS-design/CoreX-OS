@@ -879,6 +879,60 @@ class SettingsController extends Controller
             ->with('success', "Split Branches turned {$state}.");
     }
 
+    /**
+     * AT-267 — the Assistants toggle + the FICA default for new assistants.
+     *
+     * `assistants_enabled` is the kill switch AND the safe default: it ships OFF for every
+     * agency, and it is the first thing AssistantPermissionResolver checks. Turning it off gives
+     * every assistant zero permissions instantly, which is the safe direction to fail — an
+     * assistant can never do MORE harm than a normal user because of this switch, only less.
+     *
+     * EVERY BOOLEAN WRITE IS GUARDED WITH $request->has() — agency-onboarding-setup.md §6.1.
+     * This saver is shared by Company Settings (which renders both controls) and the Setup Wizard
+     * (whose step may post only a SUBSET). An unguarded $request->boolean() on a field the caller
+     * never rendered reads an absent checkbox as FALSE and silently wipes a setting nobody
+     * touched — which is exactly how an agency would find Assistants mysteriously switched off
+     * after saving an unrelated wizard step.
+     */
+    public function updateAssistants(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'assistants_enabled'              => ['nullable', 'boolean'],
+            'assistant_fica_required_default' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        $payload = [];
+
+        if ($request->has('assistants_enabled')) {
+            $payload['assistants_enabled'] = $request->boolean('assistants_enabled');
+        }
+
+        if ($request->has('assistant_fica_required_default')) {
+            $payload['assistant_fica_required_default'] = $request->boolean('assistant_fica_required_default');
+        }
+
+        if ($payload === []) {
+            return back();
+        }
+
+        $agency->update($payload);
+
+        $state = $agency->assistants_enabled ? 'ON' : 'OFF';
+
+        return redirect()->route('corex.settings', ['tab' => 'agency'])
+            ->with('success', "Assistants turned {$state}.");
+    }
+
     public function updateAgencyDashboardSettings(Request $request)
     {
         $user     = auth()->user();
