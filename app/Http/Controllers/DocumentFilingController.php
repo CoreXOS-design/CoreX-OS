@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\DocumentFiling;
 use App\Models\Branch;
+use App\Models\PerformanceSetting;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Filing\FilingPropertyLinker;
@@ -80,19 +81,26 @@ class DocumentFilingController extends Controller
             }
         }
 
-        $filings = $query->orderBy('created_at', 'desc')->get();
+        // Load-limited on entry (Johan): paginate instead of rendering all ~2000 rows.
+        // Page size is agency-configurable via PerformanceSetting (same pattern as
+        // contacts/properties per-page), default 50, clamped to a sane range.
+        $perPage = max(10, min(200, (int) PerformanceSetting::get('filing_register_page_size', 50)));
+        $filings = $query->orderBy('created_at', 'desc')->paginate($perPage)->withQueryString();
 
-        // Summary counts (scoped to same visibility)
+        // Summary counts (scoped to same visibility) — SQL COUNTs, not load-all-then-
+        // filter-in-PHP. Mirrors the status buckets: active = no/far expiry;
+        // expiring = within 30 days; expired = past.
         $countQuery = DocumentFiling::visibleTo($user);
         if ($isAdmin && $request->filled('branch_id')) {
             $countQuery->forBranch($request->branch_id);
         }
 
-        $allFilings = $countQuery->get();
-        $totalCount = $allFilings->count();
-        $activeCount = $allFilings->filter(fn($f) => $f->status === 'active')->count();
-        $expiringCount = $allFilings->filter(fn($f) => $f->status === 'expiring')->count();
-        $expiredCount = $allFilings->filter(fn($f) => $f->status === 'expired')->count();
+        $totalCount    = (clone $countQuery)->count();
+        $activeCount   = (clone $countQuery)->where(function ($q) {
+            $q->whereNull('expiry_date')->orWhere('expiry_date', '>', Carbon::today()->addDays(30));
+        })->count();
+        $expiringCount = (clone $countQuery)->expiringSoon()->count();
+        $expiredCount  = (clone $countQuery)->expired()->count();
 
         // Data for dropdowns
         $branches = $isAdmin ? Branch::orderBy('name')->get() : Branch::where('id', $user->effectiveBranchId())->get();
