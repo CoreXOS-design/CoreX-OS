@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Tools;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\DealV2\DealV2;
-use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
@@ -737,8 +736,17 @@ class PdfSplitterController extends Controller
      * whose configured destination cannot be honoured (contact destination with
      * no ticked contact, or neither flag set) is anchored to the property.
      *
+     * AT-254 (decision B) — the create + attach + AT-167 fallback + deal-step
+     * auto-complete now live in DealDocumentService::fileClassifiedDocument (the
+     * document spine). This method stays the splitter's PER-GROUP orchestrator:
+     * extract-to-disk, resolve the Save-To destination + the explicit ticked
+     * contacts, then funnel each group through the ONE canonical filing path so a
+     * split OTP files by the same rules as a DR2 / e-sign OTP. contact_roles
+     * remains the party-attach source (decision B); the destination decision
+     * remains the agency Save-To config.
+     *
      * @param array<int,array{label:string,contact_ids:int[],pages:int[],file:string}> $groups
-     * @return array{property:int, contact:int, fallback:int}
+     * @return array{property:int, contact:int, fallback:int, unfiled:int}
      */
     private function fileGroupsToDestinations(Property $property, array $groups, int $agencyId, \Illuminate\Support\Collection $attached, ?DealV2 $deal = null): array
     {
@@ -749,6 +757,7 @@ class PdfSplitterController extends Controller
         }
 
         $destinations = app(AgencyComplianceDocTypeService::class);
+        $docSpine     = app(DealDocumentService::class);
 
         $slugs   = collect($groups)->pluck('label')->filter()->unique()->values();
         $typeMap = DocumentType::query()->whereIn('slug', $slugs)->pluck('id', 'slug')->toArray();
@@ -767,73 +776,44 @@ class PdfSplitterController extends Controller
             $publicDisk->put($relPath, $stream);
             if (is_resource($stream)) { @fclose($stream); }
 
-            $doc = Document::create([
-                'original_name'    => $filename,
-                'storage_path'     => $relPath,
-                'disk'             => 'public',
-                'mime_type'        => 'application/pdf',
-                'size'             => @filesize($abs) ?: null,
-                'document_type_id' => $typeMap[$labelSlug] ?? null,
-                'source_type'      => 'pdf_splitter',
-                // Provenance: the property this pack was split against — recorded on
-                // every split doc (incl. contact-only ones) so a contact's
-                // "Not Property-Linked" doc is still traceable to its split.
-                'source_id'        => $property->id,
-                'deal_id'          => $deal?->id, // WS3 (D4) deal anchor (optional)
-                'uploaded_by'      => auth()->id(),
-            ]);
-
             $dest = $labelSlug
                 ? $destinations->destinationForSlug($agencyId, $labelSlug)
                 : ['property' => true, 'contact' => false];
 
-            $didAttach = false;
-            if ($dest['property']) {
-                $doc->properties()->attach($property->id);
-                $result['property']++;
-                $didAttach = true;
-            }
-            if ($dest['contact'] && ! empty($g['contact_ids'])) {
-                foreach ($g['contact_ids'] as $cid) {
-                    $contact = $attached->get($cid);
-                    if (! $contact) continue;
-                    $partyRole = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
-                    $doc->contacts()->attach($cid, ['party_role' => $partyRole]);
-                    $result['contact']++;
-                    $didAttach = true;
-                }
+            // Resolve the EXPLICIT per-page ticked contacts to [id => party_role].
+            // Only contacts actually attached to THIS property are honoured; the
+            // pivot role is the party truth (decision B). Anything else is dropped.
+            $contacts = [];
+            foreach ($g['contact_ids'] ?? [] as $cid) {
+                $contact = $attached->get($cid);
+                if (! $contact) continue;
+                $contacts[(int) $cid] = strtolower(trim((string) ($contact->pivot->role ?? ''))) ?: 'seller';
             }
 
-            if (! $didAttach) {
-                // AT-167 — never silently anchor a contact-only type to the
-                // property (that is the misfile). link() blocks this at source;
-                // this is defence-in-depth for any other caller. A contact-only
-                // doc with no contact stays unlinked and surfaces in the Misfiled
-                // Documents register for refiling. Genuine property/shared types
-                // still fall back to the property (no-orphan).
-                if ($dest['contact'] && ! $dest['property']) {
-                    $result['unfiled']++;
-                } else {
-                    $doc->properties()->attach($property->id);
-                    $result['fallback']++;
-                }
-            }
+            // ONE canonical create + attach + deal-step auto-complete.
+            $filed = $docSpine->fileClassifiedDocument(
+                $property,
+                [
+                    'original_name'    => $filename,
+                    'storage_path'     => $relPath,
+                    'disk'             => 'public',
+                    'mime_type'        => 'application/pdf',
+                    'size'             => @filesize($abs) ?: null,
+                    'document_type_id' => $typeMap[$labelSlug] ?? null,
+                    'source_type'      => 'pdf_splitter',
+                    'source_id'        => $property->id,
+                    'agency_id'        => $agencyId,
+                ],
+                $dest,
+                $contacts,
+                auth()->user(),
+                $deal
+            );
 
-            // WS3 (D4) — when this split is anchored to a deal, auto-complete the
-            // matching document step (config-driven by doc type). Guarded so a
-            // splitter run never fails on the deal-side wiring.
-            if ($deal) {
-                try {
-                    app(DealDocumentService::class)
-                        ->autoCompleteMatchingStep($deal, $doc, auth()->user());
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('PDF splitter: deal step auto-complete skipped (non-fatal)', [
-                        'document_id' => $doc->id,
-                        'deal_id'     => $deal->id,
-                        'error'       => $e->getMessage(),
-                    ]);
-                }
-            }
+            $result['property'] += $filed['property'];
+            $result['contact']  += $filed['contact'];
+            $result['fallback'] += $filed['fallback'];
+            $result['unfiled']  += $filed['unfiled'];
         }
 
         return $result;
