@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Docuperfect;
 
+use App\Exceptions\Docuperfect\WebPackSlotException;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Docuperfect\Document;
@@ -19,6 +20,7 @@ use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\SignatureSurfaceNormalizer;
+use App\Services\Docuperfect\WebPackSlotResolver;
 
 use App\Models\FicaSubmission;
 use App\Services\WebTemplateDataService;
@@ -124,7 +126,7 @@ class ESignWizardController extends Controller
     /**
      * Create a new flow from step 1 and redirect to step 2.
      */
-    public function store(Request $request)
+    public function store(Request $request, WebPackSlotResolver $slotResolver)
     {
         $packId = $request->input('pack_id');
         $isPackFlow = $request->boolean('is_pack_flow');
@@ -144,25 +146,24 @@ class ESignWizardController extends Controller
         }
 
         if ($isPackFlow && $packId) {
-            // Web Pack flow — merge multiple templates
-            $pack = \App\Models\Docuperfect\WebPack::with('items.template')
-                ->findOrFail($packId);
+            // Web Pack flow — merge multiple templates.
+            // The pack's SLOTS decide what goes out, and the server decides the slots: the agent's
+            // picks are an input to WebPackSlotResolver, never the answer. It enforces pack
+            // membership, sends every required document whether or not the client asked for it,
+            // takes exactly one member of each selectable group, and re-runs the e-sign legal gate
+            // on the RESOLVED set — which this path never did, leaving a sale agreement inside a
+            // web pack e-signable (and therefore void). See WebPackSlotResolver.
+            $pack = \App\Models\Docuperfect\WebPack::findOrFail($packId);
 
-            // Use resolved template IDs if provided (slot selection)
             $resolvedIds = $request->input('resolved_template_ids');
-            if (!empty($resolvedIds) && is_array($resolvedIds)) {
-                // Filter and order items by the resolved selection
-                $templates = collect($resolvedIds)
-                    ->map(fn($id) => Template::find($id))
-                    ->filter();
-            } else {
-                $templates = $pack->items->sortBy('sort_order')
-                    ->map(fn($item) => $item->template)
-                    ->filter(); // remove any null templates
-            }
 
-            if ($templates->isEmpty()) {
-                return response()->json(['error' => 'This web pack has no templates.'], 422);
+            try {
+                $templates = $slotResolver->resolve($pack, is_array($resolvedIds) ? $resolvedIds : null);
+            } catch (WebPackSlotException $e) {
+                return response()->json(array_filter([
+                    'error'         => $e->getMessage(),
+                    'esign_blocked' => $e->esignBlocked ?: null,
+                ]), 422);
             }
 
             $primaryTemplate = $templates->first();
