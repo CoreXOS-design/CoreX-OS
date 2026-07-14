@@ -76,8 +76,15 @@
         // closed by ImpersonateController::start() and codified in
         // .ai/specs/multi-tenancy.md.
         $ownerRoleNames = \App\Models\User::ownerRoleNames();
+        // whereNull('deleted_at') is NOT optional: this is a raw DB::table query,
+        // so it carries NO SoftDeletes scope. Without it, ARCHIVED users were
+        // listed as impersonation targets — a dead button (the controller's route
+        // binding excludes trashed users, so the POST 404s), but an archived user
+        // must never appear anywhere as actionable. Found by the AT-11 billing
+        // test asserting a deleted user is absent from the page.
         $query = \Illuminate\Support\Facades\DB::table('users')
             ->where('is_active', 1)
+            ->whereNull('deleted_at')
             ->when(!empty($ownerRoleNames), fn($q) => $q->whereNotIn('role', $ownerRoleNames));
 
         if ($agencyFilterId) {

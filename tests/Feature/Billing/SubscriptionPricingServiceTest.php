@@ -67,14 +67,30 @@ class SubscriptionPricingServiceTest extends TestCase
 
         // 10 × R295 = R2 950  |  10 × R250 = R2 500  |  5 × R195 = R975
         $this->assertSame(1495.00, $this->lineAmount($lines, 'Platform base fee'));
-        $this->assertSame(2950.00, $this->lineAmount($lines, 'Users 1–10'));
-        $this->assertSame(2500.00, $this->lineAmount($lines, 'Users 11–20'));
-        $this->assertSame(975.00,  $this->lineAmount($lines, 'Users 21+'));
+        $this->assertSame(2950.00, $this->lineAmount($lines, 'Your first 10 users'));
+        $this->assertSame(2500.00, $this->lineAmount($lines, 'Users 11 to 20'));
+        $this->assertSame(975.00,  $this->lineAmount($lines, 'Users 21 and up'));
 
-        $seatsOnly = 2950.00 + 2500.00 + 975.00;
-        $this->assertSame(6425.00, $seatsOnly, 'The seat component must be R6 425.');
+        // Asserted by GROUP as well as by label: the billing page sections the
+        // receipt on `group`, so a label rename must not be able to move money
+        // out of the seat section without a test noticing.
+        $this->assertSame(6425.00, $this->groupAmount($lines, 'seats'), 'The seat component must be R6 425.');
+        $this->assertSame(1495.00, $this->groupAmount($lines, 'base'));
 
         $this->assertSame(7920.00, round(array_sum(array_column($lines, 'amount')), 2));
+    }
+
+    /** Every line must declare which section of the receipt it belongs to. */
+    public function test_every_line_carries_a_group_the_page_can_section_on(): void
+    {
+        $lines = $this->pricing->lines('agency', seats: 25, branches: 3);
+
+        foreach ($lines as $line) {
+            $this->assertContains($line['group'], ['base', 'seats', 'branches'], "Line '{$line['label']}' has no valid group.");
+            $this->assertNotSame('', $line['note'], "Line '{$line['label']}' has no plain-English explanation.");
+        }
+
+        $this->assertSame(1500.00, $this->groupAmount($lines, 'branches'));   // 2 extra × R750
     }
 
     /** Graduated, NOT a flat rate that switches: 25 seats is never 25 × R195. */
@@ -350,7 +366,15 @@ class SubscriptionPricingServiceTest extends TestCase
         $this->assertFalse($quote->discountActive);
     }
 
-    /** @param  list<array{label:string,qty:int,unit:float,amount:float}>  $lines */
+    /** What one section of the receipt (base | seats | branches) adds up to. */
+    private function groupAmount(array $lines, string $group): float
+    {
+        $inGroup = array_filter($lines, fn (array $l) => $l['group'] === $group);
+
+        return round(array_sum(array_column($inGroup, 'amount')), 2);
+    }
+
+    /** @param  list<array{group:string,label:string,note:string,qty:int,unit:float,amount:float}>  $lines */
     private function lineAmount(array $lines, string $label): float
     {
         foreach ($lines as $line) {

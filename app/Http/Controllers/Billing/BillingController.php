@@ -60,6 +60,15 @@ class BillingController extends Controller
         return view('billing.index', [
             'agency' => $agency,
             'quote'  => $this->pricing->quoteFor($agency),
+
+            // The "Show details" panel. A seat count an agency cannot reconcile
+            // against actual names and branches is a support ticket waiting to
+            // happen — "why am I paying for 21 people?" has one good answer, and
+            // it is a list. Excluded counts are shown too, so they can SEE that
+            // the people they deactivated really did drop off the bill.
+            'billableUsers'  => $this->pricing->billableUserRows($agency),
+            'excludedUsers'  => $this->pricing->excludedUserCounts($agency),
+            'branchRows'     => $this->pricing->branchRows($agency),
         ]);
     }
 }

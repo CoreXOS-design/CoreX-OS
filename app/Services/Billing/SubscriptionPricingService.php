@@ -135,7 +135,12 @@ class SubscriptionPricingService
      * The arithmetic, itemised — this is what the agency reads to check our
      * maths, so every rand of the total must be attributable to a line.
      *
-     * @return list<array{label:string,qty:int,unit:float,amount:float}>
+     * Each line carries a `group` (base | seats | branches) so the billing page
+     * can section the receipt without string-matching the labels back apart.
+     * The view must never re-derive meaning from a label — rename a label and a
+     * label-matching view silently mis-sections the money.
+     *
+     * @return list<array{group:string,label:string,note:string,qty:int,unit:float,amount:float}>
      */
     public function lines(string $plan, int $seats, int $branches): array
     {
@@ -151,7 +156,11 @@ class SubscriptionPricingService
 
         if ($billable > 0) {
             $lines[] = [
+                'group'  => 'branches',
                 'label'  => $billable === 1 ? 'Additional branch' : 'Additional branches',
+                'note'   => $included === 1
+                    ? 'Your first branch is included free.'
+                    : "Your first {$included} branches are included free.",
                 'qty'    => $billable,
                 'unit'   => $rate,
                 'amount' => round($billable * $rate, 2),
@@ -171,7 +180,9 @@ class SubscriptionPricingService
         $rate = (float) config('corex-billing.team.seat_rate', 450.00);
 
         return [[
+            'group'  => 'seats',
             'label'  => 'Users',
+            'note'   => 'One flat rate per user — no base fee, no tiers.',
             'qty'    => $seats,
             'unit'   => $rate,
             'amount' => round($seats * $rate, 2),
@@ -188,11 +199,15 @@ class SubscriptionPricingService
      */
     private function agencyPlanLines(int $seats): array
     {
+        $baseFee = (float) config('corex-billing.agency.base_fee', 1495.00);
+
         $lines = [[
+            'group'  => 'base',
             'label'  => 'Platform base fee',
+            'note'   => 'A single monthly fee for the agency, whatever your headcount.',
             'qty'    => 1,
-            'unit'   => (float) config('corex-billing.agency.base_fee', 1495.00),
-            'amount' => round((float) config('corex-billing.agency.base_fee', 1495.00), 2),
+            'unit'   => $baseFee,
+            'amount' => round($baseFee, 2),
         ]];
 
         foreach ((array) config('corex-billing.agency.seat_tiers', []) as $tier) {
@@ -207,7 +222,9 @@ class SubscriptionPricingService
             }
 
             $lines[] = [
+                'group'  => 'seats',
                 'label'  => $this->tierLabel($from, $tier['to']),
+                'note'   => $this->tierNote($from),
                 'qty'    => $inBand,
                 'unit'   => $rate,
                 'amount' => round($inBand * $rate, 2),
@@ -219,8 +236,91 @@ class SubscriptionPricingService
 
     private function tierLabel(int $from, ?int $to): string
     {
+        if ($from === 1) {
+            return $to === null ? 'All users' : "Your first {$to} users";
+        }
+
         return $to === null
-            ? "Users {$from}+"
-            : "Users {$from}–{$to}";
+            ? "Users {$from} and up"
+            : "Users {$from} to {$to}";
+    }
+
+    private function tierNote(int $from): string
+    {
+        return $from === 1
+            ? 'The rate drops as you add more people.'
+            : 'A lower rate than the band below it.';
+    }
+
+    /**
+     * WHO the agency is actually paying for — the same predicate as
+     * billableSeats(), returning the rows instead of the count.
+     *
+     * This is what the "Show details" panel lists. A count an agency cannot
+     * reconcile against names is a support ticket waiting to happen: "why am I
+     * being billed for 21 people?" has exactly one good answer, and it is a list.
+     *
+     * @return list<array{name:string,role:string,email:string}>
+     */
+    public function billableUserRows(Agency $agency): array
+    {
+        return DB::table('users')
+            ->where('agency_id', $agency->id)
+            ->where('is_active', 1)
+            ->whereNull('deleted_at')
+            ->orderBy('name')
+            ->get(['name', 'role', 'email'])
+            ->map(fn ($u) => [
+                'name'  => (string) ($u->name ?: '(no name)'),
+                'role'  => ucwords(str_replace('_', ' ', (string) $u->role)),
+                'email' => (string) $u->email,
+            ])
+            ->all();
+    }
+
+    /**
+     * Who is NOT being billed, and why. The mirror of billableUserRows() — an
+     * agency checking our maths needs to see that the people they deactivated
+     * really did drop off, not just take our word that they did.
+     *
+     * @return array{deactivated:int,archived:int}
+     */
+    public function excludedUserCounts(Agency $agency): array
+    {
+        return [
+            'deactivated' => (int) DB::table('users')
+                ->where('agency_id', $agency->id)
+                ->where('is_active', 0)
+                ->whereNull('deleted_at')
+                ->count(),
+            'archived' => (int) DB::table('users')
+                ->where('agency_id', $agency->id)
+                ->whereNotNull('deleted_at')
+                ->count(),
+        ];
+    }
+
+    /**
+     * The agency's branches, flagged with whether each one is included free or
+     * charged. Ordered oldest-first so "the first branch" means the same thing
+     * on the page as it does in the pricing rule.
+     *
+     * @return list<array{name:string,included:bool}>
+     */
+    public function branchRows(Agency $agency): array
+    {
+        $included = (int) config('corex-billing.branches.included', 1);
+
+        return DB::table('branches')
+            ->where('agency_id', $agency->id)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->get(['name'])
+            ->values()
+            ->map(fn ($b, $i) => [
+                'name'     => (string) ($b->name ?: '(unnamed branch)'),
+                'included' => $i < $included,
+            ])
+            ->all();
     }
 }

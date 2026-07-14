@@ -17,7 +17,7 @@ namespace App\Services\Billing;
 final class BillingQuote
 {
     /**
-     * @param  list<array{label:string,qty:int,unit:float,amount:float}>  $lines
+     * @param  list<array{group:string,label:string,note:string,qty:int,unit:float,amount:float}>  $lines
      * @param  self::BASIS_*  $basis
      */
     public function __construct(
@@ -50,6 +50,22 @@ final class BillingQuote
     public function savingZar(): float
     {
         return round(max(0.0, $this->computedZar - $this->payableZar), 2);
+    }
+
+    /**
+     * The lines belonging to one section of the receipt (base | seats | branches).
+     *
+     * @return list<array{group:string,label:string,note:string,qty:int,unit:float,amount:float}>
+     */
+    public function linesIn(string $group): array
+    {
+        return array_values(array_filter($this->lines, fn (array $l) => $l['group'] === $group));
+    }
+
+    /** What one section of the receipt adds up to. */
+    public function subtotalIn(string $group): float
+    {
+        return round(array_sum(array_column($this->linesIn($group), 'amount')), 2);
     }
 
     /** Is the stored plan out of step with what the headcount says it should be? */

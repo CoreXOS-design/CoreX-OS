@@ -99,75 +99,206 @@
         <x-corex-kpi-card title="Monthly total" :value="Zar::format($quote->payableZar)" />
     </div>
 
-    {{-- ── The arithmetic ── --}}
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
-            <h2 class="text-base font-semibold" style="color:var(--text-primary);">How this is worked out</h2>
-            <p class="text-sm mt-0.5" style="color:var(--text-secondary);">
-                Every line below adds up to your total. Check our maths.
-            </p>
+    {{-- ── The arithmetic, as a sectioned receipt ──────────────────────────
+         Sections come from each line's `group` key, never from matching its
+         label — rename a label and a label-matching view would silently
+         mis-section the money. --}}
+    <div class="rounded-md overflow-hidden" x-data="{ details: false }"
+         style="background:var(--surface); border:1px solid var(--border);">
+
+        <div class="px-5 py-4 flex flex-wrap items-start justify-between gap-3" style="border-bottom:1px solid var(--border);">
+            <div>
+                <h2 class="text-base font-semibold" style="color:var(--text-primary);">How this is worked out</h2>
+                <p class="text-sm mt-0.5" style="color:var(--text-secondary);">
+                    You are on the {{ $quote->planLabel }} plan. Every line below adds up to your total — check our maths.
+                </p>
+            </div>
+
+            <button type="button" @click="details = !details"
+                    class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shrink-0"
+                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                </svg>
+                <span x-text="details ? 'Hide details' : 'Show details'">Show details</span>
+            </button>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr style="background:var(--surface-2);">
-                        <th class="text-left px-5 py-2.5 font-semibold" style="color:var(--text-secondary);">Item</th>
-                        <th class="text-right px-5 py-2.5 font-semibold" style="color:var(--text-secondary);">Qty</th>
-                        <th class="text-right px-5 py-2.5 font-semibold" style="color:var(--text-secondary);">Rate</th>
-                        <th class="text-right px-5 py-2.5 font-semibold" style="color:var(--text-secondary);">Amount</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($quote->lines as $line)
-                        <tr style="border-top:1px solid var(--border);">
-                            <td class="px-5 py-3" style="color:var(--text-primary);">{{ $line['label'] }}</td>
-                            <td class="px-5 py-3 text-right" style="color:var(--text-secondary);">{{ $line['qty'] }}</td>
-                            <td class="px-5 py-3 text-right" style="color:var(--text-secondary);">{{ Zar::format($line['unit']) }}</td>
-                            <td class="px-5 py-3 text-right font-medium" style="color:var(--text-primary);">{{ Zar::format($line['amount']) }}</td>
-                        </tr>
+        {{-- ══ SECTION: base fee ══ --}}
+        @foreach($quote->linesIn('base') as $line)
+            <div class="px-5 py-4 flex items-start justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                <div>
+                    <div class="text-sm font-medium" style="color:var(--text-primary);">{{ $line['label'] }}</div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">{{ $line['note'] }}</div>
+                </div>
+                <div class="text-sm font-semibold whitespace-nowrap" style="color:var(--text-primary);">
+                    {{ Zar::format($line['amount']) }}
+                </div>
+            </div>
+        @endforeach
+
+        {{-- ══ SECTION: users ══ --}}
+        @if(count($quote->linesIn('seats')))
+            <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
+                <div class="flex items-start justify-between gap-4 mb-3">
+                    <div>
+                        <div class="text-sm font-medium" style="color:var(--text-primary);">
+                            Users — you have {{ $quote->seats }}
+                        </div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            @if($quote->derivedPlan === \App\Models\Billing\AgencySubscription::PLAN_AGENCY)
+                                Rates are banded by how many users you have — not by who they are.
+                                Nobody is "the R195 person"; the bands simply price your headcount.
+                            @else
+                                One flat rate for every user.
+                            @endif
+                        </div>
+                    </div>
+                    <div class="text-sm font-semibold whitespace-nowrap" style="color:var(--text-primary);">
+                        {{ Zar::format($quote->subtotalIn('seats')) }}
+                    </div>
+                </div>
+
+                <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    @foreach($quote->linesIn('seats') as $line)
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 text-xs"
+                             style="background:var(--surface-2); {{ ! $loop->first ? 'border-top:1px solid var(--border);' : '' }}">
+                            <span style="color:var(--text-primary);">{{ $line['label'] }}</span>
+                            <span class="flex items-center gap-3 whitespace-nowrap">
+                                <span style="color:var(--text-muted);">
+                                    {{ $line['qty'] }} × {{ Zar::format($line['unit']) }}
+                                </span>
+                                <span class="font-medium tabular-nums" style="color:var(--text-primary); min-width:5.5rem; text-align:right;">
+                                    {{ Zar::format($line['amount']) }}
+                                </span>
+                            </span>
+                        </div>
                     @endforeach
+                </div>
+            </div>
+        @endif
 
-                    {{-- Subtotal — the list price, always shown, even when overridden --}}
-                    <tr style="border-top:1px solid var(--border); background:var(--surface-2);">
-                        <td class="px-5 py-3 font-semibold" colspan="3" style="color:var(--text-primary);">
-                            {{ $quote->basis === \App\Services\Billing\BillingQuote::BASIS_AUTOMATIC ? 'Total' : 'Standard price' }}
-                        </td>
-                        <td class="px-5 py-3 text-right font-semibold" style="color:var(--text-primary);">
-                            {{ Zar::format($quote->computedZar) }}
-                        </td>
-                    </tr>
+        {{-- ══ SECTION: branches ══ --}}
+        @foreach($quote->linesIn('branches') as $line)
+            <div class="px-5 py-4 flex items-start justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                <div>
+                    <div class="text-sm font-medium" style="color:var(--text-primary);">
+                        Branches — you have {{ $quote->branches }}
+                    </div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                        {{ $line['note'] }}
+                        {{ $line['qty'] }} extra {{ Str::plural('branch', $line['qty']) }} × {{ Zar::format($line['unit']) }}.
+                    </div>
+                </div>
+                <div class="text-sm font-semibold whitespace-nowrap" style="color:var(--text-primary);">
+                    {{ Zar::format($line['amount']) }}
+                </div>
+            </div>
+        @endforeach
 
-                    @if($quote->basis === \App\Services\Billing\BillingQuote::BASIS_DISCOUNTED)
-                        <tr style="border-top:1px solid var(--border);">
-                            <td class="px-5 py-3" colspan="3" style="color:var(--ds-green,#059669);">
-                                Discount ({{ rtrim(rtrim(number_format($quote->discountPercent, 2), '0'), '.') }}%)
-                            </td>
-                            <td class="px-5 py-3 text-right font-medium" style="color:var(--ds-green,#059669);">
-                                −{{ Zar::format($quote->savingZar()) }}
-                            </td>
-                        </tr>
+        {{-- ══ DETAILS — exactly who and what is on this bill ══ --}}
+        <div x-show="details" x-cloak style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+            <div class="px-5 py-4 space-y-5">
+
+                {{-- Who you are paying for --}}
+                <div>
+                    <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">
+                        The {{ count($billableUsers) }} {{ Str::plural('user', count($billableUsers)) }} on this bill
+                    </div>
+
+                    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+                        @forelse($billableUsers as $u)
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                                 style="{{ ! $loop->first ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div class="min-w-0">
+                                    <div class="font-medium truncate" style="color:var(--text-primary);">{{ $u['name'] }}</div>
+                                    <div class="text-xs truncate" style="color:var(--text-muted);">{{ $u['email'] }}</div>
+                                </div>
+                                <span class="text-xs whitespace-nowrap" style="color:var(--text-secondary);">{{ $u['role'] }}</span>
+                            </div>
+                        @empty
+                            <div class="px-3 py-3 text-sm" style="color:var(--text-muted);">No active users.</div>
+                        @endforelse
+                    </div>
+
+                    {{-- Proof that deactivating someone really does take them off the bill --}}
+                    @if($excludedUsers['deactivated'] > 0 || $excludedUsers['archived'] > 0)
+                        <div class="text-xs mt-2" style="color:var(--text-secondary);">
+                            <span class="font-semibold" style="color:var(--text-primary);">Not billed:</span>
+                            @if($excludedUsers['deactivated'] > 0)
+                                {{ $excludedUsers['deactivated'] }} deactivated
+                            @endif
+                            @if($excludedUsers['deactivated'] > 0 && $excludedUsers['archived'] > 0), @endif
+                            @if($excludedUsers['archived'] > 0)
+                                {{ $excludedUsers['archived'] }} archived
+                            @endif
+                            — these {{ ($excludedUsers['deactivated'] + $excludedUsers['archived']) === 1 ? 'person is' : 'people are' }} not counted.
+                        </div>
                     @endif
+                </div>
 
-                    @if($quote->basis === \App\Services\Billing\BillingQuote::BASIS_CUSTOM)
-                        <tr style="border-top:1px solid var(--border);">
-                            <td class="px-5 py-3" colspan="3" style="color:var(--text-secondary);">
-                                Your agreed rate replaces the standard price
-                            </td>
-                            <td class="px-5 py-3 text-right" style="color:var(--text-secondary);">—</td>
-                        </tr>
-                    @endif
+                {{-- What branches you are paying for --}}
+                <div>
+                    <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">
+                        Your {{ count($branchRows) }} {{ Str::plural('branch', count($branchRows)) }}
+                    </div>
 
-                    @if($quote->basis !== \App\Services\Billing\BillingQuote::BASIS_AUTOMATIC)
-                        <tr style="border-top:2px solid var(--border);">
-                            <td class="px-5 py-4 text-base font-bold" colspan="3" style="color:var(--text-primary);">You pay</td>
-                            <td class="px-5 py-4 text-right text-base font-bold" style="color:var(--text-primary);">
-                                {{ Zar::format($quote->payableZar) }}
-                            </td>
-                        </tr>
-                    @endif
-                </tbody>
-            </table>
+                    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+                        @forelse($branchRows as $b)
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                                 style="{{ ! $loop->first ? 'border-top:1px solid var(--border);' : '' }}">
+                                <span class="font-medium truncate" style="color:var(--text-primary);">{{ $b['name'] }}</span>
+                                @if($b['included'])
+                                    <span class="text-xs whitespace-nowrap" style="color:var(--ds-green,#059669);">Included free</span>
+                                @else
+                                    <span class="text-xs whitespace-nowrap" style="color:var(--text-secondary);">
+                                        {{ Zar::format(config('corex-billing.branches.rate')) }}
+                                    </span>
+                                @endif
+                            </div>
+                        @empty
+                            <div class="px-3 py-3 text-sm" style="color:var(--text-muted);">No branches.</div>
+                        @endforelse
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        {{-- ══ TOTALS ══ --}}
+        <div class="px-5 py-4">
+            <div class="flex items-center justify-between gap-4 text-sm">
+                <span style="color:var(--text-secondary);">
+                    {{ $quote->basis === \App\Services\Billing\BillingQuote::BASIS_AUTOMATIC ? 'Total' : 'Standard price' }}
+                </span>
+                <span class="font-medium tabular-nums" style="color:var(--text-primary);">{{ Zar::format($quote->computedZar) }}</span>
+            </div>
+
+            @if($quote->basis === \App\Services\Billing\BillingQuote::BASIS_DISCOUNTED)
+                <div class="flex items-center justify-between gap-4 text-sm mt-2">
+                    <span style="color:var(--ds-green,#059669);">
+                        {{ $quote->discountNote ?: 'Discount' }}
+                        ({{ rtrim(rtrim(number_format($quote->discountPercent, 2), '0'), '.') }}% off)
+                    </span>
+                    <span class="font-medium tabular-nums" style="color:var(--ds-green,#059669);">
+                        −{{ Zar::format($quote->savingZar()) }}
+                    </span>
+                </div>
+            @endif
+
+            @if($quote->basis === \App\Services\Billing\BillingQuote::BASIS_CUSTOM)
+                <div class="flex items-center justify-between gap-4 text-sm mt-2">
+                    <span style="color:var(--text-secondary);">Your agreed rate replaces the standard price</span>
+                    <span style="color:var(--text-muted);">—</span>
+                </div>
+            @endif
+
+            @if($quote->basis !== \App\Services\Billing\BillingQuote::BASIS_AUTOMATIC)
+                <div class="flex items-center justify-between gap-4 mt-3 pt-3" style="border-top:1px solid var(--border);">
+                    <span class="text-base font-bold" style="color:var(--text-primary);">You pay</span>
+                    <span class="text-base font-bold tabular-nums" style="color:var(--text-primary);">{{ Zar::format($quote->payableZar) }}</span>
+                </div>
+            @endif
         </div>
     </div>
 
@@ -176,7 +307,7 @@
         <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">What counts as a billable user</div>
         <p class="text-sm" style="color:var(--text-secondary);">
             You have <span class="font-semibold" style="color:var(--text-primary);">{{ $quote->seats }} active {{ Str::plural('user', $quote->seats) }}</span>.
-            Every person who can log in counts as one user — agents, admins, principals and support staff alike.
+            Every person who can log in counts as one user, whatever their role.
             <span class="font-semibold" style="color:var(--text-primary);">Deactivated and archived users are not billed</span>,
             so if someone leaves, deactivate them and they drop off your next bill.
             @if($quote->branches > 1)
@@ -189,8 +320,10 @@
     @endif
 
     {{-- ── Read-only, and honest about it (STANDARDS: No Silent Locks) ──
-         Don't render a dead edit button and don't leave the user wondering why
-         they can't change anything. Say why, and give them the way forward. --}}
+         Don't render a dead edit button, and don't leave the user wondering why
+         they can't change anything. Say why. (The contact line was removed on
+         Johan's instruction — the "why" stays, since a silently uneditable
+         surface is exactly what that standard forbids.) --}}
     <div class="rounded-md p-4 flex items-start gap-3" style="background:var(--surface-2); border:1px solid var(--border);">
         <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="color:var(--text-muted);">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
@@ -198,9 +331,6 @@
         <div class="text-sm" style="color:var(--text-secondary);">
             <span class="font-semibold" style="color:var(--text-primary);">This page is read-only.</span>
             Your plan and pricing are set by CoreX and update automatically as your team grows or shrinks.
-            To discuss your pricing, email
-            <a href="mailto:billing@corexos.co.za?subject=Billing enquiry — {{ $agency->name }}"
-               class="font-medium underline" style="color:var(--brand-icon,#0ea5e9);">billing@corexos.co.za</a>.
         </div>
     </div>
 

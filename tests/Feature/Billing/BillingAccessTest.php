@@ -196,6 +196,44 @@ class BillingAccessTest extends TestCase
             ->assertSee('Launch offer');
     }
 
+    /**
+     * The "Show details" panel must name the people and branches on the bill.
+     * A seat count an agency cannot reconcile against names is a support ticket:
+     * "why am I paying for N people?" has exactly one good answer, and it's a list.
+     */
+    public function test_the_details_panel_names_the_users_and_branches_on_the_bill(): void
+    {
+        $agency = $this->makeAgency('Margate Properties');
+        $admin  = $this->makeAdmin($agency);
+
+        User::factory()->create(['agency_id' => $agency->id, 'is_active' => 1, 'name' => 'Thandeka Mkhize', 'role' => 'agent']);
+        User::factory()->create(['agency_id' => $agency->id, 'is_active' => 1, 'name' => 'Pieter van Wyk', 'role' => 'principal']);
+
+        // Deactivated + archived — must be shown as NOT billed, so the agency can
+        // SEE that removing someone really did take them off the bill.
+        User::factory()->create(['agency_id' => $agency->id, 'is_active' => 0, 'name' => 'Resigned Rita']);
+        User::factory()->create(['agency_id' => $agency->id, 'is_active' => 1, 'name' => 'Archived Andile'])->delete();
+
+        \App\Models\Branch::create(['agency_id' => $agency->id, 'name' => 'Margate']);
+        \App\Models\Branch::create(['agency_id' => $agency->id, 'name' => 'Uvongo']);
+
+        $this->actingAs($admin)
+            ->get(route('billing.index'))
+            ->assertOk()
+            ->assertSee('Show details')
+            ->assertSee('Thandeka Mkhize')
+            ->assertSee('Pieter van Wyk')
+            ->assertSee('Principal')            // role humanised, not a raw enum
+            ->assertSee('Margate')
+            ->assertSee('Uvongo')
+            ->assertSee('Included free')        // the first branch
+            ->assertSee('Not billed:')
+            ->assertSee('1 deactivated')
+            ->assertSee('1 archived')
+            ->assertDontSee('Resigned Rita')    // not on the bill → not in the billed list
+            ->assertDontSee('Archived Andile');
+    }
+
     /** An owner with no agency switched in has no single bill — say so, don't 500. */
     public function test_an_owner_with_no_agency_context_gets_a_clear_page_not_a_500(): void
     {
