@@ -17,6 +17,28 @@ class PermissionService
     /** @var bool|null Whether the role_permissions table has ANY rows (fresh-DB guard) */
     protected static ?bool $seeded = null;
 
+    /**
+     * AT-265 — the unseeded POSTURE. NULL = derive from the environment.
+     *
+     * An empty `role_permissions` table used to mean ALLOW EVERYONE EVERYTHING. On a server that
+     * is not a graceful default, it is a total, silent removal of permission enforcement: any
+     * deploy, seed, migration or reconcile accident that empties or soft-deletes that table
+     * (RolePermission uses SoftDeletes, and `exists()` does not see trashed rows — so a reconcile
+     * that soft-deleted every grant would read as "unseeded") disabled the entire permission
+     * system platform-wide, with nothing logged and nothing to notice it by.
+     *
+     * It now DENIES. The historic allow-all survives in exactly one place — the test suite, whose
+     * standing convention is an unseeded table (see tests/TestCase.php, and the ~40 test files
+     * that document "unseeded → allow-all" as their premise). That bypass keys off the testing
+     * environment and is therefore unreachable on any server: there is no config, no env var, and
+     * no .env line that can switch a production box back to failing open.
+     *
+     * A test proves the production posture by calling forceProductionPosture() — that is the
+     * "control isolated" the ticket asks for. clearCache() resets it, so it cannot leak between
+     * tests.
+     */
+    protected static ?bool $allowAllWhenUnseeded = null;
+
     /** @var array<string, bool> Whether a given agency owns any grants (provisioned?) */
     protected static array $agencyHasGrants = [];
 
@@ -41,6 +63,80 @@ class PermissionService
         }
 
         return static::$agencyHasGrants[$k] ? $agencyId : null;
+    }
+
+    /**
+     * AT-265 — an owner used the bypass. Record it ONLY when it is genuinely break-glass, i.e.
+     * when the grants table is empty and the bypass is the only thing letting anyone in.
+     *
+     * An owner on a healthy system is just an owner; logging that on every request would bury the
+     * one line that matters under millions that don't.
+     */
+    protected static function auditBreakGlass(User $user, string $context): void
+    {
+        if (static::grantsExist() || static::allowAllWhenUnseeded()) {
+            return;
+        }
+
+        \App\Services\Security\PermissionLockdownAlarm::recordBreakGlass($user, $context);
+    }
+
+    /**
+     * Force the PRODUCTION posture (deny on an empty grants table) inside the test suite, so the
+     * AT-265 regression can prove the control instead of inheriting the suite's allow-all premise.
+     */
+    public static function forceProductionPosture(): void
+    {
+        static::$allowAllWhenUnseeded = false;
+    }
+
+    /**
+     * Does an empty `role_permissions` table grant access?
+     *
+     * On a server: NEVER. In the test suite: yes, preserving the convention the suite was written
+     * against (an unseeded table). See the $allowAllWhenUnseeded docblock.
+     */
+    protected static function allowAllWhenUnseeded(): bool
+    {
+        if (static::$allowAllWhenUnseeded !== null) {
+            return static::$allowAllWhenUnseeded;
+        }
+
+        return app()->runningUnitTests();
+    }
+
+    /**
+     * Are there ANY grants at all? Memoised per process (reset by clearCache()).
+     *
+     * Deliberately unscoped by agency: this asks whether the permission SYSTEM is provisioned,
+     * not whether one agency is. `grantsAgencyId()` answers the per-agency question separately.
+     */
+    protected static function grantsExist(): bool
+    {
+        if (static::$seeded === null) {
+            static::$seeded = RolePermission::exists();
+        }
+
+        return static::$seeded;
+    }
+
+    /**
+     * The single decision point for "the grants table is empty — now what?"
+     *
+     * Returns TRUE when the caller may fall back to allow-all (test suite only). Returns FALSE
+     * when the caller MUST deny — and raises the alarm on the way out, so a locked-down platform
+     * is never a silent one. Fixing the class in one place, not at each of the two call sites
+     * (BUILD_STANDARD §6) — the original defect was duplicated across both.
+     */
+    protected static function unseededGrantsAccess(string $context): bool
+    {
+        if (static::allowAllWhenUnseeded()) {
+            return true;
+        }
+
+        \App\Services\Security\PermissionLockdownAlarm::raise($context);
+
+        return false;
     }
 
     /**
@@ -106,6 +202,8 @@ class PermissionService
     {
         // Owner's REAL role always gets full scope — even when using View As
         if ($user->isOwnerRole()) {
+            static::auditBreakGlass($user, "getDataScope({$module})");
+
             return 'all';
         }
 
@@ -115,14 +213,21 @@ class PermissionService
         // Owner role always gets full scope (covers edge cases)
         $roleModel = Role::allRoles($agencyId)->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
+            static::auditBreakGlass($user, "getDataScope({$module})");
+
             return 'all';
         }
 
-        // If unseeded, use role-based defaults (graceful for tests / fresh DBs)
-        if (static::$seeded === null) {
-            static::$seeded = RolePermission::exists();
-        }
-        if (!static::$seeded) {
+        // AT-265 — THE SECOND FAIL-OPEN. The ticket names userHasPermission(); this one sat right
+        // beside it and was never mentioned. On an empty grants table it handed 'all' to every
+        // admin and 'branch' to every branch_manager — a data-visibility grant nobody had made.
+        // It now returns NULL, which every scopeVisibleTo() reads as "no rows" (whereRaw 1=0).
+        if (! static::grantsExist()) {
+            if (! static::unseededGrantsAccess("getDataScope({$module})")) {
+                return null; // every scopeVisibleTo() reads this as whereRaw('1 = 0')
+            }
+
+            // Test-suite posture only: the historic role-shaped defaults.
             return match ($role) {
                 'super_admin', 'admin' => 'all',
                 'branch_manager', 'office_admin' => 'branch',
@@ -187,8 +292,9 @@ class PermissionService
 
     /**
      * Check if a user has a specific permission via their role.
-     * Owner role bypasses all permission checks.
-     * If role_permissions table is empty (unseeded DB / tests), allow all.
+     * Owner role bypasses all permission checks (the AT-265 break-glass — audited when the grants
+     * table is empty).
+     * If role_permissions is empty, DENY (AT-265 — this used to allow all; see $allowAllWhenUnseeded).
      * For {module}.view keys, having any scope value = has permission.
      *
      * A role with 0 permissions = 0 access (no silent fallback).
@@ -198,6 +304,8 @@ class PermissionService
     {
         // Owner's REAL role always bypasses — even when using View As
         if ($user->isOwnerRole()) {
+            static::auditBreakGlass($user, "userHasPermission({$permissionKey})");
+
             return true;
         }
 
@@ -207,15 +315,18 @@ class PermissionService
         // Owner role bypasses all permission checks (covers edge cases)
         $roleModel = Role::allRoles($agencyId)->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
+            static::auditBreakGlass($user, "userHasPermission({$permissionKey})");
+
             return true;
         }
 
-        // If the table hasn't been seeded, allow access (graceful for tests / fresh DBs)
-        if (static::$seeded === null) {
-            static::$seeded = RolePermission::exists();
-        }
-        if (!static::$seeded) {
-            return true;
+        // AT-265 — an empty grants table is a catastrophe, not a default. Deny, loudly.
+        //
+        // This RETURNS the verdict rather than falling through: with no grants at all, the lookup
+        // below can only ever come back empty, so falling through would deny even in the test
+        // suite — which is the whole point of the posture, and would redline ~40 test files.
+        if (! static::grantsExist()) {
+            return static::unseededGrantsAccess("userHasPermission({$permissionKey})");
         }
 
         $permissions = static::getPermissionsForRole($role, $agencyId);
@@ -247,6 +358,10 @@ class PermissionService
 
     /**
      * Clear the static cache (useful for testing or after permission changes).
+     *
+     * AT-265: this also resets the unseeded POSTURE back to environment-derived. tests/TestCase.php
+     * calls it in setUp(), so a test that forced the production posture cannot leak that posture
+     * into the next test — the control is isolated to the test that asks for it.
      */
     public static function clearCache(): void
     {
@@ -254,5 +369,6 @@ class PermissionService
         static::$scopeCache = [];
         static::$seeded = null;
         static::$agencyHasGrants = [];
+        static::$allowAllWhenUnseeded = null;
     }
 }

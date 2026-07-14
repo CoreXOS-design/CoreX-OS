@@ -61,8 +61,47 @@ class SyncReferenceData extends Command
             }
         }
 
+        if (! $dry && ! $this->assertPermissionGrantsExist()) {
+            return self::FAILURE;
+        }
+
         $this->info('deploy:sync-reference-data — ' . ($dry ? 'dry-run complete.' : 'reference data provisioned.'));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * AT-265 — the POST-CONDITION that makes fail-closed survivable.
+     *
+     * PermissionService now DENIES every non-owner when `role_permissions` is empty (it used to
+     * grant everyone everything, which is why this check did not need to exist before). The two
+     * changes are load-bearing for each other: the deny is only safe because the deploy guarantees
+     * the table is populated, and the deploy guarantee is only necessary because of the deny.
+     *
+     * `corex:sync-permissions --merge-defaults` (run just above) reprovisions grants from
+     * config/corex-permissions.php for every role that has config defaults. If the table is STILL
+     * empty afterwards, this environment is about to deny every non-owner user — an outage. The
+     * deploy must not report success and walk away from that; it fails, loudly, while a human is
+     * still watching the terminal.
+     *
+     * The likeliest cause is an empty `roles` table (merge-defaults fans out across roles, so no
+     * roles means no grants), which is why that is called out by name.
+     */
+    private function assertPermissionGrantsExist(): bool
+    {
+        if (\App\Models\RolePermission::exists()) {
+            return true;
+        }
+
+        $this->newLine();
+        $this->error('AT-265 — DEPLOY HALTED: `role_permissions` is EMPTY after provisioning.');
+        $this->error('PermissionService fails CLOSED, so every non-owner user on this environment');
+        $this->error('would be denied all access. Owners can still sign in (audited break-glass).');
+        $this->newLine();
+        $this->warn('Most likely cause: the `roles` table is empty, so `corex:sync-permissions');
+        $this->warn('--merge-defaults` had no roles to fan out across. Check `roles`, then re-run');
+        $this->warn('`php artisan deploy:sync-reference-data`.');
+
+        return false;
     }
 }
