@@ -183,7 +183,7 @@ Each HD is one concern, ends green on its own test file, and is committable.
 |---|---|---|
 | ~~**HD-1**~~ **✅ LANDED** `8d4b1e9c` | **P1-3 · Recipients from the property-link role** (§2.1) | `Property::esignRoleForPivotRole()` + `PIVOT_NON_SIGNING_ROLES`; `ESignWizardController::resolveLinkedContactRole()` — link role primary, global type demoted to legacy-link fallback. `scopeForEsignRole()` needed no demotion (**zero callers**); the primary source was an inline join. **Extra defect found & closed:** portal lead services link enquirers with `contact_property.role='lead'` and type them "Buyer" — the old global-type read offered them as **signing recipients on the mandate**. 11 tests, both mechanisms RED-proofed. |
 | ~~**HD-2**~~ **✅ LANDED** `d20c8f58` | **P1-2a · Web-pack slot resolution** | `WebPackSlotResolver` + `WebPackSlotException`; wired into `store()`. **The client-side slot picker already existed** (`wizard.blade.php::_buildPackSlots`) — the gap was entirely server-side: `store()` fed the client's `resolved_template_ids` straight to `Template::find()`. **Extra defect found & closed — the ECTA §13(1) hole:** the alienation-document block is gated on `!$isPackFlow`, and the web-pack path ran **no** eligibility check at all (not even `is_esign`), so a **sale agreement inside a web pack was one click from being e-signed, and therefore void.** Also closed: any template id in the DB was accepted; a required doc could be dropped by omitting it from the post. 13 tests, RED-proof fails 9/13. |
-| **HD-3** | **P1-2b · Send-time variant picker + seed the Sales Mandate Pack** | **Picker UI mostly EXISTS** (see HD-2) — verify it against the resolver's contract rather than rebuilding it; the real work is the **seeder**. **The settled spec's pack composition (templates 116/117/119) DOES NOT EXIST in any database** — compose from m5's P1-1 imports. Register the seeder in `deploy:sync-reference-data` (AT-162 class — seeders do not run on a `git pull`). |
+| **HD-3** | **P1-2b · Send-time variant picker** ✅ **LANDED** `749532d1`-adjacent (`WebPackStoreEndpointTest`) · **seeder BLOCKED** | Picker UI already existed; its contract is now proven at the HTTP boundary (6 tests: resolved set carried onto the flow, tampered post → 422 + **zero flows**, alienation doc → 422 `esign_blocked`, cross-tenant pack → 404). **⛔ BLOCKED — NEEDS JOHAN/m5, NOT A LANE CALL: the Sales Mandate Pack's COMPOSITION.** See §10. |
 | **HD-4** | **P1-5 · Editable fields + P1-6 amount-in-words** | Populate `field_mappings.editable_by` on the mandate templates (infrastructure exists; **no template uses it**). `WebTemplateDataService::numberToWords()` takes an **`int`** — it **drops cents** and has no "Rand". Fix + reconcile with the CDS parser's `deal.amount_words` binding (two vocabularies, one concept). |
 
 ### Track B — the ceremony behaves (HD-5 → HD-8)
@@ -255,3 +255,35 @@ Each HD is one concern, ends green on its own test file, and is committable.
 - The agent can always see **who holds the document and for how long**, and a lapse produces an
   **evidence report that attributes the delay**.
 - Every new screen has a **navigation entry and a permission key**, the day it ships.
+
+---
+
+## 10. Open decisions — parked here rather than stalling a slice (m6, night of 2026-07-14)
+
+### D-1 (HD-3 seeder) — what IS the Sales Mandate Pack? **Needs Johan or m5. Not a lane call.**
+
+The picker and the server-side resolver are done and proven. The seeder that creates the actual pack
+is **blocked on a fact nobody has written down**: which templates the pack contains, and which of
+them are the `selectable` variants of a mandate choice.
+
+Why I did not simply pick:
+
+- The spec's stated composition (**templates 116 / 117 / 119**) **exists in no database** — repo
+  blade + seeder artifacts only. §8 gotcha 2 already warns about exactly this, and hard-coding those
+  ids is how they became phantoms in the first place. Writing a seeder against them would produce a
+  pack that resolves to nothing on every environment.
+- m5's P1-1 import produced the real subject (**template #69, "EATS — WALK TEST (not production)"**,
+  on qa1). That is a *walk-test* template by its own name. Seeding the launch Sales Mandate Pack out
+  of a document labelled "not production" is a decision, not an inference.
+- The composition is a **business** statement (sole vs open vs dual mandate; which disclosure; which
+  FICA consent; what is required vs optional), and the slot vocabulary now makes that statement
+  precisely — so it must come from Johan, not be guessed at by the lane and then discovered wrong in
+  front of a seller.
+
+**What is needed to unblock (small):** a list of the pack's documents in order, each marked
+`required` / `selectable(group, label)` / `optional`. The seeder is then ~30 minutes, resolves its
+templates **by document_type + name** (never by hard-coded id), registers in
+`deploy:sync-reference-data` (AT-162 — seeders do not run on a `git pull`), and is idempotent.
+
+**Not blocking anything else.** Track B (HD-5 → HD-8) is independent of the pack's contents and is
+where the night went.
