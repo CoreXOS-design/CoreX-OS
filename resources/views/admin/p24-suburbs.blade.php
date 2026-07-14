@@ -113,11 +113,9 @@
                 <input type="number" name="p24_id" class="rounded-md px-3 py-2 text-sm w-28"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 6348">
             </div>
-            <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Region</label>
-                <input type="text" name="region" value="kzn-south-coast" class="rounded-md px-3 py-2 text-sm w-36"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
+            {{-- AT-246 — the hardcoded "Region: kzn-south-coast" field is retired. A new
+                 suburb inherits its region from its P24 town (once mapped), or gets the
+                 marked suburb-level fallback in the row below. No pinned default. --}}
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Surrounding IDs</label>
                 <input type="text" name="surrounding_ids" class="rounded-md px-3 py-2 text-sm w-36"
@@ -210,13 +208,15 @@
                                 @endif
                             </td>
                             {{-- Region = the TOWN's region (read THROUGH the town), edited at town
-                                 level so it applies to every suburb in the town. The select is
-                                 associated (HTML5 form=) with a sibling town-form rendered after the
-                                 table, so it never nests inside this suburb row-form. --}}
+                                 (P24 city) level so it applies to every suburb in the town. Assigning
+                                 materialises the agency town if one doesn't exist yet, so EVERY suburb
+                                 with a P24 city is assignable — never a dead end. The select is
+                                 associated (HTML5 form=) with a sibling city-form after the table, so
+                                 it never nests inside this suburb row-form. --}}
                             <td class="px-4 py-3">
-                                @if($townRow)
-                                    <select name="region" form="townrgn-{{ $suburb->id }}"
-                                            onchange="document.getElementById('townrgn-{{ $suburb->id }}').submit()"
+                                @if($cityId)
+                                    <select name="region" form="cityrgn-{{ $suburb->id }}"
+                                            onchange="document.getElementById('cityrgn-{{ $suburb->id }}').submit()"
                                             class="rounded-md px-2 py-1 text-sm w-44"
                                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                         <option value="">— Unassigned —</option>
@@ -226,10 +226,23 @@
                                     </select>
                                     <div class="text-[10px] mt-1" style="color: var(--text-muted);"
                                          title="Region is set per town — changing it moves every suburb in {{ $townName }}">
-                                        applies to all of {{ $townName }}
+                                        applies to all of {{ $townName ?? 'this town' }}
                                     </div>
                                 @else
-                                    <span class="text-xs" style="color: var(--text-muted);" title="This P24 town isn’t in your towns list yet">— no P24 town —</span>
+                                    {{-- Truly townless (a manual suburb with no P24 city): suburb-level
+                                         fallback, clearly marked; saved with the row's Save button. --}}
+                                    <select name="region"
+                                            class="rounded-md px-2 py-1 text-sm w-44"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">— Unassigned —</option>
+                                        @foreach($municipalityOptions as $muni)
+                                        <option value="{{ $muni }}" @selected(($suburb->region ?? null) === $muni)>{{ $aliases[$muni] ?? $muni }}</option>
+                                        @endforeach
+                                    </select>
+                                    <div class="text-[10px] mt-1" style="color: var(--ds-amber, #b45309);"
+                                         title="No P24 town for this suburb — region is set on the suburb itself">
+                                        suburb-level (no P24 town) · press Save
+                                    </div>
                                 @endif
                             </td>
                             <td class="px-4 py-3">
@@ -269,15 +282,14 @@
             </table>
         </div>
 
-        {{-- AT-246 — sibling town-region forms for the per-row Region selects (HTML5
+        {{-- AT-246 — sibling city-region forms for the per-row Region selects (HTML5
              form= association keeps them out of the suburb row-forms; nesting forms
-             is invalid). One per page-row that has a P24 town; the select applies the
-             change to the whole town. --}}
+             is invalid). One per page-row that has a P24 city; assigning materialises
+             the agency town if needed and applies to the whole town. --}}
         @foreach($suburbs as $suburb)
-            @php $tr = $suburb->p24_city_id ? ($townsByCity[$suburb->p24_city_id] ?? null) : null; @endphp
-            @if($tr)
-            <form id="townrgn-{{ $suburb->id }}" method="POST"
-                  action="{{ route('admin.p24-suburbs.town-region', $tr->id) }}" class="hidden">
+            @if($suburb->p24_city_id)
+            <form id="cityrgn-{{ $suburb->id }}" method="POST"
+                  action="{{ route('admin.p24-suburbs.city-region', $suburb->p24_city_id) }}" class="hidden">
                 @csrf @method('PUT')
             </form>
             @endif

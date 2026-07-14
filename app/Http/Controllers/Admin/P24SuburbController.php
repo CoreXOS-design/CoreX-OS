@@ -185,7 +185,6 @@ class P24SuburbController extends Controller
         $validated = $request->validate([
             'name'            => 'required|string|max:100',
             'p24_id'          => 'nullable|integer|min:1',
-            'region'          => 'nullable|string|max:100',
             'surrounding_ids' => 'nullable|string|max:500',
             'confirmed'       => 'nullable|boolean',
         ]);
@@ -201,11 +200,14 @@ class P24SuburbController extends Controller
             ));
         }
 
+        // AT-246 — no hardcoded 'kzn-south-coast' default. A new suburb inherits its
+        // region from its P24 town (once mapped) or gets the marked suburb-level
+        // fallback; it is NOT silently pinned to the South Coast.
         P24Suburb::create([
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
-            'region'          => $validated['region'] ?? 'kzn-south-coast',
+            'region'          => null,
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
         ]);
@@ -235,21 +237,75 @@ class P24SuburbController extends Controller
             ));
         }
 
-        // AT-246 — a row Save NO LONGER touches `region`. Region is the town's
-        // region now (edited via saveTownRegion); the suburb's own `region`
-        // column is vestigial. Writing `$validated['region'] ?? 'kzn-south-coast'`
-        // here (with the field removed from the row) would silently clobber every
-        // suburb's region back to the KZN default on any edit — the guard.
-        $p24Suburb->update([
+        // AT-246 — a town-linked row Save does NOT touch `region` (region is the
+        // town's, edited via saveCityRegion; writing a default here would clobber
+        // every suburb). The ONLY time the suburb-level `region` is written is the
+        // truly-townless fallback (a manual suburb with no P24 city) — that row
+        // DOES submit a `region` field, so we honour it when present.
+        $data = [
             'name'            => trim($validated['name']),
             'slug'            => $slug,
             'p24_id'          => $validated['p24_id'] ?? null,
             'surrounding_ids' => $surroundingIds,
             'confirmed'       => !empty($validated['confirmed']),
-        ]);
+        ];
+        if ($request->has('region')) {
+            $r = trim((string) $request->input('region'));
+            $data['region'] = $r !== '' ? $r : null;
+        }
+        $p24Suburb->update($data);
 
         return redirect()->route('admin.p24-suburbs.index')
             ->with('success', 'Suburb updated.');
+    }
+
+    /**
+     * AT-246 — assign a region by P24 CITY (town). Works for EVERY suburb, because
+     * every suburb carries a p24_city_id even when the agency has no towns row for
+     * that city yet (88% of them). We find-or-create the agency's town for the city
+     * (materialise-on-assign — the "link to town" the spec allows) and set its
+     * region, so the change applies to every suburb P24 files under that town and no
+     * row is ever a dead end. suburb→town stays P24's read-only truth.
+     */
+    public function saveCityRegion(Request $request, int $cityId)
+    {
+        $this->ensureAccess();
+        $agencyId = $this->agencyId();
+        abort_if($agencyId <= 0, 403, 'Switch into an agency before assigning regions.');
+
+        $city = DB::table('p24_cities')->where('id', $cityId)->first();
+        abort_if($city === null, 404);
+
+        $region = trim((string) $request->input('region', ''));
+
+        $exists = DB::table('towns')->where('agency_id', $agencyId)
+            ->where('p24_city_id', $cityId)->whereNull('deleted_at')->exists();
+
+        if ($exists) {
+            DB::table('towns')->where('agency_id', $agencyId)->where('p24_city_id', $cityId)
+                ->whereNull('deleted_at')
+                ->update(['region' => $region !== '' ? $region : null, 'updated_at' => now()]);
+        } else {
+            DB::table('towns')->insert([
+                'agency_id'   => $agencyId,
+                'name'        => $city->name,
+                'slug'        => \Illuminate\Support\Str::slug($city->name . '-' . $cityId),
+                'p24_city_id' => $cityId,
+                'region'      => $region !== '' ? $region : null,
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        if ($region !== '') {
+            DB::table('region_aliases')->updateOrInsert(
+                ['agency_id' => $agencyId, 'municipality' => $region],
+                ['updated_at' => now()]
+            );
+        }
+
+        $label = $region !== '' ? $region : 'no region';
+        return back()->with('success', "“{$city->name}” and all its suburbs are now in {$label}.");
     }
 
     public function destroy(P24Suburb $p24Suburb)

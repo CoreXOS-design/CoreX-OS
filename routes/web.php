@@ -1250,6 +1250,10 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     // AT-246 — town-level region assignment (applies to all a town's suburbs) + region display alias.
     Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
         ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
+    // AT-246 — assign region by P24 CITY (find-or-create the agency town) so EVERY
+    // suburb is assignable even before an agency towns row exists — no dead-end rows.
+    Route::put('/settings/p24-suburbs/city/{cityId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveCityRegion'])
+        ->whereNumber('cityId')->name('admin.p24-suburbs.city-region');
     Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
         ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
 });
