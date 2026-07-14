@@ -249,15 +249,39 @@ class DocumentImporterController extends Controller
             @unlink($fullPath);
 
             $redirect = route('docuperfect.import.review');
+
+            // AT-262 — ZERO-FIELD GUARD.
+            //
+            // An import that detected nothing was still reported as a success and the
+            // author was redirected straight to a review screen with nothing on it.
+            // The document was almost always fine — it simply had no MARKERS in it,
+            // because the author had never been told what a marker is. Silence taught
+            // them nothing; they concluded the importer was broken.
+            //
+            // So: warn, and TEACH. The accepted syntaxes come with the warning, from
+            // the parser's own definition. The draft is still saved and the author may
+            // continue (a static document with no fill-ins is a legitimate template) —
+            // but they can no longer be told "ready" when nothing was found.
+            $fieldCount = count($result['fields'] ?? []);
+            $blockCount = count($result['insertable_blocks'] ?? []);
+            $zeroFields = ($fieldCount + $blockCount) === 0;
+
             \Log::info('[DocumentImporter] SUCCESS — draft saved to DB', [
-                'draft_id' => $draft->id,
-                'redirect' => $redirect,
+                'draft_id'    => $draft->id,
+                'redirect'    => $redirect,
+                'field_count' => $fieldCount,
+                'block_count' => $blockCount,
+                'zero_fields' => $zeroFields,
             ]);
 
             return response()->json([
-                'success'  => true,
-                'redirect' => $redirect,
-                'warnings' => $result['warnings'] ?? [],
+                'success'          => true,
+                'redirect'         => $redirect,
+                'warnings'         => $result['warnings'] ?? [],
+                'field_count'      => $fieldCount,
+                'block_count'      => $blockCount,
+                'zero_fields'      => $zeroFields,
+                'accepted_markers' => $zeroFields ? CdsParserService::acceptedMarkers() : [],
             ]);
 
         } catch (\Throwable $e) {
