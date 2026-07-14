@@ -30,7 +30,8 @@ class FicaController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $isCO = $user->isComplianceOfficer();
+        $isCO = $user->isComplianceOfficer();                 // any FICA appointment (RO or CO)
+        $isPrimaryCo = $user->isPrimaryComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // Elize
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
         $canSeeAll = $isCO || $isAdmin;
         $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
@@ -55,10 +56,14 @@ class FicaController extends Controller
             'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
             'cancelled'              => (clone $countBase)->where('status', 'cancelled')->count(),
         ];
-        // CO queue count (agency-scoped via global scope) — AT-236: the CO queue is
-        // CO-required items (agent_approved) PLUS referrals (referred_to_co).
-        $coQueueCount = $isCO
-            ? FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])->count()
+        // AT-236 — TWO stations (Johan's model):
+        //   RO Approvals      = agent_approved (any authorized reviewer / RO works it)
+        //   CO Approvals Needed = referred_to_co (escalated — the primary CO only)
+        $roQueueCount = $isCO
+            ? FicaSubmission::where('status', 'agent_approved')->count()
+            : 0;
+        $coQueueCount = $isPrimaryCo
+            ? FicaSubmission::where('status', 'referred_to_co')->count()
             : 0;
 
         // Build filtered query
@@ -66,11 +71,16 @@ class FicaController extends Controller
             ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy'])
             ->latest();
 
-        if ($tab === 'co_queue') {
-            // CO queue: agency-scoped via global scope — agent_approved + referrals.
-            $query = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
-                ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
+        if ($tab === 'ro_queue') {
+            // RO Approvals — the shared review pool, any authorized reviewer.
+            $query = FicaSubmission::where('status', 'agent_approved')
+                ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
                 ->oldest('agent_verified_at');
+        } elseif ($tab === 'co_queue') {
+            // CO Approvals Needed — escalated packs, the primary CO's station.
+            $query = FicaSubmission::where('status', 'referred_to_co')
+                ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
+                ->oldest('referred_at');
         } elseif ($tab !== 'all') {
             $query->where('status', $tab);
         }
@@ -84,18 +94,17 @@ class FicaController extends Controller
 
         $submissions = $query->paginate(20)->withQueryString();
 
-        // CO queue stats
+        // CO Approvals Needed stats (escalations awaiting the primary CO)
         $coQueueStats = null;
-        if ($isCO && $coQueueCount > 0) {
-            $oldest = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
-                ->min('agent_verified_at');
+        if ($isPrimaryCo && $coQueueCount > 0) {
+            $oldest = FicaSubmission::where('status', 'referred_to_co')->min('referred_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
                 'oldest_days' => $oldest ? (int) now()->diffInDays($oldest) : 0,
             ];
         }
 
-        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isAdmin', 'canSeeAll', 'tab', 'coQueueCount', 'coQueueStats'));
+        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isPrimaryCo', 'isAdmin', 'canSeeAll', 'tab', 'roQueueCount', 'coQueueCount', 'coQueueStats'));
     }
 
     /**
@@ -230,8 +239,9 @@ class FicaController extends Controller
         $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+        $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
 
-        return view('compliance.fica.show', compact('submission', 'referralEnabled'));
+        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo'));
     }
 
     /**
@@ -282,8 +292,9 @@ class FicaController extends Controller
         $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+        $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
 
-        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled'));
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo'));
     }
 
     /**
