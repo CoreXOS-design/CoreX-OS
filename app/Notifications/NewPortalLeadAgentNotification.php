@@ -86,8 +86,29 @@ class NewPortalLeadAgentNotification extends Notification
 
         return $mail
             ->line('They have been added to your buyer pipeline with a wishlist derived from the property they enquired on.')
-            ->action('Open the lead', route('corex.portal-leads.index', ['highlight' => $this->lead->id]))
+            ->action($this->lead->contact_id ? "Open {$name}" : 'Open the lead', $this->actionUrl())
             ->line('Reach out while the enquiry is hot.');
+    }
+
+    /**
+     * AT-261 — where the email actually takes the agent.
+     *
+     * It used to land on the portal-leads LIST, which is a list of rows, not a person: the
+     * agent then had to find the lead and click through to the human they were told to phone.
+     * Every P24 lead already resolves (or creates) a Contact during ingest — `contact_id` is
+     * populated before this notification is ever built — so the email links straight to the
+     * contact, where the pipeline, the wishlist and the phone number are.
+     *
+     * The list remains the honest fallback for the case that genuinely has no person yet: a
+     * lead can arrive with no email and no phone, and then no contact is resolved.
+     */
+    private function actionUrl(): string
+    {
+        if ($this->lead->contact_id) {
+            return route('corex.contacts.show', $this->lead->contact_id);
+        }
+
+        return route('corex.portal-leads.index', ['highlight' => $this->lead->id]);
     }
 
     public function toArray(object $notifiable): array
@@ -97,7 +118,8 @@ class NewPortalLeadAgentNotification extends Notification
             'title'          => 'New ' . $this->lead->portalLabel() . ' lead',
             'body'           => trim(($this->lead->name ?: 'A buyer')
                 . ($this->lead->listing_portal_ref ? ' — ' . $this->lead->listing_portal_ref : '')),
-            'action_url'     => route('corex.portal-leads.index', ['highlight' => $this->lead->id]),
+            // Same destination as the email — the in-app bell must not disagree with the inbox.
+            'action_url'     => $this->actionUrl(),
             'icon'           => 'inbox',
             'portal_lead_id' => $this->lead->id,
             'portal'         => $this->lead->portal,
