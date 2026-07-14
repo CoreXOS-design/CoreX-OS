@@ -1788,14 +1788,20 @@ class SignatureService
                     ]);
                 }
 
-                // 3. Email signed copies — client to signers, internal to agent
-                $this->sendCompletionEmails($template, $pdfPaths);
-
-                // 4. Link document to contacts via pivot (FICA / compliance)
+                // 3. Link document to contacts via pivot (FICA / compliance)
                 $this->linkDocumentToContacts($template, $pdfPaths);
 
-                // 5. Auto-file signed document to Contact + Property Drive
-                $this->autoFileSignedDocument($template, $pdfPaths);
+                // 4. Auto-file signed document to Contact + Property Drive.
+                //
+                // HD-7 (§11-B) — THIS NOW RUNS BEFORE THE EMAIL, AND THAT REORDER *IS* THE FIX.
+                // Filing is what produces the per-document PDFs; emailing used to run first, so the
+                // only file that existed when the parties were written to was the one merged PDF of
+                // the whole pack. The ceremony was not CHOOSING to send a stapled document — it was
+                // sending the only thing that existed yet. File first, and the documents are there.
+                $signedDocuments = $this->autoFileSignedDocument($template, $pdfPaths);
+
+                // 5. Email signed copies — client to signers, internal to agent.
+                $this->sendCompletionEmails($template, $pdfPaths, $signedDocuments);
 
                 // 6. Extract lease data if this is a lease/rental document
                 if ($this->isLeaseDocument($template)) {
@@ -1866,12 +1872,17 @@ class SignatureService
      * Auto-file signed document to Contact Drive and Property Drive.
      * Creates ONE Document record, links to all signing contacts and property via pivots.
      */
-    private function autoFileSignedDocument(SignatureTemplate $template, ?array $pdfPaths): void
+    /**
+     * @return array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>
+     *   HD-7 — the documents this actually FILED. It already wrote them; it simply threw the paths
+     *   away, which is why completion had nothing to attach but the merged PDF. Now it hands them back.
+     */
+    private function autoFileSignedDocument(SignatureTemplate $template, ?array $pdfPaths): array
     {
-        if (!$pdfPaths || empty($pdfPaths['client'])) return;
+        if (!$pdfPaths || empty($pdfPaths['client'])) return [];
 
         $document = $template->document;
-        if (!$document) return;
+        if (!$document) return [];
 
         $webTemplateData = $document->web_template_data ?? [];
         $templateIds = $webTemplateData['template_ids'] ?? [];
@@ -1890,16 +1901,19 @@ class SignatureService
 
         // Pack flow: split into individual documents per template
         if (count($templateIds) > 1 && $mergedHtml) {
-            $this->filePackDocuments($template, $document, $templateIds, $mergedHtml, $propertyId, $contactLinks, $pdfPaths);
-            return;
+            return $this->filePackDocuments($template, $document, $templateIds, $mergedHtml, $propertyId, $contactLinks, $pdfPaths);
         }
 
         // Single template: file one document using the merged PDF
-        $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+        $filed = $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+
+        return $filed ? [$filed] : [];
     }
 
     /**
      * File a single document (non-pack or single-template pack).
+     *
+     * @return array{path:string,name:string,template_id:?int,is_signed_document:bool}|null
      */
     private function fileSingleDocument(
         SignatureTemplate $template,
@@ -1907,10 +1921,10 @@ class SignatureService
         string $pdfPath,
         ?int $propertyId,
         array $contactLinks,
-    ): void {
+    ): ?array {
         // Avoid duplicate filings
         if (\App\Models\Document::where('storage_path', $pdfPath)->where('source_type', 'esign')->exists()) {
-            return;
+            return null;
         }
 
         $docTemplate = $document->template;
@@ -1929,7 +1943,7 @@ class SignatureService
                 'storage_path' => $pdfPath,
                 'recoverable'  => true,
             ]);
-            return;
+            return null;
         }
 
         $filedDoc = \App\Models\Document::create([
@@ -1954,11 +1968,21 @@ class SignatureService
             'property_id' => $propertyId,
             'contact_count' => count($contactLinks),
         ]);
+
+        return [
+            'path'               => $pdfPath,
+            'name'               => $docName,
+            'template_id'        => $docTemplate?->id,
+            'is_signed_document' => true,
+        ];
     }
 
     /**
      * File individual documents for each template in a web pack.
      * Splits the merged HTML, generates individual PDFs, creates one Document record per template.
+     */
+    /**
+     * @return array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>
      */
     private function filePackDocuments(
         SignatureTemplate $template,
@@ -1968,7 +1992,9 @@ class SignatureService
         ?int $propertyId,
         array $contactLinks,
         array $pdfPaths,
-    ): void {
+    ): array {
+        $filed = [];
+
         $htmlFragments = $this->splitMergedHtml($mergedHtml, count($templateIds));
 
         if (count($htmlFragments) !== count($templateIds)) {
@@ -1978,8 +2004,9 @@ class SignatureService
                 'fragments' => count($htmlFragments),
                 'expected' => count($templateIds),
             ]);
-            $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
-            return;
+            $single = $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+
+            return $single ? [$single] : [];
         }
 
         $signingController = app(\App\Http\Controllers\Docuperfect\SigningController::class);
@@ -2066,7 +2093,21 @@ class SignatureService
                 'contact_count' => count($contactLinks),
                 'pdf_size' => $fileSize,
             ]);
+
+            $filed[] = [
+                'path'               => $individualPdfPath,
+                'name'               => $docName,
+                'template_id'        => (int) $tplId,
+                // HD-7 §11-B — the EXPLICIT marker that this is a document the parties SIGNED, and
+                // therefore may be mailed back to all of them. It is not "true because everything in
+                // this array happens to be signed" — that is luck, and luck is one refactor away from
+                // mailing one party's FICA evidence to every other signer. Distribution filters on
+                // this flag, so a supporting attachment can never be swept into the loop by accident.
+                'is_signed_document' => true,
+            ];
         }
+
+        return $filed;
     }
 
     /**
@@ -2924,7 +2965,12 @@ class SignatureService
     /**
      * Send completion emails to all signers + the agent, with signed PDF attached.
      */
-    private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null): void
+    /**
+     * @param  array<int,array{path:string,name:string,template_id:?int,is_signed_document:bool}>  $signedDocuments
+     *   HD-7 (§11-B) — what `autoFileSignedDocument()` actually filed, which now runs FIRST. A pack
+     *   signed as one ceremony is distributed as the many documents it really is.
+     */
+    private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null, array $signedDocuments = []): void
     {
         try {
             $template->loadMissing(['document', 'creator', 'requests']);
@@ -2941,13 +2987,38 @@ class SignatureService
             $clientPdfPath = ($pdfPaths && !empty($pdfPaths['client']) && $disk->exists($pdfPaths['client']))
                 ? $disk->path($pdfPaths['client']) : null;
 
-            // Internal copy — for agent (with audit trail)
-            $internalPdfPath = ($pdfPaths && !empty($pdfPaths['internal']) && $disk->exists($pdfPaths['internal']))
-                ? $disk->path($pdfPaths['internal']) : null;
-
             $pdfFilename = "Signed - {$documentName}.pdf";
 
-            // Email external signers only — attach client copy (no audit trail)
+            // HD-7 — the attachment set: every document the parties SIGNED, each under its own name.
+            //
+            // The filter on `is_signed_document` is deliberate and load-bearing (§11-B). A pack holds
+            // supporting ATTACHMENT slots as well as signed documents — a party's FICA evidence, an ID
+            // copy. Those are attached to the ceremony; they are not products of it, and mailing them
+            // to every other signer would be a POPIA breach delivered by the system itself. Excluding
+            // them because "they don't happen to be in this array" is luck. This is the explicit
+            // refusal, and it survives whatever anyone later files.
+            $attachments = [];
+            foreach ($signedDocuments as $doc) {
+                if (($doc['is_signed_document'] ?? false) !== true) {
+                    continue; // Not a signed product of this ceremony — it is never distributed.
+                }
+                if (empty($doc['path']) || ! $disk->exists($doc['path'])) {
+                    continue; // A missing file never blocks a completed signing's delivery.
+                }
+
+                $attachments[] = [
+                    'path' => $disk->path($doc['path']),
+                    'name' => $doc['name'] ?? $pdfFilename,
+                ];
+            }
+
+            // Fallback — a single-template signing, or a pack whose split failed and was filed merged.
+            // One document IS the honest answer there; this is not a degraded path.
+            if (empty($attachments) && $clientPdfPath) {
+                $attachments = [['path' => $clientPdfPath, 'name' => $pdfFilename]];
+            }
+
+            // Email external signers only — attach client copies (no audit trail)
             foreach ($template->requests as $request) {
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
@@ -2964,23 +3035,46 @@ class SignatureService
                     progress: $progress,
                     pdfPath: $clientPdfPath,
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
+                    documents: $attachments,
                 ))->fromAgent($agent);
 
                 Mail::to($request->signer_email)->send($mail);
 
-                SignatureAuditLog::log(
-                    $template,
-                    SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
-                    SignatureAuditLog::ACTOR_SYSTEM,
-                    'System',
-                    metadata: [
-                        'recipient_role' => $request->party_role,
-                        'recipient_name' => $request->signer_name,
-                        'recipient_email' => $request->signer_email,
-                        'pdf_attached' => $clientPdfPath !== null,
-                        'pdf_version' => 'client',
-                    ],
-                );
+                // HD-7 — one audit row PER DOCUMENT per recipient, so the evidence timeline can answer
+                // "was the Disclosure sent to the purchaser?" and not merely "was something sent?".
+                if (empty($attachments)) {
+                    SignatureAuditLog::log(
+                        $template,
+                        SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'recipient_role'  => $request->party_role,
+                            'recipient_name'  => $request->signer_name,
+                            'recipient_email' => $request->signer_email,
+                            'pdf_attached'    => false,
+                            'pdf_version'     => 'client',
+                        ],
+                    );
+                    continue;
+                }
+
+                foreach ($attachments as $attachment) {
+                    SignatureAuditLog::log(
+                        $template,
+                        SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'recipient_role'  => $request->party_role,
+                            'recipient_name'  => $request->signer_name,
+                            'recipient_email' => $request->signer_email,
+                            'pdf_attached'    => true,
+                            'pdf_version'     => 'client',
+                            'document_name'   => $attachment['name'],
+                        ],
+                    );
+                }
             }
 
             // In-app notification to agent — no email
