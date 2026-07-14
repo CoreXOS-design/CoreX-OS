@@ -216,6 +216,7 @@ class Property extends Model
         'condition_level_id',
         'mandate_type',
         'listing_type',
+        'listing_type_pending',
         'status',
         'pre_deal_offer_status',
         'status_label',
@@ -328,6 +329,7 @@ class Property extends Model
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',
+        'listing_type_pending' => 'boolean',
         // Money columns are decimal(12,2) in the schema (storage precision is
         // preserved there regardless of cast). They are cast to float — NOT
         // decimal:2 — on purpose: the decimal cast returns STRINGS, and every

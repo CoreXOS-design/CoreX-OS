@@ -10,6 +10,139 @@ use ZipArchive;
 class DocxParserService
 {
     /**
+     * What a fill-in blank looks like in a real HFC document.
+     *
+     * This used to be `/_{2,}%?/` — underscores only. HFC's actual templates barely use
+     * underscores: they rule their fill-in lines with ELLIPSIS runs (`…………`, U+2026) and
+     * dot leaders. Measured on the four live source documents:
+     *
+     *     document                        _runs   …runs   ....runs
+     *     exclusive-authority-to-sell-v10     3      35          5
+     *     offer-to-purchase-v13-enviro        2     117         13
+     *     fica-natural-person-v8             11       0          0
+     *     seller-mandatory-disclosure-v7     11       0          0
+     *
+     * So the importer saw 3 blanks in the EATS and 2 in the OTP — the two launch-critical
+     * sales documents — and imported them as near-empty shells. It was not detecting
+     * badly; it was looking for the wrong character.
+     *
+     * `u` flag is required: an ellipsis is multibyte.
+     * Dot leaders need 4+ so ordinary prose "..." is never mistaken for a blank.
+     */
+    private const BLANK_PATTERN = '/(?:_{2,}|…{2,}|\.{4,})%?/u';
+
+    /** Which shape produced this blank — useful when triaging a bad import. */
+    private function blankSource(string $raw): string
+    {
+        if (str_starts_with($raw, '[')) {
+            return 'bracket';
+        }
+        if (str_contains($raw, '…')) {
+            return 'ellipsis';
+        }
+        if (str_contains($raw, '.')) {
+            return 'dot_leader';
+        }
+        return 'underscore';
+    }
+
+    /** Strip the markup that splits one ruled line into several runs, so both consumers scan identical HTML. */
+    private function normalizeForBlankScan(string $html): string
+    {
+        return (string) preg_replace('/<u>([_\s…\.]+)<\/u>/u', '$1', $html);
+    }
+
+    /**
+     * THE ONE SCAN — every blank in the document, in document order.
+     *
+     * There used to be TWO scans and they could never agree: the field detector read only
+     * the inner text of `<p>` elements, while the span injector scanned the WHOLE document
+     * and merged adjacent runs. A blank inside a table therefore got a span but no field,
+     * and the two lists fell out of alignment — on the real HFC documents by 5 (EATS),
+     * 14 (OTP) and 2-3 (FICA / Disclosure).
+     *
+     * That misalignment is not cosmetic. The importer correlates the AI's suggestions to
+     * the blanks in the page BY INDEX (`claude_originals[i]` ↔ `data-index="i"`), so the
+     * moment the counts diverge every field after the divergence is written onto the WRONG
+     * BLANK — the shift-assignments bug class STANDARDS.md names explicitly. The document
+     * imports looking perfectly plausible and being wrong.
+     *
+     * One scan, consumed by both, means they cannot drift apart.
+     *
+     * @return list<array{offset:int,length:int,raw:string,source:string,label:?string}>
+     */
+    private function scanBlanks(string $normalizedHtml): array
+    {
+        $blanks = [];
+
+        preg_match_all(self::BLANK_PATTERN, $normalizedHtml, $runs, PREG_OFFSET_CAPTURE);
+        foreach ($runs[0] as $run) {
+            $blanks[] = [
+                'offset' => $run[1],
+                'length' => strlen($run[0]),
+                'raw'    => $run[0],
+                'source' => $this->blankSource($run[0]),
+                'label'  => null,
+            ];
+        }
+
+        // Bracket placeholders — [Purchaser's full name]. Never the numeric [1] markers we
+        // inject ourselves.
+        preg_match_all('/\[([^\]]{1,80})\]/', $normalizedHtml, $brackets, PREG_OFFSET_CAPTURE);
+        foreach ($brackets[0] as $i => $bracket) {
+            $label = $brackets[1][$i][0];
+            if (preg_match('/^\d+$/', $label)) {
+                continue;
+            }
+            $blanks[] = [
+                'offset' => $bracket[1],
+                'length' => strlen($bracket[0]),
+                'raw'    => $bracket[0],
+                'source' => 'bracket',
+                'label'  => $label,
+            ];
+        }
+
+        usort($blanks, fn ($a, $b) => $a['offset'] <=> $b['offset']);
+
+        // Re-join runs that Mammoth split — but ONLY across empty space. The gap used to be
+        // counted in characters alone (<= 10); HFC writes "Tel: ………… Email: …………", and
+        // " Email: " is an 8-character gap, so two genuinely different fields merged into
+        // one. A label between two blanks means TWO blanks.
+        $merged = [];
+        foreach ($blanks as $blank) {
+            if ($merged !== []) {
+                $prev     = $merged[count($merged) - 1];
+                $gapStart = $prev['offset'] + $prev['length'];
+                $gap      = $blank['offset'] - $gapStart;
+
+                $mergeable = $prev['source'] !== 'bracket'
+                    && $blank['source'] !== 'bracket'
+                    && $gap >= 0
+                    && $gap <= 10
+                    && trim(strip_tags(substr($normalizedHtml, $gapStart, max($gap, 0)))) === '';
+
+                if ($mergeable) {
+                    $merged[count($merged) - 1]['length'] =
+                        ($blank['offset'] + $blank['length']) - $prev['offset'];
+                    continue;
+                }
+            }
+            $merged[] = $blank;
+        }
+
+        return $merged;
+    }
+
+    /** Markup-free text for context extraction (entities decoded, whitespace collapsed). */
+    private function plainSlice(string $htmlSlice): string
+    {
+        $text = html_entity_decode(strip_tags($htmlSlice), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
+
+    /**
      * Parse a .docx file.
      * Pipeline: Mammoth (HTML) + Claude AI (field detection on plain text).
      * Falls back to regex field detection if Claude fails.
@@ -393,101 +526,61 @@ class DocxParserService
      */
     protected function detectFieldsFromHtml(string $html): array
     {
-        preg_match_all('/<p[^>]*>(.*?)<\/p>/si', $html, $pMatches);
+        // ONE scan — the same one injectFieldSpans() uses (see scanBlanks()). The detector
+        // used to read only the inner text of <p> elements while the injector scanned the
+        // whole document, so a blank inside a table produced a span with no field and the
+        // two lists silently fell out of alignment. Because the importer correlates the AI's
+        // suggestions to blanks BY INDEX, that misalignment reassigns every later field to
+        // the wrong blank. Sharing the scan makes the two lists 1:1 by construction.
+        $normalized = $this->normalizeForBlankScan($html);
+        $blanks = $this->scanBlanks($normalized);
 
         $fields = [];
-        $position = 0;
+        foreach ($blanks as $blank) {
+            // Context is what the AI names the field from, so hand it the surrounding
+            // sentence with the markup stripped — taken from the blank's own coordinates.
+            $beforeRaw = substr($normalized, max(0, $blank['offset'] - 260), min($blank['offset'], 260));
+            $afterRaw  = substr($normalized, $blank['offset'] + $blank['length'], 260);
 
-        foreach ($pMatches[1] as $pInner) {
-            $lineText = strip_tags($pInner);
+            $contextBefore = trim(mb_substr($this->plainSlice($beforeRaw), -60));
+            $contextAfter  = trim(mb_substr($this->plainSlice($afterRaw), 0, 60));
 
-            // --- Source 1: Underscore runs ---
-            preg_match_all('/_{2,}%?/', $lineText, $blankMatches, PREG_OFFSET_CAPTURE);
+            $field = [
+                'raw' => $blank['raw'],
+                'context' => trim($contextBefore . ' [___] ' . $contextAfter),
+                'context_before' => $contextBefore,
+                'context_after' => $contextAfter,
+                'position' => $blank['offset'],
+                'source' => $blank['source'],
+            ];
 
-            foreach ($blankMatches[0] as $match) {
-                $raw = $match[0];
-                $offset = $match[1];
-                $contextBefore = mb_substr($lineText, max(0, $offset - 40), min($offset, 40));
-                $afterPos = $offset + mb_strlen($raw);
-                $contextAfter = mb_substr($lineText, $afterPos, 40);
-                $context = trim($contextBefore . ' [___] ' . $contextAfter);
-
-                $fields[] = [
-                    'raw' => $raw,
-                    'context' => $context,
-                    'context_before' => trim($contextBefore),
-                    'context_after' => trim($contextAfter),
-                    'position' => $position + $offset,
-                    'source' => 'underscore',
-                ];
+            // A bracket placeholder names itself — [Purchaser's full name] — so it skips AI
+            // assignment entirely, exactly as before.
+            if ($blank['source'] === 'bracket' && $blank['label'] !== null) {
+                $key = 'custom.' . preg_replace('/[^a-z0-9]+/', '_', strtolower(trim($blank['label'])));
+                $field['suggested_label'] = $blank['label'];
+                $field['suggested_key']   = rtrim((string) $key, '_');
+                $field['pillar']          = 'custom';
+                $field['assigned_to']     = 'agent';
+                $field['confidence']      = 'high';
             }
 
-            // --- Source 3: Square bracket fields [Label Text] ---
-            preg_match_all('/\[([^\]]{1,80})\]/', $lineText, $bracketMatches, PREG_OFFSET_CAPTURE);
-
-            foreach ($bracketMatches[0] as $bi => $match) {
-                $raw = $match[0];
-                $label = $bracketMatches[1][$bi][0];
-                $offset = $match[1];
-
-                // Skip numeric-only brackets like [1] — those are injected field-blank spans
-                if (preg_match('/^\d+$/', $label)) {
-                    continue;
-                }
-
-                $contextBefore = mb_substr($lineText, max(0, $offset - 40), min($offset, 40));
-                $afterPos = $offset + mb_strlen($raw);
-                $contextAfter = mb_substr($lineText, $afterPos, 40);
-                $context = trim($contextBefore . ' [___] ' . $contextAfter);
-
-                // Generate a snake_case key from the label
-                $key = 'custom.' . preg_replace('/[^a-z0-9]+/', '_', strtolower(trim($label)));
-                $key = rtrim($key, '_');
-
-                $fields[] = [
-                    'raw' => $raw,
-                    'context' => $context,
-                    'context_before' => trim($contextBefore),
-                    'context_after' => trim($contextAfter),
-                    'position' => $position + $offset,
-                    'source' => 'bracket',
-                    'suggested_label' => $label,
-                    'suggested_key' => $key,
-                    'pillar' => 'custom',
-                    'assigned_to' => 'agent',
-                    'confidence' => 'high',
-                ];
-            }
-
-            $position += mb_strlen($lineText) + 1;
+            $fields[] = $field;
         }
 
-        // --- Source 2: Yellow highlights (DOM-based) ---
-        $fields = array_merge($fields, $this->detectHighlightFields($html));
-
-        // Sort all fields by document position
-        usort($fields, fn($a, $b) => $a['position'] <=> $b['position']);
-
-        // Merge adjacent underscore blanks and recalculate context with both sides
-        $merged = [];
-        foreach ($fields as $field) {
-            if (!empty($merged) && $field['source'] === 'underscore') {
-                $prev = &$merged[count($merged) - 1];
-                if ($prev['source'] === 'underscore') {
-                    $gap = $field['position'] - ($prev['position'] + mb_strlen($prev['raw']));
-                    if ($gap >= 0 && $gap <= 10) {
-                        $prev['raw'] .= str_repeat(' ', max(0, $gap)) . $field['raw'];
-                        $prev['context_after'] = $field['context_after'] ?? '';
-                        $prev['context'] = trim(($prev['context_before'] ?? '') . ' [___] ' . ($prev['context_after'] ?? ''));
-                        continue;
-                    }
-                }
-                unset($prev);
-            }
-            $merged[] = $field;
+        // Yellow highlights are NOT indexed fields, and never really were: the injector only
+        // ever replaced ruled blanks, so a highlight-sourced field arrived with no span
+        // behind it and pushed every subsequent field onto the wrong blank. Surface them
+        // loudly instead of silently corrupting the mapping.
+        $highlights = $this->detectHighlightFields($html);
+        if ($highlights !== []) {
+            Log::warning('DocxParser: highlighted blanks found but NOT indexed — they carry no field-blank span', [
+                'count' => count($highlights),
+                'hint'  => 'rule the blank (…… or ____) or bracket it [Like This] so it can be mapped',
+            ]);
         }
 
-        return $merged;
+        return $fields;
     }
 
     /**
@@ -614,39 +707,25 @@ class DocxParserService
      */
     private function injectFieldSpans(string $html, array $fields): string
     {
-        // Normalize <u>___</u> to plain ___ for uniform matching
-        $normalizedHtml = preg_replace('/<u>([_\s]+)<\/u>/u', '$1', $html);
-
-        preg_match_all('/_{2,}%?/', $normalizedHtml, $matches, PREG_OFFSET_CAPTURE);
-
-        $blanks = [];
-        foreach ($matches[0] as $match) {
-            $blanks[] = [
-                'offset' => $match[1],
-                'length' => strlen($match[0]),
-            ];
-        }
-
-        // Merge adjacent blanks
-        $merged = [];
-        foreach ($blanks as $blank) {
-            if (!empty($merged)) {
-                $prev = &$merged[count($merged) - 1];
-                $gap = $blank['offset'] - ($prev['offset'] + $prev['length']);
-                if ($gap >= 0 && $gap <= 10) {
-                    $prev['length'] = ($blank['offset'] + $blank['length']) - $prev['offset'];
-                    continue;
-                }
-                unset($prev);
-            }
-            $merged[] = $blank;
-        }
-        $blanks = $merged;
+        // THE SAME scan the detector ran. One source of truth means the span at data-index=i
+        // is always the blank that produced fields[i] — which is the whole ballgame, because
+        // the importer maps the AI's suggestions onto blanks by that index.
+        $normalizedHtml = $this->normalizeForBlankScan($html);
+        $blanks = $this->scanBlanks($normalizedHtml);
 
         Log::info('DocxParser: Injecting field spans', [
             'blanks_in_html' => count($blanks),
             'fields_detected' => count($fields),
         ]);
+
+        // If these ever disagree, every field after the divergence is mapped onto the wrong
+        // blank and the document imports looking plausible and being wrong. Say so loudly.
+        if ($fields !== [] && count($blanks) !== count($fields)) {
+            Log::error('DocxParser: blank/field count mismatch — field mappings would shift', [
+                'blanks' => count($blanks),
+                'fields' => count($fields),
+            ]);
+        }
 
         // Replace in reverse order so offsets stay valid
         for ($i = count($blanks) - 1; $i >= 0; $i--) {

@@ -7,6 +7,7 @@ use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\Property;
+use App\Models\PropertySettingItem;
 use App\Models\User;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
@@ -172,6 +173,31 @@ class ContactMatchController extends Controller
             ->tagBuyerSource($contact, \App\Services\Buyers\BuyerLeadCascadeService::SOURCE_MANUAL);
 
         return redirect()->route('corex.contacts.matches.results', [$contact, $match]);
+    }
+
+    /**
+     * AT-240 — render the edit surface for an existing wishlist/criteria match.
+     *
+     * The edit FLOW already existed end-to-end — `_match-form` supports edit
+     * mode (`$isEdit` → pre-fills from $match, PUTs to matches.update) and
+     * update() persists the full validated payload. What was missing was any
+     * ENTRY POINT: no GET door and no Edit button on any of the surfaces that
+     * render a saved match. This is that door; the four render sites now link
+     * here. Supplies the same option data the create form receives on the
+     * contact page (matchCategories / matchTypes / featureOptions) so the
+     * reused partial renders identically.
+     */
+    public function edit(Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $matchCategories = PropertySettingItem::group('category')->get();
+        $matchTypes      = PropertySettingItem::group('property_type')->where('active', true)->get();
+        $featureOptions  = self::FEATURE_OPTIONS;
+
+        return view('corex.contacts.match-edit', compact(
+            'contact', 'match', 'matchCategories', 'matchTypes', 'featureOptions'
+        ));
     }
 
     public function update(Request $request, Contact $contact, ContactMatch $match)

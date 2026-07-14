@@ -119,6 +119,27 @@ class DocumentTemplateGenerator
         // Strip any shell from processed HTML before wrapping (safety guard)
         $processedHtml = $this->extractBodyOnly($processedHtml);
 
+        // Stamp the data-role-block contract onto the generated document.
+        //
+        // THIS IS WHERE THE CONTRACT IS BORN ON THE IMPORT PATH. processTagSpans() has just
+        // written the `data-field` + `data-contact-type` spans, which is exactly what the
+        // normalizer needs — and this is the only moment they exist before the blade is
+        // written. The CDS *builder* path normalises at publish (TemplateController::cdsGenerate),
+        // but the *importer* path never did, so every imported document went out without the
+        // contract and rendered through legacy clustering forever after. That is why the
+        // backfill found nothing to do: there was never anything to find.
+        //
+        // Stamp it here and an imported document carries the contract from birth.
+        try {
+            $processedHtml = app(RoleBlockNormalizer::class)->normalize($processedHtml);
+            Log::info('Generator: role-block contract stamped', [
+                'role_blocks' => substr_count($processedHtml, 'data-role-block='),
+            ]);
+        } catch (\Throwable $e) {
+            // Never fail an import over the contract — it can be backfilled.
+            Log::error('Generator: role-block normalisation failed', ['error' => $e->getMessage()]);
+        }
+
         // Step 4: Wrap in blade shell
         try {
             $bladeContent = $this->wrapInBladeTemplate($processedHtml, $templateName);
@@ -187,9 +208,25 @@ class DocumentTemplateGenerator
                 $slug = Str::slug($templateName);
                 $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
 
+                // Classify the document — what it IS, not what it is called.
+                //
+                // The importer used to leave document_type_id NULL on every document it
+                // created, which is why the ECTA legal block's strongest layer (the document-type
+                // slug) could never fire for an imported OTP: it fell through to the name regex,
+                // and a rename would have laundered a deed of alienation into an e-signable one.
+                // Classified, it stays blocked whatever anyone calls it.
+                $documentTypeId = app(DocumentTypeClassifier::class)
+                    ->classifyToId($templateName, strip_tags($processedHtml));
+
+                Log::info('Generator: document classified', [
+                    'name' => $templateName,
+                    'document_type_id' => $documentTypeId,
+                ]);
+
                 // Create the template first to get an ID for slug uniqueness
                 $template = Template::create([
                     'name' => $templateName,
+                    'document_type_id' => $documentTypeId,
                     'template_type' => 'general',
                     'render_type' => 'web',
                     'blade_view' => "docuperfect.web-templates.imported.{$slug}",
@@ -198,6 +235,11 @@ class DocumentTemplateGenerator
                     'signing_parties' => $signingParties,
                     'editor_state' => $editorState,
                     'is_global' => false,
+                    // Was an unconditional `true` — for EVERY imported document, an Offer To
+                    // Purchase included. The importer cannot know whether a document may
+                    // lawfully be e-signed, so it must not assert that it can.
+                    // Template::booted() forces this to false for any alienation document
+                    // (ECTA §13(1)); this stops the importer claiming otherwise to begin with.
                     'is_esign' => true,
                     'owner_id' => $ownerId,
                 ]);
@@ -262,11 +304,37 @@ class DocumentTemplateGenerator
                 $tag = $tagsById[$tagId] ?? null;
                 $mapping = $mappings[$tagId] ?? null;
 
+                // A TAG WE DO NOT UNDERSTAND MUST NEVER BE DELETED.
+                //
+                // Both the orphan path and the unknown-type path used to `return ''` — which
+                // does not "skip" the tag, it ERASES THE BLANK FROM THE DOCUMENT. The import
+                // then completes, reports success, and produces a legal template whose
+                // fill-in lines have quietly disappeared: the text reads "I / We  the
+                // undersigned" with nothing to sign into, and nobody is told. A document that
+                // silently loses its blanks is worse than an import that fails.
+                //
+                // (Hit for real: a tag carrying no `type` fell straight through to the
+                // unknown-type branch, and all 39 blanks were erased from the EATS.)
+                //
+                // Prevent-or-absorb (BUILD_STANDARD §3): absorb it as a manual field the agent
+                // can still fill, and say so loudly. Never destroy content.
                 if (!$tag) {
-                    return ''; // orphan tag span — remove
+                    Log::error('Generator: tag span with no matching tag — preserved as a manual field, NOT deleted', [
+                        'tag_id' => $tagId,
+                    ]);
+
+                    return $this->renderManualFallbackField($tagId, 'Unmapped field');
                 }
 
+                // A tag that exists in the document IS a blank. If it never got a type, the
+                // overwhelmingly common case is an input — default to it rather than erase it.
                 $tagType = $tag['type'] ?? '';
+                if ($tagType === '') {
+                    Log::warning('Generator: tag has no type — defaulting to input rather than dropping the blank', [
+                        'tag_id' => $tagId,
+                    ]);
+                    $tagType = 'input';
+                }
 
                 if ($tagType === 'input') {
                     return $this->renderInputTag($mapping, $namedFieldMap, $fieldGroupMap, (int) ($tag['number'] ?? 0));
@@ -280,10 +348,29 @@ class DocumentTemplateGenerator
                     return $this->renderIniTag($tag, $mapping);
                 }
 
-                return ''; // unknown type
+                Log::error('Generator: unknown tag type — preserved as a manual field, NOT deleted', [
+                    'tag_id' => $tagId,
+                    'type'   => $tagType,
+                ]);
+
+                return $this->renderManualFallbackField($tagId, 'Unrecognised field');
             },
             $html
         );
+    }
+
+    /**
+     * The blank survives, even when we cannot make sense of the tag.
+     *
+     * An agent can fill a manual field. Nobody can fill a blank that was deleted.
+     */
+    protected function renderManualFallbackField(string $tagId, string $label): string
+    {
+        $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower($tagId));
+        $slug = trim((string) $slug, '_') ?: 'unknown';
+
+        return '<span class="field field-manual" data-field="manual.' . e($slug) . '"'
+            . ' data-label="' . e($label) . '">{{ $manual_' . $slug . ' ?? \'\' }}</span>';
     }
 
     /**

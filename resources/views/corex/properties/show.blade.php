@@ -576,13 +576,44 @@
                 </script>
                 @endif
 
-                <form method="POST" action="{{ route('corex.properties.duplicate', $property) }}" onsubmit="return confirm('Duplicate this property?')">
-                    @csrf
-                    <button type="submit" class="prop-action-btn prop-action-btn-neutral">
+                {{-- AT-262 (Andre's design + Johan's extension): duplicate optionally AS the other
+                     type, and "change listing type" = duplicate to the other type + archive the current. --}}
+                @php $curType = $property->listing_type ?: 'sale'; $otherType = $curType === 'rental' ? 'sale' : 'rental'; @endphp
+                <div class="relative" x-data="{ dupOpen: false }" @keydown.escape="dupOpen = false" @click.outside="dupOpen = false">
+                    <button type="button" @click="dupOpen = !dupOpen" class="prop-action-btn prop-action-btn-neutral">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
                         Duplicate
+                        <svg class="w-3 h-3 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
                     </button>
-                </form>
+                    <div x-show="dupOpen" x-cloak x-transition.opacity
+                         class="absolute z-30 mt-1 w-60 rounded-lg border shadow-lg py-1"
+                         style="background:var(--surface, #fff); border-color:var(--border, #e5e7eb);">
+                        <p class="px-3 pt-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Duplicate as</p>
+                        <form method="POST" action="{{ route('corex.properties.duplicate', $property) }}">
+                            @csrf
+                            <input type="hidden" name="target_type" value="sale">
+                            <button type="submit" class="w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 flex items-center gap-2">
+                                For Sale @if($curType === 'sale')<span class="text-[10px]" style="color:var(--text-muted);">(same type — full copy)</span>@endif
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('corex.properties.duplicate', $property) }}">
+                            @csrf
+                            <input type="hidden" name="target_type" value="rental">
+                            <button type="submit" class="w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 flex items-center gap-2">
+                                For Rental @if($curType === 'rental')<span class="text-[10px]" style="color:var(--text-muted);">(same type — full copy)</span>@endif
+                            </button>
+                        </form>
+                        <div class="my-1 border-t" style="border-color:var(--border, #e5e7eb);"></div>
+                        <form method="POST" action="{{ route('corex.properties.change-type', $property) }}"
+                              onsubmit="return confirm('Change this listing from {{ ucfirst($curType) }} to {{ ucfirst($otherType) }}?\n\nA new {{ ucfirst($otherType) }} draft opens with the matching details carried over. The current {{ ucfirst($curType) }} listing is archived and de-listed from the portals (recoverable by admin).')">
+                            @csrf
+                            <button type="submit" class="w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 flex items-center gap-2" style="color:var(--ds-amber, #d97706);">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>
+                                Change type to {{ ucfirst($otherType) }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
 
                 <form method="POST" action="{{ route('corex.properties.destroy', $property) }}" onsubmit="return confirm('Archive this property? It will be soft-deleted and recoverable by admin.')">
                     @csrf @method('DELETE')
@@ -1506,12 +1537,18 @@
                             </div>
                             <div>
                                 <label class="prop-label">Listing Type</label>
-                                @if($isNew)
+                                @if($isNew || $property->listing_type_pending)
                                     <select name="listing_type" class="prop-select prop-field-enum">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
                                     </select>
-                                    <p class="mt-1 text-xs" style="color:var(--text-muted);">Locked after first save. To change, duplicate the listing.</p>
+                                    <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                                        @if($property->listing_type_pending)
+                                            Draft copy — set the type and complete the details. Locks on first save.
+                                        @else
+                                            Locked after first save. To change, duplicate the listing.
+                                        @endif
+                                    </p>
                                 @else
                                     <input type="hidden" name="listing_type" value="{{ $property->listing_type }}">
                                     <input type="text" value="For {{ ucfirst($property->listing_type) }}" disabled class="prop-input prop-field-enum">
