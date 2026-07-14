@@ -563,6 +563,41 @@ class Property extends Model
     }
 
     /**
+     * Property-link roles that are explicitly NOT a party to a document on this property.
+     *
+     * A 'lead' is written by the portal/website lead services (P24, Private Property, the
+     * public site) for someone who ENQUIRED about the listing. They are linked to the
+     * property, and they are very often typed globally as a "Buyer" — but they are not a
+     * party to anything and must never be offered as a signing recipient.
+     */
+    public const PIVOT_NON_SIGNING_ROLES = ['lead'];
+
+    /**
+     * The e-sign role a contact holds ON THIS PROPERTY, derived from its property-link role.
+     *
+     * The property-link role is the authority for who a contact is to THIS document
+     * (esign-ceremony-v3 §2.1). The pivot vocabulary is the human-picked canon
+     * (PropertyContactController::LINK_ROLES) plus the legacy variants the backfills settled
+     * on; it is deliberately wider than the four e-sign roles it maps onto, because
+     * seller/owner and landlord/lessor are the same party under two names.
+     *
+     * Returns null when the link role is absent, unrecognised, or not a signing role at all
+     * (a lead) — the caller decides between falling back and excluding.
+     */
+    public static function esignRoleForPivotRole(?string $pivotRole): ?string
+    {
+        return [
+            'seller'   => 'seller',
+            'owner'    => 'seller',
+            'buyer'    => 'buyer',
+            'landlord' => 'lessor',
+            'lessor'   => 'lessor',
+            'tenant'   => 'lessee',
+            'lessee'   => 'lessee',
+        ][strtolower(trim((string) $pivotRole))] ?? null;
+    }
+
+    /**
      * AT-105 enhancement — ALL contacts attached to this property in a given
      * routing role, in pivot order. Unlike sellerOwnerContact() this is
      * multi-valued (joint sellers / joint buyers) and never collapses to a

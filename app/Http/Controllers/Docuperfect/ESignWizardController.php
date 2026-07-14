@@ -503,37 +503,9 @@ class ESignWizardController extends Controller
 
                     // Agent is always first recipient (added by JS), so just add linked contacts
                     foreach ($prop->contacts as $contact) {
-                        // AT-79: a contact can hold MULTIPLE parent types (Seller AND
-                        // Buyer). Resolve the role from the contact_contact_type pivot,
-                        // preferring the parent whose esign_role the template needs.
-                        // Falls back to the legacy single mirror for pre-migration data.
-                        $parentRows = DB::table('contact_contact_type as cct')
-                            ->join('contact_types as ct', 'ct.id', '=', 'cct.contact_type_id')
-                            ->where('cct.contact_id', $contact->id)
-                            ->whereNull('ct.deleted_at')
-                            ->orderBy('ct.sort_order')
-                            ->get(['ct.name', 'ct.esign_role']);
-
-                        if ($parentRows->isEmpty() && $contact->contact_type_id) {
-                            $legacy = DB::table('contact_types')->where('id', $contact->contact_type_id)->first(['name', 'esign_role']);
-                            if ($legacy) {
-                                $parentRows = collect([$legacy]);
-                            }
-                        }
-
-                        // Choose the parent matching the template's allowed roles.
-                        if (!empty($allowedEsignRoles)) {
-                            $chosen = $parentRows->first(fn ($r) => $r->esign_role && in_array($r->esign_role, $allowedEsignRoles));
-                            if (!$chosen) {
-                                continue; // Contact has no role this template needs.
-                            }
-                        } else {
-                            $chosen = $parentRows->first();
-                        }
-
-                        $recipientRole = $chosen ? strtolower(trim($chosen->name)) : '';
-                        if (empty($recipientRole)) {
-                            $recipientRole = $defaultOwnerRole;
+                        $recipientRole = $this->resolveLinkedContactRole($contact, $allowedEsignRoles, $defaultOwnerRole);
+                        if ($recipientRole === null) {
+                            continue; // Not a party this document needs.
                         }
 
                         $recipients[] = [
@@ -2466,6 +2438,76 @@ class ESignWizardController extends Controller
      * Uses source_type/source_column/source_contact_type from
      * docuperfect_named_fields to resolve each field's value.
      */
+
+    /**
+     * The role a property-linked contact is offered to sign as — from the PROPERTY-LINK role.
+     *
+     * §2.1 doctrine (esign-ceremony-v3): a party's role is the role they hold ON THIS
+     * PROPERTY, not the type they carry globally. A contact typed "Seller" because they sold
+     * a different house last year, but linked to THIS property as a buyer, is a BUYER here.
+     * The global contact type answers "what is this person, generally?" — a question the
+     * document never asks. Only the property link knows who they are to THIS document.
+     *
+     * The global type therefore survives as a FALLBACK for one case only: a link that predates
+     * the role being mandatory and so carries no role at all. It is never the primary source.
+     *
+     * Returns the recipient role label (seller|buyer|lessor|lessee, matching the ContactType
+     * canon the rest of the wizard speaks), or NULL to skip the contact entirely — they are a
+     * lead, or they hold no role this template signs.
+     */
+    private function resolveLinkedContactRole(Contact $contact, array $allowedEsignRoles, string $defaultOwnerRole): ?string
+    {
+        $pivotRole = strtolower(trim((string) ($contact->pivot->role ?? '')));
+
+        // PRIMARY — the property link states who they are here.
+        $linkRole = Property::esignRoleForPivotRole($pivotRole);
+
+        if ($linkRole === null && in_array($pivotRole, Property::PIVOT_NON_SIGNING_ROLES, true)) {
+            // An explicit "not a party" (a portal lead who enquired about the listing). This is
+            // a statement, not a gap — never fall through to the global type, which would offer
+            // a P24 lead typed "Buyer" as a purchaser on the mandate.
+            return null;
+        }
+
+        if ($linkRole !== null) {
+            if (!empty($allowedEsignRoles) && !in_array($linkRole, $allowedEsignRoles, true)) {
+                return null; // Real party on this property, but not one this template signs.
+            }
+
+            return $linkRole;
+        }
+
+        // FALLBACK — the link carries no usable role (a pre-mandatory-role legacy row, or
+        // free-text the backfill flagged AMBIGUOUS and refused to guess at). Only now do we ask
+        // what the contact is globally. AT-79: a contact may hold several parent types, so we
+        // take the one whose esign_role this template actually needs.
+        $parentRows = DB::table('contact_contact_type as cct')
+            ->join('contact_types as ct', 'ct.id', '=', 'cct.contact_type_id')
+            ->where('cct.contact_id', $contact->id)
+            ->whereNull('ct.deleted_at')
+            ->orderBy('ct.sort_order')
+            ->get(['ct.name', 'ct.esign_role']);
+
+        if ($parentRows->isEmpty() && $contact->contact_type_id) {
+            $legacy = DB::table('contact_types')->where('id', $contact->contact_type_id)->first(['name', 'esign_role']);
+            if ($legacy) {
+                $parentRows = collect([$legacy]);
+            }
+        }
+
+        if (!empty($allowedEsignRoles)) {
+            $chosen = $parentRows->first(fn ($r) => $r->esign_role && in_array($r->esign_role, $allowedEsignRoles, true));
+            if (!$chosen) {
+                return null; // Contact has no role this template needs.
+            }
+        } else {
+            $chosen = $parentRows->first();
+        }
+
+        $recipientRole = $chosen ? strtolower(trim((string) $chosen->name)) : '';
+
+        return $recipientRole !== '' ? $recipientRole : $defaultOwnerRole;
+    }
 
     /**
      * Map template signing_parties to allowed esign_role values on contact_types.

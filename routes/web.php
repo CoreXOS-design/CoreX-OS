@@ -1241,11 +1241,6 @@ Route::middleware(['auth', 'permission:manage_performance_settings'])->group(fun
 Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::get('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'index'])
         ->name('admin.p24-suburbs.index');
-    // AT-246 — town→region + region alias (the signed region model, one screen).
-    Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
-        ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
-    Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
-        ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
         ->name('admin.p24-suburbs.store');
     Route::put('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'update'])
