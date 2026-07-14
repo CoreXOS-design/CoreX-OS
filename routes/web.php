@@ -803,6 +803,14 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
 // No auth: the unguessable 40-char token is the credential; identity is proven
 // by an OTP to the recipient's own email before the document ever streams.
 Route::prefix('deals-v2/secure-doc')->group(function () {
+    // AT-264 — PACK flow: ONE link + ONE OTP unlocks the whole group. Registered
+    // BEFORE the /{token} routes (literal 'pack' prefix → zero ambiguity).
+    Route::get('/pack/{groupKey}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packShow'])->name('deals-v2.secure-doc.pack');
+    Route::post('/pack/{groupKey}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packRequestOtp'])->name('deals-v2.secure-doc.pack.otp');
+    Route::post('/pack/{groupKey}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packVerifyOtp'])->name('deals-v2.secure-doc.pack.verify');
+    Route::get('/pack/{groupKey}/download/{distribution}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'packDownload'])->name('deals-v2.secure-doc.pack.download');
+
+    // Per-document flow (unchanged — keeps already-sent links working).
     Route::get('/{token}', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'show'])->name('deals-v2.secure-doc.show');
     Route::post('/{token}/otp', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'requestOtp'])->name('deals-v2.secure-doc.otp');
     Route::post('/{token}/verify', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'verifyOtp'])->name('deals-v2.secure-doc.verify');

@@ -140,7 +140,161 @@ class SecureDocumentController extends Controller
         return $disk->download($document->storage_path, $document->original_name);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // AT-264 — PACK flow: ONE link + ONE OTP unlocks a recipient's WHOLE pack.
+    // A "Send" already groups its documents under a single `group_key`; the pack
+    // link is keyed on that key, one OTP verification (the OTP is email-scoped)
+    // unlocks every document in the group. A single-document send is simply a
+    // pack of one, so the same flow serves it — uniform behaviour. The per-token
+    // routes above stay untouched (existing links already in inboxes keep working).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Pack landing — lists every document in the group behind one PIN gate. */
+    public function packShow(Request $request, string $groupKey)
+    {
+        $rows = $this->resolvePack($groupKey);
+        if (! $rows) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+        $rep = $rows->first();
+
+        // Record the open once per document (so each doc's audit trail shows the
+        // pack was opened); promote each still-"sent" row to "opened".
+        foreach ($rows as $d) {
+            if (! $d->first_opened_at) {
+                $d->update([
+                    'first_opened_at' => now(),
+                    'status' => $d->status === DealDocumentDistribution::STATUS_SENT
+                        ? DealDocumentDistribution::STATUS_OPENED : $d->status,
+                ]);
+            }
+        }
+        DealDocumentAccessLog::record($rep, DealDocumentAccessLog::EVENT_LINK_CLICKED,
+            ['pack' => $groupKey, 'docs' => $rows->count()], $request->ip(), $request->userAgent());
+
+        return view('deals-v2.secure-doc.pack', [
+            'groupKey'    => $groupKey,
+            'rows'        => $rows,
+            'rep'         => $rep,
+            'otpRequired' => (bool) $rep->otp_required,
+            'verified'    => $this->isPackVerified($request, $groupKey, $rep),
+        ]);
+    }
+
+    /** Send ONE PIN for the whole pack to the recipient's email. */
+    public function packRequestOtp(Request $request, string $groupKey)
+    {
+        $rows = $this->resolvePack($groupKey);
+        if (! $rows) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+        $rep = $rows->first();
+        if (! $rep->otp_required) {
+            return redirect()->route('deals-v2.secure-doc.pack', $groupKey);
+        }
+
+        $blocked = $this->otp->throttle('deal_doc_pack:' . $groupKey, $rep->recipient_email);
+        if ($blocked) {
+            return redirect()->route('deals-v2.secure-doc.pack', $groupKey)
+                ->with('otp_error', $blocked === 'cooldown'
+                    ? 'A PIN was just sent — please wait a moment before requesting another.'
+                    : 'Too many PIN requests. Please try again later.');
+        }
+
+        $this->otp->issue(self::OTP_PURPOSE, $rep->recipient_email, [
+            'subject'    => $rep,
+            'ip'         => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'audit'      => $this->auditSink($rep, $request),
+        ]);
+
+        return redirect()->route('deals-v2.secure-doc.pack', $groupKey)
+            ->with('otp_sent', true)
+            ->with('status', 'A one-time PIN has been emailed to you.');
+    }
+
+    /** Verify the PIN once; unlock every document in the pack for this session. */
+    public function packVerifyOtp(Request $request, string $groupKey)
+    {
+        $rows = $this->resolvePack($groupKey);
+        if (! $rows) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+        $rep = $rows->first();
+        $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
+
+        $otp = $this->otp->verify(self::OTP_PURPOSE, $rep->recipient_email, trim($data['code']), [
+            'audit' => $this->auditSink($rep, $request),
+        ]);
+        if (! $otp) {
+            return redirect()->route('deals-v2.secure-doc.pack', $groupKey)
+                ->with('otp_sent', true)
+                ->with('otp_error', 'That PIN was incorrect or has expired. Please try again.');
+        }
+
+        $request->session()->put($this->packSessionKey($groupKey), true);
+
+        return redirect()->route('deals-v2.secure-doc.pack', $groupKey)
+            ->with('status', 'Verified — your documents are ready to download.');
+    }
+
+    /** Stream one document from the pack — only after the single pack verification. */
+    public function packDownload(Request $request, string $groupKey, string $distribution)
+    {
+        $rows = $this->resolvePack($groupKey);
+        if (! $rows) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+        $rep = $rows->first();
+        if (! $this->isPackVerified($request, $groupKey, $rep)) {
+            return redirect()->route('deals-v2.secure-doc.pack', $groupKey)
+                ->with('otp_error', 'Please verify your PIN before downloading.');
+        }
+
+        // The requested distribution MUST belong to this group (never a foreign id).
+        $dist = $rows->firstWhere('id', (int) $distribution);
+        $document = $dist?->document;
+        if (! $dist || ! $document) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+        $disk = Storage::disk($document->disk ?? 'local');
+        if (! $disk->exists($document->storage_path)) {
+            return response()->view('deals-v2.secure-doc.unavailable', [], 410);
+        }
+
+        DealDocumentAccessLog::record($dist, DealDocumentAccessLog::EVENT_DOWNLOADED,
+            ['pack' => $groupKey], $request->ip(), $request->userAgent());
+        $dist->update(['status' => DealDocumentDistribution::STATUS_DOWNLOADED]);
+
+        return $disk->download($document->storage_path, $document->original_name);
+    }
+
     // ── Helpers ──
+
+    /** All live secure-link rows in a group (shared recipient_email + otp_required). */
+    private function resolvePack(string $groupKey): ?\Illuminate\Support\Collection
+    {
+        $rows = DealDocumentDistribution::withoutGlobalScopes()
+            ->where('group_key', $groupKey)
+            ->where('delivery_mode', DealDocumentDistribution::MODE_SECURE_LINK)
+            ->with(['document.documentType'])
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (DealDocumentDistribution $d) => $d->isSecureLink() && ! $d->isRevoked())
+            ->values();
+
+        return $rows->isEmpty() ? null : $rows;
+    }
+
+    private function isPackVerified(Request $request, string $groupKey, DealDocumentDistribution $rep): bool
+    {
+        return ! $rep->otp_required || $request->session()->get($this->packSessionKey($groupKey)) === true;
+    }
+
+    private function packSessionKey(string $groupKey): string
+    {
+        return 'secure_doc_pack_verified_' . $groupKey;
+    }
 
     private function resolve(string $token): ?DealDocumentDistribution
     {
