@@ -17,6 +17,7 @@ class SignatureRequest extends Model
         'party_role',
         'role_index',
         'signing_order',
+        'signing_group',
         'signer_name',
         'signer_email',
         'signer_id_number',
@@ -48,6 +49,8 @@ class SignatureRequest extends Model
 
     protected $casts = [
         'role_index' => 'integer',
+        // HD-5 — NULL is meaningful: "a group of one" (checkpoints on its own, today's behaviour).
+        'signing_group' => 'integer',
         'token_expires_at' => 'datetime',
         'sent_at' => 'datetime',
         'viewed_at' => 'datetime',
