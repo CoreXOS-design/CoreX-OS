@@ -2596,6 +2596,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/api/v1/system-health', [\App\Http\Controllers\Admin\ServerHealthController::class, 'data'])->name('api.v1.system-health');
     });
 
+    // ── Agency Billing (AT-11) — what agencies pay CoreX. Spec: .ai/specs/agency-billing.md
+    //
+    // Agency-facing: READ ONLY. An admin sees their own bill and the arithmetic
+    // behind it. Permission-gated so it can be granted per role.
+    Route::middleware('permission:billing.view')->group(function () {
+        Route::get('/billing', [\App\Http\Controllers\Billing\BillingController::class, 'index'])->name('billing.index');
+    });
+
+    // System Developer: every agency's bill + the custom-amount / discount controls.
+    // owner_only and DELIBERATELY no permission key — a permission key is grantable
+    // via Role Manager, and an agency admin handed it would see (and set) every other
+    // agency's commercial terms. Same rationale as Dev Settings / Demo Access below.
+    Route::middleware('owner_only')->prefix('admin/billing')->name('admin.billing.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'index'])->name('index');
+        Route::put('/{agency}', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'update'])->name('update');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active/toggle-maintenance are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');

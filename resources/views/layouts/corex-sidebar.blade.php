@@ -1525,6 +1525,16 @@
         </a>
         @endpermission
 
+        {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
+        @permission('billing.view')
+        <a href="{{ route('billing.index') }}" class="corex-nav-item {{ request()->routeIs('billing.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
+            </svg>
+            <span>Billing</span>
+        </a>
+        @endpermission
+
         {{-- Knowledge Base --}}
         @permission('access_knowledge_base')
         <a href="{{ route('admin.knowledge.index') }}" class="corex-nav-item {{ request()->routeIs('admin.knowledge.*') ? 'active' : '' }}">
@@ -1765,6 +1775,12 @@
                 @permission('mic.view_ai_costs')
                 <a href="{{ route('admin.ai-usage.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ai-usage.*') ? 'active' : '' }}">AI Usage</a>
                 @endpermission
+
+                {{-- Agency Billing (AT-11) — every agency's CoreX bill + custom amounts/discounts.
+                     No @permission gate BY DESIGN: a permission key is grantable via Role Manager,
+                     and an agency admin handed it would see every other agency's commercial terms.
+                     Already inside @if($isOwner). Spec: agency-billing.md §9. --}}
+                <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
             </div>
         </div>
 
