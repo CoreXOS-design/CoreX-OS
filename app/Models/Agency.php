@@ -175,6 +175,10 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        // AT-267 — Assistants. Ships OFF for every agency; also the resolver's first
+        // check, so flipping it off gives every assistant zero permissions instantly.
+        'assistants_enabled',
+        'assistant_fica_required_default',
         'show_prospected_badge',
         'properties_sort_mode',
         'properties_status_priority',
@@ -346,6 +350,8 @@ class Agency extends Model
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
+        'assistants_enabled' => 'boolean',
+        'assistant_fica_required_default' => 'boolean',
         'show_prospected_badge' => 'boolean',
         'default_branch_id' => 'integer',
         'p24_password' => 'encrypted',
