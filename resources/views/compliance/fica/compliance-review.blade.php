@@ -190,8 +190,8 @@
                 </div>
             </form>
 
-            {{-- AT-236 — a secondary officer who cannot self-approve can refer instead --}}
-            @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true])
+            {{-- AT-236 — Escalate to CO (any non-primary-CO reviewer, e.g. an RO who cannot self-approve) --}}
+            @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
 
             {{-- AT-236 — CO returns a REFERRED pack to whoever referred it, with comments --}}
             @if($submission->status === 'referred_to_co')
