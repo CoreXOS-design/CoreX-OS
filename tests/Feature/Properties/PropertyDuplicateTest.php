@@ -137,6 +137,132 @@ final class PropertyDuplicateTest extends TestCase
         $this->assertSame('seller', $clone->contacts()->first()->pivot->role);
     }
 
+    /* ───────────────────────── AT-262 — duplicate/change listing type ─────────────────────────
+     * Andre's design + Johan's extension: duplicate optionally AS the other type; same type = full
+     * copy, cross type = matching fields only; the clone opens in a completable draft where the
+     * listing type is NOT locked (listing_type_pending) until the first real save. "Change type" =
+     * duplicate to the other type + archive (soft-delete + de-list) the original.
+     */
+
+    /** Duplicate AS rental from a sale: the clone carries the target type, in an unlocked draft. */
+    public function test_duplicate_as_the_other_type_sets_target_and_leaves_type_unlocked(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'sale']);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/duplicate", ['target_type' => 'rental'])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+
+        $this->assertSame('rental', $clone->listing_type);
+        $this->assertTrue((bool) $clone->listing_type_pending, 'a fresh duplicate opens with the type unlocked');
+        $this->assertSame('draft', $clone->status);
+    }
+
+    /** Cross-type rental→sale carries the matching fields only — the rental-only fields are cleared. */
+    public function test_cross_type_duplicate_clears_the_other_types_fields(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'   => 'rental',
+            'rental_amount'  => 12000,
+            'deposit_amount' => 24000,
+        ]);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/duplicate", ['target_type' => 'sale'])
+            ->assertRedirect();
+
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+
+        $this->assertSame('sale', $clone->listing_type);
+        $this->assertNull($clone->rental_amount, 'sale copy must not carry the source rental amount');
+        $this->assertNull($clone->deposit_amount, 'sale copy must not carry the source rental deposit');
+    }
+
+    /** Same-type duplicate is a full copy and stays unlocked until completed. */
+    public function test_same_type_duplicate_is_a_full_copy(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'  => 'rental',
+            'rental_amount' => 8500,
+        ]);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/duplicate", ['target_type' => 'rental'])
+            ->assertRedirect();
+
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+
+        $this->assertSame('rental', $clone->listing_type);
+        $this->assertSame(8500, (int) $clone->rental_amount, 'same-type copy carries the rental fields');
+        $this->assertTrue((bool) $clone->listing_type_pending);
+    }
+
+    /** Change type = new other-type draft AND the original is archived (soft-deleted) + de-listed. */
+    public function test_change_type_creates_other_type_draft_and_archives_the_original(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'            => 'sale',
+            'published_at'            => now(),
+            'p24_syndication_enabled' => true,
+            'pp_syndication_enabled'  => true,
+        ]);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/change-type")
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        // Original archived — soft-deleted, de-listed, status archived (history preserved).
+        $original = Property::withTrashed()->findOrFail($p->id);
+        $this->assertNotNull($original->deleted_at, 'the original must be soft-deleted, never hard-deleted');
+        $this->assertSame('archived', $original->status);
+        $this->assertFalse((bool) $original->p24_syndication_enabled);
+        $this->assertFalse((bool) $original->pp_syndication_enabled);
+
+        // New draft is the OTHER type, unlocked, ready to complete.
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+        $this->assertSame('rental', $clone->listing_type);
+        $this->assertTrue((bool) $clone->listing_type_pending);
+        $this->assertSame('draft', $clone->status);
+    }
+
+    /** Completing the draft (a normal save) commits the chosen type and clears the pending flag. */
+    public function test_saving_a_pending_draft_locks_the_type(): void
+    {
+        $p = $this->makeProperty([
+            'listing_type'         => 'rental',
+            'listing_type_pending' => true,
+        ]);
+        // Stamp ownership + branch so the linked contact is visible under any
+        // ContactScope data-scope (own/branch/all) when the update guard counts it.
+        $contact = Contact::create([
+            'agency_id'           => $this->agency->id,
+            'branch_id'           => $this->branch->id,
+            'created_by_user_id'  => $this->user->id,
+            'first_name'          => 'Seller',
+            'last_name'           => 'One',
+        ]);
+        $p->contacts()->attach($contact->id, ['role' => 'seller']);
+
+        $this->actingAs($this->user)->put("/corex/properties/{$p->id}", [
+            'title'        => 'Seaside Cottage',
+            'price'        => 2100000,
+            'suburb'       => 'Uvongo',
+            'beds'         => 3,
+            'baths'        => 2,
+            'garages'      => 1,
+            'listing_type' => 'sale',
+            'agent_id'     => $this->user->id,
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        $p->refresh();
+        $this->assertFalse((bool) $p->listing_type_pending, 'the first real save clears the pending window');
+        $this->assertSame('sale', $p->listing_type, 'the chosen type is committed on save');
+    }
+
     public function test_cannot_duplicate_another_agencys_property(): void
     {
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
