@@ -99,7 +99,7 @@ final class SecureDocumentPackTest extends TestCase
         // Request ONE pack PIN; capture the plaintext code from the email.
         $this->post(route('deals-v2.secure-doc.pack.otp', $gk))->assertRedirect();
         $code = null;
-        Mail::assertSent(OtpMail, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
+        Mail::assertSent(OtpMail::class, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
         $this->assertNotNull($code, 'a PIN email must be sent');
 
         // Before verifying, a download is refused (redirects to the gate).
@@ -129,7 +129,7 @@ final class SecureDocumentPackTest extends TestCase
 
         $this->post(route('deals-v2.secure-doc.pack.otp', $gk))->assertRedirect();
         $code = null;
-        Mail::assertSent(OtpMail, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
+        Mail::assertSent(OtpMail::class, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
 
         $this->post(route('deals-v2.secure-doc.pack.verify', $gk), ['code' => $code])->assertRedirect();
         $this->get(route('deals-v2.secure-doc.pack.download', ['groupKey' => $gk, 'distribution' => $dists[0]->id]))
@@ -146,7 +146,7 @@ final class SecureDocumentPackTest extends TestCase
         // Verify the first pack.
         $this->post(route('deals-v2.secure-doc.pack.otp', $gk))->assertRedirect();
         $code = null;
-        Mail::assertSent(OtpMail, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
+        Mail::assertSent(OtpMail::class, function (OtpMail $m) use (&$code) { $code = $m->code; return true; });
         $this->post(route('deals-v2.secure-doc.pack.verify', $gk), ['code' => $code])->assertRedirect();
 
         // A foreign distribution id under this group's URL is rejected (410).
