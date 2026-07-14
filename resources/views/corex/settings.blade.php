@@ -2110,6 +2110,22 @@
                     </form>
                 </div>
 
+                {{-- Filing register per page --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Filing register per page</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many entries to load on each page of the Filing Register before paging to the next. Keeps the page light on agencies with thousands of filings. Any number from 10 to 200 (default 50).</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.filing-register-per-page') }}" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        <input type="number" name="filing_register_page_size" min="10" max="200" step="1" required
+                               value="{{ old('filing_register_page_size', $filingRegisterPerPage ?? 50) }}"
+                               class="w-24 rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </form>
+                </div>
+
                 {{-- Default Property Ordering (agency-wide) --}}
                 <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div>
