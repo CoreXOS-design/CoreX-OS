@@ -422,6 +422,42 @@ class DocxParserService
                 ];
             }
 
+            // --- Source 4 (AT-262): the markers the import screen actually TEACHES ---
+            //
+            // The guide above the standard upload form tells authors to mark fill-in
+            // areas with @@@@ / %%%% / #### / ~~~~NAME~~~~. Those are CdsParserService's
+            // markers — and this parser, which is what the standard form runs, read only
+            // underscore runs and square brackets. So an author who followed the printed
+            // instructions got ZERO fields back and was told the import was ready.
+            //
+            // Accept them here, additively. Underscores and brackets still work exactly
+            // as before (they are the Word-native convention and thousands of documents
+            // use them); the taught markers now work too. We teach both, and we read
+            // both. The patterns come from CdsParserService::ACCEPTED_MARKERS so there is
+            // one definition of the syntax, not a third copy.
+            foreach (CdsParserService::acceptedMarkers() as $marker) {
+                preg_match_all('/' . $marker['pattern'] . '/', $lineText, $markerMatches, PREG_OFFSET_CAPTURE);
+
+                foreach ($markerMatches[0] as $match) {
+                    $raw    = $match[0];
+                    $offset = $match[1];
+                    $contextBefore = mb_substr($lineText, max(0, $offset - 40), min($offset, 40));
+                    $contextAfter  = mb_substr($lineText, $offset + mb_strlen($raw), 40);
+
+                    $fields[] = [
+                        'raw'            => $raw,
+                        'context'        => trim($contextBefore . ' [___] ' . $contextAfter),
+                        'context_before' => trim($contextBefore),
+                        'context_after'  => trim($contextAfter),
+                        'position'       => $position + $offset,
+                        'source'         => 'marker',
+                        // Carries WHICH marker it was, so the review screen can pre-select
+                        // the right type instead of making the author re-say it.
+                        'marker_type'    => $marker['label'],
+                    ];
+                }
+            }
+
             // --- Source 3: Square bracket fields [Label Text] ---
             preg_match_all('/\[([^\]]{1,80})\]/', $lineText, $bracketMatches, PREG_OFFSET_CAPTURE);
 
