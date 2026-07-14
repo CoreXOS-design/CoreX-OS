@@ -1215,6 +1215,12 @@ class PropertyController extends Controller
             }
         }
 
+        // AT-262 — a duplicated draft opened with an editable listing type; the first
+        // real save commits the chosen type and locks it (clears the pending window).
+        if ($property->listing_type_pending) {
+            $data['listing_type_pending'] = false;
+        }
+
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
         if (isset($data['p24_suburb_id'])
@@ -1292,10 +1298,83 @@ class PropertyController extends Controller
             ->with('success', 'Property listing removed.');
     }
 
-    public function duplicate(Property $property)
+    /**
+     * AT-262 (Andre's design + Johan's extension) — Duplicate a listing, optionally
+     * AS the other listing type. Same type = full copy; cross type = matching fields
+     * only (the type-specific fields are left for the user). The clone opens in a
+     * completable DRAFT where the listing type is NOT locked until completion.
+     */
+    public function duplicate(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
 
+        $currentType = $property->listing_type ?: 'sale';
+        $targetType  = $request->input('target_type', $currentType);
+        if (! in_array($targetType, ['sale', 'rental'], true)) {
+            $targetType = $currentType;
+        }
+
+        $clone = $this->makeClone($property, $targetType);
+
+        // Clone + its contact links are one unit of work: a half-copied property
+        // with no seller attached is worse than no copy at all.
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+        });
+
+        $msg = $targetType === $currentType
+            ? 'Property duplicated as a draft. Complete the details and save.'
+            : 'Duplicated as ' . ($targetType === 'rental' ? 'a Rental' : 'a Sale')
+                . ' — the matching details carried over; fill the '
+                . ($targetType === 'rental' ? 'rental (monthly, deposit, lease)' : 'sale (asking price)')
+                . ' fields, then save.';
+
+        return redirect()->route('corex.properties.show', $clone)->with('success', $msg);
+    }
+
+    /**
+     * AT-262 — "Change listing type" = duplicate to the OTHER type, then ARCHIVE the
+     * current listing (soft-delete, history preserved, syndication de-listed) and hand
+     * the user the completable draft. No hard delete (non-negotiable #1).
+     */
+    public function changeType(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $currentType = $property->listing_type ?: 'sale';
+        $targetType  = $currentType === 'rental' ? 'sale' : 'rental';
+
+        $clone = $this->makeClone($property, $targetType);
+
+        DB::transaction(function () use ($clone, $property) {
+            $clone->save();
+            foreach ($property->contacts as $contact) {
+                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+            }
+            // Archive the original — de-list syndication (the syndication path withdraws
+            // it from the portals) and soft-delete so history is preserved. saveQuietly so
+            // the observer's re-syndication hooks don't fight the withdrawal.
+            $property->p24_syndication_enabled = false;
+            $property->pp_syndication_enabled  = false;
+            $property->p24_syndication_status  = 'withdrawn';
+            $property->pp_syndication_status   = 'withdrawn';
+            $property->status                  = 'archived';
+            $property->saveQuietly();
+            $property->delete(); // soft delete
+        });
+
+        return redirect()->route('corex.properties.show', $clone)->with('success',
+            'Changed to ' . ($targetType === 'rental' ? 'Rental' : 'Sale')
+            . '. The old ' . ($currentType === 'rental' ? 'Rental' : 'Sale')
+            . ' listing was archived and de-listed. Complete the new listing and save.');
+    }
+
+    /** Build a draft clone as $targetType — shared fields carried, other-type fields cleared. */
+    private function makeClone(Property $property, string $targetType): Property
+    {
         $clone = $property->replicate([
             'external_id', 'published_at', 'p24_ref', 'p24_syndication_enabled',
             'p24_syndication_status', 'p24_last_submitted_at', 'p24_activated_at',
@@ -1308,31 +1387,30 @@ class PropertyController extends Controller
 
         $clone->title  = ($property->title ?? 'Property') . ' (Copy)';
         $clone->status = 'draft';
-        // The copy starts with NO price so the agent must set one — but `price` is
-        // `bigint unsigned NOT NULL DEFAULT 0`, so writing an explicit NULL threw
-        // 1048 and duplicate 500'd for EVERY property, not just one with odd data.
-        // 0 is this schema's "unset" (604 rows carry it; not one row is NULL), and
-        // empty(0) is true, so publishToggle()'s readiness gate still demands a
-        // real Price before the copy can go live. Same intent, a value the column
-        // actually accepts.
-        $clone->price  = 0;
+        $clone->listing_type = $targetType;
+        // Type NOT locked until the user completes the draft.
+        $clone->listing_type_pending = true;
+        // `price` is bigint unsigned NOT NULL DEFAULT 0; 0 is this schema's "unset"
+        // (empty(0) is true, so the publish-readiness gate still demands a real price).
+        $clone->price = 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
         $clone->pp_syndication_enabled = false;
 
-        // Clone + its contact links are one unit of work: a half-copied property
-        // with no seller attached is worse than no copy at all.
-        DB::transaction(function () use ($clone, $property) {
-            $clone->save();
-
-            foreach ($property->contacts as $contact) {
-                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+        // Cross-type: carry only the matching fields — clear the fields specific to the
+        // type we are NOT becoming, so the user completes the target-type fields fresh.
+        if ($targetType === 'sale') {
+            foreach (['rental_amount', 'deposit_amount', 'commission_percent', 'admin_fee',
+                      'marketing_fee', 'lease_start_date', 'lease_end_date', 'rental_images_json'] as $rentalField) {
+                if (\Illuminate\Support\Facades\Schema::hasColumn('properties', $rentalField)) {
+                    $clone->{$rentalField} = null;
+                }
             }
-        });
+        }
+        // target === 'rental': the sale price is already reset to 0; rental fields start blank.
 
-        return redirect()->route('corex.properties.show', $clone)
-            ->with('success', 'Property duplicated. Update the details and save.');
+        return $clone;
     }
 
     public function publishToggle(Request $request, Property $property)
