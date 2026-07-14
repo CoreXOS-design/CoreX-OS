@@ -1,9 +1,16 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-@php $isNew = !$property->exists; @endphp
+@php
+    $isNew = !$property->exists;
+    // Saving a compliant, Active listing makes its portal copies stale that instant.
+    // PropertyController::shouldPromptSyndication() flashes open_syndication on that
+    // save, so the agent lands here with the panel already open on "Refresh all
+    // portals" instead of leaving P24/PP/the website advertising the old listing.
+    $synOpenOnLoad = !$isNew && session('open_syndication');
+@endphp
 <div class="w-full space-y-4"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
@@ -4274,9 +4281,16 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                {{-- Use the block form below, never the inline one-liner: the inline form
-                     mis-compiles an expression containing nested parens (the int cast here)
-                     and silently stops compiling the rest of the file. --}}
+                {{-- Keep this a block, never the one-liner form. (The @@ below are Blade
+                     escapes — they must NOT become live directives inside this comment.)
+
+                     Blade lifts raw PHP out with /(?<!@)@@php(.*?)@@endphp/s BEFORE it
+                     strips comments or compiles directives, and that regex has no guard
+                     for the @@php(...) one-liner. So a lone one-liner is read as a block
+                     OPENER and swallows every line up to the next @@endphp in the file.
+                     Here it reached the History tab's block ~280 lines below, so that
+                     tab's @@if never compiled and the page died on "unexpected endif" —
+                     the entire property page 500'd. (AT-243 regression, fixed in AT-252.) --}}
                 @php
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp

@@ -25,6 +25,21 @@ class TourRegistryIntegrityTest extends TestCase
         foreach (TourRegistry::all() as $key => $tour) {
             $this->assertSame($key, $tour['key'] ?? null, "Tour '$key' key mismatch");
             $this->assertNotEmpty($tour['title'] ?? null, "Tour '$key' has no title");
+
+            // External-link entries (e.g. 'mobile-app') are directory cards that
+            // open a URL — they carry no route and drive no spotlight steps.
+            if (! empty($tour['external_url'])) {
+                $this->assertStringStartsWith(
+                    'https://',
+                    $tour['external_url'],
+                    "External tour '$key' must link over https"
+                );
+                $this->assertArrayNotHasKey('route', $tour, "External tour '$key' must not bind a route");
+                $this->assertArrayNotHasKey('steps', $tour, "External tour '$key' must not declare steps");
+
+                continue;
+            }
+
             $this->assertNotEmpty($tour['route'] ?? null, "Tour '$key' has no route");
             $this->assertTrue(
                 Route::has($tour['route']),
@@ -37,6 +52,19 @@ class TourRegistryIntegrityTest extends TestCase
                 $this->assertNotEmpty($step['body'] ?? null, "Tour '$key' step $i has no body");
             }
         }
+    }
+
+    public function test_mobile_app_entry_links_out_and_never_drives_the_engine(): void
+    {
+        $tour = TourRegistry::find('mobile-app');
+
+        $this->assertNotNull($tour, 'The Mobile app card is missing from the tour catalogue');
+        $this->assertSame('Mobile app', $tour['title']);
+        $this->assertSame('https://corexweb.co.za/mobile-app', $tour['external_url']);
+
+        // No route means the spotlight engine can never bind it to a page: the
+        // "?" launcher and auto-start both go through forRoute().
+        $this->assertNull(TourRegistry::forRoute('corex.guided-tours.index'));
     }
 
     public function test_defs_keys_are_unique_and_do_not_clobber_core(): void
@@ -68,7 +96,7 @@ class TourRegistryIntegrityTest extends TestCase
         }
 
         foreach (TourRegistry::all() as $key => $tour) {
-            foreach ($tour['steps'] as $step) {
+            foreach ($tour['steps'] ?? [] as $step) {
                 if (preg_match('/^\[data-tour="([^"]+)"\]$/', $step['element'], $m)) {
                     $this->assertStringContainsString(
                         'data-tour="'.$m[1].'"',

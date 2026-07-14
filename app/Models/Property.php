@@ -816,20 +816,56 @@ class Property extends Model
     }
 
     /**
+     * The listing is CONCLUDED — the deal is done and it must never be advertised
+     * as available again. Sale side: sold/transferred. Rental side: rented/let_out
+     * (the rental equivalent of "sold", and the pair everyone forgets).
+     */
+    private const CONCLUDED_STATUSES = ['sold', 'transferred', 'rented', 'let_out'];
+
+    /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
+    private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
+
+    /**
+     * THE single source of truth for reading `status`. ALWAYS compare against this,
+     * never against the raw attribute.
+     *
+     * `properties.status` is NOT normalised on write and is genuinely mixed-case in
+     * production: the wizard writes lowercase ('active', 'withdrawn'), while the P24
+     * sync writes capitalised labels ('Active' — 444 rows, 'Sold' — 60, 'Rented').
+     * A case-sensitive `in_array($status, ['sold', …], true)` therefore MISSES every
+     * 'Sold' row and falls through to the default arm — which is how 60 SOLD
+     * properties came to be badged "For Sale" on the pickers and "FOR SALE" on
+     * generated ad cards. Same bug-class as [[isRental]] and the same cure: tolerate
+     * the vocabulary in one place so no caller has to know it varies.
+     */
+    public function normalizedStatus(): string
+    {
+        return strtolower(trim((string) $this->status));
+    }
+
+    /** A concluded listing (sold / transferred / rented / let out). */
+    public function isConcluded(): bool
+    {
+        return in_array($this->normalizedStatus(), self::CONCLUDED_STATUSES, true);
+    }
+
+    /**
      * Honest, picker-facing status label (For Sale / Sold / Under Offer / To Let /
      * Withdrawn / Expired …). Distinct from the marketing-card badge — pickers want
      * the real lifecycle state so an agent can tell a live listing from a dead one.
      */
     public function statusBadge(): string
     {
-        $status = (string) $this->status;
+        $status = $this->normalizedStatus();
 
         return match (true) {
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
-            in_array($status, ['withdrawn', 'cancelled', 'expired', 'let_out', 'unavailable', 'archived', 'draft'], true)
-                => ucwords(str_replace('_', ' ', $status)),
-            ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'To Let',
+            // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
+            // would advertise a tenanted property as available.
+            in_array($status, ['rented', 'let_out'], true)   => ucwords(str_replace('_', ' ', $status)),
+            in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
+            $this->isRental()                                => 'To Let',
             default => 'For Sale',
         };
     }
@@ -1033,6 +1069,30 @@ class Property extends Model
     }
 
     /**
+     * THE single source of truth for "is this listing a rental?". Every surface
+     * that renders, prices, or labels a listing asks this — never `listing_type
+     * === 'rental'` inline.
+     *
+     * It is deliberately case-insensitive and accepts the whole vocabulary,
+     * because the column is NOT normalised on write: the P24 CSV importer
+     * (P24ListingsCsvParser) stores capitalised 'Rental'/'Sale', the UI form
+     * stores lowercase 'sale'/'rental', and the public website API has long
+     * accepted 'to_let'/'to-let'/'lease'. Case-sensitive checks against
+     * 'rental' therefore MISS importer-created rentals and silently render them
+     * as sales — which is exactly how a rental came to be advertised "For Sale"
+     * on the live preview page. Tolerate the vocabulary in one place so no
+     * caller has to know it exists.
+     */
+    public function isRental(): bool
+    {
+        return in_array(
+            strtolower(trim((string) $this->listing_type)),
+            ['rental', 'to_let', 'to-let', 'lease'],
+            true,
+        );
+    }
+
+    /**
      * The single source of truth for a listing's price across display,
      * syndication payloads, and readiness gates. Rentals carry the amount in
      * `rental_amount` (the sale `price` column is 0/null on a rental); sales use
@@ -1042,7 +1102,7 @@ class Property extends Model
      */
     public function effectivePrice(): float
     {
-        return strtolower((string) $this->listing_type) === 'rental'
+        return $this->isRental()
             ? (float) ($this->rental_amount ?? 0)
             : (float) ($this->price ?? 0);
     }
@@ -1181,7 +1241,7 @@ class Property extends Model
             $s = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $s) ?? '');
             return trim($s, '-') ?: 'property';
         };
-        $section = $this->listing_type === 'rental' ? 'to-rent' : 'for-sale';
+        $section = $this->isRental() ? 'to-rent' : 'for-sale';
         $domain  = 'www.property24.com';
         return sprintf(
             'https://%s/%s/%s/%s/%s/%s/%s',
@@ -1234,7 +1294,7 @@ class Property extends Model
             $s = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($s ?? '')) ?? '');
             return trim($s, '-') ?: 'property';
         };
-        $section = $this->listing_type === 'rental' ? 'to-rent' : 'for-sale';
+        $section = $this->isRental() ? 'to-rent' : 'for-sale';
         return sprintf(
             'https://www.privateproperty.co.za/%s/%s/%s/%s/%s',
             $section,
@@ -1771,11 +1831,19 @@ class Property extends Model
         // a SUB-LABEL on a For-Sale base (For Sale + Pending banner), so a pending
         // listing is still actively FOR SALE on the marketing card. Only a genuine
         // 'under_offer' base status reads "UNDER OFFER".
+        // Read through normalizedStatus(): the raw column is mixed-case (P24 writes
+        // 'Sold'), and a case-sensitive compare here put "FOR SALE" on the ad card
+        // of 60 SOLD properties.
+        $adStatus = $this->normalizedStatus();
+
         $statusBadge = match (true) {
-            in_array($this->status, ['sold', 'transferred'], true)       => 'SOLD',
-            $this->status === 'under_offer'                              => 'UNDER OFFER',
-            ($this->listing_type === 'rental' || $this->listing_type === 'to_let') => 'TO LET',
-            default                                                      => 'FOR SALE',
+            in_array($adStatus, ['sold', 'transferred'], true) => 'SOLD',
+            // The rental equivalent of SOLD. Without this a tenanted property
+            // generates an ad advertising it "TO LET".
+            in_array($adStatus, ['rented', 'let_out'], true)   => strtoupper(str_replace('_', ' ', $adStatus)),
+            $adStatus === 'under_offer'                        => 'UNDER OFFER',
+            $this->isRental()                                  => 'TO LET',
+            default                                            => 'FOR SALE',
         };
 
         return [

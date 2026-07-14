@@ -208,6 +208,74 @@ if ($SkipPipelineGate) {
     }
 }
 
+# -- 7. Portal sync cost gate --------------------------------------------------
+# The SAME discipline as the e-sign moat above, for the same reason: a class of
+# regression that no assertion catches and no pipeline turns red.
+#
+# A Refresh of a listing where NOTHING changed must cost exactly one P24 call —
+# the listing POST. That contract has been broken twice in production, and both
+# times the only alarm was an agent saying "Refresh feels slow":
+#
+#   1. Every refresh re-uploaded the whole photo gallery  (60s+ per refresh)
+#      -> fixed by properties.p24_image_signature
+#   2. Then an unconditional agent profile push + agent photo upload was added
+#      to the submit path, per agent, on every refresh -- quietly undoing it,
+#      and putting P24's 15-120s GET /agencies/{id}/agents back on the hot path.
+#
+# Cost is invisible to a green test run. So any change to the portal sync path
+# must land with a diff in tests/Feature/Syndication/ -- where
+# Property24RefreshCostTest asserts the one-call budget outright.
+$portalSyncFiles = @(
+    'app/Services/Syndication/Property24/Property24SyndicationService.php',
+    'app/Services/Syndication/Property24/Property24ListingMapper.php',
+    'app/Services/Syndication/Property24/Property24ApiClient.php',
+    'app/Services/PrivateProperty/PrivatePropertySyndicationService.php',
+    'app/Services/PrivateProperty/PrivatePropertyListingMapper.php',
+    'app/Jobs/SubmitListingToProperty24.php'
+)
+
+if ($SkipPipelineGate) {
+    Write-Host ''
+    Write-Host '7. Portal sync cost gate -- skipped (-SkipPipelineGate)' -ForegroundColor DarkGray
+} else {
+    Write-Host ''
+    Write-Host '7. Portal sync cost gate' -ForegroundColor Yellow
+
+    $changedNorm = $allChanged | ForEach-Object { ($_ -replace '\\', '/').ToLower() }
+
+    $portalChanged = @()
+    foreach ($pf in $portalSyncFiles) {
+        if ($changedNorm -contains $pf.ToLower()) {
+            $portalChanged += $pf
+        }
+    }
+
+    if ($portalChanged.Count -gt 0) {
+        $syndTests = $changedNorm | Where-Object { $_ -like 'tests/feature/syndication/*' }
+
+        if ($syndTests.Count -eq 0) {
+            Write-Host '   FAIL: portal sync files changed without a test diff in' -ForegroundColor Red
+            Write-Host '   tests/Feature/Syndication/' -ForegroundColor Red
+            Write-Host '' -ForegroundColor Red
+            Write-Host '   Portal sync files changed:' -ForegroundColor Red
+            foreach ($f in $portalChanged) {
+                Write-Host "     - $f" -ForegroundColor Red
+            }
+            Write-Host '' -ForegroundColor Red
+            Write-Host '   A refresh of an UNCHANGED listing must cost exactly ONE P24' -ForegroundColor Red
+            Write-Host '   call (the listing POST). If your change adds a call that fires' -ForegroundColor Red
+            Write-Host '   when nothing changed, gate it on a signature -- never re-send' -ForegroundColor Red
+            Write-Host '   bytes the portal already holds. Property24RefreshCostTest is' -ForegroundColor Red
+            Write-Host '   the lock; extend it to cover what you changed.' -ForegroundColor Red
+            $failed = $true
+        } else {
+            Write-Host "   $($portalChanged.Count) portal sync file(s) changed, $($syndTests.Count) test file(s) updated" -ForegroundColor Green
+        }
+    } else {
+        Write-Host '   No portal-sync-file changes' -ForegroundColor DarkGray
+    }
+}
+
 # -- Result --
 Write-Host ''
 if ($failed) {

@@ -217,7 +217,20 @@ class Dr1PipelineService
     public function activateStep(DealStepInstance $step, $fromDate = null): void
     {
         $baseDate = $fromDate ? Carbon::parse($fromDate) : now();
-        $dueDate  = $step->due_date ?? $baseDate->copy()->addDays($step->days_offset);
+
+        // AT-216 — RE-ANCHOR on real activation. createPipeline() fills every step's
+        // due_date at attach with a day-one PROJECTION (deal_date + cumulative offset
+        // up the PRIMARY trigger chain) so RAG shows from day one. That projection is
+        // an ESTIMATE: it ignores when predecessors actually complete and it ignores
+        // AND-gate dependencies. When the step truly activates, its clock must run
+        // from the REAL anchor — $fromDate is the LATEST predecessor completion
+        // (dependencyReadiness) for an after_step/AND-gate step, or the on_creation
+        // anchor. The old `$step->due_date ??` kept the stale estimate (e.g. Lodgement
+        // showed deal_date+12 = 03-13 instead of latest-completion 03-25 + 7 = 04-01).
+        // Only a genuine AGENT EDIT (due_date_manual) is preserved — never the estimate.
+        $dueDate = ($step->due_date_manual && $step->due_date)
+            ? $step->due_date
+            : $baseDate->copy()->addDays((int) $step->days_offset);
 
         $step->update([
             'status'       => 'active',
@@ -508,6 +521,7 @@ class Dr1PipelineService
                 'status'        => 'active',
                 'trigger_type'  => 'manual',
                 'due_date'      => $dueDate ?: null,
+                'due_date_manual' => !empty($dueDate), // agent-authored date — never system-overwritten
                 'activated_at'  => now(),
                 'rag_green_days' => 7,
                 'rag_amber_days' => 3,
@@ -537,8 +551,12 @@ class Dr1PipelineService
         $old = optional($step->due_date)->format('Y-m-d');
         $due = $date ? Carbon::parse($date)->startOfDay() : null;
         $step->update([
-            'due_date'    => $due,
-            'current_rag' => $due ? $this->calculateRag($step, $due) : 'grey',
+            'due_date'        => $due,
+            // AT-216 — an inline agent edit is authoritative: mark it so activateStep
+            // never overwrites it with the system anchor. Clearing the date reverts to
+            // system anchoring (the step re-anchors on its next activation).
+            'due_date_manual' => $due !== null,
+            'current_rag'     => $due ? $this->calculateRag($step, $due) : 'grey',
         ]);
         $this->logActivity($step->dr1Deal, $step, $userId, 'step_due_edited',
             "Step \"{$step->name}\" due date " . ($old ? "changed from {$old}" : 'set')

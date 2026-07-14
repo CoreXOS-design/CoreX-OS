@@ -26,6 +26,13 @@ namespace App\Support\Tours;
  * Selectors target dedicated data-tour="…" anchors added to the real DOM of each
  * screen, NOT volatile utility classes — so a Tailwind/markup refactor never
  * silently breaks a tour.
+ *
+ * EXTERNAL-LINK entries (e.g. defs/mobile-app.php) are the one other shape: they
+ * declare `external_url` (https) and an optional `cta` INSTEAD of `route`/`steps`,
+ * and render in the Guided Tours directory as a card that opens that URL in a new
+ * tab. They drive nothing on-page — forRoute() never matches them (no route), the
+ * spotlight engine never sees them, and Ellie's TourKnowledgeService skips them
+ * (it requires steps).
  */
 class TourRegistry
 {
