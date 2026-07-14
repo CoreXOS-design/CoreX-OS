@@ -80,6 +80,11 @@ final class Dr1PipelineAttachTest extends TestCase
         $this->assertSame('active', $this->step($deal, 'Electrical COC')->status);
         $this->assertSame('not_started', $this->step($deal, 'Lodgement')->status);
 
+        // RE-ANCHOR (business rule, every step — not just the AND-gate): Rates' due runs
+        // from OTP's ACTUAL completion (03-02) + 5d = 03-07, NOT the attach-time
+        // projection (deal_date 03-01 + 5 = 03-06). Pre-fix this held the projection.
+        $this->assertSame('2026-03-07', $this->step($deal, 'Rates Clearance')->due_date->format('Y-m-d'), 'due = actual OTP completion (03-02) + 5d');
+
         // Complete only the primary trigger (Rates) — Lodgement waits on its AND-gate dep.
         Carbon::setTestNow('2026-03-10 10:00:00');
         $this->svc->completeStep($this->step($deal, 'Rates Clearance'));
@@ -91,6 +96,34 @@ final class Dr1PipelineAttachTest extends TestCase
         $lodgement = $this->step($deal, 'Lodgement');
         $this->assertSame('active', $lodgement->status);
         $this->assertSame('2026-04-01', $lodgement->due_date->format('Y-m-d'), 'due = latest completion (03-25) + 7d');
+    }
+
+    /**
+     * The re-anchor must NOT trample a genuine agent edit: if an agent set a step's due
+     * date inline, it survives activation unchanged (only the SYSTEM projection re-anchors).
+     */
+    public function test_agent_edited_due_date_survives_activation(): void
+    {
+        Carbon::setTestNow('2026-03-01 09:00:00');
+        [$deal, $template] = $this->makeDealAndTemplate();
+        $deal = $this->svc->createPipeline($deal, $template->id, ['from_date' => '2026-03-01']);
+
+        // Agent hand-sets Lodgement's due while it is still not_started.
+        $this->svc->updateStepDueDate($this->step($deal, 'Lodgement'), '2026-05-01', null);
+        $this->assertTrue($this->step($deal, 'Lodgement')->due_date_manual);
+
+        // Drive both blockers to completion (latest 03-25) so Lodgement activates.
+        Carbon::setTestNow('2026-03-02 10:00:00');
+        $this->svc->completeStep($this->step($deal, 'OTP Signed'));
+        Carbon::setTestNow('2026-03-10 10:00:00');
+        $this->svc->completeStep($this->step($deal, 'Rates Clearance'));
+        Carbon::setTestNow('2026-03-25 15:00:00');
+        $this->svc->completeStep($this->step($deal, 'Electrical COC'));
+
+        $lodgement = $this->step($deal, 'Lodgement');
+        $this->assertSame('active', $lodgement->status);
+        // Preserved — NOT re-anchored to 03-25 + 7 = 04-01.
+        $this->assertSame('2026-05-01', $lodgement->due_date->format('Y-m-d'), 'agent edit is authoritative');
     }
 
     public function test_double_attach_is_refused(): void
