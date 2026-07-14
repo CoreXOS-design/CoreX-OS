@@ -161,6 +161,84 @@ final class OutreachAddressReconciliationTest extends TestCase
         $this->assertStringContainsString('14 Marine Drive, Margate', $ctx->renderedBody);
     }
 
+    // ── Sectional title: a unit in a scheme has NO street of its own ─────
+
+    /**
+     * The correction Johan caught. A sectional-title unit is identified by its
+     * scheme name and unit number — it has no street. Demanding a street would
+     * have silently blocked every flat and complex unit (the bulk of coastal
+     * rental stock) from ever being pitched.
+     */
+    public function test_a_sectional_unit_with_no_street_sends_and_names_the_scheme(): void
+    {
+        [$agencyId, $contact, $agent] = $this->world();
+        $property = $this->persistedProperty($agencyId, $agent->id,
+            address: null, streetNumber: null, streetName: null, suburb: 'Uvongo',
+            complexName: 'Arista', unitNumber: '6', titleType: 'sectional_title');
+
+        $ctx = $this->compose($agencyId, $contact, $property, $agent);
+
+        $this->assertArrayNotHasKey('no_address', $ctx->validationIssues,
+            'a sectional unit has no street — it must not be blocked for lacking one');
+        $this->assertTrue($ctx->isSendable(), json_encode($ctx->validationIssues));
+        $this->assertStringContainsString('Unit 6, Arista, Uvongo', $ctx->renderedBody);
+    }
+
+    /** The scheme name ALONE does not say which of the forty units we mean. */
+    public function test_a_complex_with_no_unit_number_is_still_blocked(): void
+    {
+        [$agencyId, $contact, $agent] = $this->world();
+        $property = $this->persistedProperty($agencyId, $agent->id,
+            address: null, streetNumber: null, streetName: null, suburb: 'Uvongo',
+            complexName: 'Arista', unitNumber: null, titleType: 'sectional_title');
+
+        $ctx = $this->compose($agencyId, $contact, $property, $agent);
+
+        $this->assertArrayHasKey('no_address', $ctx->validationIssues);
+        $this->assertFalse($ctx->isSendable());
+    }
+
+    /** ...and neither shape at all — just a suburb — is still blocked. */
+    public function test_a_bare_suburb_is_blocked_under_both_shapes(): void
+    {
+        [$agencyId, $contact, $agent] = $this->world();
+        $property = $this->persistedProperty($agencyId, $agent->id,
+            address: null, streetNumber: null, streetName: null, suburb: 'Uvongo',
+            complexName: null, unitNumber: null);
+
+        $ctx = $this->compose($agencyId, $contact, $property, $agent);
+
+        $this->assertArrayHasKey('no_address', $ctx->validationIssues);
+        $this->assertFalse($ctx->isSendable());
+    }
+
+    /** The gate keys on the SHAPE, not the classifier — an unclassified unit still sends. */
+    public function test_an_unclassified_sectional_unit_still_sends(): void
+    {
+        [$agencyId, $contact, $agent] = $this->world();
+        $property = $this->persistedProperty($agencyId, $agent->id,
+            address: null, streetNumber: null, streetName: null, suburb: 'Uvongo',
+            complexName: 'Arista', unitNumber: '6', titleType: null);   // never classified
+
+        $ctx = $this->compose($agencyId, $contact, $property, $agent);
+
+        $this->assertTrue($ctx->isSendable(), 'a nullable derived classifier must never block a send');
+    }
+
+    /** A contact-sourced sectional address (AT-60 columns) sends the same way. */
+    public function test_a_contact_sourced_sectional_address_names_the_scheme(): void
+    {
+        $contact = new Contact();
+        $contact->complex_name = 'Marlin Flats';
+        $contact->unit_number = '1';
+        $contact->suburb = 'Shelly Beach';
+
+        $address = OutreachAddress::fromContact($contact);
+
+        $this->assertFalse($address->isIncomplete());
+        $this->assertSame('Unit 1, Marlin Flats, Shelly Beach', $address->displayAddress());
+    }
+
     // ── The asymmetry that must NOT be "fixed" ───────────────────────────
 
     /**
@@ -245,11 +323,14 @@ final class OutreachAddressReconciliationTest extends TestCase
     private function persistedProperty(
         int $agencyId, int $agentId,
         ?string $address, ?string $streetNumber, ?string $streetName, ?string $suburb,
+        ?string $complexName = null, ?string $unitNumber = null, ?string $titleType = null,
     ): Property {
         $id = (int) DB::table('properties')->insertGetId([
             'external_id' => 'AT266-' . Str::random(8), 'title' => 'Test property',
             'address' => $address, 'street_number' => $streetNumber, 'street_name' => $streetName,
-            'suburb' => $suburb, 'price' => 1_500_000, 'property_type' => 'house', 'beds' => 3,
+            'suburb' => $suburb, 'complex_name' => $complexName, 'unit_number' => $unitNumber,
+            'title_type' => $titleType,
+            'price' => 1_500_000, 'property_type' => 'house', 'beds' => 3,
             'status' => 'active', 'is_demo' => false,
             'agency_id' => $agencyId, 'branch_id' => $agencyId, 'agent_id' => $agentId,
             'created_at' => now(), 'updated_at' => now(),

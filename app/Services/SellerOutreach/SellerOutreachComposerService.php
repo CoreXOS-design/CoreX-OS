@@ -110,16 +110,17 @@ final class SellerOutreachComposerService
         // surfaces (submit()/queue() already hard-block on validationIssues), so
         // no send path can slip a blank/placeholder address through.
         //
-        // AT-266 — the gate now requires a STREET, which is what its message has
-        // always promised ("a complete address (street and suburb)"). The old check
-        // was isEmpty(), which only fired when street AND suburb were both missing.
-        // A property carrying a suburb but no street therefore sailed through and
-        // rendered "your property at Uvongo" — a pitch that names no address. That
-        // was 46 live properties and 211 contacts. Preserves AT-61: the address may
-        // still come from EITHER a linked property or the contact's structured
-        // AT-60 columns; it simply has to be a real address in both modes.
+        // AT-266 — the address must NAME the property, in either of the two shapes
+        // South African stock actually comes in: full title (a street + suburb) or
+        // sectional (a scheme name + unit + suburb — a unit in a complex has no
+        // street of its own). The old check was isEmpty(), which only fired when
+        // street AND suburb were both missing, so a property carrying nothing but a
+        // suburb sailed through and rendered "your property at Uvongo" — a pitch
+        // that names no address. Blocked only when NEITHER shape is present.
+        // Preserves AT-61: the address may still come from a linked property or the
+        // contact's structured AT-60 columns; it simply has to name a property.
         if ($address->isIncomplete()) {
-            $validationIssues['no_address'] = 'No property address to reference — link a property with a complete address (street and suburb) before sending.';
+            $validationIssues['no_address'] = 'This property cannot be named in the message — add a street (for a full-title property) or a complex name and unit number (for a sectional-title unit), plus the suburb, before sending.';
         }
 
         // Never send a consent message with a blank/impersonal greeting. The
