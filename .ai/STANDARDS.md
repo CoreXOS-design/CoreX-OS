@@ -262,3 +262,66 @@ The "View As" role dropdown is useful ONLY for testing permission/UI gating (wha
 - Session marker: `impersonator_id` stores original admin's id for restoration
 
 **Diagnostic pattern:** If a visibility-scoped feature shows wrong results, check which feature was used. If "View As" → switch to "Switch User" instead. If "Switch User" → the scope has a genuine bug.
+
+---
+
+## Rule 17: Never Assume an Agency/Branch Context Exists
+
+The headline defect class of 2026-07-13 (AT-241 super-user calendar 500; MIC
+`Call to effectiveAgencyId() on null` 500). Owner/super-admin users, console
+commands, queued jobs, webhooks and public endpoints run with **no agency
+context** — the acting user's `agency_id` is NULL and `effectiveAgencyId()`
+returns NULL. Code that assumes a tenant exists either 500s (FK 1452, or "Call
+to a member function on null") or silently writes to the WRONG tenant.
+
+### The two failure shapes
+1. **Accessor on a possibly-null receiver** → `Call to a member function
+   effectiveAgencyId() on null`. E.g. `$deal->agent->effectiveAgencyId()` when
+   `agent` is null; `Auth::user()->effectiveAgencyId()` in an unauthenticated
+   (console/webhook/job) path where `user()` is null.
+2. **Hardcoded-agency fallback** → `effectiveAgencyId() ?? 1`. `??` only catches
+   null and falls back to a HARDCODED agency id that (a) may not exist (FK 1452
+   on a firstOrCreate, or on any install where the one agency isn't id 1) and
+   (b) is the WRONG tenant for a null-agency user.
+
+### The canonical safe pattern
+
+**Reading agency-scoped settings/config for the acting user** — resolve to the
+sentinel `0` with `?:` (NOT `?? 1`), and route through a consumer that GUARDS
+`<= 0`, returning unsaved in-memory defaults (never persisting):
+
+```php
+// GOOD — AgencyContactSettings::forAgency() has the <=0 guard (returns defaults, no write):
+AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarPollSeconds();
+//   public static function forAgency(int $agencyId): self {
+//       if ($agencyId <= 0) { return (new self())->forceFill([...defaults]); } // no FK, no 500
+//       return self::firstOrCreate(['agency_id' => $agencyId], $defaults);
+//   }
+
+// BAD — assumes agency 1 exists, mis-tenants a null-agency user, FK-1452s where agency 1 is absent:
+AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+```
+
+**Calling an accessor on a relation that can be null** — use `?->` and handle null:
+
+```php
+$agencyId = $deal->agent?->effectiveAgencyId();   // GOOD
+$agencyId = Auth::user()?->effectiveAgencyId();   // GOOD (unauth/console-safe)
+$agencyId = $deal->agent->effectiveAgencyId();    // BAD — 500 when agent is null
+```
+
+**Writing (stamping agency_id on a new row)** — never invent an agency. Derive
+it from the domain object being acted on (the deal's / property's / branch's
+agency), OR persist NULL for a legitimately global row (only if the column is
+nullable), OR reject with a clear message ("no agency selected — switch into an
+agency first"). NEVER stamp a hardcoded `1` or a sentinel `0` into a NOT-NULL /
+FK agency column (that is the FK-1452 on write).
+
+### The rule
+- No `effectiveAgencyId()` / `effectiveBranchId()` / `->agency_id` on a receiver
+  that can be null without `?->` or a prior guard.
+- No `?? <hardcoded agency id>`. Reads use `?: 0` + a `<= 0` guard.
+- A resolved-null agency on a WRITE is derive-from-context or reject — never a
+  hardcoded or sentinel stamp into a NOT-NULL column.
+- Sentinel `0` is safe ONLY if the consumer guards `<= 0`. A `?: 0` that flows
+  unguarded into a NOT-NULL / FK insert is a latent 1452 — treat it as a bug.
