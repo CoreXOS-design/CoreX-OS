@@ -51,12 +51,14 @@ class FicaController extends Controller
             'agent_approved'         => (clone $countBase)->where('status', 'agent_approved')->count(),
             'approved'               => (clone $countBase)->where('status', 'approved')->count(),
             'corrections_requested'  => (clone $countBase)->where('status', 'corrections_requested')->count(),
+            'referred_to_co'         => (clone $countBase)->where('status', 'referred_to_co')->count(),
             'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
             'cancelled'              => (clone $countBase)->where('status', 'cancelled')->count(),
         ];
-        // CO queue count (agency-scoped via global scope)
+        // CO queue count (agency-scoped via global scope) — AT-236: the CO queue is
+        // CO-required items (agent_approved) PLUS referrals (referred_to_co).
         $coQueueCount = $isCO
-            ? FicaSubmission::where('status', 'agent_approved')->count()
+            ? FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])->count()
             : 0;
 
         // Build filtered query
@@ -65,9 +67,9 @@ class FicaController extends Controller
             ->latest();
 
         if ($tab === 'co_queue') {
-            // CO queue: agency-scoped via global scope, only agent_approved
-            $query = FicaSubmission::where('status', 'agent_approved')
-                ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
+            // CO queue: agency-scoped via global scope — agent_approved + referrals.
+            $query = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
+                ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab !== 'all') {
             $query->where('status', $tab);
@@ -85,7 +87,7 @@ class FicaController extends Controller
         // CO queue stats
         $coQueueStats = null;
         if ($isCO && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('status', 'agent_approved')
+            $oldest = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
                 ->min('agent_verified_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
@@ -221,13 +223,15 @@ class FicaController extends Controller
     /**
      * Staff review screen (agent).
      */
-    public function show(FicaSubmission $submission)
+    public function show(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
 
-        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
-        return view('compliance.fica.show', compact('submission'));
+        $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+
+        return view('compliance.fica.show', compact('submission', 'referralEnabled'));
     }
 
     /**
@@ -270,14 +274,16 @@ class FicaController extends Controller
     /**
      * Compliance officer review screen.
      */
-    public function complianceReview(FicaSubmission $submission)
+    public function complianceReview(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
         abort_unless(Auth::user()->isComplianceOfficer(), 403, 'Only compliance officers can access this page.');
 
-        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
-        return view('compliance.fica.compliance-review', compact('submission'));
+        $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled'));
     }
 
     /**
