@@ -103,6 +103,10 @@ class NotificationEventTypeSeeder extends Seeder
             // AT-235 S2 (Leads) — one fact, three channels. Replaces TWO uncoordinated
             // listeners, one of which pushed without ever reading notify_push (C10).
             $this->row('lead.portal_received', 'contact', 'Leads', 'New portal lead on your listing', 'none', null, null, null, 28),
+
+            // AT-235 S2b (Communications) — both database-only (no toMail/toFcmPayload).
+            $this->row('comms.mailbox_poll_failure', 'agent', 'Communications', 'Mailbox stopped receiving mail', 'none', null, null, null, 29, false, null, inApp: true, email: false, push: false),
+            $this->row('comms.access_requested', 'agent', 'Communications', 'Someone requested access to a conversation', 'none', null, null, null, 30, false, null, inApp: true, email: false, push: false),
         ];
     }
 

@@ -6,6 +6,7 @@ use App\Models\Communications\CommunicationMailbox;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Notifications\Communications\MailboxPollFailureNotification;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -66,17 +67,44 @@ class MailboxHealthRecorder
             return;
         }
 
+        // AT-235 (S2b) — THE EPISODE IS THE FACT, so the episode marker is the dedup key.
+        //
+        // A failing mailbox is a PERSISTENT condition, not a discrete event: the poller
+        // re-runs constantly while it is down. The guard above already alerts once per
+        // episode (via failure_notified_at), but that is a FIFTH private idempotency
+        // mechanism, invisible to everything else — the exact fragmentation this
+        // consolidation exists to end.
+        //
+        // The marker is now stamped BEFORE the send and passed as threshold_hit_at, so
+        // the GATEWAY dedups on the episode too. Two independent guards now agree on
+        // one identity, instead of one guard that nothing else can see. Behaviourally
+        // identical: the marker was previously written after the try/catch, so it was
+        // set whether the send succeeded or not — moving it up changes nothing except
+        // that we now have a stable key to hand the gateway.
+        //
+        // (A time-based key would be wrong here for the same reason it was wrong for
+        // portal leads: the poll re-fires every few minutes, and now() would mint a
+        // fresh key each time — the 1.9M storm's mechanism on a new surface.)
+        $episodeStartedAt = now();
+        $mailbox->forceFill(['failure_notified_at' => $episodeStartedAt])->save();
+
         try {
             $recipients = $this->notificationRecipients($mailbox);
-            if ($recipients->isNotEmpty()) {
-                Notification::send($recipients, new MailboxPollFailureNotification($mailbox, $reason, $failures));
+            $gateway    = app(NotificationDispatcher::class);
+
+            foreach ($recipients as $recipient) {
+                $gateway->send(
+                    $recipient,
+                    'comms.mailbox_poll_failure',
+                    $mailbox,
+                    new MailboxPollFailureNotification($mailbox, $reason, $failures),
+                    ['threshold_hit_at' => $episodeStartedAt],
+                );
             }
         } catch (\Throwable $e) {
             // An alert failure must never break the poll or its retry loop.
             Log::error("Mailbox health alert failed (mailbox {$mailbox->id}): {$e->getMessage()}");
         }
-
-        $mailbox->forceFill(['failure_notified_at' => now()])->save();
     }
 
     /**
