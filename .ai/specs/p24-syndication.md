@@ -302,3 +302,79 @@ the `jobs` table in the worker's *own* DB, **it cannot pull CoreX (`nexus_os`)
 jobs** — the two never share a queue. It is a legitimate worker for a separate
 application and **was NOT killed**. CoreX already runs exactly one supervised
 worker on its own queue; the genuine discipline is the deploy-restart rule above.
+
+## The refresh cost contract (2026-07-14)
+
+**A Refresh of a listing where nothing changed costs exactly ONE P24 call: the
+listing POST.** That is a budget, not a description — it is enforced, and it may
+not be relaxed.
+
+### Why this is a written contract
+
+Refresh cost has regressed twice in production, and neither time did anything in
+the codebase notice. A slow refresh breaks no assertion and turns no pipeline red;
+the only alarm both times was an agent saying *"Refresh feels slow."*
+
+| # | Regression | Cost | Fix |
+|---|-----------|------|-----|
+| 1 | Every refresh re-uploaded the entire photo gallery | 60s+ → 10s once fixed | `properties.p24_image_signature`; an unchanged gallery sends `photos: null` (P24 keeps what it has) |
+| 2 | Every refresh re-pushed the agent profile AND re-uploaded the agent photo — *per agent* — and could hit P24's 15–120s `GET /agencies/{id}/agents` on the way | 10s → 60s+ (a 120s `cURL 28` timeout observed 2026-07-14 15:33) | `users.p24_profile_signature` / `users.p24_photo_signature`; agent id resolved from `users.p24_agent_id` + `p24_agent_agency_id` instead of scanning the list |
+
+Both are the same bug wearing different clothes: **CoreX re-sent bytes P24 already
+held.** So that is the rule, stated once, for everything on this path.
+
+### The rule
+
+> Never send a portal data it already holds. Anything a refresh pushes is gated on
+> a signature of what the portal currently has. If you add a call to the submit
+> path, fingerprint what it sends and skip it when unchanged.
+
+Signatures in force (all cheap — no file reads, no HTTP):
+
+| Signature | Fingerprints | Skips |
+|-----------|-------------|-------|
+| `properties.p24_image_signature` | ordered syndication gallery + captions | the whole base64 photo upload |
+| `users.p24_profile_signature` | md5 of the exact agent payload we last PUT | `PUT /agents` |
+| `users.p24_photo_signature` | photo path + size + mtime (or path + document timestamp when the file is not on this host) | `PUT /agents/{id}/profile-picture` |
+| `users.p24_agent_id` + `p24_agent_agency_id` | which P24 agent this user IS, under which agency | `GET /agencies/{id}/agents` — the 610KB, 15–120s list scan |
+
+The agent-id pair is agency-scoped on purpose: P24 scopes agents per agency, so
+the same CoreX user co-listing under a second branch's P24 agency is a *different*
+P24 agent, and a bare id would silently address the wrong one.
+
+### Warm-cost vs steady-cost
+
+The *first* refresh after an agent or gallery genuinely changes still pays for what
+changed — that is the point. Steady state is one call. A newly-registered agent
+costs one extra `PUT /agents` on their next submit (the CREATE payload is a subset
+of the full profile), then zero.
+
+### Availability: never let P24's agent list block a refresh
+
+`GET /agencies/{id}/agents` is P24's slowest endpoint and it does fail. Two rules:
+
+- **Serve stale.** A successful fetch is also kept as a 30-day last-known-good copy.
+  If the endpoint fails, we answer from that copy and log a warning. A slightly stale
+  agent list degrades one thing (an agent edited directly on the P24 portal shows old
+  details until the nightly warm); a blocking 120s fetch degrades every refresh, for
+  everyone.
+- **Cool down.** Once a fetch fails, a 5-minute breaker stops every subsequent refresh
+  re-paying the same timeout to learn the same thing.
+
+Note `php artisan cache:clear` is IN the deploy checklist, so the agent cache is cold
+after every deploy. That is exactly why the agent id lives in the **users table**, which
+`cache:clear` cannot wipe — the cache is now an optimisation, not a dependency.
+`p24:warm-agents-cache` (nightly, 22:00) both warms the cache and backfills the id map.
+
+### Enforcement — three layers, none optional
+
+1. **Runtime** — `Property24SyndicationService::auditRefreshCost()` counts the P24 calls
+   of every submit. An unchanged refresh over budget logs `P24 REFRESH COST REGRESSION`
+   (WARNING, `property24` channel) naming the offending calls. Fix the caller; do not
+   raise the budget.
+2. **Build** — `tests/Feature/Syndication/Property24RefreshCostTest.php` asserts the
+   one-call budget, asserts `photos: null`, asserts the agent list is never scanned —
+   and asserts a genuinely changed photo IS still re-uploaded (the gate must not become
+   a wall).
+3. **Gate** — `scripts/dev-check.ps1` §7 fails any change to the portal sync files that
+   lands without a test diff in `tests/Feature/Syndication/`.

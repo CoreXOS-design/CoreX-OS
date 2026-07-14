@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Agency;
+use App\Models\User;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use Illuminate\Console\Command;
 
@@ -57,7 +58,8 @@ class WarmP24AgentsCache extends Command
 
                 if ($result['success'] ?? false) {
                     $warmed++;
-                    $this->info("Warmed P24 agency {$p24Id}: " . count($result['data'] ?? []) . " agents in {$secs}s");
+                    $mapped = $this->mapAgentIds($result['data'] ?? [], (int) $p24Id);
+                    $this->info("Warmed P24 agency {$p24Id}: " . count($result['data'] ?? []) . " agents in {$secs}s ({$mapped} id(s) mapped)");
                 } else {
                     $this->warn("Failed to warm P24 agency {$p24Id} ({$secs}s): " . ($result['message'] ?? 'unknown'));
                 }
@@ -66,5 +68,54 @@ class WarmP24AgentsCache extends Command
 
         $this->info("P24 agents cache warm complete: {$warmed}/{$attempted} P24 agency IDs.");
         return self::SUCCESS;
+    }
+
+    /**
+     * Stamp each CoreX user with the P24 agent id they hold under this agency.
+     *
+     * This is what keeps the ~90s GET /agencies/{id}/agents OFF the listing-submit
+     * path entirely: with the (p24_agent_id, p24_agent_agency_id) pair recorded,
+     * Property24SyndicationService::resolveRegisteredAgentId answers "is this agent
+     * on P24?" from the users table with zero HTTP. Warming the cache alone was
+     * never enough — `php artisan cache:clear` is in the deploy checklist, so the
+     * cache is cold after every deploy and the next agent to press Refresh ate the
+     * cold fetch. The users table survives cache:clear.
+     *
+     * @param array<int,array<string,mixed>> $agents
+     */
+    private function mapAgentIds(array $agents, int $p24AgencyId): int
+    {
+        $mapped = 0;
+
+        foreach ($agents as $agent) {
+            $sourceRef  = (string) ($agent['sourceReference'] ?? '');
+            $p24AgentId = (int) ($agent['id'] ?? 0);
+
+            if ($p24AgentId <= 0 || !preg_match('/^CoreX-Agent-(\d+)$/', $sourceRef, $m)) {
+                continue;
+            }
+
+            // withTrashed: a soft-deleted agent is still ON P24 (pushed Inactive),
+            // and their id must still resolve without a list scan.
+            $user = User::withoutGlobalScopes()->withTrashed()->find((int) $m[1]);
+            if (!$user) {
+                continue;
+            }
+
+            if ((int) $user->p24_agent_id === $p24AgentId && (int) $user->p24_agent_agency_id === $p24AgencyId) {
+                continue; // already mapped
+            }
+
+            // saveQuietly: a cache stamp, not a user edit — must not fire the User
+            // observer and bounce this agent straight back to P24.
+            $user->forceFill([
+                'p24_agent_id'        => $p24AgentId,
+                'p24_agent_agency_id' => $p24AgencyId,
+            ])->saveQuietly();
+
+            $mapped++;
+        }
+
+        return $mapped;
     }
 }

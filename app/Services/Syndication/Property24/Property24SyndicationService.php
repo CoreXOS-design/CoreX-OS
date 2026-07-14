@@ -15,6 +15,12 @@ class Property24SyndicationService
     private Property24ApiClient $client;
     private Property24ListingMapper $mapper;
 
+    /**
+     * The ONLY P24 call a refresh of an unchanged listing may make: the listing
+     * POST itself. See auditRefreshCost — this is a budget, not a description.
+     */
+    private const REFRESH_BASELINE_ACTIONS = ['submit'];
+
     public function __construct(Property24ApiClient $client, Property24ListingMapper $mapper)
     {
         $this->client = $client;
@@ -108,6 +114,11 @@ class Property24SyndicationService
         // — restored automatically at request end.
         @ini_set('memory_limit', '512M');
 
+        // Start this submit's cost meter — see auditRefreshCost, the guard that
+        // catches a refresh silently getting expensive again.
+        $startedAt = microtime(true);
+        Property24ApiClient::beginCostWindow();
+
         $this->bindClientForProperty($property);
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
 
@@ -133,6 +144,11 @@ class Property24SyndicationService
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => $message]);
             return ['success' => false, 'message' => $message];
         }
+
+        // Is there anything for this submit to actually DO? Answered BEFORE the work
+        // (the signatures below get stamped as we go), so auditRefreshCost can hold
+        // the refresh to its cost contract afterwards.
+        $expectedNoOp = $this->refreshIsNoOp($property, (int) $p24AgencyId);
 
         // Ensure the listing agent(s) are registered on P24 before submitting
         $agentResult = $this->ensureAgentRegistered($property, (int) $p24AgencyId);
@@ -260,12 +276,127 @@ class Property24SyndicationService
             'p24_ref'    => $updateData['p24_ref'] ?? null,
         ]);
 
+        $this->auditRefreshCost($property, $expectedNoOp, $startedAt);
+
         return [
             'success' => true,
             'message' => 'Listing submitted to Property24',
             'status'  => $updateData['p24_syndication_status'],
             'p24_ref' => $updateData['p24_ref'] ?? null,
         ];
+    }
+
+    /**
+     * True when NOTHING this submit sends has changed since the last successful
+     * sync — same gallery, same agent profile(s), same agent photo(s). Such a
+     * refresh must cost exactly ONE P24 call: the listing POST.
+     *
+     * Evaluated BEFORE the submit does any work, because the work stamps the very
+     * signatures this reads.
+     */
+    private function refreshIsNoOp(Property $property, int $p24AgencyId): bool
+    {
+        if (empty($property->p24_ref)) {
+            return false; // never been on the portal — everything is new
+        }
+
+        if ($property->p24_image_signature === null
+            || $property->p24_image_signature !== $property->p24ImageSignature()) {
+            return false; // gallery changed (or was never fingerprinted)
+        }
+
+        foreach ($this->submitAgents($property) as $user) {
+            if (!$this->agentSyncIsUpToDate($user, $p24AgencyId)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The CoreX users this listing pushes to P24 — the listing agent, plus the co-listing agent. */
+    private function submitAgents(Property $property): array
+    {
+        return array_values(array_filter([
+            $property->agent ?? User::find($property->agent_id),
+            $property->pp_second_agent_id ? User::find($property->pp_second_agent_id) : null,
+        ]));
+    }
+
+    /** True when P24 already holds this agent's current profile AND photo. */
+    private function agentSyncIsUpToDate(User $user, int $agencyId): bool
+    {
+        if (empty($user->p24_agent_id) || (int) $user->p24_agent_agency_id !== $agencyId) {
+            return false;
+        }
+
+        if ($user->p24_profile_signature === null) {
+            return false;
+        }
+
+        $payload = $this->agentProfilePayload($user, (int) $user->p24_agent_id, $agencyId);
+        if ($user->p24_profile_signature !== md5((string) json_encode($payload))) {
+            return false;
+        }
+
+        $photoSignature = $this->agentPhotoSignature($user);
+
+        return $photoSignature === null || $photoSignature === $user->p24_photo_signature;
+    }
+
+    /**
+     * THE REFRESH COST GUARD.
+     *
+     * A refresh of a listing where nothing changed is allowed exactly one P24 call
+     * — the listing POST. Every other call means CoreX re-sent something P24
+     * already holds.
+     *
+     * This guard exists because that regression has now happened twice, silently,
+     * and both times it was found by an agent noticing Refresh "felt slow" rather
+     * than by anything in the code:
+     *
+     *   1. The whole photo gallery was re-uploaded on every refresh (60s+), fixed
+     *      by properties.p24_image_signature.
+     *   2. Months later the agent profile + agent photo began being re-pushed on
+     *      every refresh — per agent — quietly undoing most of that win.
+     *
+     * Nothing about a refresh's cost is visible in a unit test's assertions or in a
+     * green pipeline, so the runtime says it out loud instead: if an unchanged
+     * refresh spends more than its budget, that is logged as a WARNING naming the
+     * offending calls. When you see it, fix the caller — do NOT raise the budget.
+     * The companion build-time lock is
+     * tests/Feature/Syndication/Property24RefreshCostTest.php, which fails the
+     * moment an unchanged refresh makes a second call.
+     */
+    private function auditRefreshCost(Property $property, bool $expectedNoOp, float $startedAt): void
+    {
+        $cost    = Property24ApiClient::costWindow();
+        $calls   = array_sum($cost);
+        $seconds = round(microtime(true) - $startedAt, 1);
+
+        $context = [
+            'property_id' => $property->id,
+            'calls'       => $calls,
+            'seconds'     => $seconds,
+            'breakdown'   => $cost,
+        ];
+
+        if (!$expectedNoOp) {
+            $this->log('info', "P24 submit cost for property #{$property->id}: {$calls} call(s) in {$seconds}s", $context);
+            return;
+        }
+
+        $overBudget = array_diff_key($cost, array_flip(self::REFRESH_BASELINE_ACTIONS));
+
+        if (empty($overBudget) && $calls <= 1) {
+            $this->log('info', "P24 refresh cost for property #{$property->id}: 1 call in {$seconds}s (unchanged — gallery and agents skipped)", $context);
+            return;
+        }
+
+        $this->log('warning', "P24 REFRESH COST REGRESSION on property #{$property->id}: nothing changed since the last sync, "
+            . "so this refresh should have cost 1 call (the listing POST) — it cost {$calls} in {$seconds}s. "
+            . "Something on the submit path is re-sending data P24 already holds. Offending calls: "
+            . json_encode($overBudget ?: $cost) . ". Fix the caller — do not raise the budget.", $context);
     }
 
     /**
@@ -508,7 +639,7 @@ class Property24SyndicationService
      * used by observer hooks that push user updates without a property context.
      * Returns true on success, or an error string on failure.
      */
-    public function ensureAgentRegisteredByUser(User $user, ?int $p24AgencyId = null): string|bool
+    public function ensureAgentRegisteredByUser(User $user, ?int $p24AgencyId = null, bool $force = false): string|bool
     {
         $this->bindClientForUser($user);
         $this->log('info', "ensureAgentRegistered for user #{$user->id} ({$user->name}), agent_photo_path=" . ($user->agent_photo_path ?? 'NULL'));
@@ -517,7 +648,179 @@ class Property24SyndicationService
         if ($agencyId === null) {
             return "User's branch or agency has no Property24 agency ID configured.";
         }
-        $agencyIdStr = (string) $agencyId;
+        $agencyId = (int) $agencyId;
+
+        // Already on P24? Answer this WITHOUT P24's ~90s full agent-list scan
+        // whenever we can — see resolveRegisteredAgentId. This is the single
+        // biggest cost the listing-submit path used to carry.
+        $p24AgentId = $this->resolveRegisteredAgentId($user, $agencyId);
+
+        if ($p24AgentId !== null) {
+            // Keep the FULL profile (name, contact, jobTitle, active status) and the
+            // photo in step with CoreX — but only when either ACTUALLY changed.
+            // Best-effort: a profile-push failure must never block the listing this
+            // agent is attached to.
+            $this->syncAgentIfChanged($user, $p24AgentId, $agencyId, $force);
+            return true;
+        }
+
+        // Agent opted out of P24 and isn't on the portal yet — never create a
+        // fresh record just to immediately unpublish it. The existing-agent
+        // branch above already handles the "on P24 but now excluded" case by
+        // pushing published=false.
+        if ($user->exclude_from_p24) {
+            $this->log('info', "Agent #{$user->id} is excluded from P24 and not yet registered — skipping registration");
+            return true;
+        }
+
+        return $this->registerNewAgent($user, $agencyId);
+    }
+
+    /**
+     * The P24 agent id for this user UNDER THIS P24 AGENCY, or null when they are
+     * not registered there yet.
+     *
+     * The order is the entire point of this method. The stored
+     * (p24_agent_id, p24_agent_agency_id) pair answers the question with ZERO
+     * HTTP. Only when that pair is missing do we fall back to scanning P24's
+     * agent list — a 610KB response that takes 15–90s (and has timed out at 120s
+     * in production). That scan used to sit on the critical path of EVERY listing
+     * Refresh; now it is paid at most once per agent per agency, and its result is
+     * stamped onto the user so it is never paid again.
+     *
+     * The pair is agency-scoped because P24 scopes agents per agency: the same
+     * CoreX user co-listing under a second branch's P24 agency is a DIFFERENT
+     * P24 agent, and a bare id would silently address the wrong one.
+     */
+    private function resolveRegisteredAgentId(User $user, int $agencyId): ?int
+    {
+        if (!empty($user->p24_agent_id) && (int) $user->p24_agent_agency_id === $agencyId) {
+            return (int) $user->p24_agent_id;
+        }
+
+        // Scoping the lookup to the right agency is critical — P24 enforces
+        // firstname+lastname uniqueness per agency, so a lookup against the wrong
+        // agency would miss the existing agent and trigger a duplicate-name error
+        // on create.
+        $existingResult = $this->client->getAgents((string) $agencyId);
+        if (!($existingResult['success'] ?? false)) {
+            return null;
+        }
+
+        foreach ($existingResult['data'] ?? [] as $existing) {
+            if (($existing['sourceReference'] ?? '') !== 'CoreX-Agent-' . $user->id) {
+                continue;
+            }
+            $p24AgentId = (int) ($existing['id'] ?? 0);
+            if ($p24AgentId <= 0) {
+                continue;
+            }
+            $this->log('info', "Agent #{$user->id} already registered on P24 agency {$agencyId} as #{$p24AgentId}");
+            $this->rememberAgentId($user, $p24AgentId, $agencyId);
+
+            return $p24AgentId;
+        }
+
+        return null;
+    }
+
+    /**
+     * Record the resolved (P24 agent id, P24 agency) pair so no future submit ever
+     * re-scans P24's agent list for this agent.
+     *
+     * saveQuietly: this is a cache stamp, not a user edit — it must not fire the
+     * User observer, which would dispatch SyncAgentToP24Job and push the agent
+     * straight back to P24 in a loop.
+     */
+    private function rememberAgentId(User $user, int $p24AgentId, int $agencyId): void
+    {
+        $user->forceFill([
+            'p24_agent_id'        => $p24AgentId,
+            'p24_agent_agency_id' => $agencyId,
+        ])->saveQuietly();
+    }
+
+    /**
+     * Bring an already-registered agent's profile and photo into step with CoreX —
+     * sending ONLY what actually changed.
+     *
+     * This is the agent-side of the contract `properties.p24_image_signature`
+     * already gives the photo gallery: CoreX never re-sends bytes P24 already
+     * holds. An unchanged agent costs ZERO P24 calls, which is what keeps a
+     * routine listing Refresh at one round-trip (the listing POST) instead of the
+     * five it grew to — PUT /agents + PUT /agents/{id}/profile-picture, per agent,
+     * on every single refresh, re-uploading an identical photo each time.
+     *
+     * $force (the explicit Users-page "Sync to P24" button) re-pushes regardless.
+     * It is the repair path for a profile edited on the P24 portal behind CoreX's
+     * back — a change no CoreX-side fingerprint can possibly detect.
+     *
+     * Returns true, or an error string when the profile push failed.
+     */
+    private function syncAgentIfChanged(
+        User $user,
+        int $p24AgentId,
+        int $agencyId,
+        bool $force = false,
+        bool $pushPhoto = true,
+    ): bool|string {
+        $payload    = $this->agentProfilePayload($user, $p24AgentId, $agencyId);
+        $profileSig = md5((string) json_encode($payload));
+
+        if ($force || $profileSig !== $user->p24_profile_signature) {
+            $result = $this->client->updateAgent($payload);
+            if (!($result['success'] ?? false)) {
+                $this->log('error', "Agent profile push failed for #{$user->id}", ['result' => $result]);
+                return $result['message'] ?? 'Unknown agent update error';
+            }
+            $user->forceFill(['p24_profile_signature' => $profileSig])->saveQuietly();
+        } else {
+            $this->log('info', "Agent #{$user->id} profile unchanged — skipping P24 profile push");
+        }
+
+        if ($pushPhoto) {
+            $this->pushAgentPhotoIfChanged($user, $p24AgentId, $force);
+        }
+
+        return true;
+    }
+
+    /**
+     * Upload the agent's photo only when the bytes P24 holds are not the bytes we
+     * hold. See agentPhotoSignature for how "the bytes P24 holds" is fingerprinted
+     * without reading (or re-fetching) the file on every refresh.
+     */
+    private function pushAgentPhotoIfChanged(User $user, int $p24AgentId, bool $force = false): void
+    {
+        $signature = $this->agentPhotoSignature($user);
+
+        if ($signature === null) {
+            $this->log('info', "Agent #{$user->id} has no profile photo (user_documents or agent_photo_path) — skipping P24 photo upload");
+            return;
+        }
+
+        if (!$force && $signature === $user->p24_photo_signature) {
+            $this->log('info', "Agent #{$user->id} photo unchanged — skipping P24 photo upload");
+            return;
+        }
+
+        if ($this->uploadAgentPhotoIfAvailable($user, $p24AgentId)) {
+            $user->forceFill(['p24_photo_signature' => $signature])->saveQuietly();
+        }
+    }
+
+    /**
+     * Register an agent that is not on P24 yet (create, or adopt a same-named
+     * record P24 already has).
+     *
+     * The new agent's profile signature is deliberately NOT stamped here: the
+     * CREATE payload is a subset of the full profile payload (no status /
+     * workNumber / faxNumber), so leaving the signature null makes the agent's
+     * next submit perform exactly one PUT to bring the full profile across — and
+     * stamp it then. One call, once, per newly-registered agent.
+     */
+    private function registerNewAgent(User $user, int $agencyId): string|bool
+    {
         $parts = explode(' ', trim($user->name), 2);
 
         $agentData = [
@@ -538,41 +841,7 @@ class Property24SyndicationService
             'jobTitle'        => $user->designation ?: 'Sales Agent',
         ];
 
-        // Check if agent already exists on P24 *under this agency*. Scoping to
-        // the right agency is critical — P24 enforces firstname+lastname
-        // uniqueness per agency, so a lookup against the wrong agency would
-        // miss the existing agent and trigger a duplicate-name error on create.
-        $existingResult = $this->client->getAgents($agencyIdStr);
-        if ($existingResult['success']) {
-            foreach ($existingResult['data'] ?? [] as $existing) {
-                $ref = $existing['sourceReference'] ?? '';
-                if ($ref === 'CoreX-Agent-' . $user->id) {
-                    $p24AgentId = (int) $existing['id'];
-                    $this->log('info', "Agent #{$user->id} already registered on P24 agency {$agencyIdStr} as #{$p24AgentId}");
-                    // Keep the FULL profile (name, contact, jobTitle, active status)
-                    // in step with CoreX — not just the photo. Without this an agent
-                    // first registered via a listing submit never gains a jobTitle,
-                    // and later CoreX edits never reach P24 unless someone hits the
-                    // Users-page button. Best-effort: a profile-push failure must not
-                    // block the listing this agent is attached to.
-                    $this->pushAgentProfile($user, $p24AgentId, $agencyId);
-                    $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
-                    return true;
-                }
-            }
-        }
-
-        // Agent opted out of P24 and isn't on the portal yet — never create a
-        // fresh record just to immediately unpublish it. The existing-agent
-        // branch above already handles the "on P24 but now excluded" case by
-        // pushing published=false.
-        if ($user->exclude_from_p24) {
-            $this->log('info', "Agent #{$user->id} is excluded from P24 and not yet registered — skipping registration");
-            return true;
-        }
-
-        // Register new agent
-        $this->log('info', "Registering agent #{$user->id} ({$user->name}) on P24 agency {$agencyIdStr}");
+        $this->log('info', "Registering agent #{$user->id} ({$user->name}) on P24 agency {$agencyId}");
         $result = $this->client->createAgent($agentData);
 
         if (!$result['success']) {
@@ -590,7 +859,8 @@ class Property24SyndicationService
                 ]);
                 $adoptResult = $this->client->updateAgent($adoptPayload);
                 if ($adoptResult['success'] ?? false) {
-                    $this->uploadAgentPhotoIfAvailable($user, $adoptedId);
+                    $this->rememberAgentId($user, (int) $adoptedId, $agencyId);
+                    $this->pushAgentPhotoIfChanged($user, (int) $adoptedId);
                     return true;
                 }
                 $this->log('error', "Failed to adopt existing P24 agent #{$adoptedId}", ['result' => $adoptResult]);
@@ -604,7 +874,8 @@ class Property24SyndicationService
         // Upload agent photo after successful registration
         $p24AgentId = $result['data']['id'] ?? $result['data']['Id'] ?? null;
         if ($p24AgentId) {
-            $this->uploadAgentPhotoIfAvailable($user, (int) $p24AgentId);
+            $this->rememberAgentId($user, (int) $p24AgentId, $agencyId);
+            $this->pushAgentPhotoIfChanged($user, (int) $p24AgentId);
         }
 
         $this->log('info', "Agent #{$user->id} registered on P24", ['result' => $result['data'] ?? []]);
@@ -620,16 +891,15 @@ class Property24SyndicationService
     {
         $this->bindClientForUser($user);
         $agencyId = $p24AgencyId ?? $this->resolveAgencyIdForUser($user);
-        $result   = $this->client->getAgents($agencyId !== null ? (string) $agencyId : null);
-        if (!$result['success']) return null;
-
-        foreach ($result['data'] ?? [] as $agent) {
-            if (($agent['sourceReference'] ?? '') === 'CoreX-Agent-' . $user->id) {
-                return (int) $agent['id'];
-            }
+        if ($agencyId === null) {
+            return null;
         }
 
-        return null;
+        // Column first, agent-list scan only as a fallback — see
+        // resolveRegisteredAgentId. SyncAgentToP24Job calls this on EVERY user
+        // edit purely to ask "is this agent on P24 at all?"; that question must
+        // not cost a 90s full-list fetch.
+        return $this->resolveRegisteredAgentId($user, (int) $agencyId);
     }
 
     /**
@@ -644,34 +914,33 @@ class Property24SyndicationService
         if ($agencyId === null) {
             return "User's branch or agency has no Property24 agency ID configured.";
         }
+        $agencyId = (int) $agencyId;
 
-        $p24AgentId = $this->getP24AgentId($user, $agencyId);
+        $p24AgentId = $this->resolveRegisteredAgentId($user, $agencyId);
         if (!$p24AgentId) {
             // Not registered yet — create them; that flow also uploads the photo.
-            return $this->ensureAgentRegisteredByUser($user, $agencyId);
+            return $this->ensureAgentRegisteredByUser($user, $agencyId, force: true);
         }
 
-        $pushed = $this->pushAgentProfile($user, $p24AgentId, $agencyId);
-        if ($pushed !== true) {
-            return $pushed;
-        }
-
-        if ($pushPhoto) {
-            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
-        }
-
-        return true;
+        // An EXPLICIT sync always re-pushes, changed or not: this is the button an
+        // admin hits to repair a profile someone edited on the P24 portal behind
+        // CoreX's back — a divergence no CoreX-side fingerprint can see.
+        return $this->syncAgentIfChanged($user, $p24AgentId, $agencyId, force: true, pushPhoto: $pushPhoto);
     }
 
     /**
-     * Build the COMPLETE P24 agent payload from the CoreX user and PUT it.
+     * Build the COMPLETE P24 agent payload from the CoreX user.
      * Single source of truth for "a fully-synced P24 agent profile" — shared by
      * the Users-page "Sync to P24" button (updateAgentOnP24) and the
      * listing-submit path (ensureAgentRegisteredByUser), so an agent carries the
      * same name / contact / jobTitle / active-status regardless of which path
-     * last touched them. Returns true, or an error string on failure.
+     * last touched them.
+     *
+     * It is also what gets fingerprinted (p24_profile_signature): the payload IS
+     * the thing P24 holds, so hashing it is an exact answer to "would this PUT
+     * change anything?" — no field-by-field drift to keep in step.
      */
-    private function pushAgentProfile(User $user, int $p24AgentId, int $agencyId): bool|string
+    private function agentProfilePayload(User $user, int $p24AgentId, int $agencyId): array
     {
         $parts    = explode(' ', trim($user->name), 2);
         // An agent is shown on P24 only when active, not deleted, AND not
@@ -706,13 +975,7 @@ class Property24SyndicationService
             if ($fax !== '') $payload['faxNumber'] = $fax;
         }
 
-        $result = $this->client->updateAgent($payload);
-        if (!($result['success'] ?? false)) {
-            $this->log('error', "Agent profile push failed for #{$user->id}", ['result' => $result]);
-            return $result['message'] ?? 'Unknown agent update error';
-        }
-
-        return true;
+        return $payload;
     }
 
     /**
@@ -740,38 +1003,13 @@ class Property24SyndicationService
     /**
      * Upload the agent's profile photo to P24 if they have one in CoreX.
      */
-    private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): void
+    private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): bool
     {
-        // Resolve the photo from the SAME canonical source the rest of CoreX uses
-        // (User::profilePhotoUrl): a user_documents 'profile_photo' row first, then
-        // the legacy agent_photo_path column. The sync previously read ONLY
-        // agent_photo_path, so every agent whose photo lives in user_documents
-        // reached P24 with no photo. Pick the first candidate whose file actually
-        // EXISTS on disk — these two records routinely desync (a stale .jpg path
-        // recorded while the real normalised file is photo.webp), so trusting the
-        // document path blindly would upload nothing. If neither resolves on disk,
-        // keep the preferred path so the URL-fallback strategies below can try.
-        $profileDoc = $user->documents()
-            ->where('document_type', 'profile_photo')
-            ->latest()
-            ->first();
+        $photoPath = $this->resolveAgentPhotoPath($user);
 
-        $candidates = array_values(array_filter([
-            $profileDoc?->file_path,
-            $user->agent_photo_path,
-        ], fn ($p) => !empty($p)));
-
-        if (empty($candidates)) {
+        if ($photoPath === null) {
             $this->log('info', "Agent #{$user->id} has no profile photo (user_documents or agent_photo_path) — skipping P24 photo upload");
-            return;
-        }
-
-        $photoPath = $candidates[0];
-        foreach ($candidates as $candidate) {
-            if (Storage::disk('public')->exists($candidate)) {
-                $photoPath = $candidate;
-                break;
-            }
+            return false;
         }
 
         $bytes = null;
@@ -832,7 +1070,7 @@ class Property24SyndicationService
 
         if (empty($bytes)) {
             $this->log('warning', "Agent #{$user->id} photo could not be read from any source: {$photoPath}");
-            return;
+            return false;
         }
 
         // P24's profile-picture endpoint rejects WebP (returns HTTP 500). Our
@@ -847,11 +1085,94 @@ class Property24SyndicationService
 
         $result = $this->client->uploadAgentPhoto($p24AgentId, $imageData);
 
-        if ($result['success']) {
+        if ($result['success'] ?? false) {
             $this->log('info', "Agent photo uploaded for #{$user->id} (P24 agent #{$p24AgentId})");
-        } else {
-            $this->log('warning', "Agent photo upload failed for #{$user->id}: " . ($result['message'] ?? 'Unknown'));
+            return true;
         }
+
+        $this->log('warning', "Agent photo upload failed for #{$user->id}: " . ($result['message'] ?? 'Unknown'));
+        return false;
+    }
+
+    /**
+     * The photo file this agent's P24 profile picture should come from, or null
+     * when they have no photo at all.
+     *
+     * Resolved from the SAME canonical source the rest of CoreX uses
+     * (User::profilePhotoUrl): a user_documents 'profile_photo' row first, then the
+     * legacy agent_photo_path column. The sync once read ONLY agent_photo_path, so
+     * every agent whose photo lives in user_documents reached P24 with no photo.
+     * Pick the first candidate whose file actually EXISTS on disk — these two
+     * records routinely desync (a stale .jpg path recorded while the real
+     * normalised file is photo.webp), so trusting the document path blindly would
+     * upload nothing. If neither resolves on disk, keep the preferred path so the
+     * URL-fallback strategies in uploadAgentPhotoIfAvailable can still try.
+     */
+    private function resolveAgentPhotoPath(User $user): ?string
+    {
+        $candidates = array_values(array_filter([
+            $this->agentPhotoDocument($user)?->file_path,
+            $user->agent_photo_path,
+        ], fn ($p) => !empty($p)));
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (Storage::disk('public')->exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return $candidates[0];
+    }
+
+    private function agentPhotoDocument(User $user): ?object
+    {
+        return $user->documents()
+            ->where('document_type', 'profile_photo')
+            ->latest()
+            ->first();
+    }
+
+    /**
+     * Fingerprint of the photo bytes P24 should be holding for this agent, or null
+     * when the agent has no photo. Compared against the stored
+     * `p24_photo_signature` so a routine refresh re-uploads the profile picture
+     * only when it actually changed.
+     *
+     * Two cases, because the file may not live on THIS host:
+     *
+     *  • On disk (the normal case): path + size + mtime. Exact, and free — no file
+     *    read, so it is safe to compute on every submit.
+     *  • Not on disk (split-host installs, where uploadAgentPhotoIfAvailable falls
+     *    back to fetching the photo over HTTP): we cannot fingerprint bytes we do
+     *    not hold without paying that fetch — which is precisely the cost we are
+     *    removing. Fingerprint the REFERENCE instead: the path plus the timestamp
+     *    of the profile_photo document (or the user row) that points at it. A photo
+     *    replacement in CoreX always touches one of those, even though the
+     *    normalised filename (agents/{id}/photo.webp) stays the same. The explicit
+     *    "Sync to P24" button ($force) re-uploads regardless, so the repair path is
+     *    always one click away.
+     */
+    private function agentPhotoSignature(User $user): ?string
+    {
+        $path = $this->resolveAgentPhotoPath($user);
+        if ($path === null) {
+            return null;
+        }
+
+        $disk = Storage::disk('public');
+
+        if ($disk->exists($path)) {
+            return 'disk:' . md5(implode('|', [$path, (string) $disk->size($path), (string) $disk->lastModified($path)]));
+        }
+
+        $touchedAt = $this->agentPhotoDocument($user)?->updated_at
+            ?? $user->updated_at;
+
+        return 'ref:' . md5($path . '|' . ($touchedAt?->getTimestamp() ?? 0));
     }
 
     /**
