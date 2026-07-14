@@ -175,6 +175,50 @@ final class AgencyContextGuardTest extends TestCase
         \App\Models\PropertySellerLink::ensureExists(999999, $seller->id);
     }
 
+    // ── the calendar sites (m1's domain, reassigned) ─────────────────────
+
+    /**
+     * The calendar's attendee picker searched AGENCY 1's contact book for a user who belongs to
+     * no agency, and offered those people as attendees. A no-tenant user must see nobody.
+     */
+    public function test_the_calendar_attendee_search_does_not_leak_agency_one_contacts(): void
+    {
+        // A real contact in a real agency — the one that must NOT be offered.
+        \App\Models\Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Thandi', 'last_name' => 'Mkhize',
+            'phone' => '0713345567',
+        ]);
+
+        $superAdmin = User::factory()->create([
+            'agency_id' => null, 'branch_id' => null, 'role' => 'super_admin',
+        ]);
+        $this->assertNull($superAdmin->agency_id, 'precondition: no agency context');
+
+        $found = app(\App\Services\CommandCenter\CalendarEventService::class)
+            ->searchAttendees($superAdmin, 'Thandi');
+
+        $this->assertCount(0, $found,
+            "A user with no agency must not be shown another tenant's contacts.");
+    }
+
+    /** ...and an agency-bound user still finds their own people — no collateral damage. */
+    public function test_the_calendar_attendee_search_still_finds_the_users_own_contacts(): void
+    {
+        \App\Models\Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Thandi', 'last_name' => 'Mkhize',
+            'phone' => '0713345567',
+        ]);
+
+        $agent = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'agent',
+        ]);
+
+        $found = app(\App\Services\CommandCenter\CalendarEventService::class)
+            ->searchAttendees($agent, 'Thandi');
+
+        $this->assertCount(1, $found);
+    }
+
     // ── the end-to-end shape: a null-agency user cannot silently write into agency 1 ──
 
     public function test_a_super_admin_with_no_agency_cannot_file_feedback_into_agency_one(): void

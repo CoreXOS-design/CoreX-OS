@@ -645,7 +645,11 @@ class CalendarEventService
             return collect();
         }
 
-        $agencyId = $user->agency_id ?: 1;
+        // AT-253 (STANDARDS Rule 17) — an owner/super-admin has agency_id NULL. The old `?: 1`
+        // silently searched HOME FINDERS' contact book for a user who belongs to no agency, and
+        // offered those people as calendar attendees. The sentinel 0 matches no agency, so a
+        // no-tenant user gets an empty picker — which is the honest answer.
+        $agencyId = (int) ($user->agency_id ?: 0);
 
         $contacts = Contact::query()
             ->where('agency_id', $agencyId)
