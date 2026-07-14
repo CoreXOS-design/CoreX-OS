@@ -49,6 +49,9 @@
                             $wState = $websiteState[$wk->id] ?? null;
                             $wConfig = [
                                 'propertyId'  => $property->id,
+                                // Census identity for "Refresh all portals". An agency can
+                                // have several websites, so this is keyed per API key.
+                                'key'         => 'website:' . $wk->id,
                                 'name'        => $wk->name,
                                 'enabled'     => (bool) optional($wState)->enabled,
                                 'status'      => optional($wState)->status ?? '',
@@ -68,7 +71,10 @@
                                 ],
                             ];
                         @endphp
-                        <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-2 mt-2">
+                        <div x-data="websiteSyndication({{ Js::from($wConfig) }})" @click.stop class="space-y-2 mt-2"
+                             x-effect="announceSyndicationState()"
+                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
                             {{-- Header card — click toggles active/deactivated (enable = active). --}}
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                                  @click="toggleEnabled()"
@@ -104,8 +110,11 @@
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
 
-                            {{-- Active listing actions: View · Refresh · Deactivate --}}
-                            <div x-show="enabled && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                            {{-- Active listing actions: View · Refresh · Deactivate.
+                                 isLiveOnPortal() is the same predicate the "Refresh all
+                                 portals" census reads, so this row and the bulk press can
+                                 never disagree about what "live" means. --}}
+                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
                                 <a x-show="publicUrl" :href="publicUrl" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -185,7 +194,10 @@
                                 'publicUrl'       => $property->publicListingUrls()['pp'] ?? '',
                             ];
                         @endphp
-                        <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2">
+                        <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
+                             x-effect="announceSyndicationState()"
+                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
 
                             {{-- Private Property toggle row --}}
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
@@ -290,8 +302,9 @@
                                 </button>
                             </div>
 
-                            {{-- Active listing actions: View · Refresh · Deactivate --}}
-                            <div x-show="enabled && ppRef && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                            {{-- Active listing actions: View · Refresh · Deactivate.
+                                 Same predicate the "Refresh all portals" census reads. --}}
+                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="ppListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -396,7 +409,10 @@
                                 'publicUrl'              => $property->publicListingUrls()['p24'] ?? '',
                             ];
                         @endphp
-                        <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2">
+                        <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2"
+                             x-effect="announceSyndicationState()"
+                             @corex-syndication-census-request.window="announceSyndicationState()"
+                             @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
                             {{-- P24 exclusive lock warning --}}
                             <div x-show="isPpExclusiveLocked()" x-cloak
                                  class="rounded-md px-3 py-2 text-xs font-medium"
@@ -484,8 +500,9 @@
                                 </button>
                             </div>
 
-                            {{-- Active listing actions: View · Refresh · Deactivate --}}
-                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted' || status === 'submitting')" x-cloak class="flex flex-wrap gap-2">
+                            {{-- Active listing actions: View · Refresh · Deactivate.
+                                 Same predicate the "Refresh all portals" census reads. --}}
+                            <div x-show="isLiveOnPortal()" x-cloak class="flex flex-wrap gap-2">
                                 <a :href="p24ListingUrl()" target="_blank"
                                    class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold no-underline transition-opacity hover:opacity-85"
                                    style="background:var(--brand-button); color:#fff;">
@@ -557,6 +574,52 @@
                         @endif
                     </div>
                     @endif
+
+                    {{-- Refresh all portals — re-push this listing to every portal that
+                         currently carries it, in one press.
+
+                         A DISPATCHER, not a second implementation: it fires each portal
+                         panel's own refreshListing() over the window bus, so each keeps
+                         its own spinner, status badge, error panel and (for P24) its
+                         sync-state poll. It never enables, first-submits or revives a
+                         portal the agent deliberately left off — only live ones move.
+
+                         Hidden entirely when nothing is live (no dead buttons — STANDARDS,
+                         UX rules). The census keeps that reactive, so toggling the last
+                         portal off inside this panel hides the button without a reload. --}}
+                    <div x-data="syndicationRefreshAll()"
+                         @corex-syndication-portal-state.window="onPortalState($event.detail)"
+                         x-show="liveCount() > 0"
+                         x-cloak
+                         @click.stop
+                         class="pt-3 space-y-2" style="border-top:1px solid var(--border);">
+                        <button type="button" @click.stop="refreshAll()"
+                                class="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
+                                style="background:var(--brand-button); color:#fff;"
+                                title="Re-send this listing to every portal it is currently live on">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                            </svg>
+                            Refresh all portals
+                        </button>
+
+                        <p class="text-[0.6875rem] text-center" style="color:var(--text-muted);">
+                            Live on <span x-text="liveLabels()"></span>
+                        </p>
+
+                        {{-- What the press actually fired — named, never a vague "done". --}}
+                        <div x-show="fired" x-cloak x-transition
+                             class="px-3 py-2 rounded-md text-xs font-medium"
+                             style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
+                             x-text="fired"></div>
+
+                        {{-- Every live portal was already mid-push. Say so — a bulk button
+                             that silently does nothing reads as broken. --}}
+                        <div x-show="note" x-cloak x-transition
+                             class="px-3 py-2 rounded-md text-xs font-medium"
+                             style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
+                             x-text="note"></div>
+                    </div>
 
                     {{-- Live preview — see the listing exactly as the public does.
                          In the panel itself so every caller gets it, not just the

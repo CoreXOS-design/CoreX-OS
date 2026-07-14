@@ -43,6 +43,10 @@ class FicaSubmission extends Model
         'co_verification_data',
         'co_notes',
         'co_signature_data',
+        // AT-236 Refer-to-CO
+        'referred_by',
+        'referred_at',
+        'referral_note',
         // Wet-ink intake
         'intake_type',
         'wet_ink_received_date',
@@ -61,6 +65,7 @@ class FicaSubmission extends Model
         'signed_at'                => 'datetime',
         'agent_verified_at'        => 'datetime',
         'co_verified_at'           => 'datetime',
+        'referred_at'              => 'datetime',
         'risk_rating'              => 'integer',
         'wet_ink_received_date'    => 'date',
         'fica_expires_at'          => 'date',
@@ -91,6 +96,16 @@ class FicaSubmission extends Model
     public function coVerifiedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'co_verified_by');
+    }
+
+    public function referredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'referred_by');
+    }
+
+    public function statusHistory(): HasMany
+    {
+        return $this->hasMany(FicaStatusHistory::class, 'fica_submission_id')->latest('id');
     }
 
     public function wetInkConfirmedBy(): BelongsTo
@@ -188,13 +203,19 @@ class FicaSubmission extends Model
         return $this->status === 'cancelled';
     }
 
+    public function isReferredToCo(): bool
+    {
+        return $this->status === 'referred_to_co';
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
             'draft'                 => 'Awaiting Client',
             'submitted'             => 'Awaiting Agent Review',
             'under_review'          => 'Under Review',
-            'agent_approved'        => 'Awaiting CO Approval',
+            'agent_approved'        => 'RO Approval Needed',
+            'referred_to_co'        => 'CO Approval Needed',
             'corrections_requested' => 'Corrections Needed',
             'approved'              => 'Approved',
             'rejected'              => 'Rejected',
@@ -210,6 +231,7 @@ class FicaSubmission extends Model
             'submitted'             => 'blue',
             'under_review'          => 'blue',
             'agent_approved'        => 'amber',
+            'referred_to_co'        => 'amber',
             'corrections_requested' => 'orange',
             'approved'              => 'green',
             'rejected'              => 'red',

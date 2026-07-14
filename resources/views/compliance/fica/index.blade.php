@@ -57,7 +57,8 @@
                        which is 0 for non-CO viewers and scoped differently for
                        a CO — making "Awaiting CO Approval" show 0 vs the tab's
                        real agent_approved count. */
-                    ['label' => 'Awaiting CO Approval',   'count' => $counts['agent_approved'], 'color' => 'var(--ds-amber, #f59e0b)'],
+                    ['label' => 'RO Approvals',           'count' => $counts['agent_approved'], 'color' => 'var(--ds-amber, #f59e0b)'],
+                    ['label' => 'CO Approvals Needed',    'count' => $counts['referred_to_co'] ?? 0, 'color' => 'var(--ds-crimson, #c41e3a)'],
                     ['label' => 'Complete',               'count' => $counts['approved'],       'color' => 'var(--ds-green, #059669)'],
                 ];
             @endphp
@@ -73,34 +74,38 @@
         </div>
     </div>
 
-    {{-- CO Queue summary alert --}}
-    @if($isCO && ($coQueueStats['count'] ?? 0) > 0)
+    {{-- CO Approvals Needed alert (escalations awaiting the primary CO) --}}
+    @if(($isPrimaryCo ?? false) && ($coQueueStats['count'] ?? 0) > 0)
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent);
                     border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);
                     color: var(--text-primary);">
             <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-amber, #f59e0b);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
             <div class="flex-1">
-                <strong>{{ number_format($coQueueStats['count']) }} submission{{ $coQueueStats['count'] !== 1 ? 's' : '' }} awaiting your approval.</strong>
+                <strong>{{ number_format($coQueueStats['count']) }} escalated submission{{ $coQueueStats['count'] !== 1 ? 's' : '' }} awaiting your CO decision.</strong>
                 @if($coQueueStats['oldest_days'] > 0)
                     <span style="color: var(--text-secondary);">Oldest: {{ number_format($coQueueStats['oldest_days']) }} day{{ $coQueueStats['oldest_days'] !== 1 ? 's' : '' }}.</span>
                 @endif
             </div>
-            <a href="{{ route('compliance.fica.index', ['tab' => 'co_queue']) }}" class="text-xs font-semibold whitespace-nowrap" style="color: var(--ds-amber, #f59e0b);">View CO Queue →</a>
+            <a href="{{ route('compliance.fica.index', ['tab' => 'co_queue']) }}" class="text-xs font-semibold whitespace-nowrap" style="color: var(--ds-amber, #f59e0b);">View CO Approvals Needed →</a>
         </div>
     @endif
 
-    {{-- Tabs --}}
+    {{-- Tabs — AT-236 two stations: RO Approvals (any reviewer) + CO Approvals Needed (primary CO) --}}
     @php
         $tabs = [];
         if ($isCO) {
-            $tabs[] = ['key' => 'co_queue', 'label' => 'My CO Queue', 'count' => $coQueueCount];
+            $tabs[] = ['key' => 'ro_queue', 'label' => 'RO Approvals', 'count' => $roQueueCount ?? 0];
+        }
+        if ($isPrimaryCo ?? false) {
+            $tabs[] = ['key' => 'co_queue', 'label' => 'CO Approvals Needed', 'count' => $coQueueCount];
         }
         $tabs = array_merge($tabs, [
             ['key' => 'all',                   'label' => 'All',                   'count' => $counts['all']],
             ['key' => 'draft',                 'label' => 'Awaiting Client',       'count' => $counts['draft']],
             ['key' => 'submitted',             'label' => 'Awaiting Agent Review', 'count' => $counts['submitted']],
-            ['key' => 'agent_approved',        'label' => 'Awaiting CO Approval',  'count' => $counts['agent_approved']],
+            ['key' => 'agent_approved',        'label' => 'RO Approvals',          'count' => $counts['agent_approved']],
+            ['key' => 'referred_to_co',        'label' => 'CO Approvals Needed',   'count' => $counts['referred_to_co'] ?? 0],
             ['key' => 'approved',              'label' => 'Approved',              'count' => $counts['approved']],
             ['key' => 'corrections_requested', 'label' => 'Corrections Needed',    'count' => $counts['corrections_requested']],
             ['key' => 'cancelled',             'label' => 'Cancelled',             'count' => $counts['cancelled']],
@@ -261,6 +266,9 @@
                                         <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Verify</a>
                                     @elseif($sub->status === 'agent_approved' && $canCoReview)
                                         <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Review &amp; Approve</a>
+                                    @elseif($sub->status === 'referred_to_co' && (($isPrimaryCo ?? false) || $isAdmin))
+                                        {{-- AT-236 — escalated pack: the CO opens the FULL review station --}}
+                                        <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">Review &amp; Decide</a>
                                     @elseif($sub->status === 'corrections_requested' && $isMySubmission)
                                         <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--ds-amber, #f59e0b);">Fix</a>
                                     @endif

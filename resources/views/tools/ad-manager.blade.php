@@ -1,7 +1,18 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@push('head')
+    @include('corex.properties._ad-fonts')
+@endpush
+
 @section('corex-content')
+
+{{-- The shared render kernel — the SAME code the Ad Builder previews with and the
+     single-property generator renders with. Before it, this page carried its own copy
+     that had fallen behind: it knew nothing about shapeType/clip-paths, custom image
+     and video elements, the features chooser, or the agent-2 empty-slot rule, so those
+     elements rendered wrong on a real bulk ad. Spec: ad-manager.md §12. --}}
+<script src="{{ asset('js/corex-ad-render.js') }}?v=1"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <div class="w-full space-y-5" x-data="adManager()">
@@ -255,8 +266,6 @@ const ADM_GENERATE_URL = @json(route('tools.ad-manager.generate'));
 const ADM_PREVIEW_URL  = @json(route('tools.ad-manager.previews'));
 const ADM_CSRF         = '{{ csrf_token() }}';
 
-const ADM_IMAGE_FIELDS    = ['image_1','image_2','image_3','image_4','image_5','agent_avatar','agency_logo'];
-
 function adManager() {
     return {
         step: 'select',
@@ -401,55 +410,15 @@ function adManager() {
             } catch (e) { window.showToast ? window.showToast('Copy failed — select manually.', 'error') : alert('Copy failed.'); }
         },
 
-        hexToRgba(hex, a) {
-            const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
-            if (!m) return hex;
-            return 'rgba(' + parseInt(m[1],16) + ',' + parseInt(m[2],16) + ',' + parseInt(m[3],16) + ',' + a + ')';
-        },
+        /**
+         * Custom templates are drawn by the shared render kernel — the SAME code the
+         * Ad Builder previews with and the single-property generator renders with.
+         * paintBackground: this page draws each template straight into a bare div, so
+         * the kernel paints the layout's canvas colour/gradient onto it.
+         */
         renderCustom(r) { this.renderCustomInto(r.layout, r.data, document.getElementById('adm-canvas-' + r.id)); },
         renderCustomInto(layout, prop, root) {
-            if (!root || !layout) return;
-            prop = prop || {};
-            root.innerHTML = '';
-            const l = layout;
-            if (l.canvasBgMode === 'gradient') root.style.background = 'linear-gradient(' + (l.canvasBgAngle ?? 160) + 'deg,' + l.canvasBgFrom + ',' + l.canvasBgTo + ')';
-            else root.style.background = l.canvasBg || '#071325';
-            (l.elements || []).forEach(el => {
-                const div = document.createElement('div');
-                let css = 'position:absolute;left:' + el.x + 'px;top:' + el.y + 'px;width:' + el.w + 'px;height:' + el.h + 'px;z-index:' + (el.zIndex || 1) + ';overflow:hidden;border-radius:' + (el.borderRadius || 0) + 'px;';
-                if (el.rotation) css += 'transform:rotate(' + el.rotation + 'deg);';
-                if (el.frameBorderWidth) css += 'border:' + el.frameBorderWidth + 'px solid ' + (el.frameBorderColor || '#fff') + ';';
-                div.style.cssText = css;
-                const f = el.field;
-                if (ADM_IMAGE_FIELDS.includes(f)) {
-                    const src = f === 'agency_logo' ? prop.logo : prop[f];
-                    if (src) { const img = document.createElement('img'); img.src = src; img.style.cssText = 'width:100%;height:100%;object-fit:' + (el.objectFit || 'cover') + ';display:block;'; div.appendChild(img); }
-                    else { div.style.background = 'linear-gradient(135deg,#0b2a4a,#143d6e)'; }
-                } else if (f === 'color_block') { div.style.background = el.bg || '#07111e'; div.style.opacity = el.opacity ?? 1; }
-                else if (f === 'shape') { div.style.background = el.bg || '#00b4d8'; div.style.opacity = el.opacity ?? 1; div.style.borderRadius = (el.borderRadius ?? 50) + '%'; }
-                else if (f === 'gradient') { div.style.background = 'linear-gradient(' + (el.gradAngle || 180) + 'deg,' + (el.gradFrom || '#071325') + ',' + (el.gradTo || 'rgba(7,19,37,0)') + ')'; div.style.opacity = el.opacity ?? 1; }
-                else if (f === 'line') { const bar = document.createElement('div'); bar.style.cssText = 'width:100%;height:' + (el.borderWidth || 3) + 'px;background:' + (el.color || '#00b4d8') + ';border-radius:2px;'; div.style.display = 'flex'; div.style.alignItems = 'center'; div.appendChild(bar); }
-                else if (f === 'logo') {
-                    div.style.display = 'flex'; div.style.alignItems = 'center'; div.style.padding = (el.padding || 0) + 'px';
-                    if (prop.logo) { const img = document.createElement('img'); img.src = prop.logo; img.style.cssText = 'max-height:100%;max-width:100%;object-fit:contain;object-position:left center;'; div.appendChild(img); }
-                    else { div.style.fontFamily = "'Figtree',Arial,sans-serif"; div.style.fontWeight = '900'; div.style.fontSize = (el.fontSize || 28) + 'px'; div.style.color = el.color || '#fff'; div.innerHTML = 'corex<span style="color:#33c4e0">os</span>'; }
-                } else if (f === 'watermark') {
-                    Object.assign(div.style, { display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'Figtree',Arial,sans-serif", fontWeight:'900', letterSpacing:'0.06em', textTransform:'uppercase' });
-                    div.style.fontSize = (el.fontSize || 60) + 'px'; div.style.color = el.color || '#fff'; div.style.opacity = el.opacity ?? 0.06;
-                    div.textContent = prop.watermark || el.text || 'COREX';
-                } else {
-                    let value = (f === 'custom_text' || f === 'badge') ? (el.text || el.label)
-                        : ((prop[f] !== undefined && prop[f] !== null && prop[f] !== '') ? prop[f] : (el.preview || el.label));
-                    Object.assign(div.style, { display:'flex', alignItems:'center', overflow:'hidden', fontFamily:"'Figtree',Arial,sans-serif" });
-                    div.style.fontSize = (el.fontSize || 18) + 'px'; div.style.fontWeight = el.fontWeight || '600'; div.style.color = el.color || '#fff';
-                    div.style.textAlign = el.textAlign || 'left'; div.style.textTransform = el.textTransform || 'none';
-                    div.style.letterSpacing = (el.letterSpacing || 0) + 'em'; div.style.lineHeight = el.lineHeight ?? 1.2; div.style.padding = (el.padding || 8) + 'px';
-                    const op = el.bgOpacity ?? 0;
-                    if (op > 0) { div.style.background = this.hexToRgba(el.bgColor || '#000000', op); if (el.textAlign === 'center') div.style.justifyContent = 'center'; if (el.textAlign === 'right') div.style.justifyContent = 'flex-end'; }
-                    const span = document.createElement('span'); span.style.width = '100%'; span.textContent = value; div.appendChild(span);
-                }
-                root.appendChild(div);
-            });
+            CoreXAd.renderLayout(layout, prop, root, { paintBackground: true });
         },
     };
 }

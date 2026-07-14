@@ -107,6 +107,15 @@ class NotificationEventTypeSeeder extends Seeder
             // AT-235 S2b (Communications) — both database-only (no toMail/toFcmPayload).
             $this->row('comms.mailbox_poll_failure', 'agent', 'Communications', 'Mailbox stopped receiving mail', 'none', null, null, null, 29, false, null, inApp: true, email: false, push: false),
             $this->row('comms.access_requested', 'agent', 'Communications', 'Someone requested access to a conversation', 'none', null, null, null, 30, false, null, inApp: true, email: false, push: false),
+
+            // AT-236 — Refer-to-CO. In-app + email (the class has toArray + toMail).
+            $this->row('fica.referred_to_co', 'contact', 'Compliance', 'FICA referred to you (Compliance Officer)', 'none', null, null, null, 40, false, null, inApp: true, email: true, push: false),
+
+            // AT-265 — the permission system is unavailable (role_permissions empty → every
+            // non-owner denied). In-app + email so it reaches an owner who is not at a screen; no
+            // push (the alarm must not depend on FCM being configured on the environment it warns about).
+            // The security log is the guaranteed record — this is the human-facing half.
+            $this->row('security.permissions_unavailable', 'agent', 'Security', 'CoreX permissions are unavailable (all access denied)', 'none', null, null, null, 50, false, null, inApp: true, email: true, push: false),
         ];
     }
 

@@ -23,6 +23,41 @@ class Property24ApiClient
     private const AGENTS_CACHE_PREFIX = 'p24:agents:';
     private const AGENTS_CACHE_TTL    = 90000; // seconds (25h — see note above)
 
+    /**
+     * Last-known-good copy of the agent list, and the breaker that stops us
+     * re-paying a 120s timeout on every refresh while P24's /agents endpoint is
+     * sick.
+     *
+     * The 25h cache above is not enough on its own for two reasons, both seen in
+     * production:
+     *   1. `php artisan cache:clear` is IN the standard deploy checklist, so every
+     *      deploy leaves the cache cold and hands the next agent to press Refresh
+     *      P24's ~90s fetch.
+     *   2. A failure is (correctly) never cached as the answer — so while the
+     *      endpoint is timing out, EVERY refresh paid the full 120s read timeout.
+     *      Observed 2026-07-14: `cURL error 28 after 120001ms`.
+     *
+     * So: keep a long-lived last-known-good copy that a failure can fall back to,
+     * and cool down re-attempts for a few minutes once we know the endpoint is
+     * failing. A stale agent list degrades one thing (an agent edited directly on
+     * the P24 portal shows old details until the next warm); a blocking 120s fetch
+     * degrades every refresh, for everyone. Serve stale.
+     */
+    private const AGENTS_LAST_GOOD_PREFIX = 'p24:agents:last-good:';
+    private const AGENTS_LAST_GOOD_TTL    = 2592000; // 30 days
+    private const AGENTS_COOLDOWN_PREFIX  = 'p24:agents:cooldown:';
+    private const AGENTS_COOLDOWN_TTL     = 300; // 5 min
+
+    /**
+     * Cost meter for ONE listing submit (see Property24SyndicationService::
+     * performSubmit). A routine refresh of an unchanged listing must cost exactly
+     * ONE P24 call — the listing POST. Anything more means we are re-sending bytes
+     * P24 already holds, which is the regression that took Refresh from ~10s back
+     * to 60s+. Counting the calls is what lets the submit path NOTICE that
+     * happening again instead of waiting for a human to time it with a stopwatch.
+     */
+    private static array $costWindow = [];
+
     private string $baseUrl;
     private string $username;
     private string $password;
@@ -198,6 +233,16 @@ class Property24ApiClient
                 self::$agentsCache[$key] = $cached;
                 return $cached;
             }
+
+            // The endpoint failed recently and we hold a last-known-good list —
+            // serve it rather than making this caller (an agent waiting on a
+            // Refresh) sit through another 120s timeout to learn the same thing.
+            if (Cache::get(self::AGENTS_COOLDOWN_PREFIX . $key)) {
+                if ($stale = $this->lastGoodAgents($key)) {
+                    $this->log('warning', "P24 agent list is in cooldown after a failed fetch — serving the last-known-good list for agency {$key}");
+                    return $stale;
+                }
+            }
         }
 
         $result = $this->request('GET', "/agencies/{$agencyId}/agents", [], null, 'fetch_agents');
@@ -207,9 +252,60 @@ class Property24ApiClient
         if ($result['success'] ?? false) {
             self::$agentsCache[$key] = $result;
             Cache::put($cacheKey, $result, self::AGENTS_CACHE_TTL);
+            Cache::put(self::AGENTS_LAST_GOOD_PREFIX . $key, $result, self::AGENTS_LAST_GOOD_TTL);
+            Cache::forget(self::AGENTS_COOLDOWN_PREFIX . $key);
+
+            return $result;
+        }
+
+        // Failed. Open the breaker so the NEXT refresh doesn't pay the same
+        // timeout, and answer from the last-known-good list if we have one — a
+        // slightly stale agent list is always better than a blocked refresh.
+        Cache::put(self::AGENTS_COOLDOWN_PREFIX . $key, true, self::AGENTS_COOLDOWN_TTL);
+
+        if ($stale = $this->lastGoodAgents($key)) {
+            $this->log('warning', "P24 agent-list fetch failed for agency {$key} — serving the last-known-good list", [
+                'message' => $result['message'] ?? null,
+            ]);
+            return $stale;
         }
 
         return $result;
+    }
+
+    /**
+     * The last agent list P24 successfully gave us for this agency (30d), promoted
+     * back into the in-process memo so the rest of this request reuses it.
+     */
+    private function lastGoodAgents(string $key): ?array
+    {
+        $stale = Cache::get(self::AGENTS_LAST_GOOD_PREFIX . $key);
+        if (!is_array($stale)) {
+            return null;
+        }
+
+        self::$agentsCache[$key] = $stale;
+
+        return $stale;
+    }
+
+    /**
+     * Start a cost window — call once at the top of a listing submit. See
+     * $costWindow. Returns nothing; read the tally back with costWindow().
+     */
+    public static function beginCostWindow(): void
+    {
+        self::$costWindow = [];
+    }
+
+    /**
+     * The P24 calls made since beginCostWindow(), as ['action' => count].
+     *
+     * @return array<string,int>
+     */
+    public static function costWindow(): array
+    {
+        return self::$costWindow;
     }
 
     /**
@@ -390,6 +486,10 @@ class Property24ApiClient
     {
         $path = "/listing/{$this->apiVersion}" . $endpoint;
         $url  = $this->baseUrl . $path;
+
+        // Tally every outbound call against the current submit's cost window, so
+        // performSubmit can assert the refresh-cost contract instead of trusting it.
+        self::$costWindow[$action] = (self::$costWindow[$action] ?? 0) + 1;
 
         $this->log('info', "P24 {$method} {$path}", [
             'property_id' => $propertyId,
