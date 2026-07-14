@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Assistants\AssistantPermissionResolver;
 
 class PermissionService
 {
@@ -207,6 +208,16 @@ class PermissionService
             return 'all';
         }
 
+        // AT-267 — an assistant's breadth is the narrower of what their agent granted them
+        // and what their agent actually has. Same reasoning as userHasPermission(): this sits
+        // before role resolution so the `assistant` role's (empty) scope rows are never read.
+        //
+        // This answers "how WIDE", not "whose". An assistant's 'own' means the AGENT's own —
+        // that is User::dataIdentityIds(), which every scopeVisibleTo() resolves through.
+        if ($user->is_assistant) {
+            return AssistantPermissionResolver::dataScope($user, $module);
+        }
+
         $role     = $user->effectiveRole();
         $agencyId = $user->effectiveAgencyId();
 
@@ -307,6 +318,21 @@ class PermissionService
             static::auditBreakGlass($user, "userHasPermission({$permissionKey})");
 
             return true;
+        }
+
+        // AT-267 — an ASSISTANT does not resolve permissions from their role. Their role
+        // (`assistant`) holds zero grants by design; everything they can do comes from their
+        // assignment matrix, intersected with their Assigned Agent's LIVE permissions, minus
+        // the property-upload locked set.
+        //
+        // This hook sits BEFORE role resolution deliberately: it means an assistant's
+        // `users.role` value is never consulted for grants at all, so even a mis-set role
+        // (the column defaults to 'agent'!) cannot leak agent permissions to them.
+        //
+        // It sits AFTER the owner bypass because an assistant can never hold an owner role —
+        // and if one somehow did, that is a far bigger problem than this feature.
+        if ($user->is_assistant) {
+            return AssistantPermissionResolver::allows($user, $permissionKey);
         }
 
         $role     = $user->effectiveRole();
