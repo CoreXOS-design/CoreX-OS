@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertyPresentationSnapshot;
+use App\Services\Presentations\CompPoolBuilder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -88,6 +90,16 @@ class MarketDataSnapshotService
             ->where('id', '!=', $propertyId)
             ->where('agency_id', $property->agency_id)
             ->where('suburb', $property->suburb)
+            // Same-listing-type gate — a rental is never a comparable for a
+            // sale (mirrors PropertyIntelligenceService::getComparableListings).
+            // Legacy rows with a NULL listing_type default to sale.
+            ->where(function ($q) use ($property) {
+                $subjectType = $property->listing_type ?? 'sale';
+                $q->where('listing_type', $subjectType);
+                if ($subjectType === 'sale') {
+                    $q->orWhereNull('listing_type');
+                }
+            })
             ->whereNull('deleted_at')
             ->whereNotNull('published_at')
             ->limit(10)
@@ -102,17 +114,35 @@ class MarketDataSnapshotService
 
     /**
      * Calculate area averages from sold data.
+     *
+     * Unified with the recommended-price pool: the canonical M9 sold-records
+     * table (property_sold_records) is the primary source, legacy
+     * presentation_sold_comps the fallback. Before this, Area Average read
+     * presentation_sold_comps (a MEAN) while Recommended Price read
+     * property_sold_records (a MEDIAN) — two different tables, structurally
+     * irreconcilable on the same card. Both now cascade the same sources.
      */
     public function calculateAreaAverages(?string $suburb): array
     {
         if (!$suburb) return ['avg_price' => null, 'avg_dom' => null];
 
-        $avgPrice = DB::table('presentation_sold_comps')
-            ->join('presentations', 'presentations.id', '=', 'presentation_sold_comps.presentation_id')
-            ->where('presentation_sold_comps.suburb', $suburb)
-            ->whereNull('presentation_sold_comps.deleted_at')
-            ->where('presentation_sold_comps.sold_date', '>=', now()->subMonths(12))
-            ->avg('presentation_sold_comps.sold_price_inc');
+        // Primary: canonical M9 sold records (all types — this is a true
+        // "area" figure, deliberately broader than the gated comp pool).
+        $avgPrice = DB::table('property_sold_records')
+            ->where('suburb', $suburb)
+            ->where('sold_date', '>=', now()->subMonths(12))
+            ->whereNotNull('sold_price')
+            ->avg('sold_price');
+
+        // Fallback: legacy per-presentation manual comps.
+        if (!$avgPrice) {
+            $avgPrice = DB::table('presentation_sold_comps')
+                ->join('presentations', 'presentations.id', '=', 'presentation_sold_comps.presentation_id')
+                ->where('presentation_sold_comps.suburb', $suburb)
+                ->whereNull('presentation_sold_comps.deleted_at')
+                ->where('presentation_sold_comps.sold_date', '>=', now()->subMonths(12))
+                ->avg('presentation_sold_comps.sold_price_inc');
+        }
 
         // Area days on market from active listings
         $avgDom = Property::withoutGlobalScopes()
@@ -129,17 +159,110 @@ class MarketDataSnapshotService
     }
 
     /**
-     * Phase 1: simple recommended price = median of comparable sales.
+     * Recommended price = the profile-gated market anchor for the subject, not
+     * a raw suburb median.
+     *
+     * Before this, the recommendation was the plain median of up to 10
+     * unfiltered same-suburb sold records — so a 7-bed R1.9M house was valued
+     * off a pool of 1-bed flats and even a commercial shop, collapsing the
+     * figure to ~R804k (the pre-AT-22 "R1.1M trap"). It now runs the sold
+     * records through the canonical CompPoolBuilder (title-type hard-gate →
+     * subject-anchored price band → radius ladder → divergence → rank),
+     * anchored on the subject's asking price, and returns the gated pool's
+     * robust median. Returns null when no genuine comparable resolves — an
+     * honest "insufficient comparable sales" beats a misleading number.
+     *
+     * @param  mixed  $comparableSales  legacy 2nd arg (the display pool);
+     *         retained for signature compatibility. The recommendation now
+     *         derives from a broader candidate set built from $property and
+     *         freshly gated, not from this (limited, ungated) collection.
      */
-    public function calculateRecommendedPrice(Property $property, $comparableSales): ?float
+    public function calculateRecommendedPrice(Property $property, $comparableSales = null): ?float
     {
-        if ($comparableSales->isEmpty()) return null;
-        $prices = $comparableSales->pluck('sold_price_inc')->filter()->sort()->values();
-        if ($prices->isEmpty()) return null;
+        $candidates = $this->gatedComparableCandidates($property);
+        if (empty($candidates)) {
+            return null;
+        }
 
-        $mid = (int) floor($prices->count() / 2);
-        return $prices->count() % 2 === 0
-            ? ($prices[$mid - 1] + $prices[$mid]) / 2
-            : $prices[$mid];
+        $config  = CompPoolBuilder::configForAgency(Agency::find($property->agency_id));
+        $subject = [
+            'title_type'    => $property->title_type,
+            'property_type' => $property->property_type,
+            'lat'           => $property->latitude,
+            'lng'           => $property->longitude,
+            'erf_m2'        => $property->erf_size ?? null,
+            // Anchor the price band on the subject's asking so an off-profile
+            // pool cannot drag the recommendation down (AT-22 §1.5).
+            'anchor_price'  => $property->price ? (int) $property->price : null,
+            'address'       => $property->address,
+        ];
+
+        $anchor = (new CompPoolBuilder())->select($subject, $candidates, $config)['anchor'];
+
+        return $anchor !== null ? (float) $anchor : null;
+    }
+
+    /**
+     * Broad sold-comp candidate set for the gated recommendation. Primary
+     * source property_sold_records (M9), 12-month window, ALL types — the
+     * CompPoolBuilder gates by type/band, so we feed it broad and let it
+     * narrow. Falls back to presentation_sold_comps when the M9 table has
+     * nothing for the suburb (mirrors getComparableSales' source precedence).
+     *
+     * @return list<array>
+     */
+    private function gatedComparableCandidates(Property $property, int $rangeMonths = 12): array
+    {
+        $suburb = $property->suburb;
+        if (!$suburb) {
+            return [];
+        }
+        $since = now()->subMonths($rangeMonths);
+
+        $rows = DB::table('property_sold_records')
+            ->where('suburb', $suburb)
+            ->where('sold_date', '>=', $since)
+            ->where('id', '!=', $property->id)
+            ->whereNotNull('sold_price')
+            ->get(['sold_price', 'property_type', 'sqm', 'address']);
+
+        if ($rows->isNotEmpty()) {
+            return $rows->values()->map(fn ($r, $i) => [
+                'key'           => $i,
+                'price'         => (int) $r->sold_price,
+                'size_m2'       => $r->sqm !== null ? (int) $r->sqm : null,
+                'property_type' => $r->property_type,
+                'title_type'    => null,
+                'lat'           => null,
+                'lng'           => null,
+                'address'       => $r->address ?? null,
+                'exempt'        => false,
+            ])->all();
+        }
+
+        // Fallback: legacy per-presentation manual comps.
+        $legacy = DB::table('presentation_sold_comps')
+            ->join('presentations', 'presentations.id', '=', 'presentation_sold_comps.presentation_id')
+            ->where('presentations.suburb', $suburb)
+            ->where('presentations.agency_id', $property->agency_id)
+            ->whereNull('presentation_sold_comps.deleted_at')
+            ->where('presentation_sold_comps.sold_date', '>=', $since)
+            ->whereNotNull('presentation_sold_comps.sold_price_inc')
+            ->get([
+                'presentation_sold_comps.sold_price_inc as sold_price',
+                'presentation_sold_comps.size_m2 as sqm',
+            ]);
+
+        return $legacy->values()->map(fn ($r, $i) => [
+            'key'           => $i,
+            'price'         => (int) $r->sold_price,
+            'size_m2'       => $r->sqm !== null ? (int) $r->sqm : null,
+            'property_type' => null,
+            'title_type'    => null,
+            'lat'           => null,
+            'lng'           => null,
+            'address'       => null,
+            'exempt'        => false,
+        ])->all();
     }
 }

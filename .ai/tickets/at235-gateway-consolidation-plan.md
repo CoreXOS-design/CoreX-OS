@@ -20,7 +20,7 @@
 |---|---|---|
 | **S0** | Gateway core — `send()` can carry ANY notification class | ✅ **DONE** (+ C11 closed: capability now caps preference) |
 | **S1** | AT-245 proforma converted — **citizen #1, the reference implementation** | ✅ **DONE** — allow-list 23 → 21 |
-| **S2** | Migrate Tier-C producers, module by module (**21 files left**) | ⬜ **NEXT — start with slice (a) Leads** |
+| **S2** | Migrate producers, module by module | 🔄 **slice (a) Leads DONE** — allow-list 21 → 20; C10 closed; push listener retired. **NEXT: slice (b) Comms** |
 | **S3** | Fold `CalendarNotificationDispatcher` in; kill the three-engine calendar mess | ⬜ |
 | **S4** | One ledger — retire the 4 competing idempotency mechanisms | ⬜ |
 | **S5** | Agency governance (`agency_id` + `is_active`) + Setup Wizard (CLAUDE.md #10a) | ⬜ |

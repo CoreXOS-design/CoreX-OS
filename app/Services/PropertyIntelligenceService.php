@@ -332,6 +332,18 @@ class PropertyIntelligenceService
             ->where('id', '!=', $propertyId)
             ->where('agency_id', $property->agency_id)
             ->whereNull('deleted_at')
+            // Comparables must be the SAME listing type as the subject — a
+            // rental (or commercial letting) is never a comparable for a sale
+            // and vice-versa. Without this a "Restaurant to let" surfaced as a
+            // comp for a residential sale (its monthly rent read as a price).
+            // Legacy rows with a NULL listing_type default to sale.
+            ->where(function ($q) use ($property) {
+                $subjectType = $property->listing_type ?? 'sale';
+                $q->where('listing_type', $subjectType);
+                if ($subjectType === 'sale') {
+                    $q->orWhereNull('listing_type');
+                }
+            })
             ->when($property->suburb, fn($q) => $q->where('suburb', $property->suburb))
             ->orderByDesc('published_at')
             ->limit($limit)

@@ -158,10 +158,17 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\LogPortalLeadReceived::class,
         );
-        Event::listen(
-            \App\Events\Leads\NewPortalLeadReceived::class,
-            \App\Listeners\Leads\PushNewPortalLeadToMobile::class,
-        );
+        // AT-235 (S2) — PushNewPortalLeadToMobile is RETIRED.
+        //
+        // It was a SECOND listener on this same event, pushing independently of the
+        // notification — and it never read `notify_push`, so an agent who had turned
+        // push off still got pushed (AT-235 C10). One real-world fact was producing
+        // two uncoordinated sends with two different idempotency schemes.
+        //
+        // Push is now simply one of the channels the gateway resolves for the ONE
+        // notification (NewPortalLeadAgentNotification::toFcmPayload()), so the
+        // agent's choice is honoured and the dispatch is recorded in the ledger like
+        // any other. EmailPortalLeadToAgent below is now the single producer.
         // Part 3 — targeted in-app + email to the listing agent (not agency-wide).
         Event::listen(
             \App\Events\Leads\NewPortalLeadReceived::class,

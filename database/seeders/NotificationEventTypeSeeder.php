@@ -99,6 +99,10 @@ class NotificationEventTypeSeeder extends Seeder
             // has no toMail()/toFcmPayload(), so supports_email/push are FALSE and the
             // gateway will never try to render a channel the class cannot produce.
             $this->row('proforma.created', 'deal', 'Finance', 'Proforma invoice generated', 'none', null, null, null, 27, false, null, inApp: true, email: false, push: false),
+
+            // AT-235 S2 (Leads) — one fact, three channels. Replaces TWO uncoordinated
+            // listeners, one of which pushed without ever reading notify_push (C10).
+            $this->row('lead.portal_received', 'contact', 'Leads', 'New portal lead on your listing', 'none', null, null, null, 28),
         ];
     }
 
