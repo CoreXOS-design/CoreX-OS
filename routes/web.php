@@ -1962,6 +1962,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{submission}/compliance-review', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceReview'])->name('compliance-review');
         Route::post('/{submission}/compliance-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceApprove'])->name('compliance-approve');
         Route::post('/{submission}/compliance-reject', [\App\Http\Controllers\Compliance\FicaController::class, 'complianceReject'])->name('compliance-reject');
+        Route::post('/{submission}/refer-to-co', [\App\Http\Controllers\Compliance\FicaController::class, 'referToCo'])->name('refer-to-co');
+        Route::post('/{submission}/return-to-referrer', [\App\Http\Controllers\Compliance\FicaController::class, 'returnToReferrer'])->name('return-to-referrer');
         Route::post('/{submission}/reject', [\App\Http\Controllers\Compliance\FicaController::class, 'reject'])->name('reject');
         Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
         Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
