@@ -21,6 +21,12 @@
 (function () {
     'use strict';
 
+    // Load-once. The guard is now mounted GLOBALLY (layouts.partials._session-guard
+    // on every authenticated screen) AND still self-included by the legacy editor
+    // pages. A second <script> include must be a no-op so it can't reset the single
+    // heartbeat / token-sink registry below.
+    if (window.CoreXSessionGuard) return;
+
     var DEFAULT_MESSAGE =
         'Your connection to CoreX has been lost. Your work is safe in this tab — ' +
         'log in to CoreX in a new tab, come back here, and press Save again.';
@@ -28,6 +34,11 @@
     var Guard = {
         tokenUrl: '/api/v1/csrf-token',
         _heartbeat: null,
+        // Every fresh token is fanned out to ALL registered sinks — the global
+        // one updates <meta name="csrf-token"> (so the whole page's AJAX stays
+        // valid); a long-lived editor registers its own to update its in-memory
+        // token too. One heartbeat, many consumers.
+        _tokenSinks: [],
 
         /**
          * Fetch a fresh CSRF token from the server.
@@ -82,6 +93,7 @@
                         throw err;
                     }
                     if (opts.setToken) opts.setToken(fresh);
+                    self._applyToken(fresh); // also refresh the global meta + other sinks
                     self.hideConnectionLost();
                     self.setIndicatorState('ok');
                     return doRequest(fresh); // resubmit the SAME payload, fresh token
@@ -97,14 +109,17 @@
          */
         startHeartbeat: function (setToken, intervalMs) {
             var self = this;
-            this._setToken = setToken || null;
+            this.registerTokenSink(setToken);
             this.mountIndicator();
-            if (this._heartbeat) clearInterval(this._heartbeat);
+
+            // Idempotent: the FIRST caller owns the single interval; later callers
+            // (e.g. the editor after the global mount) only add their token sink.
+            if (this._heartbeat) return;
 
             var beat = function () {
                 self.refreshToken().then(function (t) {
                     if (t) {
-                        if (self._setToken) self._setToken(t);
+                        self._applyToken(t);
                         self.setIndicatorState('ok');   // silent green
                     } else {
                         // Couldn't reach/authenticate — surface it on the indicator
@@ -115,6 +130,21 @@
             };
             beat(); // immediate first check so the dot reflects truth on load
             this._heartbeat = setInterval(beat, intervalMs || 10 * 60 * 1000);
+        },
+
+        /** Register a callback that receives every freshly-refreshed token. */
+        registerTokenSink: function (fn) {
+            if (typeof fn === 'function' && this._tokenSinks.indexOf(fn) === -1) {
+                this._tokenSinks.push(fn);
+            }
+        },
+
+        /** Fan a fresh token out to every registered sink (never throws). */
+        _applyToken: function (t) {
+            if (!t) return;
+            this._tokenSinks.forEach(function (fn) {
+                try { fn(t); } catch (e) { /* a sink must never break the guard */ }
+            });
         },
 
         /* ----- Persistent connection indicator (session-truth, reusable) ----- */
@@ -197,7 +227,7 @@
             this.setIndicatorState('reconnecting');
             return this.refreshToken().then(function (t) {
                 if (t) {
-                    if (self._setToken) self._setToken(t);
+                    self._applyToken(t);
                     self.setIndicatorState('ok');
                     self.hideConnectionLost();
                     self._toast('Back online ✓');

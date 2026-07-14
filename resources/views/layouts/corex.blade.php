@@ -147,6 +147,10 @@
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
 
+        {{-- AT-220 — global session armour + persistent connection indicator on
+             every long-lived authenticated screen (spec: .ai/specs/session-armour.md). --}}
+        @include('layouts.partials._session-guard')
+
         @stack('scripts')
     </body>
 </html>

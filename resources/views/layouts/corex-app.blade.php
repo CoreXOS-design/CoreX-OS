@@ -163,6 +163,11 @@
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
 
+        {{-- AT-220 — global session armour + persistent connection indicator on
+             every long-lived authenticated screen. Loaded before @stack('scripts')
+             so page-pushed scripts can rely on window.CoreXSessionGuard. --}}
+        @include('layouts.partials._session-guard')
+
         {{-- Partial-pushed scripts (e.g. P24 location pickers via @push('scripts')) --}}
         @stack('scripts')
     </body>
