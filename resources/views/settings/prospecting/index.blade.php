@@ -11,6 +11,8 @@
                 <h1 class="text-xl font-bold text-white leading-tight mt-1">Prospecting Setup</h1>
                 <p class="text-sm text-white/60">Towns, property types, bedroom segments and price bands for your agency's prospecting.</p>
             </div>
+            {{-- AT-246 — Regions door retired from nav; region assignment lives on
+                 the single P24 Suburb Mappings surface. --}}
         </div>
     </div>
 

@@ -14,7 +14,7 @@
 
 <div class="space-y-5"
      x-data="{
-        activeTab: '{{ $activeTab ?? 'towns' }}',
+        activeTab: '{{ in_array($activeTab ?? 'towns', ['towns', '']) ? 'property-types' : $activeTab }}',
         showSuggestionPicker: false,
         suggestionRegion: '',
         suggestionData: null,
@@ -63,7 +63,12 @@
 
     {{-- Tabs --}}
     <div class="flex overflow-x-auto" style="border-bottom: 1px solid var(--border);">
-        @foreach(['towns' => 'Towns & Suburbs', 'property-types' => 'Property Types', 'bedroom-segments' => 'Bedroom Segments', 'price-bands' => 'Price Bands', 'buyer-match-tiers' => 'Buyer Match Tiers'] as $key => $label)
+        {{-- AT-246 — the "Towns & Suburbs" tab and the separate "Regions" door are
+             RETIRED from nav. Region assignment now lives on exactly ONE surface:
+             Settings → P24 Suburb Mappings (the region column, read through each
+             suburb's town). The tab content + regions route are kept (soft) but
+             have no nav door. --}}
+        @foreach(['property-types' => 'Property Types', 'bedroom-segments' => 'Bedroom Segments', 'price-bands' => 'Price Bands', 'buyer-match-tiers' => 'Buyer Match Tiers'] as $key => $label)
             <button @click="activeTab = '{{ $key }}'"
                     :class="activeTab === '{{ $key }}' ? 'border-b-2' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $key }}' ? 'color: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-secondary);'"
@@ -71,8 +76,9 @@
         @endforeach
     </div>
 
-    {{-- TAB 1: Towns & Suburbs --}}
-    <div x-show="activeTab === 'towns'" x-cloak class="space-y-4">
+    {{-- TAB 1 (RETIRED, AT-246): Towns & Suburbs — no nav door; region assignment
+         moved to the P24 Suburb Mappings screen. Kept hidden (soft retire). --}}
+    <div x-show="false" x-cloak class="space-y-4">
 
         {{-- Unmapped Suburbs Cleanup Widget (Prompt 07).
              Surfaces every suburb found in the agency's listings or active
