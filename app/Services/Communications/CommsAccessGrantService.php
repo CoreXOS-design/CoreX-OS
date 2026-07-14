@@ -10,6 +10,7 @@ use App\Models\Contact;
 use App\Models\User;
 use App\Notifications\Communications\CommsAccessRequested;
 use App\Services\PermissionService;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -507,7 +508,26 @@ class CommsAccessGrantService
             return;
         }
         $approvers = User::whereIn('id', $ids)->get();
-        Notification::send($approvers, new CommsAccessRequested($req));
+
+        // AT-235 (S2b) — through the gateway. An approver can now switch this off, it
+        // respects their open-hours window, and the dispatch is recorded in the ledger
+        // (the raw send recorded nothing, so nobody could prove an approver was asked).
+        //
+        // The dedup key is the REQUEST's own creation time — stable, not now(). If this
+        // is ever called twice for the same request (a retry, a double-registered
+        // listener — and note every listener in this app IS registered twice, via
+        // AppServiceProvider AND auto-discovery), the approver is asked once, not twice.
+        $gateway = app(NotificationDispatcher::class);
+
+        foreach ($approvers as $approver) {
+            $gateway->send(
+                $approver,
+                'comms.access_requested',
+                $req,
+                new CommsAccessRequested($req),
+                ['threshold_hit_at' => $req->created_at ?? now()],
+            );
+        }
     }
 
     /** Non-purged communications linked to a contact (the thread set). */
