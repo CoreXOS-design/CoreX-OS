@@ -41,7 +41,7 @@ class CommandCentreService
     {
         $cards = [];
         $userId = $user->id;
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17: no tenant reads nothing, never agency 1
 
         // A1 — Today's Appointments (always visible)
         $cards[] = $this->todayAppointments($user);
@@ -134,7 +134,7 @@ class CommandCentreService
         if (!$branchId) return [];
 
         $cards = [];
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17: no tenant reads nothing, never agency 1
 
         // B1 — Branch Agent Watch
         $card = $this->branchAgentWatch($branchId, $agencyId);
@@ -161,7 +161,7 @@ class CommandCentreService
 
     public function getAdminCards(User $user): array
     {
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17: no tenant reads nothing, never agency 1
         $cards = [];
 
         // C1 — Agency Health Snapshot (always visible)
@@ -1414,7 +1414,7 @@ class CommandCentreService
     private function listingsPendingMarketing(\App\Models\User $user): array
     {
         $query = \App\Models\Property::withoutGlobalScopes()
-            ->where('agency_id', $user->effectiveAgencyId() ?? 1)
+            ->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))   // AT-253 Rule 17
             ->whereNull('compliance_snapshot_at')
             ->whereNotIn('status', ['sold', 'withdrawn', 'draft'])
             ->whereNull('deleted_at');

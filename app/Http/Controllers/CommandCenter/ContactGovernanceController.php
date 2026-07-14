@@ -10,13 +10,20 @@ use Illuminate\Http\Request;
 class ContactGovernanceController extends Controller
 {
     /**
-     * Resolve the agency_id to manage settings for.
-     * Super_admin without agency falls back to agency_id=1 (HFC).
+     * Resolve the agency whose governance settings are being managed.
+     *
+     * AT-253 (STANDARDS Rule 17). This used to fall back to agency 1 for a super-admin with no
+     * agency — and said so in the comment, as though it were a decision rather than the bug.
+     * It is the bug: it silently pointed a no-tenant user at HOME FINDERS' contact-governance
+     * settings, which are POPIA retention rules. Reading them under the wrong tenant is
+     * misleading; writing them is a compliance change to an agency the actor does not belong to.
+     *
+     * A no-agency actor now resolves to the sentinel 0, which matches no agency and reads
+     * nothing. Correct answer, honestly empty.
      */
     private function resolveAgencyId(): int
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
-        return $agencyId ?? 1;
+        return (int) (auth()->user()?->effectiveAgencyId() ?: 0);
     }
 
     /**

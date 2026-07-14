@@ -131,7 +131,7 @@ class FeedbackReportController extends Controller
     public function index(Request $request)
     {
         $query = DB::table('feedback_reports')
-            ->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)
+            ->where('agency_id', (int) (auth()->user()?->effectiveAgencyId() ?: 0))   // AT-253 Rule 17
             ->whereNull('deleted_at');
 
         if ($status = $request->get('status')) $query->where('status', $status);
@@ -172,7 +172,7 @@ class FeedbackReportController extends Controller
     {
         $format = $request->get('format', 'json');
         $query = DB::table('feedback_reports')
-            ->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)
+            ->where('agency_id', (int) (auth()->user()?->effectiveAgencyId() ?: 0))   // AT-253 Rule 17
             ->whereNull('deleted_at')
             ->orderByDesc('submitted_at');
 

@@ -11,7 +11,7 @@ class DuplicateCleanupController extends Controller
 {
     public function index(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
         $clusters = DB::table('contact_duplicate_clusters')
             ->where('agency_id', $agencyId)

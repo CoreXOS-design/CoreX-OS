@@ -50,7 +50,7 @@ class BuyerPipelineController extends Controller
         $contextListing = null;
         if ($request->filled('prospecting_listing_id')) {
             $listingId = (int) $request->query('prospecting_listing_id');
-            $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+            $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
             $matchingContactIds = DB::table('prospecting_buyer_matches')
                 ->where('prospecting_listing_id', $listingId)

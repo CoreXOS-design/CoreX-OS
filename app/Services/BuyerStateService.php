@@ -23,7 +23,7 @@ class BuyerStateService
             return 'new';
         }
 
-        $agencyId = $contact->agency_id ?? 1;
+        $agencyId = (int) ($contact->agency_id ?: 0);   // AT-253 Rule 17: the CONTACT's agency, or none
         $settings = AgencyContactSettings::forAgency($agencyId);
 
         $daysSinceActivity = (int) $contact->last_activity_at->diffInDays(now());
@@ -50,13 +50,25 @@ class BuyerStateService
 
         $contact->updateQuietly(['buyer_state' => $newState]);
 
+        // AT-253 Rule 17 — a contact with no tenant has no history to file. Skip the row
+        // (loudly, in the log) rather than file it under someone else's agency. The state
+        // change above still stands: an audit gap must never break the actual work.
+        if (! $contact->agency_id) {
+            \Log::warning('AT-253 buyer-state history skipped: contact has no agency', [
+                'contact_id' => $contact->id, 'from' => $oldState, 'to' => $newState,
+            ]);
+
+            return;
+        }
+
         BuyerStateTransition::create([
             // agency_id is NOT-NULL (2026_05_23_030800) with no DB default.
             // Set it explicitly from the contact — relying on the BelongsToAgency
             // auto-stamp only works in single-agency DBs; in a multi-agency DB
             // the unstamped insert 1364-fails. Fixes the whole transition class
             // (this path + markActivity + the daily recompute cron).
-            'agency_id' => $contact->agency_id ?? 1,
+            // AT-253 Rule 17 — the CONTACT's tenant, never a hardcoded 1.
+            'agency_id' => $contact->agency_id,
             'contact_id' => $contact->id,
             'from_state' => $oldState,
             'to_state' => $newState,
@@ -69,7 +81,7 @@ class BuyerStateService
         if ($newState === 'lost' && $reason === 'auto_recompute' && $oldState !== 'lost') {
             \Illuminate\Support\Facades\DB::table('buyer_lost_records')->insert([
                 'contact_id' => $contact->id,
-                'agency_id' => $contact->agency_id ?? 1,
+                'agency_id' => $contact->agency_id,   // AT-253 Rule 17
                 'reason_code' => 'no_activity',
                 'reason_label' => 'No activity (auto-transitioned)',
                 'notes' => 'Auto-transitioned after inactivity exceeding lost threshold.',
@@ -108,10 +120,18 @@ class BuyerStateService
             $contact->refresh();
         }
 
-        // Log the activity
+        // Log the activity. AT-253 Rule 17 — no tenant, no row (never agency 1).
+        if (! $contact->agency_id) {
+            \Log::warning('AT-253 buyer-activity log skipped: contact has no agency', [
+                'contact_id' => $contact->id, 'activity' => $activityType,
+            ]);
+
+            return;
+        }
+
         BuyerActivityLog::create([
             'contact_id' => $contact->id,
-            'agency_id' => $contact->agency_id ?? 1,
+            'agency_id' => $contact->agency_id,   // AT-253 Rule 17
             'activity_type' => $activityType,
             'activity_date' => now(),
             'related_event_id' => $eventId,
@@ -229,7 +249,7 @@ class BuyerStateService
             return false;
         }
 
-        $settings   = AgencyContactSettings::forAgency($contact->agency_id ?? 1);
+        $settings   = AgencyContactSettings::forAgency((int) ($contact->agency_id ?: 0));   // AT-253 Rule 17
         $windowDays = (int) ($settings->buyer_cold_days ?? 30);
 
         return (int) Carbon::parse($manualAt)->diffInDays(now()) <= $windowDays;

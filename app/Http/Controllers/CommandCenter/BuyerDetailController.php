@@ -256,12 +256,18 @@ class BuyerDetailController extends Controller
 
         $reason = DB::table('agency_lost_deal_reasons')
             ->where('code', $data['reason_code'])
-            ->where('agency_id', $contact->agency_id ?? 1)
+            ->where('agency_id', (int) ($contact->agency_id ?: 0))   // AT-253 Rule 17: derive from the CONTACT
             ->first();
+
+        // AT-253 Rule 17 — buyer history belongs to the CONTACT's tenant. A contact with none
+        // has no history to file; refuse rather than file it under agency 1.
+        if (! $contact->agency_id) {
+            throw new \App\Exceptions\MissingAgencyContextException('this buyer record');
+        }
 
         DB::table('buyer_lost_records')->insert([
             'contact_id' => $contact->id,
-            'agency_id' => $contact->agency_id ?? 1,
+            'agency_id' => $contact->agency_id,   // AT-253 Rule 17
             'reason_code' => $data['reason_code'],
             'reason_label' => $reason->label ?? $data['reason_code'],
             'notes' => $data['notes'] ?? null,
@@ -305,9 +311,15 @@ class BuyerDetailController extends Controller
 
         app(\App\Services\BuyerStateService::class)->transitionTo($contact, 'warm', 'manual_override', auth()->id());
 
+        // AT-253 Rule 17 — buyer history belongs to the CONTACT's tenant. A contact with none
+        // has no history to file; refuse rather than file it under agency 1.
+        if (! $contact->agency_id) {
+            throw new \App\Exceptions\MissingAgencyContextException('this buyer record');
+        }
+
         BuyerActivityLog::create([
             'contact_id' => $contact->id,
-            'agency_id' => $contact->agency_id ?? 1,
+            'agency_id' => $contact->agency_id,   // AT-253 Rule 17
             'activity_type' => 'manual',
             'activity_date' => now(),
             'metadata' => ['action' => 'reengaged', 'notes' => $data['notes'] ?? null],
@@ -327,9 +339,14 @@ class BuyerDetailController extends Controller
             'outcome' => 'nullable|string|max:50',
         ]);
 
+        // AT-253 Rule 17 — buyer history belongs to the CONTACT's tenant, never agency 1.
+        if (! $contact->agency_id) {
+            throw new \App\Exceptions\MissingAgencyContextException('this buyer record');
+        }
+
         BuyerActivityLog::create([
             'contact_id' => $contact->id,
-            'agency_id' => $contact->agency_id ?? 1,
+            'agency_id' => $contact->agency_id,   // AT-253 Rule 17
             'activity_type' => 'retention_action',
             'activity_date' => now(),
             'metadata' => [

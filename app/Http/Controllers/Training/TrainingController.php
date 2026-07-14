@@ -16,7 +16,7 @@ class TrainingController extends Controller
     public function index()
     {
         $user = auth()->user();
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
         $courses = TrainingCourse::where('agency_id', $agencyId)
             ->published()
@@ -103,7 +103,7 @@ class TrainingController extends Controller
         $user = auth()->user();
         abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $courses = TrainingCourse::where('agency_id', $agencyId)
             ->withCount(['lessons'])
             ->orderBy('sort_order')

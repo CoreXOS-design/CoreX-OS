@@ -169,7 +169,7 @@ class PropertyContactController extends Controller
         unset($data['role']);
 
         $user = auth()->user();
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $service = app(ContactDuplicateService::class);
 
         if (empty($data['bypass_duplicate_check'])) {
