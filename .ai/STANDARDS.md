@@ -262,3 +262,114 @@ The "View As" role dropdown is useful ONLY for testing permission/UI gating (wha
 - Session marker: `impersonator_id` stores original admin's id for restoration
 
 **Diagnostic pattern:** If a visibility-scoped feature shows wrong results, check which feature was used. If "View As" → switch to "Switch User" instead. If "Switch User" → the scope has a genuine bug.
+
+---
+
+## Rule 17: Never Assume an Agency/Branch Context Exists
+
+The headline defect class of 2026-07-13 (AT-241 super-user calendar 500; MIC
+`Call to effectiveAgencyId() on null` 500). Owner/super-admin users, console
+commands, queued jobs, webhooks and public endpoints run with **no agency
+context** — the acting user's `agency_id` is NULL and `effectiveAgencyId()`
+returns NULL. Code that assumes a tenant exists either 500s (FK 1452, or "Call
+to a member function on null") or silently writes to the WRONG tenant.
+
+### The two failure shapes
+1. **Accessor on a possibly-null receiver** → `Call to a member function
+   effectiveAgencyId() on null`. E.g. `$deal->agent->effectiveAgencyId()` when
+   `agent` is null; `Auth::user()->effectiveAgencyId()` in an unauthenticated
+   (console/webhook/job) path where `user()` is null.
+2. **Hardcoded-agency fallback** → `effectiveAgencyId() ?? 1`. `??` only catches
+   null and falls back to a HARDCODED agency id that (a) may not exist (FK 1452
+   on a firstOrCreate, or on any install where the one agency isn't id 1) and
+   (b) is the WRONG tenant for a null-agency user.
+
+### The canonical safe pattern
+
+**Reading agency-scoped settings/config for the acting user** — resolve to the
+sentinel `0` with `?:` (NOT `?? 1`), and route through a consumer that GUARDS
+`<= 0`, returning unsaved in-memory defaults (never persisting):
+
+```php
+// GOOD — AgencyContactSettings::forAgency() has the <=0 guard (returns defaults, no write):
+AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarPollSeconds();
+//   public static function forAgency(int $agencyId): self {
+//       if ($agencyId <= 0) { return (new self())->forceFill([...defaults]); } // no FK, no 500
+//       return self::firstOrCreate(['agency_id' => $agencyId], $defaults);
+//   }
+
+// BAD — assumes agency 1 exists, mis-tenants a null-agency user, FK-1452s where agency 1 is absent:
+AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+```
+
+**Calling an accessor on a relation that can be null** — use `?->` and handle null:
+
+```php
+$agencyId = $deal->agent?->effectiveAgencyId();   // GOOD
+$agencyId = Auth::user()?->effectiveAgencyId();   // GOOD (unauth/console-safe)
+$agencyId = $deal->agent->effectiveAgencyId();    // BAD — 500 when agent is null
+```
+
+**Writing (stamping agency_id on a new row)** — never invent an agency. Derive
+it from the domain object being acted on (the deal's / property's / branch's
+agency), OR persist NULL for a legitimately global row (only if the column is
+nullable), OR reject with a clear message ("no agency selected — switch into an
+agency first"). NEVER stamp a hardcoded `1` or a sentinel `0` into a NOT-NULL /
+FK agency column (that is the FK-1452 on write).
+
+### The rule
+- No `effectiveAgencyId()` / `effectiveBranchId()` / `->agency_id` on a receiver
+  that can be null without `?->` or a prior guard.
+- No `?? <hardcoded agency id>`. Reads use `?: 0` + a `<= 0` guard.
+- A resolved-null agency on a WRITE is derive-from-context or reject — never a
+  hardcoded or sentinel stamp into a NOT-NULL column.
+- Sentinel `0` is safe ONLY if the consumer guards `<= 0`. A `?: 0` that flows
+  unguarded into a NOT-NULL / FK insert is a latent 1452 — treat it as a bug.
+
+---
+
+## Conductor & Lane Intake Protocol
+
+**This applies to the CONDUCTOR FIRST.** The conductor is the most common source of unchained build orders — an aside in conversation becomes a lane spending hours on code nobody specced. The protocol binds the conductor before it binds any lane.
+
+### 1. Classify before any code moves
+
+Every incoming instruction is classified BEFORE a lane touches code:
+
+- **BUG** → **INVESTIGATE first.** Report the truth with `file:line` references. Get the diagnosis **confirmed**. *Then* fix. Never fix on a guess; never fix before the reporter agrees the diagnosis is right.
+- **IDEA / DESIGN** → **DISCUSS to settled** → **written spec** → **Johan's explicit sign-off** → **ticket** → **queue**. No code before that chain is complete.
+
+### 2. MODE:BUILD is only legal with the chain in the prompt
+
+`MODE:BUILD` requires **BOTH**:
+
+1. a **ticket reference**, AND
+2. **either** Johan's **quoted word** **or** a **signed spec**, present in the prompt.
+
+**`MODE:INVESTIGATION` is the default for everything else.** Absence of the chain does not mean "use judgement" — it means investigate and report.
+
+### 3. No lane accepts an unchained build order
+
+A lane receiving a build order without that chain **pushes back to the conductor**. "The conductor told me to" is **not** authorization. Relayed authority is not authority.
+
+### 4. QA refuses certification of work built outside the chain
+
+**No chain, no certification.** QA does not certify code that skipped classification, spec, or sign-off — regardless of whether it happens to work.
+
+### 5. Spec-conformance line (mandatory)
+
+Every **READY-TO-LAND** report must carry a **spec-conformance line**:
+
+- which spec **§§** the landing implements, **and**
+- any **deviation DECLARED** explicitly,
+- **or** the words **"no governing spec"** stated outright.
+
+QA enforces this at certification: **no conformance line, no certification.**
+
+### Why this rule exists — today's cost cases
+
+- **Region seed / town remodel** — built from a conversational aside. No ticket, no spec, no sign-off. It consumed a lane and landed on qa1 before anyone asked whether it was wanted.
+- **AT-220 connection light** — the spec said a **persistent header indicator on every long-lived screen**. What shipped was an indicator at the **bottom of two DocuPerfect pages**. Nobody compared the artifact to the spec. Conformance is now **audited, not assumed**.
+- **Green-for-mechanics vs proven-in-data** — a gate passed on *import mechanics* (a marked document parses to 29 fields) was read as proof the *contract existed in data*. It did not: no template row was ever saved. A check that measures whether a pipeline **can** work is not evidence that it **has** worked on real data. State which noun you measured.
+
+The common failure in all three: **the check measured the wrong noun, and drift survived because nobody compared the artifact to the spec.**

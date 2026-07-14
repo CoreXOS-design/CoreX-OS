@@ -51,7 +51,12 @@ class Dr2DistributionSendService
         User $actor,
     ): array {
         if (! $deal->deal_v2_id) {
-            throw new \DomainException('This deal has no DR2 record yet — documents cannot be distributed until it is synced.');
+            // AT-245 — mint the twin on demand rather than dead-end the send. Only
+            // a deal with no listing agent (nothing to satisfy the twin) can't be sent.
+            app(DealSyncService::class)->ensureTwin($deal);
+            if (! $deal->deal_v2_id) {
+                throw new \DomainException('This deal has no DR2 record and no listing agent to create one — assign an agent to the deal, then send.');
+            }
         }
 
         $email = trim((string) ($recipient['email'] ?? ''));
