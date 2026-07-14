@@ -201,14 +201,16 @@
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
-        'admin.ai-usage.*'
+        'admin.ai-usage.*',
+        'admin.billing.*'
     )) {
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
         'admin.company-settings*',
         'corex.role-manager*',
         'admin.soft-deletes.*',
-        'staff-take-on.*'
+        'staff-take-on.*',
+        'billing.*'
     )) {
         $activeGroup = 'company';
     } elseif (request()->routeIs(
@@ -1478,7 +1480,10 @@
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on']))
+        {{-- `billing.view` is in this gate because the Company GROUP is only rendered when the user
+             holds at least one of its children's permissions — without it, a role granted only
+             billing.view would have the whole group hidden and could never reach Billing. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1498,6 +1503,11 @@
 
                 @permission('manage_performance_settings')
                 <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">Company Settings</a>
+                @endpermission
+
+                {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
+                @permission('billing.view')
+                <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
                 @endpermission
 
                 @permission('access_role_manager')
@@ -1522,16 +1532,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 3h6m2 6H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
             </svg>
             <span>Proforma Invoices</span>
-        </a>
-        @endpermission
-
-        {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
-        @permission('billing.view')
-        <a href="{{ route('billing.index') }}" class="corex-nav-item {{ request()->routeIs('billing.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
-            </svg>
-            <span>Billing</span>
         </a>
         @endpermission
 

@@ -331,8 +331,8 @@ View: `resources/views/admin/billing/index.blade.php`. Copies the shape of
 
 | Page | Sidebar location |
 |---|---|
-| `/billing` | Top-level nav item next to **Proforma Invoices** (`corex-sidebar.blade.php` ~1518-1526), gated `@permission('billing.view')`. |
-| `/admin/billing` | **System Developer → Agency** slide-panel, after *AI Usage* (`corex-sidebar.blade.php` ~1765-1767). Inside the existing `@if($isOwner)` block — **no permission key** (see §9). |
+| `/billing` | **Admin → Company** slide-panel, directly under *Company Settings* (Johan, 2026-07-14). Gated `@permission('billing.view')`. Two things must move with it, or the entry is unreachable/inert: (a) `billing.view` is added to the **Company group's own `hasAnyPermission([...])` gate** — the group only renders when the user holds one of its children's permissions, so a role granted *only* `billing.view` would otherwise have the whole group hidden; (b) `billing.*` is added to the **`$activeGroup` route map** so Company highlights as active on the billing page. |
+| `/admin/billing` | **System Developer → Agency** slide-panel, after *AI Usage*. Inside the existing `@if($isOwner)` block — **no permission key** (see §9). `admin.billing.*` added to the `$activeGroup` map for the `agency` group. (No collision with `billing.*`: `routeIs('billing.*')` matches names *starting* with `billing.`, which `admin.billing.index` does not.) |
 
 ---
 
