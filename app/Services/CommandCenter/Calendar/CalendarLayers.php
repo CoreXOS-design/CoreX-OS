@@ -76,7 +76,7 @@ class CalendarLayers
             if (is_array($pref)) {
                 $active = $pref;
             } else {
-                $active = AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarDefaultLayers();
+                $active = AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarDefaultLayers();
             }
         }
 

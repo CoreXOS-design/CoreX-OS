@@ -58,7 +58,7 @@ class CalendarTileService
     /** Agency-configurable Deck slot count. */
     public function slotCount(User $user): int
     {
-        return AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarDeckSlots();
+        return AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarDeckSlots();
     }
 
     /**
@@ -73,7 +73,7 @@ class CalendarTileService
         $layout = is_array($pref?->calendar_deck_layout) ? $pref->calendar_deck_layout : null;
 
         if ($layout === null) {
-            $agency = AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1);
+            $agency = AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0));
             $roleDefaults = $agency->calendarDefaultDeckLayouts();
             $role = $user->effectiveRole();
             $layout = $roleDefaults[$role] ?? self::DEFAULT_DECK;
