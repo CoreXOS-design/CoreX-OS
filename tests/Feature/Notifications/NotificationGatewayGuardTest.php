@@ -77,8 +77,10 @@ final class NotificationGatewayGuardTest extends TestCase
         // ── Deals ──
         'app/Services/DealV2/NotificationService.php',
 
-        // ── Leads (also ignores the push master switch — AT-235 C10) ──
-        'app/Listeners/Leads/EmailPortalLeadToAgent.php',
+        // ── Leads — MIGRATED (AT-235 S2, slice a). EmailPortalLeadToAgent is now a
+        //    gateway citizen, and PushNewPortalLeadToMobile is RETIRED: push is simply
+        //    one of the channels the gateway resolves, so C10 (push ignoring
+        //    notify_push) is closed.
 
         // ── Contacts — fires contact.testimonial_submitted, a key that is not even
         //    in the catalogue, so it cannot be configured or suppressed (C9) ──
@@ -171,11 +173,10 @@ final class NotificationGatewayGuardTest extends TestCase
     public function test_the_bypass_debt_is_recorded(): void
     {
         $this->assertLessThanOrEqual(
-            21,
+            20,
             count(self::KNOWN_BYPASSES),
             'the bypass allow-list may only ever SHRINK — S2 empties it. '
-            . '23 -> 22 when AT-245 proforma became citizen #1; -> 21 when a false entry '
-            . '(a notification class, not a sender) was removed.'
+            . '23 -> 22 (proforma = citizen #1) -> 21 (a false entry removed) -> 20 (Leads migrated).'
         );
     }
 

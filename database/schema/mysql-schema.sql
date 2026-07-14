@@ -7519,8 +7519,9 @@ CREATE TABLE `payroll_deduction_types` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_code_key` varchar(64) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is null) then `code` else NULL end)) STORED,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `payroll_deduction_types_agency_id_code_unique` (`agency_id`,`code`),
+  UNIQUE KEY `payroll_deduction_types_active_code_uq` (`agency_id`,`active_code_key`),
   CONSTRAINT `payroll_deduction_types_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -7544,8 +7545,9 @@ CREATE TABLE `payroll_earning_types` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_code_key` varchar(64) COLLATE utf8mb4_unicode_ci GENERATED ALWAYS AS ((case when (`deleted_at` is null) then `code` else NULL end)) STORED,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `payroll_earning_types_agency_id_code_unique` (`agency_id`,`code`),
+  UNIQUE KEY `payroll_earning_types_active_code_uq` (`agency_id`,`active_code_key`),
   CONSTRAINT `payroll_earning_types_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -13414,3 +13416,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (985,'2026_07_13_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (986,'2026_07_29_000001_payroll_soft_delete_safe_uniques',230);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (987,'2026_07_28_100003_one_seller_fact_on_filing_register',231);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (988,'2026_07_13_200000_at235_register_proforma_created_notification',232);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (989,'2026_07_30_000001_payroll_type_soft_delete_safe_uniques',233);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (990,'2026_07_14_090000_at235_register_portal_lead_notification',234);
