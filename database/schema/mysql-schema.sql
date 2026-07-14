@@ -13418,3 +13418,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (987,'2026_07_28_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (988,'2026_07_13_200000_at235_register_proforma_created_notification',232);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (989,'2026_07_30_000001_payroll_type_soft_delete_safe_uniques',233);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (990,'2026_07_14_090000_at235_register_portal_lead_notification',234);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (991,'2026_07_31_000001_consolidate_otp_document_type',235);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (992,'2026_07_14_120000_at235_register_comms_notifications',236);
