@@ -186,36 +186,39 @@ final class FicaMultiOfficerWorkflowTest extends TestCase
 
     // ── 3. Quick-link queue scoping ───────────────────────────────────────
 
-    public function test_co_queue_card_counts_agent_approved_plus_referred_and_is_co_only(): void
+    public function test_ro_approvals_card_counts_agent_approved_for_any_authorized_reviewer(): void
     {
+        // The shared review pool (agent_approved), NOT scoped to who created it.
         $this->submission($this->agent->id, 'agent_approved');
-        $this->submission($this->agent->id, 'referred_to_co');
-        $this->submission($this->agent->id, 'submitted'); // not in CO queue
+        $this->submission($this->primaryCo->id, 'agent_approved');
+        $this->submission($this->agent->id, 'referred_to_co'); // escalated → NOT in RO Approvals
+        $this->submission($this->agent->id, 'submitted');      // agent stage → NOT in RO Approvals
 
         $svc = app(CommandCentreService::class);
-        $m = new ReflectionMethod($svc, 'ficaReview');
+        $m = new ReflectionMethod($svc, 'ficaRoApprovals');
         $m->setAccessible(true);
 
-        // A CO sees the queue: agent_approved + referred = 2.
-        $coCard = $m->invoke($svc, $this->primaryCo, $this->agencyId);
-        $this->assertSame(2, $coCard['count']);
+        // Both an RO (Falan/mlro) and the primary CO (Elize) see the pool: 2.
+        $this->assertSame(2, $m->invoke($svc, $this->mlro, $this->agencyId)['count']);
+        $this->assertSame(2, $m->invoke($svc, $this->primaryCo, $this->agencyId)['count']);
 
-        // A non-CO (plain agent) sees count 0 → the card is skipped.
-        $agentCard = $m->invoke($svc, $this->agent, $this->agencyId);
-        $this->assertSame(0, $agentCard['count']);
+        // A plain agent (no FICA appointment) is not a reviewer → count 0, card skipped.
+        $this->assertSame(0, $m->invoke($svc, $this->agent, $this->agencyId)['count']);
     }
 
-    public function test_reviewer_queue_card_counts_only_the_users_own_pending_reviews(): void
+    public function test_co_approvals_needed_card_counts_referred_and_is_primary_co_only(): void
     {
-        $this->submission($this->agent->id, 'submitted');            // agent's own → counts
-        $this->submission($this->agent->id, 'corrections_requested'); // agent's own → counts
-        $this->submission($this->mlro->id, 'submitted');             // someone else's → excluded
+        $this->submission($this->agent->id, 'referred_to_co');
+        $this->submission($this->agent->id, 'referred_to_co');
+        $this->submission($this->agent->id, 'agent_approved'); // not escalated → not here
 
         $svc = app(CommandCentreService::class);
-        $m = new ReflectionMethod($svc, 'ficaReviewerQueue');
+        $m = new ReflectionMethod($svc, 'ficaCoApprovalsNeeded');
         $m->setAccessible(true);
 
-        $this->assertSame(2, $m->invoke($svc, $this->agent, $this->agencyId)['count']);
-        $this->assertSame(1, $m->invoke($svc, $this->mlro, $this->agencyId)['count']);
+        // The primary CO (Elize) sees the escalations: 2.
+        $this->assertSame(2, $m->invoke($svc, $this->primaryCo, $this->agencyId)['count']);
+        // An RO (Falan/mlro) is NOT the primary CO → the CO station is not theirs: 0.
+        $this->assertSame(0, $m->invoke($svc, $this->mlro, $this->agencyId)['count']);
     }
 }

@@ -417,17 +417,23 @@
                     </div>
                 </form>
 
-                {{-- AT-236 — Refer to CO (third action for a non-CO reviewer) --}}
-                @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true])
+                {{-- AT-236 — Escalate to CO (third action for a non-primary-CO reviewer) --}}
+                @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
             @endif
 
-            {{-- Awaiting CO — message for non-CO users --}}
-            @if($submission->status === 'agent_approved' && !auth()->user()->isComplianceOfficer())
-                <div class="rounded-md p-5 text-sm"
-                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent); color:var(--text-primary);">
-                    <p class="font-semibold">Awaiting Compliance Officer Review</p>
-                    <p class="mt-1 text-xs" style="color:var(--text-secondary);">This submission has been approved by the agent and is now waiting for a compliance officer to perform the final review.</p>
-                </div>
+            {{-- RO Approvals stage — an authorized reviewer (RO) can review via the CO
+                 review screen, or escalate straight from here. --}}
+            @if($submission->status === 'agent_approved')
+                @if(auth()->user()->isComplianceOfficer())
+                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary w-full justify-center text-sm mb-3">Open review</a>
+                    @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
+                @else
+                    <div class="rounded-md p-5 text-sm"
+                         style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent); color:var(--text-primary);">
+                        <p class="font-semibold">In RO Approvals</p>
+                        <p class="mt-1 text-xs" style="color:var(--text-secondary);">The agent has reviewed this submission; it is now with the Reporting / Compliance Officers for their decision.</p>
+                    </div>
+                @endif
             @endif
 
             {{-- Final approved summary --}}
