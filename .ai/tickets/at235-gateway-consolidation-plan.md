@@ -20,7 +20,7 @@
 |---|---|---|
 | **S0** | Gateway core — `send()` can carry ANY notification class | ✅ **DONE** (+ C11 closed: capability now caps preference) |
 | **S1** | AT-245 proforma converted — **citizen #1, the reference implementation** | ✅ **DONE** — allow-list 23 → 21 |
-| **S2** | Migrate producers, module by module | 🔄 **slice (a) Leads DONE** — allow-list 21 → 20; C10 closed; push listener retired. **NEXT: slice (b) Comms** |
+| **S2** | Migrate producers, module by module | 🔄 **(a) Leads DONE** (deployed) · **(b) Comms DONE** — allow-list 20 → 18. **NEXT: slice (c) Misc** |
 | **S3** | Fold `CalendarNotificationDispatcher` in; kill the three-engine calendar mess | ⬜ |
 | **S4** | One ledger — retire the 4 competing idempotency mechanisms | ⬜ |
 | **S5** | Agency governance (`agency_id` + `is_active`) + Setup Wizard (CLAUDE.md #10a) | ⬜ |
@@ -199,6 +199,25 @@ preference (agency narrows; user narrows further; **neither widens** — §2's i
 
 **CLAUDE.md #10a:** any new agency setting must reach the **Agency Onboarding Setup Wizard** in the
 same prompt. A setting only on the settings page is not done.
+
+---
+
+## 7a. TWO DEPLOY RULES LEARNED THE HARD WAY (S2)
+
+**1. A data-inserting migration does NOT survive `schema:dump`.** The snapshot writes the
+schema and the `migrations` table — and none of the rows a migration inserted. So on any
+database built from the snapshot (a fresh test DB, a brand-new environment) the registering
+migration is marked ALREADY-RUN, never re-executes, and its catalogue row simply does not
+exist. The gateway then finds no event type and **sends nothing, silently.**
+
+This cost an hour: the Leads storm tests went green, then went red the moment the snapshot
+caught up with them. **Every catalogue row must be in `NotificationEventTypeSeeder`** (which
+is registered in `deploy:sync-reference-data`), and **every test that needs the catalogue must
+seed it** — never rely on the migration. This is AT-162 in a new disguise.
+
+**2. Retiring a class needs `composer dump-autoload -o` on deploy.** The optimised classmap
+still points at the deleted file and the autoloader warns on every request. Part of the deploy
+sequence for any slice that removes a producer.
 
 ---
 

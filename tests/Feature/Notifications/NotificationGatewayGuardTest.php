@@ -86,9 +86,10 @@ final class NotificationGatewayGuardTest extends TestCase
         //    in the catalogue, so it cannot be configured or suppressed (C9) ──
         'app/Listeners/Contacts/NotifyAgentOfClientTestimonial.php',
 
-        // ── Communications ──
-        'app/Services/Communications/MailboxHealthRecorder.php',
-        'app/Services/Communications/CommsAccessGrantService.php',
+        // ── Communications — MIGRATED (AT-235 S2, slice b). Both are gateway citizens.
+        //    MailboxHealthRecorder was the clearest PERSISTENT condition in the codebase:
+        //    it carried its own private idempotency (a failure_notified_at marker — a
+        //    FIFTH mechanism), which now doubles as the gateway's episode dedup key.
 
         // ── Reminders / scheduled ──
         'app/Services/CommandCenter/CalendarReminderService.php',
@@ -173,10 +174,10 @@ final class NotificationGatewayGuardTest extends TestCase
     public function test_the_bypass_debt_is_recorded(): void
     {
         $this->assertLessThanOrEqual(
-            20,
+            18,
             count(self::KNOWN_BYPASSES),
             'the bypass allow-list may only ever SHRINK — S2 empties it. '
-            . '23 -> 22 (proforma = citizen #1) -> 21 (a false entry removed) -> 20 (Leads migrated).'
+            . '23 -> 22 (proforma = citizen #1) -> 21 (false entry removed) -> 20 (Leads) -> 18 (Comms).'
         );
     }
 

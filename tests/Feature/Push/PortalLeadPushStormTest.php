@@ -62,6 +62,16 @@ class PortalLeadPushStormTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
+
+        // ⚠️ SEED THE CATALOGUE — do NOT rely on the registering migration.
+        //
+        // `schema:dump` writes the schema and the `migrations` table, but NONE of the
+        // data a migration inserted. So on a fresh test database the registering
+        // migration is marked ALREADY-RUN, never re-executes, and its catalogue row
+        // simply does not exist — the gateway then finds no event type and sends
+        // nothing, silently. That is AT-162 (reference data that does not travel) in
+        // test form, and it is exactly what this seeder is for.
+        $this->seed(\Database\Seeders\NotificationEventTypeSeeder::class);
         config(['push.rate_per_minute' => 50, 'push.retry_base_ms' => 0]);
 
         $this->spy = new SpyPushTransport();
