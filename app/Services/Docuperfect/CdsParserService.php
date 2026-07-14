@@ -9,6 +9,72 @@ use DOMXPath;
 class CdsParserService
 {
     /**
+     * AT-262-marker — the ONE TRUTH for marker syntax.
+     *
+     * This list is the only place the accepted markers are defined. `detectMarkers()`
+     * COMPOSES its split regex from it, and the import screen RENDERS its guide from
+     * it. Neither can drift from the other, because there is nothing to drift from —
+     * they read the same array.
+     *
+     * The ticket suspected the UI taught a syntax the parser did not read. It does
+     * not (verified across every view, service and spec: the only marker guide in the
+     * product is the import screen, and it already matched the regex exactly). But the
+     * two WERE independently maintained — a hardcoded Blade list next to a hardcoded
+     * regex — which is the same two-copies-of-one-fact shape that has bitten us
+     * elsewhere. Structure it once so the drift is impossible rather than merely
+     * absent today.
+     *
+     * `order` matters: the tilde form is matched FIRST because it is the longest and
+     * must not be shredded by the shorter alternations.
+     */
+    public const ACCEPTED_MARKERS = [
+        [
+            'token'   => '~~~~NAME~~~~',
+            'delim'   => '~~~~',   // what the import guide must show for this family
+            'pattern' => '~{4,}[A-Z_]+(?::[^~]+)?~{4,}',
+            'label'   => 'Insertable block',
+            'hint'    => 'A live, agent-editable area — e.g. ~~~~OTHER_CONDITIONS~~~~, ~~~~INCLUDED_ITEMS~~~~, ~~~~EXCLUDED_ITEMS~~~~ or ~~~~CUSTOM:Outstanding Repairs~~~~',
+            'example' => '~~~~OTHER_CONDITIONS~~~~',
+        ],
+        [
+            'token'   => '@@@@',
+            'delim'   => '@@@@',
+            'pattern' => '@{4,}',
+            'label'   => 'Input field',
+            'hint'    => 'Where data is filled in (four or more @)',
+            'example' => '@@@@',
+        ],
+        [
+            'token'   => '%%%%',
+            'delim'   => '%%%%',
+            'pattern' => '%{4,}',
+            'label'   => 'Signature',
+            'hint'    => 'Where a party signs (four or more %)',
+            'example' => '%%%%',
+        ],
+        [
+            'token'   => '####',
+            'delim'   => '####',
+            'pattern' => '#{4,}',
+            'label'   => 'Initial',
+            'hint'    => 'Where a party initials (four or more #)',
+            'example' => '####',
+        ],
+    ];
+
+    /** The accepted markers, for any surface that needs to TEACH them. */
+    public static function acceptedMarkers(): array
+    {
+        return self::ACCEPTED_MARKERS;
+    }
+
+    /** The split regex, composed from the one truth above — never hand-maintained. */
+    public static function markerSplitPattern(): string
+    {
+        return '/(' . implode('|', array_column(self::ACCEPTED_MARKERS, 'pattern')) . ')/';
+    }
+
+    /**
      * Parse a .docx file into CoreX Document Structure JSON.
      *
      * @param string $filePath Path to the .docx file
@@ -736,10 +802,10 @@ class CdsParserService
      */
     private function detectMarkers(array $sections): array
     {
-        // Split pattern needs the insertable-block form FIRST because the
-        // tilde-bounded form is longer and overlaps with no other; the field
-        // markers come second.
-        $splitPattern = '/(~{4,}[A-Z_]+(?::[^~]+)?~{4,}|@{4,}|%{4,}|#{4,})/';
+        // Composed from ACCEPTED_MARKERS — the same array the import screen teaches
+        // from, so the syntax we read and the syntax we advertise cannot diverge.
+        // (The tilde form is first in that array precisely because it is the longest.)
+        $splitPattern = self::markerSplitPattern();
 
         foreach ($sections as &$section) {
             if (!isset($section['content'])) continue;
