@@ -2998,6 +2998,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{contact}/properties/{property}', [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'unlink'])->name('properties.unlink');
         // Core Matches
         Route::post('/{contact}/matches',                              [\App\Http\Controllers\CoreX\ContactMatchController::class, 'store'])->name('matches.store');
+        Route::get('/{contact}/matches/{match}/edit',                  [\App\Http\Controllers\CoreX\ContactMatchController::class, 'edit'])->name('matches.edit');
         Route::put('/{contact}/matches/{match}',                       [\App\Http\Controllers\CoreX\ContactMatchController::class, 'update'])->name('matches.update');
         Route::post('/{contact}/matches/{match}/status',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'setStatus'])->name('matches.setStatus');
         Route::get('/{contact}/matches/{match}/results',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'results'])->name('matches.results');
