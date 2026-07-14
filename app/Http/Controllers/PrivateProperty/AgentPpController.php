@@ -102,7 +102,7 @@ class AgentPpController extends Controller
         // (agencyMembers() excludes System Owners / Super Admins via is_owner),
         // scoped to the current agency by agency_id or branch. Only users that
         // appear in User Management should appear here.
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $agents = User::agencyMembers()
             ->when($agencyId, function ($q) use ($agencyId) {

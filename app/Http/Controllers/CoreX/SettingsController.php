@@ -626,7 +626,7 @@ class SettingsController extends Controller
             'properties_status_order'  => 'nullable|string',   // comma-separated status names
         ]);
 
-        $agency = Agency::findOrFail(auth()->user()->effectiveAgencyId());
+        $agency = Agency::findOrFail(auth()->user()?->effectiveAgencyId());
 
         $order = [];
         if (!empty($data['properties_status_order'])) {
@@ -687,7 +687,7 @@ class SettingsController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
         $agency = $agencyId ? Agency::findOrFail($agencyId) : Agency::firstOrFail();
 
         $data = $request->validate([

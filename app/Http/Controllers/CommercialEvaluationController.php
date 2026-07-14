@@ -100,7 +100,7 @@ class CommercialEvaluationController extends Controller
 
         $evaluation = CommercialEvaluation::create(array_merge($validated, [
             'created_by_user_id' => auth()->id(),
-            'branch_id'          => $isAdmin ? ($validated['branch_id'] ?? null) : auth()->user()->effectiveBranchId(),
+            'branch_id'          => $isAdmin ? ($validated['branch_id'] ?? null) : auth()->user()?->effectiveBranchId(),
             'status'             => 'draft',
         ]));
 

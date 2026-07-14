@@ -1095,7 +1095,7 @@ class DealRegisterController extends Controller
             'address'  => ['nullable', 'string', 'max:500'],
         ]);
 
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         $userId = $request->user()->id;
 
         // AT-228 — same inline-create serves attorney + bond originator (specialty from the picker).

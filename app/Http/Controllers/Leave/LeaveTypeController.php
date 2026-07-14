@@ -56,7 +56,7 @@ class LeaveTypeController extends Controller
 
     public function store(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate($this->validationRules($agencyId));
 
@@ -91,7 +91,7 @@ class LeaveTypeController extends Controller
     public function update(Request $request, $id)
     {
         $type = LeaveType::findOrFail($id);
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate($this->validationRules($agencyId, $type->id));
 

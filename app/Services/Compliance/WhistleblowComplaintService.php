@@ -721,7 +721,10 @@ class WhistleblowComplaintService
      */
     public function generateLawyerReviewPack(User $requestedBy): string
     {
-        $agency = Agency::withoutGlobalScopes()->find($requestedBy->agency_id ?? 1)
+        // AT-253 Rule 17 — the requester's own agency, or the existing first()-agency fallback.
+        // Never a hardcoded 1: on an install where agency 1 is not Home Finders, that silently
+        // built a legal review pack for the WRONG agency.
+        $agency = Agency::withoutGlobalScopes()->find($requestedBy->agency_id ?: 0)
             ?? Agency::withoutGlobalScopes()->first();
 
         $timestamp = now()->format('Ymd-His');

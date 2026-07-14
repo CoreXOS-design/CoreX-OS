@@ -489,7 +489,7 @@ class PdfSplitterController extends Controller
                 ->withErrors(['pdf' => 'Select a property above before linking — "Link to CoreX" files the documents to that property. Use "Download ZIP" if you only want the files.']);
         }
 
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? $property->agency_id ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? $property->agency_id ?? 0);
 
         // WS3 (D4) — optional DR2 deal target. When the agent picks a deal in the
         // review screen, every split page-group is also anchored to that deal (in

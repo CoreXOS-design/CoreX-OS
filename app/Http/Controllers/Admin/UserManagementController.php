@@ -26,7 +26,7 @@ class UserManagementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $users = User::agencyMembers()
             ->when($agencyId, function ($q) use ($agencyId) {
@@ -96,7 +96,7 @@ class UserManagementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $branches = Branch::when($agencyId, fn ($q) => $q->where(function ($q2) use ($agencyId) {
                 $q2->where('agency_id', $agencyId)->orWhereNull('agency_id');
@@ -167,7 +167,7 @@ class UserManagementController extends Controller
             'password'                    => 'INVITE_PENDING',
             'role'                        => $data['role'],
             'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
-            'agency_id'                   => auth()->user()->effectiveAgencyId(),
+            'agency_id'                   => auth()->user()?->effectiveAgencyId(),
             'designation'                 => ($data['designation'] ?? null) ?: null,
             'is_active'                   => true,
             'is_admin'                    => in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0,
@@ -232,7 +232,7 @@ class UserManagementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $branches = Branch::when($agencyId, fn ($q) => $q->where(function ($q2) use ($agencyId) {
                 $q2->where('agency_id', $agencyId)->orWhereNull('agency_id');

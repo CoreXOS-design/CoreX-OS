@@ -798,7 +798,7 @@ class ESignWizardController extends Controller
                 $existing = null;
                 if ($email !== '') {
                     $existing = app(\App\Services\Communications\ContactIdentifierResolver::class)
-                        ->resolve($email, (int) auth()->user()->effectiveAgencyId());
+                        ->resolve($email, (int) auth()->user()?->effectiveAgencyId());
                 }
                 if (!$existing && $idNumber !== '') {
                     $existing = Contact::where('id_number', $idNumber)->first();

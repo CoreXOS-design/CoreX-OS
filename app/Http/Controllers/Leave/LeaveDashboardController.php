@@ -13,7 +13,7 @@ class LeaveDashboardController extends Controller
 {
     public function index()
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $activeEmployees = PayrollEmployee::where('is_active', true)->count();
         $approvedThisMonth = LeaveApplication::where('status', 'approved')
