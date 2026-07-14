@@ -49,10 +49,15 @@ class GuidedToursController extends Controller
                 // (e.g. the contact-scoped outreach composer) can't be linked
                 // generically — flag those so the UI explains where to go.
                 $routeName = $tour['route'] ?? null;
+                $external  = $tour['external_url'] ?? null;
                 $url = null;
                 $needsContext = false;
 
-                if ($routeName && RouteFacade::has($routeName)) {
+                if ($external) {
+                    // External-link entry (e.g. Mobile app): the card is the whole
+                    // feature — it leaves CoreX rather than driving a tour.
+                    $url = $external;
+                } elseif ($routeName && RouteFacade::has($routeName)) {
                     try {
                         $url = route($routeName, [], false) . '?tour=' . urlencode($tour['key']);
                     } catch (\Throwable $e) {
@@ -67,6 +72,10 @@ class GuidedToursController extends Controller
                     'steps'        => count($tour['steps'] ?? []),
                     'url'          => $url,
                     'needsContext' => $needsContext,
+                    'external'     => (bool) $external,
+                    // Host shown on the card so it's obvious the button leaves CoreX.
+                    'externalHost' => $external ? (parse_url($external, PHP_URL_HOST) ?: null) : null,
+                    'cta'          => $tour['cta'] ?? null,
                     'group'        => static::groupFor($tour['key']),
                 ];
             })
@@ -122,6 +131,7 @@ class GuidedToursController extends Controller
 
     /** Display order of the directory's category sections. */
     private const GROUP_ORDER = [
+        'Mobile',
         'Dashboard & Command Centre',
         'Real Estate',
         'Market Intelligence',
@@ -147,6 +157,7 @@ class GuidedToursController extends Controller
     private static function groupFor(string $key): string
     {
         static $core = [
+            'mobile-app'        => 'Mobile',
             'contact-capture'   => 'Real Estate',
             'property-capture'   => 'Real Estate',
             'buyer-pipeline'     => 'Real Estate',
