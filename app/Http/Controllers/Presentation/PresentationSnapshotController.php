@@ -50,7 +50,7 @@ class PresentationSnapshotController extends Controller
         // Capture buyer demand snapshot (Module 13) for historical comparison
         if ($presentation->listing_id) {
             try {
-                $agencyId = $presentation->agency_id ?? (auth()->user()->effectiveAgencyId() ?? 1);
+                $agencyId = (int) ($presentation->agency_id ?: (auth()->user()?->effectiveAgencyId() ?: 0));   // AT-253 Rule 17
                 $buyerDemand = app(\App\Services\PropertyMatchScoringService::class)
                     ->getBuyerDemandForProperty($presentation->listing_id, $agencyId);
 

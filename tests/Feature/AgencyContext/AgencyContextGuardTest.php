@@ -42,6 +42,11 @@ final class AgencyContextGuardTest extends TestCase
             'name' => 'Coastal ' . Str::random(6), 'slug' => 'coastal-' . Str::random(8),
             'created_at' => now(), 'updated_at' => now(),
         ]);
+        // Properties stamp a branch, and the FK is enforced.
+        DB::table('branches')->insert([
+            'id' => $this->agencyId, 'agency_id' => $this->agencyId, 'name' => 'Margate',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     // ── READS: the <= 0 guard returns defaults and writes NOTHING ────────
@@ -121,6 +126,53 @@ final class AgencyContextGuardTest extends TestCase
 
         $this->assertStringContainsString('not attached to an agency', $e->userMessage());
         $this->assertStringContainsString('Switch into an agency first', $e->userMessage());
+    }
+
+    // ── AT-260: the write that could not run outside a web request ───────
+
+    /**
+     * `PropertySellerLink::ensureExists()` was unusable from any console command, queued job or
+     * webhook. `agency_id` is NOT NULL and nothing supplied it — BelongsToAgency fills it from
+     * the ACTING USER, and there is no acting user in a console — so MySQL rejected the insert
+     * with a 1364 and the job died. Found by seeding qa1 walk data from the CLI.
+     *
+     * The link belongs to the PROPERTY's tenant, so the property is now the source.
+     */
+    public function test_a_seller_link_can_be_created_with_no_authenticated_user(): void
+    {
+        $agent = User::factory()->create(['agency_id' => $this->agencyId, 'role' => 'agent']);
+        $property = \App\Models\Property::create([
+            'agency_id' => $this->agencyId, 'agent_id' => $agent->id, 'branch_id' => $this->agencyId,
+            'title' => '1 Alamien Avenue, Uvongo', 'address' => '1 Alamien Avenue',
+            'suburb' => 'Uvongo', 'status' => 'active', 'property_type' => 'House', 'price' => 2_000_000,
+        ]);
+        $seller = \App\Models\Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Marius', 'last_name' => 'van Rensburg',
+        ]);
+
+        // The console context: nobody is logged in.
+        $this->assertGuest();
+
+        $link = \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
+
+        $this->assertTrue($link->exists, 'the link must be creatable with no acting user');
+        $this->assertSame($this->agencyId, (int) $link->agency_id, "the PROPERTY's tenant, derived");
+        $this->assertNull($link->generated_by_user_id, 'and it is NOT falsely attributed to user 1');
+
+        // Idempotent — a second call returns the same link, not a duplicate.
+        $again = \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
+        $this->assertSame($link->id, $again->id);
+    }
+
+    /** ...and with no property to derive from, it refuses rather than inventing a tenant. */
+    public function test_a_seller_link_for_a_missing_property_is_refused(): void
+    {
+        $seller = \App\Models\Contact::create([
+            'agency_id' => $this->agencyId, 'first_name' => 'Ghost', 'last_name' => 'Seller',
+        ]);
+
+        $this->expectException(MissingAgencyContextException::class);
+        \App\Models\PropertySellerLink::ensureExists(999999, $seller->id);
     }
 
     // ── the end-to-end shape: a null-agency user cannot silently write into agency 1 ──

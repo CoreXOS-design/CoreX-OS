@@ -17,13 +17,28 @@ class PropertyAuditService
         ?array $newValues = null,
         ?array $metadata = null,
         ?string $humanSummary = null,
-    ): PropertyAuditLog {
+    ): ?PropertyAuditLog {
         $user ??= auth()->user();
+
+        // AT-253 Rule 17 — ABSORB, never 500 and never mis-file. The audit row belongs to the
+        // PROPERTY's tenant. With none to derive from (and none on the actor either) there is
+        // nothing honest to write: skip it, loudly, rather than file this property's history
+        // under agency 1. No caller uses the return value, so a skipped row breaks nothing —
+        // and a silent wrong-tenant audit trail would be far worse than a logged gap.
+        if (! ($property->agency_id ?? $user?->agency_id)) {
+            \Log::warning('AT-253 property audit skipped: no agency to derive from', [
+                'property_id' => $property->id, 'event' => $eventType,
+            ]);
+
+            return null;
+        }
 
         return PropertyAuditLog::create([
             'property_id'    => $property->id,
             'user_id'        => $user?->id,
-            'agency_id'      => $property->agency_id ?? $user?->agency_id ?? 1,
+            // AT-253 Rule 17 — the PROPERTY's tenant (the thing being audited), never a
+            // hardcoded 1: an audit row filed under the wrong agency is worse than none.
+            'agency_id'      => $property->agency_id ?? $user?->agency_id,
             'branch_id'      => $property->branch_id,
             'event_category' => $eventCategory,
             'event_type'     => $eventType,
@@ -68,13 +83,23 @@ class PropertyAuditService
         );
     }
 
-    public function logShareAction(Property $property, string $channel, ?User $user = null, ?string $recipientContext = null): PropertyAuditLog
+    public function logShareAction(Property $property, string $channel, ?User $user = null, ?string $recipientContext = null): ?PropertyAuditLog
     {
+        // AT-253 Rule 17 — same rule: no tenant on the property, no share row anywhere.
+        if (! $property->agency_id) {
+            \Log::warning('AT-253 property share-log skipped: property has no agency', [
+                'property_id' => $property->id, 'channel' => $channel,
+            ]);
+
+            return null;
+        }
+
         // Also write to marketing_share_log for backward compat
         \Illuminate\Support\Facades\DB::table('marketing_share_log')->insert([
             'property_id' => $property->id,
             'user_id' => $user?->id ?? auth()->id(),
-            'agency_id' => $property->agency_id ?? 1,
+            'agency_id' => $property->agency_id,   // AT-253 Rule 17
+
             'channel' => $channel,
             'recipient_context' => $recipientContext,
             'created_at' => now(),

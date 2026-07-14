@@ -22,7 +22,7 @@ class OnboardingController extends Controller
         $user = auth()->user();
         abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
         $search = $request->get('search');
         $designation = $request->get('designation');
