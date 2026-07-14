@@ -849,6 +849,10 @@ class SignatureService
             'party_role' => $partyRole,
             'role_index' => $roleIndex,
             'signing_order' => $signingOrder,
+            // HD-6 — the group this party signs in, read off the ceremony's own plan. NULL when the
+            // ceremony has no plan, which is every ceremony that exists today: an ungrouped party is
+            // a group of one and checkpoints alone, exactly as it always has.
+            'signing_group' => $template->groupFor($partyRole),
             'signer_name' => $signerName,
             'signer_email' => $signerEmail,
             'signer_id_number' => $signerIdNumber,

@@ -113,6 +113,54 @@ class SignatureTemplate extends Model
         return $this->hasMany(SignatureRequest::class);
     }
 
+    /**
+     * HD-6 (§4) — the LOCKED group order for a mandate: the sellers sign as one group, then the agent.
+     *
+     * Joint sellers on one mandate are one group, so the agent is not asked to authorise the gap
+     * between two people signing the same document for the same reason (HD-5). The agent is a group of
+     * their own, which is what puts the checkpoint where doctrine wants it: `sellers → agent`.
+     *
+     * There is deliberately NO order here for an OTP. Doctrine §4 specifies one
+     * (`purchasers → agent → sellers → agent`), but an OTP is an alienation document: it may not be
+     * e-signed at all under ECTA §13(1) — `Template::isEsignBlocked()` refuses it, and HD-2 closed the
+     * pack path that was letting one through. A group order for a ceremony that can never legally run
+     * would be dead code that looks like a feature. It gets written the day the law changes.
+     */
+    public const GROUP_ORDER_MANDATE = [['seller'], ['agent']];
+
+    /**
+     * The group a party signs in for THIS ceremony, or null when the ceremony has no group plan.
+     *
+     * Null is the default and the safe answer: an ungrouped party is a group of one and reaches the
+     * agent checkpoint on its own, exactly as every ceremony does today. Grouping only ever happens
+     * because a ceremony deliberately said so.
+     */
+    public function groupFor(string $partyRole): ?int
+    {
+        $plan = $this->group_order_json;
+
+        if (! is_array($plan) || empty($plan)) {
+            return null;
+        }
+
+        $role = strtolower(trim($partyRole));
+
+        foreach (array_values($plan) as $i => $group) {
+            $members = array_map(
+                static fn ($m) => strtolower(trim((string) $m)),
+                is_array($group) ? $group : [$group],
+            );
+
+            if (in_array($role, $members, true)) {
+                return $i + 1; // groups are 1-based; 0 would be indistinguishable from "no group"
+            }
+        }
+
+        // A party the plan does not mention (a witness, a supervisor) is not forced into someone
+        // else's group — it stands alone and checkpoints alone.
+        return null;
+    }
+
     public function signatures()
     {
         return $this->hasMany(Signature::class);

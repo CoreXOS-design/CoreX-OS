@@ -176,6 +176,54 @@ final class SigningGroupCheckpointTest extends TestCase
         $this->assertSame(1, $log->metadata_json['signing_group'] ?? null);
     }
 
+    // ── HD-6: who actually STAMPS the groups ────────────────────────────────────────────────────
+
+    /**
+     * A mandate's plan (`sellers → agent`) puts both sellers in group 1 and the agent in group 2 —
+     * so the ceremony checkpoints exactly once, after the sellers, which is the doctrine.
+     */
+    public function test_a_mandate_plan_groups_the_sellers_together_and_the_agent_alone(): void
+    {
+        $template = $this->ceremony();
+        $template->update(['group_order_json' => SignatureTemplate::GROUP_ORDER_MANDATE]);
+
+        $seller1 = $this->service->createSigningRequest($template, 'seller', 'Johan Muller', 'johan@example.co.za');
+        $seller2 = $this->service->createSigningRequest($template, 'seller', 'Marlene Muller', 'marlene@example.co.za');
+        $agent   = $this->service->createSigningRequest($template, 'agent', $this->agent->name, $this->agent->email);
+
+        $this->assertSame(1, $seller1->signing_group);
+        $this->assertSame(1, $seller2->signing_group, 'Joint sellers sign as ONE group.');
+        $this->assertSame(2, $agent->signing_group, 'The agent is their own group — that is where the checkpoint lands.');
+    }
+
+    /**
+     * THE DEFAULT. A ceremony with no plan stamps NULL, so every existing flow (a lease, above all)
+     * keeps checkpointing after every party exactly as it does today. Grouping is opt-in or it is a
+     * silent change to live behaviour.
+     */
+    public function test_a_ceremony_with_no_plan_leaves_every_party_ungrouped(): void
+    {
+        $template = $this->ceremony();   // no group_order_json
+
+        $tenant   = $this->service->createSigningRequest($template, 'tenant', 'Farhana Patel', 'farhana@example.co.za');
+        $landlord = $this->service->createSigningRequest($template, 'landlord', 'Sarel Botha', 'sarel@example.co.za');
+
+        $this->assertNull($tenant->signing_group);
+        $this->assertNull($landlord->signing_group);
+    }
+
+    /** A party the plan never mentions is not swept into someone else's group. */
+    public function test_a_party_outside_the_plan_stands_alone(): void
+    {
+        $template = $this->ceremony();
+        $template->update(['group_order_json' => SignatureTemplate::GROUP_ORDER_MANDATE]);
+
+        $witness = $this->service->createSigningRequest($template, 'witness', 'Ayanda Khumalo', 'ayanda@example.co.za');
+
+        $this->assertNull($witness->signing_group,
+            'A witness is not a seller — the plan does not name them, so they are a group of one.');
+    }
+
     /** The completing party is marked completed either way — grouping must not skip that. */
     public function test_the_completing_party_is_marked_completed(): void
     {
