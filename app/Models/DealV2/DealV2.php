@@ -298,10 +298,13 @@ class DealV2 extends Model
             return $query->where('branch_id', $user->branch_id);
         }
 
-        return $query->where(function ($q) use ($user) {
-            $q->where('listing_agent_id', $user->id)
-              ->orWhere('selling_agent_id', $user->id)
-              ->orWhere('created_by_id', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        $identityIds = $user->dataIdentityIds();
+
+        return $query->where(function ($q) use ($identityIds) {
+            $q->whereIn('listing_agent_id', $identityIds)
+              ->orWhereIn('selling_agent_id', $identityIds)
+              ->orWhereIn('created_by_id', $identityIds);
         });
     }
 

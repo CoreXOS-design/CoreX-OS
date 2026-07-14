@@ -73,6 +73,29 @@ class ContactScope implements Scope
             return; // No agency context — AgencyScope handles visibility
         }
 
+        $table = $model->getTable();
+
+        // AT-267 — an ASSISTANT is resolved here and returns; they never reach the role logic
+        // below. Two reasons, both of which would be live escalations otherwise:
+        //
+        //   1. The role bypass. The next block hands unrestricted agency-wide access to
+        //      anyone whose role reads 'admin'. `users.role` is NOT NULL DEFAULT 'agent' and
+        //      is freely editable — an assistant must never be able to reach a bypass keyed
+        //      on a column that is not the source of truth for what they can do.
+        //   2. The null fail-OPEN. Below, a null scope means "no restriction". For an
+        //      assistant a null scope means the OPPOSITE — no assignment, a suspended one, a
+        //      deactivated agent, or a module their agent chose not to hand over. Every one of
+        //      those must show them NOTHING, not everything. An assistant who could out-see
+        //      their own agent is the one outcome this feature may never produce.
+        //
+        // (The null fail-open for non-assistant roles is pre-existing behaviour and is left
+        // exactly as it was — changing it is a separate decision with its own blast radius.)
+        if ($user->is_assistant) {
+            $this->applyAssistant($builder, $user, $table);
+
+            return;
+        }
+
         // Admin/super_admin bypass — sees all in agency
         $role = method_exists($user, 'effectiveRole') ? $user->effectiveRole() : ($user->role ?? 'agent');
         if (in_array($role, ['admin', 'super_admin'], true)) {
@@ -87,7 +110,6 @@ class ContactScope implements Scope
             return;
         }
 
-        $table = $model->getTable();
         $userId = $user->getKey();
         $branchId = method_exists($user, 'effectiveBranchId')
             ? $user->effectiveBranchId()
@@ -124,5 +146,46 @@ class ContactScope implements Scope
                 $builder->where($table . '.created_by_user_id', $userId);
             }
         }
+    }
+
+    /**
+     * AT-267 — contact visibility for an Assistant.
+     *
+     * Their breadth is whatever AssistantPermissionResolver resolved: the narrower of what
+     * their Assigned Agent granted them in the matrix and what the agent themselves has. Their
+     * IDENTITY is the agent's — an assistant granted contacts at scope 'own' sees the AGENT's
+     * contacts, because working the agent's book is the entire job.
+     *
+     * Fails CLOSED. A null scope here is never "unrestricted" — it means no assignment, a
+     * suspended one, a deactivated agent, or a module the agent withheld, and every one of
+     * those shows nothing.
+     */
+    private function applyAssistant(Builder $builder, $user, string $table): void
+    {
+        $scope = PermissionService::getDataScope($user, 'contacts');
+
+        if ($scope === null) {
+            $builder->whereRaw('1 = 0');
+
+            return;
+        }
+
+        if ($scope === 'all') {
+            return; // the agent sees the whole agency, so their assistant may too
+        }
+
+        if ($scope === 'branch') {
+            // An assistant's branch IS their agent's branch (it follows on transfer).
+            $branchId = $user->effectiveBranchId();
+
+            $branchId
+                ? $builder->where($table . '.branch_id', $branchId)
+                : $builder->whereRaw('1 = 0');
+
+            return;
+        }
+
+        // 'own' — the AGENT's own.
+        $builder->whereIn($table . '.created_by_user_id', $user->dataIdentityIds());
     }
 }

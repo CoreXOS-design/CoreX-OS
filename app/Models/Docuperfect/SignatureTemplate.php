@@ -156,7 +156,8 @@ class SignatureTemplate extends Model
             });
         }
 
-        return $query->where('created_by', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        return $query->whereIn('created_by', $user->dataIdentityIds());
     }
 
     // --- Helpers ---

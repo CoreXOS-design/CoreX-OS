@@ -95,8 +95,9 @@ class LeaseRecord extends Model
             });
         }
 
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         return $query->whereHas('document', function ($q) use ($user) {
-            $q->where('owner_id', $user->id);
+            $q->whereIn('owner_id', $user->dataIdentityIds());
         });
     }
 

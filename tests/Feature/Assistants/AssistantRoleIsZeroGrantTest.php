@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\PermissionService;
+use Database\Seeders\AssistantRoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
@@ -57,6 +58,15 @@ final class AssistantRoleIsZeroGrantTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Provision the role exactly as a deploy does. The role is GLOBAL reference data and
+        // travels via AssistantRoleSeeder, registered in `deploy:sync-reference-data` — the
+        // migration alone is not enough, because a snapshot-bootstrapped DB (the test suite,
+        // migrate:fresh) sees the migration as already-run and never gets the row.
+        //
+        // Seeding through the real seeder here, rather than hand-inserting a fixture, means
+        // these tests exercise the provisioning path that live actually uses.
+        Artisan::call('db:seed', ['--class' => AssistantRoleSeeder::class, '--force' => true]);
 
         $this->agency = Agency::create(['name' => 'Home Finders Coastal', 'slug' => 'hfc-' . uniqid()]);
 

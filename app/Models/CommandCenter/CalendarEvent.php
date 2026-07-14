@@ -218,13 +218,16 @@ class CalendarEvent extends Model
      */
     public function scopeVisibleTo($query, User $user, ?string $scope)
     {
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        $identityIds = $user->dataIdentityIds();
+
         return match ($scope) {
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
                 ? $query->where('branch_id', $user->effectiveBranchId())
-                : $query->where('user_id', $user->id),
+                : $query->whereIn('user_id', $identityIds),
             'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('user_id', $user->id), // 'own' or null
+            default  => $query->whereIn('user_id', $identityIds), // 'own' or null
         };
     }
 

@@ -128,13 +128,17 @@ class CommandTask extends Model
      */
     public function scopeVisibleTo($query, User $user, ?string $scope)
     {
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        // An assistant works the agent's task list — that IS the job.
+        $identityIds = $user->dataIdentityIds();
+
         return match ($scope) {
             'all'    => $query,
             'branch' => $user->effectiveBranchId()
                 ? $query->where('branch_id', $user->effectiveBranchId())
-                : $query->where('assigned_to', $user->id),
+                : $query->whereIn('assigned_to', $identityIds),
             'none'   => $query->whereRaw('1 = 0'),
-            default  => $query->where('assigned_to', $user->id), // 'own' or null
+            default  => $query->whereIn('assigned_to', $identityIds), // 'own' or null
         };
     }
 
