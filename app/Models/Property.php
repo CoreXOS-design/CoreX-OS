@@ -740,6 +740,65 @@ class Property extends Model
         return implode(', ', $cleaned);
     }
 
+    /**
+     * AT-266 — the ONE truth for `properties.address`.
+     *
+     * `address` is a DERIVED display string, composed from the structured address
+     * columns. It is not an independent fact and must never be edited on its own.
+     *
+     * Before this, `address` and the structured columns were two free-floating
+     * copies of the same fact with nothing reconciling them: the P24 import wrote
+     * both consistently, the edit modal then let an agent rewrite the structured
+     * columns while `address` sat frozen as a hidden passthrough, and the two
+     * drifted. On 74 live properties they disagree; on 17 of those the disagreement
+     * was bad enough to pitch a seller an address their own agent never typed.
+     *
+     * The direction — structured → address — is the one every existing convention
+     * already points at: PropertyObserver::saving() derives title_type from
+     * property_type the same way; P24ListingsCsvParser derives address from the
+     * street columns; buildDisplayAddress() treats the structured parts as primary
+     * and the legacy `address` as a last-resort fallback; and the Internal Address
+     * modal already exposes the structured fields as the editable ones.
+     *
+     * Scheme identity leads (a sectional unit is "Unit 6, Arista, 40 Bulwer
+     * Street"), then the street. Deliberately NO suburb/city — those live in their
+     * own columns, `address` has always been the property line alone, and adding
+     * them would silently rewrite what 4,679 correct rows say.
+     *
+     * Returns '' when no structured part is set — the caller keeps the existing
+     * value rather than blanking a row we know nothing better about.
+     */
+    public function composeAddressFromParts(): string
+    {
+        $unit = trim((string) ($this->unit_number ?? '')) !== ''
+            ? 'Unit ' . trim((string) $this->unit_number)
+            : (trim((string) ($this->unit_section_block ?? '')) !== ''
+                ? trim((string) $this->unit_section_block)
+                : null);
+
+        $street = trim(
+            trim((string) ($this->street_number ?? '')) . ' ' . trim((string) ($this->street_name ?? ''))
+        );
+
+        $parts = array_filter([
+            $unit,
+            trim((string) ($this->complex_name ?? '')) !== '' ? trim((string) $this->complex_name) : null,
+            $street !== '' ? $street : null,
+        ]);
+
+        // Collapse adjacent duplicates (a complex named in both the complex column
+        // and the street line reads once, not twice).
+        $cleaned = [];
+        foreach ($parts as $piece) {
+            if (!empty($cleaned) && mb_strtolower(end($cleaned)) === mb_strtolower($piece)) {
+                continue;
+            }
+            $cleaned[] = $piece;
+        }
+
+        return implode(', ', $cleaned);
+    }
+
     // ── Scopes ──
 
     /**
