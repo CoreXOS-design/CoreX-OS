@@ -1176,10 +1176,25 @@ class CalendarController extends Controller
             foreach ($data['feedback'] as $row) {
                 $contactId = $row['contact_id'];
                 $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
-                if ($contact && $contact->is_buyer) {
+                // AT-253 (STANDARDS Rule 17) — buyer_activity_logs.agency_id is NOT NULL, and the
+                // old `?? 1` filed this viewing feedback into AGENCY 1's buyer history whenever
+                // the event carried no tenant. Derive it from the domain: the EVENT owns the
+                // feedback, and failing that the CONTACT the feedback is about. With neither
+                // there is nothing honest to write, so the row is SKIPPED and logged rather than
+                // invented — an audit entry under the wrong tenant is worse than a missing one.
+                $logAgencyId = $calendarEvent->agency_id ?: ($contact->agency_id ?? null);
+
+                if ($contact && $contact->is_buyer && ! $logAgencyId) {
+                    \Log::warning('AT-253 buyer-activity (viewing feedback) skipped: no agency to derive from', [
+                        'calendar_event_id' => $calendarEvent->id,
+                        'contact_id'        => $contactId,
+                    ]);
+                }
+
+                if ($contact && $contact->is_buyer && $logAgencyId) {
                     \App\Models\BuyerActivityLog::create([
                         'contact_id' => $contactId,
-                        'agency_id' => $calendarEvent->agency_id ?? 1,
+                        'agency_id' => $logAgencyId,
                         'activity_type' => 'feedback_captured',
                         'activity_date' => now(),
                         'related_event_id' => $calendarEvent->id,
@@ -2501,7 +2516,9 @@ class CalendarController extends Controller
             return response()->json([]);
         }
 
-        $agencyId = $user->agency_id ?: 1;
+        // AT-253 (STANDARDS Rule 17) — same leak, on a silent JSON endpoint: a null-agency user
+        // was served agency 1's contacts. Sentinel 0 → no tenant, no results.
+        $agencyId = (int) ($user->agency_id ?: 0);
 
         // Search contacts — AT-131 canonical (all identifiers via child tables +
         // relevance + newest-first). 'type'=>'contact' is the attendee KIND
