@@ -70,8 +70,12 @@ class CommandCentreService
         $card = $this->esignActivity($userId);
         if ($card['count'] > 0) $cards[] = $card;
 
-        // A8 — FICA: CO Review Queue
-        $card = $this->ficaReview($userId, $agencyId);
+        // A8 — FICA: CO Review Queue (STRICTLY the CO's queue — scoped to designated COs)
+        $card = $this->ficaReview($user, $agencyId);
+        if ($card['count'] > 0) $cards[] = $card;
+
+        // A8a — FICA: Awaiting My Review (authorized-reviewer queue — AT-236)
+        $card = $this->ficaReviewerQueue($user, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
 
         // A8b — FICA: My Submissions Tracking
@@ -492,37 +496,75 @@ class CommandCentreService
         ];
     }
 
-    private function ficaReview(int $userId, int $agencyId): array
+    /**
+     * AT-236 — the CO Review Queue quick link, STRICTLY the Compliance Officer's
+     * queue: CO-required items (agent_approved) + referrals (referred_to_co),
+     * scoped to designated COs. A non-CO sees count 0 → the card is skipped.
+     */
+    private function ficaReview(User $user, int $agencyId): array
     {
-        // FICA submissions pending review (for compliance officers)
+        $empty = ['card_id' => 'fica_review', 'title' => 'FICA — Awaiting CO Review', 'icon' => 'shield-check',
+            'urgency' => 'high', 'count' => 0, 'items' => [], 'view_all_url' => '/corex/compliance/fica?tab=co_queue'];
+
+        if (! $user->isComplianceOfficer()) {
+            return $empty; // scoping discipline: only designated COs see the CO queue
+        }
+
         $pending = DB::table('fica_submissions')
             ->where('agency_id', $agencyId)
-            ->whereIn('status', ['submitted', 'pending_review'])
+            ->whereIn('status', ['agent_approved', 'referred_to_co'])
+            ->whereNull('deleted_at')
+            ->orderBy('agent_verified_at')
+            ->limit(5)
+            ->get(['id', 'contact_id', 'status', 'created_at', 'agent_verified_at', 'referred_at']);
+
+        return array_merge($empty, [
+            'count' => (int) $pending->count(),
+            'items' => $this->ficaCardItems($pending),
+        ]);
+    }
+
+    /**
+     * AT-236 — the authorized-reviewer quick link: FICA awaiting THIS user's own
+     * review (packs they requested that are back in a review state). Same count /
+     * item / click-through shape as the CO queue, scoped to the reviewer.
+     */
+    private function ficaReviewerQueue(User $user, int $agencyId): array
+    {
+        $pending = DB::table('fica_submissions')
+            ->where('agency_id', $agencyId)
+            ->where('requested_by', $user->id)
+            ->whereIn('status', ['submitted', 'under_review', 'corrections_requested'])
             ->whereNull('deleted_at')
             ->orderBy('created_at')
             ->limit(5)
-            ->get(['id', 'contact_id', 'status', 'created_at']);
+            ->get(['id', 'contact_id', 'status', 'created_at', 'agent_verified_at', 'referred_at']);
 
-        // Enrich with contact names
-        $contactIds = $pending->pluck('contact_id')->filter()->toArray();
+        return [
+            'card_id' => 'fica_reviewer_queue',
+            'title' => 'FICA — Awaiting My Review',
+            'icon' => 'shield-check',
+            'urgency' => 'high',
+            'count' => (int) $pending->count(),
+            'items' => $this->ficaCardItems($pending),
+            'view_all_url' => '/corex/compliance/fica?tab=submitted',
+        ];
+    }
+
+    /** Shared enrichment so both FICA queues count + render identically. */
+    private function ficaCardItems($rows): array
+    {
+        $contactIds = $rows->pluck('contact_id')->filter()->toArray();
         $contactNames = !empty($contactIds)
             ? DB::table('contacts')->whereIn('id', $contactIds)->pluck(DB::raw("CONCAT(first_name, ' ', last_name)"), 'id')
             : collect();
 
-        return [
-            'card_id' => 'fica_review',
-            'title' => 'FICA Review Queue',
-            'icon' => 'shield-check',
-            'urgency' => 'high',
-            'count' => $pending->count(),
-            'items' => $pending->map(fn($f) => [
-                'id' => $f->id,
-                'contact' => $contactNames[$f->contact_id] ?? 'Contact',
-                'status' => str_replace('_', ' ', $f->status),
-                'days_waiting' => \App\Support\HumanDiff::daysBetween($f->created_at),
-            ])->toArray(),
-            'view_all_url' => '/corex/compliance/fica',
-        ];
+        return $rows->map(fn($f) => [
+            'id' => $f->id,
+            'contact' => $contactNames[$f->contact_id] ?? 'Contact',
+            'status' => str_replace('_', ' ', $f->status),
+            'days_waiting' => \App\Support\HumanDiff::daysBetween($f->referred_at ?? $f->agent_verified_at ?? $f->created_at),
+        ])->toArray();
     }
 
     private function myCompliance(User $user): array

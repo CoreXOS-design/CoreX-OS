@@ -10,8 +10,10 @@ use App\Models\DocumentType;
 use App\Models\FicaComplianceOfficer;
 use App\Models\FicaDocument;
 use App\Models\FicaResendLog;
+use App\Models\FicaStatusHistory;
 use App\Models\FicaSubmission;
 use App\Models\User;
+use App\Services\Compliance\FicaReferralService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -49,12 +51,14 @@ class FicaController extends Controller
             'agent_approved'         => (clone $countBase)->where('status', 'agent_approved')->count(),
             'approved'               => (clone $countBase)->where('status', 'approved')->count(),
             'corrections_requested'  => (clone $countBase)->where('status', 'corrections_requested')->count(),
+            'referred_to_co'         => (clone $countBase)->where('status', 'referred_to_co')->count(),
             'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
             'cancelled'              => (clone $countBase)->where('status', 'cancelled')->count(),
         ];
-        // CO queue count (agency-scoped via global scope)
+        // CO queue count (agency-scoped via global scope) — AT-236: the CO queue is
+        // CO-required items (agent_approved) PLUS referrals (referred_to_co).
         $coQueueCount = $isCO
-            ? FicaSubmission::where('status', 'agent_approved')->count()
+            ? FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])->count()
             : 0;
 
         // Build filtered query
@@ -63,9 +67,9 @@ class FicaController extends Controller
             ->latest();
 
         if ($tab === 'co_queue') {
-            // CO queue: agency-scoped via global scope, only agent_approved
-            $query = FicaSubmission::where('status', 'agent_approved')
-                ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
+            // CO queue: agency-scoped via global scope — agent_approved + referrals.
+            $query = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
+                ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab !== 'all') {
             $query->where('status', $tab);
@@ -83,7 +87,7 @@ class FicaController extends Controller
         // CO queue stats
         $coQueueStats = null;
         if ($isCO && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('status', 'agent_approved')
+            $oldest = FicaSubmission::whereIn('status', ['agent_approved', 'referred_to_co'])
                 ->min('agent_verified_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
@@ -219,13 +223,15 @@ class FicaController extends Controller
     /**
      * Staff review screen (agent).
      */
-    public function show(FicaSubmission $submission)
+    public function show(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
 
-        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
-        return view('compliance.fica.show', compact('submission'));
+        $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+
+        return view('compliance.fica.show', compact('submission', 'referralEnabled'));
     }
 
     /**
@@ -242,6 +248,7 @@ class FicaController extends Controller
             'checklist'           => 'nullable|array',
         ]);
 
+        $fromStatus = $submission->status;
         $submission->update([
             'status'                  => 'agent_approved',
             'risk_rating'             => $validated['risk_rating'],
@@ -257,6 +264,9 @@ class FicaController extends Controller
             'agent_id'      => Auth::id(),
         ]);
 
+        FicaStatusHistory::record($submission, 'agent_approved', $fromStatus, 'agent_approved', Auth::user(),
+            $validated['reviewer_notes'] ?? null);
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'Agent approval recorded. Awaiting compliance officer review.');
     }
@@ -264,14 +274,16 @@ class FicaController extends Controller
     /**
      * Compliance officer review screen.
      */
-    public function complianceReview(FicaSubmission $submission)
+    public function complianceReview(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
         abort_unless(Auth::user()->isComplianceOfficer(), 403, 'Only compliance officers can access this page.');
 
-        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents']);
+        $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
-        return view('compliance.fica.compliance-review', compact('submission'));
+        $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
+
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled'));
     }
 
     /**
@@ -280,7 +292,31 @@ class FicaController extends Controller
     public function complianceApprove(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
-        abort_unless(Auth::user()->isComplianceOfficer(), 403);
+        $actor = Auth::user();
+        abort_unless($actor->isComplianceOfficer(), 403);
+
+        // AT-236 — SELF-APPROVAL SEPARATION (server-side, the gate not the UI).
+        // The same person cannot approve their own FICA UNLESS they are the primary
+        // CO (Johan's composed rule: secondaries can never self-approve; only the
+        // primary may). "Their own" = they requested it or did the stage-1 agent
+        // approval. The block is audit-logged to fica_status_history.
+        if ($this->isSelfApproval($submission, $actor)
+            && ! $actor->isPrimaryComplianceOfficer((int) $submission->agency_id)) {
+            FicaStatusHistory::record(
+                $submission,
+                'self_approval_blocked',
+                $submission->status,
+                $submission->status,
+                $actor,
+                'Blocked: a secondary officer may not approve their own FICA work.',
+                ['requested_by' => $submission->requested_by, 'agent_verified_by' => $submission->agent_verified_by],
+            );
+
+            return redirect()->route('compliance.fica.compliance-review', $submission)->withErrors([
+                'approve' => 'You cannot approve your own FICA submission. Only the primary Compliance Officer may self-approve — '
+                    . 'ask the primary CO or another officer to approve, or use "Refer to CO".',
+            ]);
+        }
 
         $validated = $request->validate([
             'risk_rating'        => 'required|integer|in:1,2,3',
@@ -293,6 +329,7 @@ class FicaController extends Controller
         $coChecklistData = $validated['co_checklist'] ?? [];
         $coChecklistData['tfs_screening'] = $validated['tfs_screening'];
 
+        $fromStatus = $submission->status;
         $submission->update([
             'status'               => 'approved',
             'risk_rating'          => $validated['risk_rating'],
@@ -318,6 +355,9 @@ class FicaController extends Controller
             'contact_id'    => $submission->contact_id,
         ]);
 
+        FicaStatusHistory::record($submission, 'co_approved', $fromStatus, 'approved', $actor,
+            $validated['co_notes'] ?? null);
+
         // Domain event — spec .ai/specs/corex-domain-events-spec.md
         event(new \App\Events\Fica\FicaApproved(
             contact: $submission->contact,
@@ -342,6 +382,8 @@ class FicaController extends Controller
             'reviewer_notes' => 'required|string|max:2000',
         ]);
 
+        $fromStatus = $submission->status;
+
         if ($validated['action'] === 'return_to_agent') {
             $submission->update([
                 'status'         => 'corrections_requested',
@@ -355,6 +397,9 @@ class FicaController extends Controller
                 'co_id'         => Auth::id(),
                 'notes'         => $validated['reviewer_notes'],
             ]);
+
+            FicaStatusHistory::record($submission, 'returned_to_agent', $fromStatus, 'corrections_requested',
+                Auth::user(), $validated['reviewer_notes']);
 
             return redirect()->route('compliance.fica.index', ['tab' => 'corrections_requested'])
                 ->with('success', 'Corrections requested — returned to agent for re-review.');
@@ -370,6 +415,9 @@ class FicaController extends Controller
             'verified_at'    => now(),
         ]);
 
+        FicaStatusHistory::record($submission, 'co_rejected', $fromStatus, 'rejected', Auth::user(),
+            $validated['reviewer_notes']);
+
         // Domain event — spec .ai/specs/corex-domain-events-spec.md
         event(new \App\Events\Fica\FicaRejected(
             contact: $submission->contact,
@@ -380,6 +428,53 @@ class FicaController extends Controller
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission rejected.');
+    }
+
+    /**
+     * AT-236 — Refer to CO. The third review action: a reviewer (a non-CO, or a
+     * secondary officer who cannot self-approve) escalates the pack to the
+     * Compliance Officer with a MANDATORY reason. State → referred_to_co; the CO
+     * is notified via the gateway; the hop is in the durable audit.
+     */
+    public function referToCo(Request $request, FicaSubmission $submission, FicaReferralService $referrals)
+    {
+        $this->authorizeAgency($submission);
+
+        abort_unless($referrals->referralEnabled((int) $submission->agency_id), 403,
+            'Refer to CO is turned off for this agency.');
+
+        if (! in_array($submission->status, FicaReferralService::REFERABLE_FROM, true)) {
+            return back()->withErrors(['refer' => 'This FICA can no longer be referred — it is ' . $submission->status_label . '.']);
+        }
+
+        $validated = $request->validate([
+            'referral_note' => 'required|string|min:3|max:2000',
+        ], [], ['referral_note' => 'reason']);
+
+        $referrals->refer($submission, Auth::user(), trim($validated['referral_note']));
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Referred to the Compliance Officer. They have been notified and it is in their queue.');
+    }
+
+    /**
+     * AT-236 — CO returns a referred pack to its referrer with comments (distinct
+     * from return-to-agent). Only a CO acting on a referred pack.
+     */
+    public function returnToReferrer(Request $request, FicaSubmission $submission, FicaReferralService $referrals)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(Auth::user()->isComplianceOfficer(), 403);
+        abort_unless($submission->status === 'referred_to_co', 422, 'This FICA is not currently referred.');
+
+        $validated = $request->validate([
+            'reviewer_notes' => 'required|string|min:3|max:2000',
+        ]);
+
+        $referrals->returnToReferrer($submission, Auth::user(), trim($validated['reviewer_notes']));
+
+        return redirect()->route('compliance.fica.index', ['tab' => 'referred_to_co'])
+            ->with('success', 'Returned to the referrer with your comments.');
     }
 
     /**
@@ -856,5 +951,18 @@ class FicaController extends Controller
             return;
         }
         abort_unless($submission->agency_id === $user->effectiveAgencyId(), 403);
+    }
+
+    /**
+     * AT-236 — is this user a participant in the submission (its requester or the
+     * stage-1 agent-approver)? "Approving your own work" is exactly this set.
+     */
+    private function isSelfApproval(FicaSubmission $submission, User $actor): bool
+    {
+        return in_array(
+            (int) $actor->id,
+            array_filter([(int) $submission->requested_by, (int) $submission->agent_verified_by]),
+            true
+        );
     }
 }
