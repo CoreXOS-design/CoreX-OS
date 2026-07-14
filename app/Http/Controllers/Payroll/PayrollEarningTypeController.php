@@ -50,7 +50,7 @@ class PayrollEarningTypeController extends Controller
 
     public function store(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate([
             'code'                     => [
@@ -93,7 +93,7 @@ class PayrollEarningTypeController extends Controller
     public function update(Request $request, $id)
     {
         $type = PayrollEarningType::findOrFail($id);
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $validated = $request->validate([
             'code'                     => [

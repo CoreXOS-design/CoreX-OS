@@ -42,8 +42,16 @@ class ProspectingApiController extends Controller
             'listings.*.thumbnail_url'     => 'nullable|string',
         ]);
 
+        // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
+        // silent JSON endpoint (the Chrome capture extension), so a wrong-tenant write here is
+        // never seen by a human. The old `?? 1` filed another agency's captured prospecting
+        // data into AGENCY 1's intelligence. Refuse instead, as a clean 422 the extension can
+        // surface, and use ?-> so an unauthenticated call cannot 500 on a null receiver.
         $user = $request->user();
-        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+        $agencyId = $user?->effectiveAgencyId() ?? $user?->agency_id;
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('a prospecting capture');
+        }
         $portalSource = $validated['source'];
         $context = $validated['search_context'];
         $now = Carbon::now();
@@ -342,8 +350,16 @@ class ProspectingApiController extends Controller
             'search_url' => 'required|string',
         ]);
 
+        // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
+        // silent JSON endpoint (the Chrome capture extension), so a wrong-tenant write here is
+        // never seen by a human. The old `?? 1` filed another agency's captured prospecting
+        // data into AGENCY 1's intelligence. Refuse instead, as a clean 422 the extension can
+        // surface, and use ?-> so an unauthenticated call cannot 500 on a null receiver.
         $user = $request->user();
-        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+        $agencyId = $user?->effectiveAgencyId() ?? $user?->agency_id;
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('a prospecting capture');
+        }
 
         $existing = ProspectingSearch::where('agency_id', $agencyId)
             ->where('search_url', $request->search_url)

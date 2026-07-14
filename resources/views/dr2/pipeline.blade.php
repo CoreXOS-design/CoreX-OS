@@ -35,7 +35,43 @@
         <div class="corex-alert corex-alert-danger" style="margin:1rem 0;">{{ session('error') }}</div>
     @endif
 
-    @if($steps->isEmpty())
+    {{--
+        AT-244 — the lock banner. A locked surface must SAY why it is locked and OFFER the
+        action that unlocks it (STANDARDS — "No Silent Locks"). The way out is the deal's
+        own status control on the register: a declined deal stays re-grantable. We link
+        there rather than inventing a second revival mechanism.
+    --}}
+    @if($locked)
+        <div class="corex-card" role="status"
+             style="margin:1rem 0;padding:1rem 1.15rem;display:flex;align-items:flex-start;gap:.75rem;
+                    border-left:4px solid var(--ds-crimson,#c41e3a);background:var(--surface,#fff);">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8"
+                 stroke="var(--ds-crimson,#c41e3a)" style="width:1.4rem;height:1.4rem;flex:0 0 auto;margin-top:.1rem;">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+            <div style="flex:1 1 auto;min-width:0;">
+                <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+                    <span class="ds-badge ds-badge-danger">Pipeline locked</span>
+                    <strong style="font-size:.95rem;">{{ $lockReason }}</strong>
+                </div>
+                <p style="margin:.4rem 0 .6rem;font-size:.85rem;color:var(--text-muted,#6b7280);">{{ $unlockHint }}</p>
+                <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary"
+                   style="padding:.3rem .75rem;font-size:.8rem;">Reinstate on the deal register →</a>
+            </div>
+        </div>
+    @endif
+
+    @if($steps->isEmpty() && $locked)
+        {{-- Declined and never worked: no pipeline to show, and none may be started. --}}
+        <div class="corex-card" style="margin-top:1rem;padding:1.5rem;max-width:520px;">
+            <h2 style="margin:0 0 .5rem;font-size:1.05rem;">No pipeline</h2>
+            <p style="margin:0;color:var(--text-muted,#6b7280);font-size:.9rem;">
+                This deal was declined without a pipeline being started, and a pipeline cannot be
+                started on a deal that is not proceeding. Reinstate it on the register first.
+            </p>
+        </div>
+    @elseif($steps->isEmpty())
         {{-- No pipeline yet → attach one. --}}
         <div class="corex-card" style="margin-top:1rem;padding:1.5rem;max-width:520px;">
             <h2 style="margin:0 0 .75rem;font-size:1.05rem;">Attach a pipeline</h2>
@@ -67,8 +103,12 @@
             @endif
         </div>
     @else
-        {{-- Step board — one card per step, with per-step operations + comments. --}}
-        <div class="corex-card" style="margin-top:1rem;padding:.5rem;">
+        {{-- Step board — one card per step, with per-step operations + comments.
+             AT-244: when the deal is not proceeding the board is MUTED and every
+             state-changing action is withdrawn (no dead buttons — a blocked action is
+             hidden, per STANDARDS). Comments stay live: annotating why a deal fell
+             through is history-keeping, not a stage transition. --}}
+        <div class="corex-card" style="margin-top:1rem;padding:.5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}">
             @foreach($steps as $row)
                 @php($s = $row['model'])
                 @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
@@ -93,6 +133,7 @@
 
                     {{-- Action bar --}}
                     <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;padding-left:1.3rem;">
+                        @unless($locked)
                         @if($s->status === 'active')
                             @permission('view_deals')
                             <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
@@ -116,17 +157,20 @@
                         <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="due = !due">Edit due</button>
                         @endpermission
                         @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
-                        @endpermission
-                        @permission('view_deals')
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
                             <button type="submit" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#b91c1c;">Remove</button>
                         </form>
                         @endpermission
+                        @endunless
+
+                        {{-- Comments survive the lock (history-keeping, not a transition). --}}
+                        @permission('view_deals')
+                        <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
+                        @endpermission
                     </div>
 
                     {{-- N/A reason form --}}
-                    @unless($terminal)
+                    @unless($terminal || $locked)
                     <div x-show="na" x-cloak style="margin:.4rem 0 0 1.3rem;">
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
                             <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
@@ -136,6 +180,7 @@
                     @endunless
 
                     {{-- R2 — inline due-date edit (RAG recalcs off the edited date) --}}
+                    @unless($locked)
                     @permission('view_deals')
                     <div x-show="due" x-cloak style="margin:.4rem 0 0 1.3rem;">
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
@@ -144,6 +189,7 @@
                         </form>
                     </div>
                     @endpermission
+                    @endunless
 
                     {{-- Comment thread --}}
                     <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.3rem;">
@@ -161,11 +207,13 @@
                             <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Post</button>
                         </form>
                         {{-- AT-225/226 — attach a document to THIS step (gas CoC → gas step); files to deal+property+contacts too. --}}
+                        @unless($locked)
                         <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;">@csrf
                             <input type="hidden" name="pipeline_step_id" value="{{ $s->id }}">
                             <input type="file" name="file" required class="corex-input" style="flex:1 1 240px;font-size:.78rem;">
                             <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Attach document to this step</button>
                         </form>
+                        @endunless
                         @endpermission
                     </div>
                 </div>
@@ -179,12 +227,14 @@
                     @foreach($removedSteps as $rs)
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.35rem 0;font-size:.85rem;">
                         <span style="text-decoration:line-through;color:#6b7280;">{{ $rs->name }}</span>
+                        @unless($locked)
                         @permission('view_deals')
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.restore', $deal) }}">@csrf
                             <input type="hidden" name="step_id" value="{{ $rs->id }}">
                             <button type="submit" class="corex-btn-secondary" style="padding:.15rem .6rem;font-size:.75rem;">Restore</button>
                         </form>
                         @endpermission
+                        @endunless
                     </div>
                     @endforeach
                 </div>
@@ -192,6 +242,7 @@
             @endif
 
             {{-- Add a custom step --}}
+            @unless($locked)
             @permission('view_deals')
             <div x-data="{ add:false }" style="padding:.65rem .5rem;">
                 <button type="button" class="corex-btn-outline" style="padding:.25rem .7rem;font-size:.8rem;" @click="add = !add">+ Add custom step</button>
@@ -213,12 +264,18 @@
                 </div>
             </div>
             @endpermission
+            @endunless
         </div>
     @endif
 
     {{-- DR2 deal documents (AT-225/226) — upload files itself to deal + property + contacts --}}
     <div style="margin-top:1rem;">
         @include('dr2._deal-documents', ['deal' => $deal])
+    </div>
+
+    {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
+    <div style="margin-top:1rem;">
+        @include('proforma._deal-section', ['deal' => $deal])
     </div>
 </div>
 @endsection

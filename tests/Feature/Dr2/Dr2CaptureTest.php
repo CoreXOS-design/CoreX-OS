@@ -4,6 +4,7 @@ namespace Tests\Feature\Dr2;
 
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\Deal;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\PermissionService;
@@ -212,6 +213,101 @@ class Dr2CaptureTest extends TestCase
         $post()->assertSessionHasNoErrors();
         $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $buyerC->id])->count());
         $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $sellerC->id])->count());
+    }
+
+    /**
+     * AT-243 — capture records the parties ON THE DEAL, not only on the property.
+     *
+     * Without this, a property carrying several offers cannot say which buyer belongs to
+     * which deal, so it cannot say who actually bought when one is granted. The property
+     * link (tested above) and the deal link (tested here) are two different facts and both
+     * must be written.
+     */
+    public function test_dr2_capture_records_the_parties_on_the_deal_itself(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-dealparties');
+
+        $property = Property::create([
+            'title' => 'Party Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '3 Party Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $buyer  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Thandi', 'last_name' => 'Mkhize']);
+        $joint  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sipho', 'last_name' => 'Mkhize']);
+        $seller = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sue', 'last_name' => 'Seller']);
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id'          => $branch->id,
+            'property_id'        => $property->id,
+            'buyer_contact_ids'  => $buyer->id . ',' . $joint->id, // joint buyers
+            'seller_contact_ids' => (string) $seller->id,
+        ]))->assertSessionHasNoErrors();
+
+        $deal = Deal::where('property_id', $property->id)->latest('id')->firstOrFail();
+
+        $this->assertDatabaseHas('deal_contacts', ['deal_id' => $deal->id, 'contact_id' => $buyer->id, 'role' => 'buyer']);
+        $this->assertDatabaseHas('deal_contacts', ['deal_id' => $deal->id, 'contact_id' => $joint->id, 'role' => 'buyer']);
+        $this->assertDatabaseHas('deal_contacts', ['deal_id' => $deal->id, 'contact_id' => $seller->id, 'role' => 'seller']);
+
+        // The deal now knows its own buyers — which is what makes the purchaser derivable.
+        $this->assertSame(2, $deal->buyers()->count());
+        $this->assertSame(1, $deal->sellers()->count());
+    }
+
+    /** The lazy-but-valid shortcut: a deal captured with no contacts named is legal, not an error. */
+    public function test_dr2_capture_with_no_parties_named_is_accepted_and_records_none(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-noparties');
+
+        $property = Property::create([
+            'title' => 'Bare Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '5 Bare Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id'   => $branch->id,
+            'property_id' => $property->id,
+            // no buyer_contact_ids / seller_contact_ids at all
+        ]))->assertSessionHasNoErrors();
+
+        $deal = Deal::where('property_id', $property->id)->latest('id')->firstOrFail();
+        $this->assertSame(0, DB::table('deal_contacts')->where('deal_id', $deal->id)->count());
+
+        // ...and the property honestly claims no purchaser rather than inventing one.
+        $deal->update(['accepted_status' => 'G']);
+        $this->assertSame([], $property->fresh()->purchaserContactIds());
+    }
+
+    /** Editing a deal to correct a mis-captured buyer must actually correct it. */
+    public function test_editing_a_deal_replaces_its_buyer_rather_than_accumulating(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-fixbuyer');
+
+        $property = Property::create([
+            'title' => 'Fix Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '7 Fix Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $wrong = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Wrong', 'last_name' => 'Buyer']);
+        $right = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Right', 'last_name' => 'Buyer']);
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'property_id' => $property->id,
+            'buyer_contact_ids' => (string) $wrong->id,
+        ]))->assertSessionHasNoErrors();
+
+        $deal = Deal::where('property_id', $property->id)->latest('id')->firstOrFail();
+
+        // Correct the buyer on the deal.
+        $this->actingAs($admin)->post(route('deals-dr2.update', $deal), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'property_id' => $property->id,
+            'buyer_contact_ids' => (string) $right->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseMissing('deal_contacts', ['deal_id' => $deal->id, 'contact_id' => $wrong->id, 'role' => 'buyer']);
+        $this->assertDatabaseHas('deal_contacts', ['deal_id' => $deal->id, 'contact_id' => $right->id, 'role' => 'buyer']);
+        $this->assertSame(1, $deal->fresh()->buyers()->count(), 'the wrong buyer is replaced, not accumulated');
     }
 
     /** A contact already linked in one role must NOT be silently re-roled by a deal. */

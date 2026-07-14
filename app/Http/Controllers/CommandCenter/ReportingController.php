@@ -27,7 +27,7 @@ class ReportingController extends Controller
     {
         $user = auth()->user();
         if (!in_array($user->role, ['admin', 'super_admin', 'owner'])) abort(403);
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $days = (int) $request->get('days', 30);
         $service = app(ReportingService::class);
 
@@ -52,7 +52,7 @@ class ReportingController extends Controller
         }
 
         $branches = in_array($user->role, ['admin', 'super_admin', 'owner'])
-            ? \App\Models\Branch::withoutGlobalScopes()->where('agency_id', $user->effectiveAgencyId() ?? 1)->get(['id', 'name'])
+            ? \App\Models\Branch::withoutGlobalScopes()->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))   // AT-253 Rule 17->get(['id', 'name'])
             : collect();
 
         return view('command-center.reporting.branch', [

@@ -9,6 +9,7 @@ use App\Models\Branch;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\MarketDataSnapshotService;
 use App\Services\PropertyIntelligenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -76,13 +77,75 @@ final class PropertyIntelligenceLivePositionTest extends TestCase
         $this->assertArrayHasKey('area_avg_price', $pos);
     }
 
-    private function makeProperty(Agency $agency, Branch $branch, User $agent, string $suburb): Property
+    /**
+     * Recommended price must be the profile-gated market anchor, not a raw
+     * suburb median. A premium freehold house must not be valued off a pool of
+     * cheap sectional flats + a commercial shop (the R804k / "R1.1M trap" bug).
+     */
+    public function test_recommended_price_gates_off_profile_comps(): void
     {
-        return Property::withoutGlobalScope(AgencyScope::class)->create([
+        $agency = Agency::create(['name' => 'Gated', 'slug' => 'gated-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
+        $agent  = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        // Subject: a premium freehold house asking R2.0M.
+        $subject = $this->makeProperty($agency, $branch, $agent, 'Gatetown', ['property_type' => 'house', 'price' => 2_000_000]);
+
+        // Profile-matching comps (freehold houses, in band around R2M).
+        foreach ([1_900_000, 2_000_000, 2_100_000] as $p) {
+            $this->soldRecord($agency, 'Gatetown', $p, 'House');
+        }
+        // Off-profile noise the OLD ungated median swallowed: cheap sectional
+        // flats + a commercial shop. Raw median of ALL 7 rows would be ~650k;
+        // the gated anchor must instead reflect the house comps (~R2.0M).
+        foreach ([600_000, 650_000, 700_000] as $p) {
+            $this->soldRecord($agency, 'Gatetown', $p, 'Apartment');
+        }
+        $this->soldRecord($agency, 'Gatetown', 300_000, 'Business');
+
+        $recommended = app(MarketDataSnapshotService::class)->calculateRecommendedPrice($subject);
+
+        $this->assertNotNull($recommended);
+        $this->assertGreaterThan(1_500_000, $recommended, 'gated anchor must reflect the house comps, not the flats');
+        $this->assertEqualsWithDelta(2_000_000, $recommended, 200_000);
+    }
+
+    /**
+     * A rental must never surface as a comparable LISTING for a sale (the
+     * "Restaurant to let" leak).
+     */
+    public function test_comparable_listings_exclude_rentals(): void
+    {
+        $agency = Agency::create(['name' => 'Rentless', 'slug' => 'rentless-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
+        $agent  = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+
+        $subject = $this->makeProperty($agency, $branch, $agent, 'Rentville', ['property_type' => 'house', 'price' => 1_900_000, 'listing_type' => 'sale']);
+        $sale    = $this->makeProperty($agency, $branch, $agent, 'Rentville', ['property_type' => 'house', 'price' => 1_800_000, 'listing_type' => 'sale']);
+        $rental  = $this->makeProperty($agency, $branch, $agent, 'Rentville', ['property_type' => 'house', 'price' => 0, 'listing_type' => 'rental']);
+
+        $ids = app(PropertyIntelligenceService::class)->getComparableListings($subject->id)->pluck('id')->all();
+
+        $this->assertContains($sale->id, $ids, 'a same-type sale must be a comparable');
+        $this->assertNotContains($rental->id, $ids, 'a rental must NOT be a comparable for a sale');
+    }
+
+    private function soldRecord(Agency $agency, string $suburb, int $price, string $type): void
+    {
+        DB::table('property_sold_records')->insert([
+            'agency_id' => $agency->id, 'suburb' => $suburb,
+            'sold_price' => $price, 'sold_date' => now()->subMonths(2),
+            'property_type' => $type, 'source' => 'manual',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function makeProperty(Agency $agency, Branch $branch, User $agent, string $suburb, array $overrides = []): Property
+    {
+        return Property::withoutGlobalScope(AgencyScope::class)->create(array_merge([
             'agency_id' => $agency->id, 'agent_id' => $agent->id, 'branch_id' => $branch->id,
             'external_id' => (string) Str::uuid(), 'title' => 'Listing ' . Str::random(4),
             'suburb' => $suburb, 'property_type' => 'house', 'status' => 'active',
             'price' => 2_000_000, 'published_at' => now()->subDays(20), 'listed_date' => now()->subDays(20),
-        ]);
+        ], $overrides));
     }
 }

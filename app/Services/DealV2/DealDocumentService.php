@@ -6,6 +6,7 @@ use App\Models\Deal;
 use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Models\Document;
+use App\Models\Property;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -86,6 +87,111 @@ class DealDocumentService
             }
 
             return $doc;
+        });
+    }
+
+    /**
+     * AT-254 (decision B) — the CLASSIFIED-document funnel-through: the PDF
+     * splitter's single create-and-attach path.
+     *
+     * The splitter classifies each page group to a document type, then files ONE
+     * Document to the property and/or the EXPLICIT ticked contact set per the
+     * agency Save-To destination — and, when the pack is linked to a deal,
+     * auto-completes the matching pipeline step. Before this method that whole
+     * dance lived inline in PdfSplitterController; now create + attach live HERE
+     * with the rest of the document spine, so a split OTP files by the SAME rules
+     * as a DR2 / e-sign filing of that type (fix-the-class, one filing truth).
+     *
+     * Party truth is contact_roles (decision B): the caller resolves the explicit
+     * per-page contacts and their party roles and passes them in — the
+     * DocumentDistributionMatrix (AT-228 send rules) stays a distinct authority.
+     *
+     * No-orphan (AT-167): a contact-only destination (contact && !property) with
+     * no ticked contact stays UNLINKED (outcome 'unfiled' — surfaces in the
+     * Misfiled Documents register); a property/shared type that would otherwise
+     * attach to nothing falls back to the property.
+     *
+     * @param array{original_name:string,storage_path:string,disk?:string,mime_type?:string,size?:int,document_type_id?:int,source_type?:string,source_id?:int,agency_id?:int,branch_id?:int} $attrs
+     * @param array{property:bool,contact:bool} $destination Agency Save-To decision for this doc type.
+     * @param array<int,string> $contacts [contactId => partyRole] explicit per-page assignments.
+     * @return array{document:Document, property:int, contact:int, fallback:int, unfiled:int}
+     */
+    public function fileClassifiedDocument(
+        Property $property,
+        array $attrs,
+        array $destination,
+        array $contacts,
+        User $actor,
+        ?DealV2 $deal = null
+    ): array {
+        return DB::transaction(function () use ($property, $attrs, $destination, $contacts, $actor, $deal) {
+            $doc = Document::create([
+                'original_name'    => $attrs['original_name'],
+                'storage_path'     => $attrs['storage_path'],
+                'disk'             => $attrs['disk'] ?? config('filesystems.default', 'local'),
+                'mime_type'        => $attrs['mime_type'] ?? null,
+                'size'             => $attrs['size'] ?? null,
+                'document_type_id' => $attrs['document_type_id'] ?? null,
+                'source_type'      => $attrs['source_type'] ?? 'pdf_splitter',
+                // Provenance: the property this pack was split against — recorded on
+                // every split doc (incl. contact-only ones) so a contact's
+                // "Not Property-Linked" doc is still traceable to its split.
+                'source_id'        => $attrs['source_id'] ?? $property->id,
+                'deal_id'          => $deal?->id, // WS3 (D4) deal anchor (optional)
+                // Explicit agency stamp (AT-203 landmine class) — authoritative from
+                // the property; branch is left to BelongsToBranch (splitter is always
+                // a request context).
+                'agency_id'        => $attrs['agency_id'] ?? $property->agency_id,
+                'uploaded_by'      => $actor->id,
+            ]);
+
+            $result = ['document' => $doc, 'property' => 0, 'contact' => 0, 'fallback' => 0, 'unfiled' => 0];
+            $didAttach = false;
+
+            if (! empty($destination['property'])) {
+                $doc->properties()->syncWithoutDetaching([$property->id]);
+                $result['property'] = 1;
+                $didAttach = true;
+            }
+
+            if (! empty($destination['contact']) && ! empty($contacts)) {
+                foreach ($contacts as $cid => $role) {
+                    $partyRole = strtolower(trim((string) $role)) ?: 'seller';
+                    $doc->contacts()->syncWithoutDetaching([(int) $cid => ['party_role' => $partyRole]]);
+                    $result['contact']++;
+                    $didAttach = true;
+                }
+            }
+
+            if (! $didAttach) {
+                // AT-167 — never silently anchor a contact-only type to the property
+                // (that is the misfile). A contact-only doc with no contact stays
+                // unlinked and surfaces in the Misfiled Documents register; genuine
+                // property/shared types still fall back to the property (no-orphan).
+                if (! empty($destination['contact']) && empty($destination['property'])) {
+                    $result['unfiled'] = 1;
+                } else {
+                    $doc->properties()->syncWithoutDetaching([$property->id]);
+                    $result['fallback'] = 1;
+                }
+            }
+
+            // WS3 (D4) — when this split is anchored to a deal, auto-complete the
+            // matching document step (config-driven by doc type) through the engine.
+            // Guarded so a splitter run never fails on the deal-side wiring.
+            if ($deal) {
+                try {
+                    $this->autoCompleteMatchingStep($deal, $doc, $actor);
+                } catch (\Throwable $e) {
+                    Log::warning('fileClassifiedDocument: deal step auto-complete skipped (non-fatal)', [
+                        'document_id' => $doc->id,
+                        'deal_id'     => $deal->id,
+                        'error'       => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            return $result;
         });
     }
 

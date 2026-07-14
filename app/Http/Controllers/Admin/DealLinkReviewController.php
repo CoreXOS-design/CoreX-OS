@@ -26,7 +26,7 @@ final class DealLinkReviewController extends Controller
     {
         $this->assertAdmin($request);
 
-        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $agencyId = (int) $request->user()?->effectiveAgencyId();
         $status   = $request->string('status')->toString() ?: DealLinkReviewQueue::STATUS_PENDING;
 
         $rows = DealLinkReviewQueue::where('agency_id', $agencyId)
@@ -164,7 +164,7 @@ final class DealLinkReviewController extends Controller
 
     private function guardAgency(Request $request, DealLinkReviewQueue $reviewItem): void
     {
-        $effective = (int) $request->user()->effectiveAgencyId();
+        $effective = (int) $request->user()?->effectiveAgencyId();
         if ((int) $reviewItem->agency_id !== $effective) {
             abort(403, 'Cross-agency access denied.');
         }

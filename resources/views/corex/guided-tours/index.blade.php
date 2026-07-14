@@ -86,13 +86,27 @@
                     <div class="flex items-start gap-3">
                         <span class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0"
                               style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 14%, transparent); color: var(--brand-button, #0ea5e9);">
-                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/>
-                            </svg>
+                            @if($tour['external'])
+                                {{-- External entry (e.g. Mobile app): a phone, not a "?" —
+                                     the card links out instead of running a tour. --}}
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
+                                </svg>
+                            @else
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/>
+                                </svg>
+                            @endif
                         </span>
                         <div class="flex-1 min-w-0">
                             <h3 class="text-sm font-bold leading-tight" style="color: var(--text-primary);">{{ $tour['title'] }}</h3>
-                            <div class="text-[0.6875rem] mt-0.5" style="color: var(--text-muted);">{{ $tour['steps'] }} step{{ $tour['steps'] === 1 ? '' : 's' }}</div>
+                            <div class="text-[0.6875rem] mt-0.5" style="color: var(--text-muted);">
+                                @if($tour['external'])
+                                    Opens {{ $tour['externalHost'] ?? 'in a new tab' }}
+                                @else
+                                    {{ $tour['steps'] }} step{{ $tour['steps'] === 1 ? '' : 's' }}
+                                @endif
+                            </div>
                         </div>
                     </div>
 
@@ -105,10 +119,16 @@
                     <div class="mt-auto pt-4">
                         @if($tour['url'])
                             <a href="{{ $tour['url'] }}"
+                               @if($tour['external']) target="_blank" rel="noopener noreferrer" @endif
                                class="corex-tour-start inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold no-underline"
                                style="background: var(--brand-button, #0ea5e9); color:#fff;">
-                                Start tour
-                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                {{ $tour['cta'] ?: ($tour['external'] ? 'Open' : 'Start tour') }}
+                                @if($tour['external'])
+                                    {{-- Arrow out of the box: this button leaves CoreX. --}}
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-9 4.5L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                                @else
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                @endif
                             </a>
                         @else
                             {{-- Route needs a specific record (e.g. open a contact first),

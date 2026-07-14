@@ -798,7 +798,7 @@ class ESignWizardController extends Controller
                 $existing = null;
                 if ($email !== '') {
                     $existing = app(\App\Services\Communications\ContactIdentifierResolver::class)
-                        ->resolve($email, (int) auth()->user()->effectiveAgencyId());
+                        ->resolve($email, (int) auth()->user()?->effectiveAgencyId());
                 }
                 if (!$existing && $idNumber !== '') {
                     $existing = Contact::where('id_number', $idNumber)->first();
@@ -832,7 +832,7 @@ class ESignWizardController extends Controller
 
                     // Duplicate detection: auto-link if match found (non-blocking in e-sign flow)
                     $dupSvc = app(\App\Services\ContactDuplicateService::class);
-                    $dupAgencyId = $request->user()?->effectiveAgencyId() ?? 1;
+                    $dupAgencyId = (int) ($request->user()?->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
                     $dupData = ['phone' => '', 'email' => $email ?: '', 'id_number' => $idNumber ?: ''];
                     $dupExisting = $dupSvc->findDuplicates($dupData, $dupAgencyId)->first();
 

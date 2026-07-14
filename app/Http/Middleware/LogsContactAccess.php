@@ -35,9 +35,30 @@ class LogsContactAccess
 
         $contactId = is_object($contact) ? $contact->id : (int) $contact;
 
+        // AT-253 (STANDARDS Rule 17) — DERIVE the agency from the CONTACT being accessed,
+        // not from the acting user. This log is about a contact, and the contact knows which
+        // tenant it belongs to; the viewer may be an owner/super-admin who belongs to none.
+        // The old `?? 1` filed every super-admin's contact view into AGENCY 1's POPIA access
+        // trail — an audit record attributing access to the wrong tenant, which is precisely
+        // the record you cannot afford to have wrong.
+        $agencyId = is_object($contact)
+            ? ($contact->agency_id ?? null)
+            : \App\Models\Contact::withoutGlobalScopes()->whereKey($contactId)->value('agency_id');
+
+        // agency_id is NOT NULL here. With no contact agency to derive from there is nothing
+        // honest to write, so we skip the row rather than invent a tenant — and say so in the
+        // log, because a missing audit entry must never be silent.
+        if (! $agencyId) {
+            \Log::warning('AT-253 contact-access log skipped: no agency context', [
+                'contact_id' => $contactId, 'user_id' => $user->id,
+            ]);
+
+            return $response;
+        }
+
         try {
             ContactAccessLog::create([
-                'agency_id' => $user->effectiveAgencyId() ?? ($user->agency_id ?? 1),
+                'agency_id' => $agencyId,
                 'contact_id' => $contactId,
                 'user_id' => $user->id,
                 // AT-118 — under switch-user, user_id is the impersonated user; record

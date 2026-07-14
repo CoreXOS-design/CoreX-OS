@@ -63,6 +63,13 @@ class OutboundProvisionalLogger
                 'text_hash'               => $textHash,
                 'has_attachments'         => false,
                 'source_ref'              => 'manual:user:' . ($userId ?? 'unknown'),
+                // AT-246 — stamp the first-class owner column too, not just the
+                // source_ref string. Mirrors logDistribution() (below). Without this
+                // the sender's own manual sends are invisible to them (scopeVisibleTo
+                // excludes NULL-owner rows) and render as "Agent"/"Unassigned". A null
+                // $userId (no sending agent) legitimately stays null — an ownerless
+                // provisional row, same graceful-null contract as mailbox ingest.
+                'owner_user_id'           => $userId,
             ]);
 
             CommunicationLink::create([
@@ -105,10 +112,10 @@ class OutboundProvisionalLogger
         ?string $subject,
         ?string $body,
         array $linkModels = [],
-        array $attachments = []
+        array $attachments = [],
+        string $channel = Communication::CHANNEL_EMAIL   // AT-228 — email|whatsapp
     ): Communication {
         $now      = now();
-        $channel  = Communication::CHANNEL_EMAIL;
         $textHash = MessageTextHasher::hash($channel, $subject, $body);
 
         return DB::transaction(function () use (

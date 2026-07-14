@@ -16,7 +16,7 @@ class TrainingController extends Controller
     public function index()
     {
         $user = auth()->user();
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
         $courses = TrainingCourse::where('agency_id', $agencyId)
             ->published()
@@ -103,7 +103,7 @@ class TrainingController extends Controller
         $user = auth()->user();
         abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $courses = TrainingCourse::where('agency_id', $agencyId)
             ->withCount(['lessons'])
             ->orderBy('sort_order')
@@ -135,7 +135,15 @@ class TrainingController extends Controller
             'is_published' => ['nullable', 'boolean'],
         ]);
 
-        $validated['agency_id'] = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (STANDARDS Rule 17) — training_courses.agency_id is NOT NULL. The old `?? 1`
+        // published a no-agency user's course into AGENCY 1's training library, visible to a
+        // tenant that never authored it.
+        $agencyId = $user->effectiveAgencyId();
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('a training course');
+        }
+
+        $validated['agency_id'] = $agencyId;
         $validated['created_by'] = $user->id;
         $validated['is_required'] = $request->boolean('is_required');
         $validated['is_required_for_activation'] = $request->boolean('is_required_for_activation');

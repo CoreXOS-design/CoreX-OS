@@ -297,7 +297,7 @@ class ContactController extends Controller
         $outreachClickCounts = collect();
         $outreachOutcomeOptions = [];
         if ($request->user()->hasPermission('outreach.compose')) {
-            $agencyId = $request->user()->effectiveAgencyId();
+            $agencyId = $request->user()?->effectiveAgencyId();
             if ($agencyId !== null && (int) $contact->agency_id === (int) $agencyId) {
                 $timeline = app(\App\Http\Controllers\SellerOutreach\ContactTimelineController::class)
                     ->buildTimelineData((int) $agencyId, $contact);
@@ -502,7 +502,7 @@ class ContactController extends Controller
         // service so it matches ANY of a contact's phones/emails (child tables),
         // consistent with the authoritative store() check. Agency-scoped; the
         // service drops AgencyScope and filters agency_id explicitly.
-        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $duplicate = app(ContactDuplicateService::class)
             ->findDuplicatesForIdentifiers(
                 $phone ? [$phone] : [],
@@ -636,7 +636,7 @@ class ContactController extends Controller
         unset($data['phone'], $data['email'], $data['phones'], $data['emails']);
 
         $user = auth()->user();
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $service = app(ContactDuplicateService::class);
 
         // Primary identifier values for the duplicate-match label + modal display.

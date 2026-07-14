@@ -23,8 +23,10 @@ use Illuminate\View\View;
  */
 class PipelineController extends Controller
 {
-    public function __construct(private readonly Dr1PipelineService $pipelines)
-    {
+    public function __construct(
+        private readonly Dr1PipelineService $pipelines,
+        private readonly \App\Services\Deal\DealPipelineLockService $lock,
+    ) {
     }
 
     /** A deal's pipeline board — steps with LIVE RAG, or the attach form when none is set. */
@@ -57,12 +59,28 @@ class PipelineController extends Controller
             ->orderBy('position')->orderBy('id')
             ->get();
 
-        return view('dr2.pipeline', compact('deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps'));
+        // AT-244 — a not-proceeding (Declined) deal renders its pipeline READ-ONLY: it stays
+        // visible as history, but every action is withdrawn. The lock is stated, never silent,
+        // and it carries its own way out (STANDARDS — "No Silent Locks").
+        $locked      = $this->lock->isLocked($deal);
+        $lockReason  = $locked ? $this->lock->reason($deal) : null;
+        $unlockHint  = $locked ? $this->lock->unlockHint() : null;
+
+        return view('dr2.pipeline', compact(
+            'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
+            'locked', 'lockReason', 'unlockHint',
+        ));
     }
 
     /** Attach a template's pipeline to the deal (the service guards against double-attach). */
     public function attach(Deal $deal, Request $request): RedirectResponse
     {
+        // A declined deal does not get a NEW pipeline started on it. (The capture-time
+        // auto-attach in DealRegisterController is deliberately NOT gated — a deal that is
+        // auto-declined at birth by the Wave 2 capture-after-grant rule still materialises
+        // its steps in that same request, and they simply render locked.)
+        $this->lock->assertUnlocked($deal, 'Attach a pipeline');
+
         $data = $request->validate([
             'template_id' => ['nullable', 'integer'],
         ]);

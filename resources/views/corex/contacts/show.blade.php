@@ -800,6 +800,12 @@
                         <a href="{{ route('corex.properties.show', $prop) }}"
                            class="text-sm font-semibold no-underline hover:underline"
                            style="color:var(--text-primary);">{{ $prop->title }}</a>
+                        {{-- AT-243 — same derived truth, read from the other side: this contact is the
+                             one who actually bought this property (buyer on its granted/registered deal). --}}
+                        @if(in_array((int) $contact->id, $prop->purchaserContactIds(), true))
+                            <span class="ds-badge ds-badge-success" style="margin-left:.4rem;"
+                                  title="This contact bought this property — they are the buyer on its granted deal.">Purchaser</span>
+                        @endif
                         <div class="text-xs mt-0.5 flex flex-wrap gap-2" style="color:var(--text-muted);">
                             <span style="color:{{ $propSc }};">{{ ucfirst($prop->status) }}</span>
                             <span>{{ $prop->formattedPrice() }}</span>
@@ -1760,6 +1766,14 @@
                                         </button>
                                     </form>
                                     @endif
+                                    {{-- AT-240 — edit this wishlist/criteria (permission-gated by the
+                                         enclosing access_core_matches block). Opens the existing edit flow. --}}
+                                    <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
+                                       class="corex-btn-outline text-xs no-underline"
+                                       title="Edit this wishlist / match criteria">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
+                                        Edit
+                                    </a>
                                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
                                        class="corex-btn-outline text-xs no-underline">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>

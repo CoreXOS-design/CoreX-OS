@@ -911,7 +911,16 @@ class PropertyController extends Controller
 
         // Create + link new contacts added during create (with duplicate detection)
         $dupService = app(\App\Services\ContactDuplicateService::class);
-        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+
+        // AT-253 (STANDARDS Rule 17) — DERIVE the agency from the PROPERTY these contacts are
+        // being attached to, not from the acting user. The contacts belong to the property's
+        // tenant; the person capturing may be an owner/super-admin who belongs to none. The
+        // old `?? 1` created seller contacts inside AGENCY 1 and then duplicate-matched them
+        // against agency 1's book — the wrong tenant's people, in the wrong tenant's CRM.
+        $agencyId = (int) ($property->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0);
+        if ($agencyId <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException('a contact on this property');
+        }
 
         foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
             if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) continue;
@@ -1231,9 +1240,48 @@ class PropertyController extends Controller
             app(\App\Services\AI\PropertyAiSuggestionService::class)->markReviewed($property);
         }
 
-        return redirect()->route('corex.properties.show', $property)
+        $redirect = redirect()->route('corex.properties.show', $property)
             ->with('success', 'Property updated.')
             ->with('tab', 'info');
+
+        if ($this->shouldPromptSyndication($property)) {
+            $redirect->with('open_syndication', true);
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Should this save open the syndication panel on the property page?
+     *
+     * A compliant, on-market listing has live portal copies riding on it —
+     * Property24, Private Property, the company website. Saving it is the exact
+     * moment those copies go stale, and nothing used to connect the two: the agent
+     * dropped the price, saw "Property updated.", and walked away while the portals
+     * kept advertising yesterday's number.
+     *
+     * So a qualifying save opens the panel (show.blade.php seeds `synOpen` from the
+     * `open_syndication` flash), putting "Refresh all portals" in front of the agent
+     * at the one moment it matters. Every qualifying save, by design — a save is what
+     * makes the portals stale, so there is nothing to remember and nothing to
+     * dismiss-forever.
+     *
+     * BOTH halves are required. `compliance_snapshot_at` is the canonical record that
+     * a listing is marked compliant (there is no boolean flag — the timestamp IS the
+     * flag, written by MarketingReadinessService::snapshotCompliance()); without it
+     * the listing has nothing it is permitted to publish. And a compliant listing
+     * that is Sold must never nag the agent to re-push it to the portals.
+     *
+     * Not wired into store(): a brand-new property cannot carry a compliance snapshot
+     * (that is stamped later, by Go Live), so the test can never pass there — and the
+     * >20-image create path returns JSON, then fires several upload-images requests
+     * before it navigates, any one of which would eat a flash. Dead code and an
+     * unreliable channel. Spec: .ai/specs/syndication-refresh-all.md.
+     */
+    private function shouldPromptSyndication(Property $property): bool
+    {
+        return $property->compliance_snapshot_at !== null
+            && strtolower((string) $property->status) === 'active';
     }
 
     public function destroy(Property $property)

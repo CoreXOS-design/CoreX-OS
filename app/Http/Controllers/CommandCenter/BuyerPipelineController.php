@@ -50,7 +50,7 @@ class BuyerPipelineController extends Controller
         $contextListing = null;
         if ($request->filled('prospecting_listing_id')) {
             $listingId = (int) $request->query('prospecting_listing_id');
-            $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+            $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
             $matchingContactIds = DB::table('prospecting_buyer_matches')
                 ->where('prospecting_listing_id', $listingId)
@@ -161,7 +161,8 @@ class BuyerPipelineController extends Controller
             return 'agency';
         }
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
+        // AT-253 (Rule 17) — read: AgencyContactSettings::forAgency already guards <=0.
+        $agencyId = (int) ($user?->effectiveAgencyId() ?: 0);
         $settings = AgencyContactSettings::forAgency($agencyId);
 
         return $settings->buyer_pipeline_default_scope ?? 'own';

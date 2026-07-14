@@ -24,15 +24,23 @@ class SuburbsController extends Controller
 
         $normalised = TownSuburb::normaliseSuburb($validated['suburb_name']);
 
-        $request->validate([
-            'suburb_name' => [
-                Rule::unique('town_suburbs', 'suburb_normalised')
-                    ->where('agency_id', $town->agency_id)
-                    ->whereNull('deleted_at'),
-            ],
-        ], [
-            'suburb_name.unique' => 'This suburb is already mapped to a town for this agency.',
-        ]);
+        // AT-245 — the DB constraint is (agency_id, suburb_normalised) across ALL
+        // towns. Validate the NORMALISED value: the old Rule::unique checked the raw
+        // input against the lowercased column, never matched, and let the DB throw a
+        // 500. A suburb string resolves to one town per agency (the matcher only sees
+        // the string), so name the town it's already on rather than duplicate it.
+        $existing = TownSuburb::withoutGlobalScopes()
+            ->where('agency_id', $town->agency_id)
+            ->where('suburb_normalised', $normalised)
+            ->whereNull('deleted_at')
+            ->first();
+        if ($existing) {
+            $onTown = Town::withoutGlobalScopes()->find($existing->town_id);
+            $name = $onTown?->name ?? 'another town';
+            return back()->withInput()->withErrors([
+                'suburb_name' => "“{$validated['suburb_name']}” is already mapped to {$name}. A suburb maps to one town per agency — move it there instead of adding a duplicate.",
+            ]);
+        }
 
         $suburb = TownSuburb::create([
             'agency_id'         => $town->agency_id,
@@ -64,18 +72,22 @@ class SuburbsController extends Controller
 
         $normalised = TownSuburb::normaliseSuburb($validated['suburb_name']);
 
-        // Re-check uniqueness only if the normalised form changed.
+        // Re-check uniqueness only if the normalised form changed — on the NORMALISED
+        // value (agency-wide, all towns), mirroring the DB constraint. Never a 500.
         if ($normalised !== $suburb->suburb_normalised) {
-            $request->validate([
-                'suburb_name' => [
-                    Rule::unique('town_suburbs', 'suburb_normalised')
-                        ->where('agency_id', $suburb->agency_id)
-                        ->whereNull('deleted_at')
-                        ->ignore($suburb->id),
-                ],
-            ], [
-                'suburb_name.unique' => 'This suburb is already mapped to a town for this agency.',
-            ]);
+            $existing = TownSuburb::withoutGlobalScopes()
+                ->where('agency_id', $suburb->agency_id)
+                ->where('suburb_normalised', $normalised)
+                ->whereNull('deleted_at')
+                ->where('id', '!=', $suburb->id)
+                ->first();
+            if ($existing) {
+                $onTown = Town::withoutGlobalScopes()->find($existing->town_id);
+                $name = $onTown?->name ?? 'another town';
+                return back()->withInput()->withErrors([
+                    'suburb_name' => "“{$validated['suburb_name']}” is already mapped to {$name}. A suburb maps to one town per agency.",
+                ]);
+            }
         }
 
         if (isset($validated['town_id'])) {

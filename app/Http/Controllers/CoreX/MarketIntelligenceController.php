@@ -168,6 +168,30 @@ class MarketIntelligenceController extends Controller
             }
         }
 
+        // AT-246 region filter REMOVED — region model reverted off Staging (Johan
+        // ruling: Option A). Buyer selector + town_id filter retained.
+
+        // AT-242 — Buyer-led prospecting. Selecting a buyer restricts the
+        // prospecting universe to stock that matches THAT buyer's wishlist,
+        // scored by the canonical Core Matches engine (MatchingService::score),
+        // whose output is already cached per (listing, buyer) in
+        // prospecting_buyer_matches. One truth — we filter the cache, never
+        // re-score, never fork the matching logic. Floor = the agency's MIC
+        // match threshold (agency-configurable, sensible default).
+        $selectedBuyerId = null;
+        if ($request->filled('buyer_id')) {
+            $selectedBuyerId = (int) $request->query('buyer_id');
+            $buyerFloor = (int) AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+            $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
+                $sub->from('prospecting_buyer_matches')
+                    ->select('prospecting_listing_id')
+                    ->where('contact_id', $selectedBuyerId)
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('dismissed_at')
+                    ->where('score', '>=', $buyerFloor);
+            });
+        }
+
         if ($request->filled('bedroom_segment_id')) {
             $segId = (int) $request->query('bedroom_segment_id');
             $seg = \DB::table('bedroom_segments')
@@ -327,6 +351,23 @@ class MarketIntelligenceController extends Controller
             $row->buyer_match_top_score = isset($matchTopScores[$row->id]) ? (int) $matchTopScores[$row->id] : null;
         }
 
+        // AT-242 — in buyer mode, attach THAT buyer's own cached Core Matches
+        // score to each row (the number the agent is prospecting on) so the row
+        // shows the buyer-specific match, not the max across all buyers.
+        if ($selectedBuyerId && !empty($listingIds)) {
+            $selectedBuyerScores = DB::table('prospecting_buyer_matches')
+                ->whereIn('prospecting_listing_id', $listingIds)
+                ->where('contact_id', $selectedBuyerId)
+                ->where('agency_id', $agencyId)
+                ->whereNull('dismissed_at')
+                ->pluck('score', 'prospecting_listing_id');
+            foreach ($rows as $row) {
+                $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
+                    ? (int) $selectedBuyerScores[$row->id]
+                    : null;
+            }
+        }
+
         // AT-75 — when a %-band is active, keep only listings whose top match is
         // in the band, and sort strongest-first (weak matches to the bottom).
         if ($bandActive) {
@@ -345,6 +386,13 @@ class MarketIntelligenceController extends Controller
         }
         if ($request->get('sort') === 'match_score') {
             $rows = $rows->sortByDesc('buyer_match_top_score')->values();
+        }
+
+        // AT-242 — buyer mode default: strongest match for THIS buyer first, so
+        // the best prospecting targets sit at the top. Honoured unless the agent
+        // picked an explicit sort.
+        if ($selectedBuyerId && !$request->filled('sort')) {
+            $rows = $rows->sortByDesc('selected_buyer_score')->values();
         }
 
         $page = $request->get('page', 1);
@@ -410,6 +458,54 @@ class MarketIntelligenceController extends Controller
             ProspectingListing::where('agency_id', $agencyId)
                 ->distinct()->pluck('captured_by_user_id')
         )->orderBy('name')->get(['id', 'name']);
+
+        // AT-242 — buyers that already have at least one cached prospecting match
+        // (active, countable buyers per Buyer Pillar doctrine — the same set the
+        // "buyer matched" KPI counts). These are the selectable buyers for
+        // buyer-led prospecting; a buyer with no matched canvass stock has
+        // nothing to prospect on and is omitted.
+        $micBuyerIds = DB::table('prospecting_buyer_matches')
+            ->where('agency_id', $agencyId)
+            ->whereNull('dismissed_at')
+            ->distinct()
+            ->pluck('contact_id');
+
+        // AT-242 buyer-selector SCOPE (Johan): My buyers (own) / My branch / Whole
+        // company. Role-sensible default — admins agency-wide, everyone else their
+        // branch (own+branch). Honours branch isolation: 'company' is only offered
+        // to a user whose prospecting data-scope is agency-wide ('all'); branch/own
+        // users get own+branch. Same one-truth match set — only the LISTING is scoped.
+        // Agency-wide roles (the BuyerPipeline one-truth scope pattern) may pick
+        // 'Whole company'; branch/agent roles get own+branch (honours isolation).
+        $canCompany  = in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner'], true)
+            || \App\Services\PermissionService::getDataScope($user, 'prospecting') === 'all';
+        $buyerScopeOptions = $canCompany ? ['own', 'branch', 'company'] : ['own', 'branch'];
+        $defaultScope = $canCompany ? 'company' : 'branch';
+        $buyerScope = $request->input('buyer_scope');
+        if (! in_array($buyerScope, $buyerScopeOptions, true)) {
+            $buyerScope = $defaultScope;
+        }
+
+        $micBuyers = Contact::whereIn('id', $micBuyerIds)
+            ->where('is_buyer', true)
+            ->when($buyerScope === 'own', fn ($q) => $q->where('contacts.agent_id', $user->id))
+            ->when($buyerScope === 'branch', function ($q) use ($user) {
+                $branchId = $user->effectiveBranchId() ?? $user->branch_id;
+                if ($branchId) {
+                    $q->whereIn('contacts.agent_id', function ($sub) use ($branchId) {
+                        $sub->select('id')->from('users')->where('branch_id', $branchId)->whereNull('deleted_at');
+                    });
+                } else {
+                    $q->where('contacts.agent_id', $user->id);
+                }
+            })
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id', 'first_name', 'last_name', 'email']);
+        $activeBuyerId = $selectedBuyerId;
+        $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
+
+        // AT-246 region dropdown REMOVED — region model reverted off Staging (Johan ruling: Option A).
 
         $claimStats = [
             'my_claims'     => ProspectingClaim::where('user_id', $user->id)->active()->count(),
@@ -549,6 +645,9 @@ class MarketIntelligenceController extends Controller
             'snapshotKpis', 'actionPresetCounts', 'filterRailAggregates',
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount',
+            // AT-242 buyer-led prospecting + AT-239 region filter
+            'micBuyers', 'activeBuyerId', 'selectedBuyer',
+            'buyerScope', 'buyerScopeOptions',
             // Phase D2 — This Week hero
             'tiles', 'tilesGeneratedAt'
         ));

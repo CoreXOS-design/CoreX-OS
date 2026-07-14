@@ -64,10 +64,46 @@ function corexCopyLinkMixin() {
     };
 }
 
+// Mixin: makes a portal panel participate in "Refresh all portals".
+//
+// The three portal panels are Alpine SIBLINGS, so a $dispatch from the Refresh
+// All button bubbles up past them and never arrives. They talk over a window
+// bus instead. Safe: exactly one syndication panel exists on a page at a time
+// (the property page renders one inline; the index injects one into the modal
+// and clears it on close).
+//
+// Requires on the host component: portalKey, portalLabel, isLiveOnPortal(),
+// refreshListing(), loading.
+function corexSyndicationBus() {
+    return {
+        // Tell the Refresh All button whether this portal currently carries the
+        // listing. Driven by x-effect on the panel root, so a toggle made in the
+        // panel re-announces without a page reload.
+        announceSyndicationState() {
+            window.dispatchEvent(new CustomEvent('corex-syndication-portal-state', {
+                detail: { key: this.portalKey, label: this.portalLabel, live: this.isLiveOnPortal() },
+            }));
+        },
+
+        // "Refresh all portals" was pressed. A portal that isn't live is none of
+        // that button's business — it must never enable, first-submit or revive a
+        // portal the agent deliberately left off. One already mid-push is skipped
+        // rather than pushed twice.
+        onSyndicationRefreshAll(event) {
+            if (!this.isLiveOnPortal() || this.loading) return;
+            event.detail.acked.push(this.portalLabel);
+            this.refreshListing();
+        },
+    };
+}
+
 // Private Property Syndication Alpine component
 function ppSyndication(config) {
     return {
         ...corexCopyLinkMixin(),
+        ...corexSyndicationBus(),
+        portalKey: 'private_property',
+        portalLabel: 'Private Property',
         propertyId: config.propertyId,
         enabled: config.enabled,
         status: config.status || '',
@@ -146,6 +182,14 @@ function ppSyndication(config) {
             // resolvable URL yet (e.g. status 'submitted', not live), the link
             // is a no-op rather than a dead search.
             return this.publicUrl || '#';
+        },
+
+        // Does Private Property currently carry this listing? Single source of
+        // truth: it gates the View · Refresh · Deactivate row AND the "Refresh
+        // all portals" census, so the visible Refresh button and the bulk press
+        // can never disagree about what "live" means.
+        isLiveOnPortal() {
+            return !!this.enabled && !!this.ppRef && ['active', 'submitted'].includes(this.status);
         },
 
         showMessage(msg, type = 'success') {
@@ -412,6 +456,9 @@ function ppSyndication(config) {
 function p24Syndication(config) {
     return {
         ...corexCopyLinkMixin(),
+        ...corexSyndicationBus(),
+        portalKey: 'property24',
+        portalLabel: 'Property24',
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
         p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
         lastError: config.lastError || '', csrfToken: config.csrfToken, isSandbox: config.isSandbox ?? true,
@@ -446,6 +493,15 @@ function p24Syndication(config) {
             const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'property';
             const section = this.listingType === 'rental' ? 'to-rent' : 'for-sale';
             return `https://${domain}/${section}/${slug(this.suburb)}/${slug(this.city)}/${slug(this.province)}/${this.suburbId || '0'}/${this.p24Ref}`;
+        },
+        // Does Property24 currently carry this listing? 'submitting' counts: the
+        // listing IS on the portal and a queued push is merely in flight. Excluding
+        // it would make the "Refresh all portals" button vanish from under the
+        // agent mid-sync; the !loading guard in onSyndicationRefreshAll() is what
+        // prevents the double-push (and SubmitListingToProperty24 is ShouldBeUnique
+        // besides). Single source of truth — also gates the action row below.
+        isLiveOnPortal() {
+            return !!this.enabled && !!this.p24Ref && ['active', 'submitted', 'submitting'].includes(this.status);
         },
         showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },
         async toggleEnabled() {
@@ -575,6 +631,11 @@ function p24Syndication(config) {
 function websiteSyndication(config) {
     return {
         ...corexCopyLinkMixin(),
+        ...corexSyndicationBus(),
+        // An agency can have several websites, so the census key must be unique
+        // per API key — not the shared literal the single-instance panels use.
+        portalKey: config.key,
+        portalLabel: config.name || 'Website',
         propertyId: config.propertyId,
         name: config.name || 'Website',
         enabled: config.enabled,
@@ -596,6 +657,16 @@ function websiteSyndication(config) {
             return styles[this.status] || styles[''];
         },
         showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },
+        // Does this website currently carry the listing? Single source of truth —
+        // gates the action row below AND the "Refresh all portals" census.
+        isLiveOnPortal() {
+            return !!this.enabled && ['active', 'submitted'].includes(this.status);
+        },
+        // Name-parity with ppSyndication/p24Syndication so corexSyndicationBus()
+        // can fire every portal through one method.
+        async refreshListing() {
+            await this.post(this.urls.refresh);
+        },
         async toggleEnabled() {
             // Header click toggles the active/deactivated state (enable = active).
             await this.post(this.enabled ? this.urls.deactivate : this.urls.activate);
@@ -617,6 +688,66 @@ function websiteSyndication(config) {
                 }
             } catch (e) { this.errorMsg = e.message || 'Network error'; }
             finally { this.loading = false; }
+        },
+    };
+}
+
+// "Refresh all portals" — re-push this listing to every portal that currently
+// carries it, in one press, instead of hunting three separate Refresh buttons.
+//
+// A DISPATCHER, never a second implementation: it fires each portal's own
+// refreshListing(), so every guard, spinner, error panel and (for P24) sync-state
+// poll that protects a single Refresh protects the bulk press for free. There is
+// no endpoint, no service and no readiness logic behind this component.
+function syndicationRefreshAll() {
+    return {
+        portals: {},   // key -> { key, label, live }, kept current by the census
+        fired: '',
+        note: '',
+
+        init() {
+            // The portal panels sit ABOVE this block in the DOM, so Alpine has
+            // already initialised them and their opening announce fired before
+            // this component's listener existed — that first census is lost. Ask
+            // for a fresh one now that we ARE listening, or the button renders
+            // hidden on a listing that is live on all three portals. Later
+            // announces (a toggle, a status flip) land normally.
+            this.$nextTick(() => window.dispatchEvent(new CustomEvent('corex-syndication-census-request')));
+        },
+
+        onPortalState(detail) {
+            this.portals[detail.key] = detail;
+        },
+
+        livePortals() {
+            return Object.values(this.portals).filter(p => p.live);
+        },
+        liveCount() {
+            return this.livePortals().length;
+        },
+        liveLabels() {
+            return this.livePortals().map(p => p.label).join(' · ');
+        },
+
+        refreshAll() {
+            this.fired = '';
+            this.note = '';
+
+            const detail = { acked: [] };
+            window.dispatchEvent(new CustomEvent('corex-syndication-refresh-all', { detail }));
+
+            // DOM listeners run synchronously, so `acked` is complete by now — the
+            // button reports exactly which portals it fired rather than guessing.
+            if (detail.acked.length === 0) {
+                // Every live portal was already mid-push. Say so: a bulk button
+                // that silently does nothing reads as broken.
+                this.note = 'Already syncing — watch each portal above.';
+                setTimeout(() => { this.note = ''; }, 6000);
+                return;
+            }
+
+            this.fired = 'Refreshing on ' + detail.acked.join(', ') + '…';
+            setTimeout(() => { this.fired = ''; }, 6000);
         },
     };
 }

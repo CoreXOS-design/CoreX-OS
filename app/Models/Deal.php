@@ -98,6 +98,8 @@ class Deal extends Model
         'property_address',
         'attorney_provider_id',
         'attorney_contact_id',
+        'bond_originator_provider_id',
+        'bond_originator_contact_id',
         'seller_name',
         'buyer_name',
         'attorney_name',
@@ -152,6 +154,32 @@ class Deal extends Model
     public function property()
     {
         return $this->belongsTo(\App\Models\Property::class, 'property_id');
+    }
+
+    /**
+     * AT-243 — the deal's OWN parties (the people on THIS transaction), as opposed to
+     * `contact_property`, which records everyone linked to the property across all its
+     * deals. Capture writes both: the party is linked to the property AND recorded on the
+     * deal. Without the second link a property with several offers cannot say which buyer
+     * belongs to which deal — and therefore cannot say who actually bought.
+     */
+    public function contacts(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Contact::class, 'deal_contacts', 'deal_id', 'contact_id')
+                    ->withPivot('role')
+                    ->withTimestamps();
+    }
+
+    /** The buyer(s) on this deal — joint buyers are normal, so this is multi-valued. */
+    public function buyers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->contacts()->wherePivot('role', 'buyer');
+    }
+
+    /** The seller(s) on this deal. */
+    public function sellers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->contacts()->wherePivot('role', 'seller');
     }
 
     /**

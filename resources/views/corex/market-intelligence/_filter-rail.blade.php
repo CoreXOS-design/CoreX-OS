@@ -56,8 +56,22 @@
     };
     $urlClearAll = route('market-intelligence.work');
 
+    // AT-242 / AT-239 — buyer-led prospecting + region.
+    $micBuyers     = $micBuyers ?? collect();
+    // Buyer-selector scope (My buyers / My branch / Whole company).
+    $buyerScope        = $buyerScope ?? 'branch';
+    $buyerScopeOptions = $buyerScopeOptions ?? ['own', 'branch'];
+    $buyerScopeLabels  = ['own' => 'My buyers', 'branch' => 'My branch', 'company' => 'Whole company'];
+    $activeBuyerId = request('buyer_id');
+    $selectedBuyerPill = $selectedBuyer ?? ($activeBuyerId ? $micBuyers->firstWhere('id', (int) $activeBuyerId) : null);
+    $buyerLabel = function ($b) {
+        $name = trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? ''));
+        return $name !== '' ? $name : ($b->email ?? 'Buyer #' . ($b->id ?? '?'));
+    };
+
     // Active filter pills
     $activePills = [];
+    if ($selectedBuyerPill)                              $activePills[] = ['label' => 'Buyer · ' . $buyerLabel($selectedBuyerPill), 'remove' => $urlWithout('buyer_id')];
     if ($activeSearch !== '')                            $activePills[] = ['label' => '"' . $activeSearch . '"',                'remove' => $urlWithout('search')];
     if ($activeSuburb)                                   $activePills[] = ['label' => 'Suburb · ' . $activeSuburb,              'remove' => $urlWithout('suburb')];
     if ($activeType)                                     $activePills[] = ['label' => 'Type · ' . $activeType,                  'remove' => $urlWithout('property_type')];
@@ -121,6 +135,64 @@
         </div>
     </div>
     @endif
+
+    {{-- AT-242 — Buyer-led prospecting. Pick a buyer → the universe narrows to
+         stock matching that buyer's wishlist (canonical Core Matches score),
+         strongest first. Searchable client-side over the buyers that have
+         matched canvass stock. --}}
+    {{-- ALWAYS rendered (no invisible door — AT-242 escalation). Open by default so
+         the headline buyer-led control is visible on landing; empty state explains
+         itself when no buyer matches are computed yet. --}}
+    <div x-data="{ open: true, q: '' }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
+        </button>
+        <div x-show="open" style="padding: 0 0 6px;">
+            {{-- AT-242 scope toggle — My buyers / My branch / Whole company. Same match
+                 set, scoped listing. 'Whole company' only shown to agency-wide roles. --}}
+            @if(count($buyerScopeOptions) > 1)
+                <div style="display:flex; gap:3px; padding: 2px 12px 6px; flex-wrap:wrap;">
+                    @foreach($buyerScopeOptions as $sc)
+                        @php $scActive = $buyerScope === $sc; @endphp
+                        <a href="{{ $urlWith(['buyer_scope' => $sc]) }}"
+                           style="font-size:0.6875rem; font-weight:600; padding:2px 8px; border-radius:999px; text-decoration:none;
+                                  {{ $scActive
+                                     ? 'background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 16%, transparent); color: var(--brand-icon,#0ea5e9); border:1px solid currentColor;'
+                                     : 'background: var(--surface-2); color: var(--text-secondary); border:1px solid var(--border);' }}">
+                            {{ $buyerScopeLabels[$sc] ?? $sc }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+            @if($micBuyers->count() > 0)
+                <div style="padding: 2px 12px 6px;">
+                    <input type="text" x-model="q" placeholder="Search buyer…"
+                           class="w-full rounded-md px-2 py-1"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
+                </div>
+                @if($activeBuyerId)
+                    <a href="{{ $urlWithout('buyer_id') }}" style="{{ $rowStyle }} color: var(--brand-icon);">
+                        <span>← All stock (clear buyer)</span>
+                    </a>
+                @endif
+                <div style="max-height: 240px; overflow-y: auto;">
+                    @foreach($micBuyers as $b)
+                        @php $bIsActive = (string) $activeBuyerId === (string) $b->id; $bName = $buyerLabel($b); @endphp
+                        <a href="{{ $urlWith(['buyer_id' => $b->id]) }}"
+                           x-show="q === '' || {{ \Illuminate\Support\Js::from(mb_strtolower($bName . ' ' . ($b->email ?? ''))) }}.includes(q.toLowerCase())"
+                           style="{{ $bIsActive ? $activeRowStyle : $rowStyle }}">
+                            <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $bName }}</span>
+                            @if($bIsActive)<span style="font-weight:700;">✓</span>@endif
+                        </a>
+                    @endforeach
+                </div>
+            @else
+                <p style="padding: 4px 12px 10px; font-size: 0.75rem; line-height: 1.4; color: var(--text-muted);">
+                    No computed buyer matches yet. Matches are scored from active buyers' wishlists against the prospecting universe and refresh overnight — an admin can also run the recompute to build them now.
+                </p>
+            @endif
+        </div>
+    </div>
 
     {{-- By town --}}
     @if($agg['by_suburb']->count() > 0)

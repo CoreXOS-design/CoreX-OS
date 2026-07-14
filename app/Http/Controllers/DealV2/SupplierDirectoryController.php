@@ -32,7 +32,7 @@ class SupplierDirectoryController extends Controller
 
     public function index(Request $request)
     {
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->with(['serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name')])
@@ -48,7 +48,7 @@ class SupplierDirectoryController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
-        $this->service->findOrCreate((int) $request->user()->effectiveAgencyId(), $data, $request->user()->id);
+        $this->service->findOrCreate((int) $request->user()?->effectiveAgencyId(), $data, $request->user()->id);
 
         return back()->with('success', 'Provider saved to the directory.');
     }
@@ -81,7 +81,7 @@ class SupplierDirectoryController extends Controller
 
     public function search(Request $request): JsonResponse
     {
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         $results = $this->service->search($agencyId, $request->query('specialty'), $request->query('q'));
 
         return response()->json(['results' => $results->map(fn ($p) => $this->row($p))->values()]);
@@ -90,7 +90,7 @@ class SupplierDirectoryController extends Controller
     public function createInline(Request $request): JsonResponse
     {
         $data = $this->validated($request);
-        $provider = $this->service->findOrCreate((int) $request->user()->effectiveAgencyId(), $data, $request->user()->id);
+        $provider = $this->service->findOrCreate((int) $request->user()?->effectiveAgencyId(), $data, $request->user()->id);
 
         return response()->json(['provider' => $this->row($provider)], 201);
     }
@@ -103,7 +103,7 @@ class SupplierDirectoryController extends Controller
             'role' => 'required|string|in:' . implode(',', self::PROVIDER_ROLES),
         ]);
         $provider = AgencyServiceProvider::query()->withoutGlobalScopes()
-            ->where('agency_id', $deal->agency_id ?? $request->user()->effectiveAgencyId())
+            ->where('agency_id', $deal->agency_id ?? $request->user()?->effectiveAgencyId())
             ->findOrFail($validated['provider_id']);
 
         $this->service->attachToDeal($deal, $provider, $validated['role']);
@@ -161,7 +161,7 @@ class SupplierDirectoryController extends Controller
     /** Soft-delete a firm contact (deactivate). Historic deals keep resolving. */
     public function deactivateContact(Request $request, AgencyServiceProviderContact $contact)
     {
-        abort_unless((int) $contact->agency_id === (int) $request->user()->effectiveAgencyId(), 403);
+        abort_unless((int) $contact->agency_id === (int) $request->user()?->effectiveAgencyId(), 403);
         $contact->update(['is_active' => false]);
         $contact->delete();
 
@@ -170,7 +170,7 @@ class SupplierDirectoryController extends Controller
 
     private function authorizeAgency(Request $request, AgencyServiceProvider $provider): void
     {
-        abort_unless((int) $provider->agency_id === (int) $request->user()->effectiveAgencyId(), 403);
+        abort_unless((int) $provider->agency_id === (int) $request->user()?->effectiveAgencyId(), 403);
     }
 
     private function row(AgencyServiceProvider $p): array

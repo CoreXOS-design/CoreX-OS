@@ -736,6 +736,32 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware('permission:view_deals')->name('documents.download');
+
+    // Proforma Invoices (Accounting pillar) — any agent may generate from Granted onward
+    // (server-gated); the endpoint re-checks eligibility, never trusts the hidden button.
+    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware('permission:proforma.generate')->name('proforma.generate');
+
+    // AT-228 — party-first document distribution (compose-and-review → send). Matrix does the
+    // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
+    Route::get('/{deal}/distribute',  [\App\Http\Controllers\Dr2\DealDistributionController::class, 'compose'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.compose');
+    Route::post('/{deal}/distribute', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'send'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.send');
+});
+
+// ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
+Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function () {
+    Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
+    Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
+    // Admin-only (permission re-checked in the controller too).
+    Route::post('/{invoice}/lines',            [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'addLine'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('lines.add');
+    Route::delete('/{invoice}/lines/{line}',   [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'removeLine'])->whereNumber(['invoice', 'line'])->middleware('permission:proforma.manage')->name('lines.remove');
+    Route::post('/{invoice}/void',             [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'void'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('void');
+    Route::post('/{invoice}/regenerate',       [\App\Http\Controllers\Proforma\ProformaAdminController::class, 'regenerate'])->whereNumber('invoice')->middleware('permission:proforma.manage')->name('regenerate');
+});
+
+// Agency "Proforma Invoices" settings section (admin only).
+Route::middleware(['auth', 'permission:proforma.manage'])->group(function () {
+    Route::get('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'index'])->name('admin.proforma-settings');
+    Route::put('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'update'])->name('admin.proforma-settings.update');
 });
 
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
@@ -1041,6 +1067,10 @@ Route::middleware(['auth'])->group(function () {
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
     Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');
     Route::put('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'update'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.update');
+    // AT-227 — Document-type distribution matrix (TYPE-level, null-stage): per type → party roles.
+    // The single source of truth AT-228 send-buttons + m6 e-sign completion both consume.
+    Route::get('/admin/settings/document-distribution',  [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution');
+    Route::post('/admin/settings/document-distribution', [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'save'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution.save');
 
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
@@ -1214,9 +1244,18 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
         ->name('admin.p24-suburbs.store');
     Route::put('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'update'])
-        ->name('admin.p24-suburbs.update');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.update');
     Route::delete('/settings/p24-suburbs/{p24Suburb}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'destroy'])
-        ->name('admin.p24-suburbs.destroy');
+        ->whereNumber('p24Suburb')->name('admin.p24-suburbs.destroy');
+    // AT-246 — town-level region assignment (applies to all a town's suburbs) + region display alias.
+    Route::put('/settings/p24-suburbs/town/{townId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveTownRegion'])
+        ->whereNumber('townId')->name('admin.p24-suburbs.town-region');
+    // AT-246 — assign region by P24 CITY (find-or-create the agency town) so EVERY
+    // suburb is assignable even before an agency towns row exists — no dead-end rows.
+    Route::put('/settings/p24-suburbs/city/{cityId}/region', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveCityRegion'])
+        ->whereNumber('cityId')->name('admin.p24-suburbs.city-region');
+    Route::put('/settings/p24-suburbs/alias/{municipality}', [\App\Http\Controllers\Admin\P24SuburbController::class, 'saveAlias'])
+        ->where('municipality', '.*')->name('admin.p24-suburbs.alias');
 });
 
 
@@ -1315,6 +1354,13 @@ Route::middleware(['auth', 'permission:access_filing_register'])->group(function
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
     Route::delete('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'destroy'])->name('filing-register.destroy');
     Route::post('/filing-register/{filing}/restore', [\App\Http\Controllers\DocumentFilingController::class, 'restore'])->name('filing-register.restore')->withTrashed();
+
+    // AT-238 — the filing register's OWN pickers. Deliberately NOT the DR2 endpoints:
+    // those are gated on `create_deals`, so a filing clerk 403s, and widening that
+    // permission to serve a filing screen would hand deal-capture rights to anyone who
+    // files paper. Same canonical primitives underneath, own gate.
+    Route::get('/filing-register/search/properties', [\App\Http\Controllers\DocumentFilingController::class, 'searchProperties'])->name('filing-register.search.properties');
+    Route::get('/filing-register/search/property/{property}/suggestions', [\App\Http\Controllers\DocumentFilingController::class, 'propertySuggestions'])->name('filing-register.search.property-suggestions');
 });
 
 // ===== NEXUS OS ROUTES =====
@@ -2304,6 +2350,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
             Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
 
+
             Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
             Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');
             Route::post('/property-types/{type}/archive',         [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'archive'])->name('property-types.archive');
@@ -2957,6 +3004,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{contact}/properties/{property}', [\App\Http\Controllers\CoreX\ContactPropertyController::class, 'unlink'])->name('properties.unlink');
         // Core Matches
         Route::post('/{contact}/matches',                              [\App\Http\Controllers\CoreX\ContactMatchController::class, 'store'])->name('matches.store');
+        Route::get('/{contact}/matches/{match}/edit',                  [\App\Http\Controllers\CoreX\ContactMatchController::class, 'edit'])->name('matches.edit');
         Route::put('/{contact}/matches/{match}',                       [\App\Http\Controllers\CoreX\ContactMatchController::class, 'update'])->name('matches.update');
         Route::post('/{contact}/matches/{match}/status',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'setStatus'])->name('matches.setStatus');
         Route::get('/{contact}/matches/{match}/results',               [\App\Http\Controllers\CoreX\ContactMatchController::class, 'results'])->name('matches.results');

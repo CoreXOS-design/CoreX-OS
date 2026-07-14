@@ -360,7 +360,7 @@ class DealV2Controller extends Controller
         // currently acting in); otherwise they must choose one explicitly. The
         // DR2 twin inherits this branch via DealSyncService, so a wrong stamp
         // here would propagate — hence the same hard gate the DR1 register uses.
-        $resolvedBranchId = auth()->user()->effectiveBranchId() ?: ((int) ($data['branch_id'] ?? 0) ?: null);
+        $resolvedBranchId = auth()->user()?->effectiveBranchId() ?: ((int) ($data['branch_id'] ?? 0) ?: null);
         if (! $resolvedBranchId) {
             return back()->withInput()->withErrors([
                 'branch_id' => 'Please choose the branch this deal belongs to. Your account has no home branch, so the branch cannot be filled in automatically.',

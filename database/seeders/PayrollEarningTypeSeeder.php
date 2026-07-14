@@ -13,7 +13,7 @@ class PayrollEarningTypeSeeder extends Seeder
      * Keyed by code for firstOrCreate idempotency.
      */
     private const DEFAULTS = [
-        ['code' => 'basic',                 'label' => 'Basic Salary',         'sars_source_code' => '3601', 'is_taxable' => true,  'is_fringe_benefit' => false, 'affects_uif_remuneration' => true,  'affects_sdl_remuneration' => true,  'sort_order' => 1, 'is_system' => true,  'is_active' => true],
+        ['code' => 'basic',                 'label' => 'Basic Salary',         'sars_source_code' => '3601', 'is_taxable' => true,  'is_fringe_benefit' => false, 'affects_uif_remuneration' => true,  'affects_sdl_remuneration' => true,  'pro_rates_on_partial' => true, 'sort_order' => 1, 'is_system' => true,  'is_active' => true],
         ['code' => 'bonus',                 'label' => 'Bonus',                'sars_source_code' => '3605', 'is_taxable' => true,  'is_fringe_benefit' => false, 'affects_uif_remuneration' => true,  'affects_sdl_remuneration' => true,  'sort_order' => 2, 'is_system' => false, 'is_active' => true],
         ['code' => 'overtime',              'label' => 'Overtime',             'sars_source_code' => '3607', 'is_taxable' => true,  'is_fringe_benefit' => false, 'affects_uif_remuneration' => true,  'affects_sdl_remuneration' => true,  'sort_order' => 3, 'is_system' => false, 'is_active' => true],
         ['code' => 'cell_allowance',        'label' => 'Cell Allowance',       'sars_source_code' => '3713', 'is_taxable' => true,  'is_fringe_benefit' => false, 'affects_uif_remuneration' => true,  'affects_sdl_remuneration' => true,  'sort_order' => 4, 'is_system' => false, 'is_active' => true],

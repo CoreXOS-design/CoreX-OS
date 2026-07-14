@@ -40,7 +40,33 @@ class PropertySellerLink extends Model
      */
     public static function ensureExists(int $propertyId, int $contactId, ?int $generatedByUserId = null): self
     {
-        $existing = static::where('property_id', $propertyId)
+        // AT-260 / AT-253 (STANDARDS Rule 17) — DERIVE the agency from the PROPERTY.
+        //
+        // This method was unusable outside a web request. `agency_id` is NOT NULL and nothing
+        // supplied it: BelongsToAgency fills it from the ACTING USER, and a console command, a
+        // queued job or a webhook has no acting user — so MySQL rejected the insert with a 1364
+        // and the whole job died. (Found the hard way: seeding qa1 walk data from the CLI.)
+        //
+        // The link belongs to the PROPERTY's tenant, not to whoever happens to be clicking, so
+        // the property is the honest source. That also fixes the subtler bug: a web user acting
+        // outside their own agency would previously have stamped the link with THEIR agency
+        // rather than the property's.
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        $agencyId = (int) ($property?->agency_id ?? 0);
+
+        if ($agencyId <= 0) {
+            // No property, or a property with no tenant: there is nothing to derive from and
+            // nothing honest to write. Refuse rather than invent one (Rule 17 — writes never
+            // guess a tenant).
+            throw new \App\Exceptions\MissingAgencyContextException('a seller link');
+        }
+
+        // Scope the lookup to the property's agency explicitly. The global scope resolves from
+        // the acting user, which is absent in console — so it must not be what decides whether
+        // an existing link is found.
+        $existing = static::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('property_id', $propertyId)
             ->where('contact_id', $contactId)
             ->whereNull('revoked_at')
             ->first();
@@ -50,10 +76,14 @@ class PropertySellerLink extends Model
         }
 
         return static::create([
+            'agency_id'   => $agencyId,
             'property_id' => $propertyId,
-            'contact_id' => $contactId,
-            'token' => static::generateToken(),
-            'generated_by_user_id' => $generatedByUserId ?? auth()->id() ?? 1,
+            'contact_id'  => $contactId,
+            'token'       => static::generateToken(),
+            // ...and never attribute the link to USER 1 just because nobody was logged in.
+            // The column is nullable: an unattributed link is the truth in a console context,
+            // and a false attribution to a real person is worse than none.
+            'generated_by_user_id' => $generatedByUserId ?? auth()->id(),
             'generated_at' => now(),
         ]);
     }

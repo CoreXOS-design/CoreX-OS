@@ -451,6 +451,8 @@ class DealRegisterController extends Controller
             // (fix 2) attorney = firm + contact person; the deal links both.
             'attorney_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
             'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
+            'bond_originator_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'bond_originator_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -577,6 +579,8 @@ class DealRegisterController extends Controller
             'attorney_name'    => $data['attorney_name'] ?? null,
             'attorney_provider_id' => ! empty($data['attorney_provider_id']) ? (int) $data['attorney_provider_id'] : null,
             'attorney_contact_id'  => ! empty($data['attorney_contact_id']) ? (int) $data['attorney_contact_id'] : null,
+            'bond_originator_provider_id' => ! empty($data['bond_originator_provider_id']) ? (int) $data['bond_originator_provider_id'] : null,
+            'bond_originator_contact_id'  => ! empty($data['bond_originator_contact_id']) ? (int) $data['bond_originator_contact_id'] : null,
             'accepted_status'  => $data['accepted_status'] ?? null,
             'commission_status' => $data['commission_status'] ?? null,
             'registration_date' => $data['registration_date'] ?? null,
@@ -600,6 +604,17 @@ class DealRegisterController extends Controller
 
         $deal->save();
 
+        $sellerIds = $this->parseIdCsv($data['seller_contact_ids'] ?? null);
+        $buyerIds  = $this->parseIdCsv($data['buyer_contact_ids'] ?? null);
+
+        // (AT-243) Record the parties ON THE DEAL. This is the half that was missing: the
+        // ids below were previously used only to link people to the PROPERTY and were then
+        // discarded, so a property with several offers could not say which buyer belonged
+        // to which deal — and therefore could not say who actually bought when one was
+        // granted. The deal register owns the transaction, so it owns its parties.
+        $this->syncDealParties($deal, $sellerIds, 'seller');
+        $this->syncDealParties($deal, $buyerIds, 'buyer');
+
         // (DR2 reverse link — property-spine doctrine) Deal capture is often the
         // moment a buyer/seller enters the story. Linking a party on the deal
         // MUST also link them to the PROPERTY with the correct role, so the
@@ -608,8 +623,8 @@ class DealRegisterController extends Controller
         if ($propertyId) {
             $linkProperty = Property::find($propertyId);
             if ($linkProperty) {
-                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['seller_contact_ids'] ?? null), 'seller');
-                $this->syncPartyLinks($linkProperty, $this->parseIdCsv($data['buyer_contact_ids'] ?? null), 'buyer');
+                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller');
+                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer');
             }
         }
 
@@ -658,6 +673,15 @@ class DealRegisterController extends Controller
                     'paye_value'          => $defaultPayeValue,
                 ]);
             }
+        }
+
+        // AT-245 — mint the DR2 twin now that the listing agent is on deal_user.
+        // Without this, a newly-captured deal has no twin and is invisible to
+        // distribution ("no DR2 record") — the overnight backfill was one-time.
+        try {
+            app(\App\Services\DealV2\DealSyncService::class)->ensureTwin($deal);
+        } catch (\Throwable $e) {
+            \Log::error('DR2 ensureTwin on capture failed', ['deal_id' => $deal->id, 'error' => $e->getMessage()]);
         }
 
         // Sliding scale recalculation: only when accepted_status crosses Granted (DR1 parity).
@@ -939,6 +963,51 @@ class DealRegisterController extends Controller
      *
      * @param  int[]  $contactIds
      */
+    /**
+     * AT-243 — persist the deal's party list for one role (buyer | seller).
+     *
+     * Authoritative for THIS role on THIS deal: parties removed on an edit are detached, so
+     * correcting a mis-captured buyer actually corrects it (a purchaser badge derived from a
+     * stale party would be worse than none). Other roles on the deal are left alone, so
+     * syncing buyers never disturbs sellers.
+     *
+     * Empty input is a legitimate path (a deal captured without naming contacts — the lazy-
+     * but-valid shortcut) and simply clears that role. It is never an error.
+     */
+    private function syncDealParties(Deal $deal, array $contactIds, string $role): void
+    {
+        $ids = array_values(array_unique(array_map('intval', $contactIds)));
+
+        // Only contacts that actually exist — a stale id from a stale form must not
+        // explode the capture, and must not create a dangling party row.
+        $valid = $ids ? Contact::whereIn('id', $ids)->pluck('id')->all() : [];
+
+        $existing = DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->where('role', $role)
+            ->pluck('contact_id')->map(fn ($id) => (int) $id)->all();
+
+        $toAdd    = array_diff($valid, $existing);
+        $toRemove = array_diff($existing, $valid);
+
+        if ($toRemove) {
+            DB::table('deal_contacts')
+                ->where('deal_id', $deal->id)->where('role', $role)
+                ->whereIn('contact_id', $toRemove)
+                ->delete();
+        }
+
+        foreach ($toAdd as $cid) {
+            // Idempotent: the unique (deal, contact, role) index makes a double-submit a no-op.
+            DB::table('deal_contacts')->insertOrIgnore([
+                'deal_id'    => $deal->id,
+                'contact_id' => $cid,
+                'role'       => $role,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
     private function syncPartyLinks(Property $property, array $contactIds, string $role): void
     {
         foreach ($contactIds as $cid) {
@@ -980,9 +1049,13 @@ class DealRegisterController extends Controller
             return response()->json(['results' => []]);
         }
 
+        // AT-228 — the same picker serves the transferring attorney and the bond originator.
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+            ? $request->input('specialty') : 'transfer_attorney';
+
         $firms = AgencyServiceProvider::query()
             ->where('is_active', true)
-            ->where('specialty', 'transfer_attorney')
+            ->where('specialty', $specialty)
             ->where(function ($w) use ($q) {
                 $w->where('name', 'like', "%{$q}%")
                   ->orWhereHas('serviceContacts', fn ($c) => $c->where('attorney_name', 'like', "%{$q}%")->orWhere('contact_person', 'like', "%{$q}%"));
@@ -1031,19 +1104,23 @@ class DealRegisterController extends Controller
             'address'  => ['nullable', 'string', 'max:500'],
         ]);
 
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         $userId = $request->user()->id;
+
+        // AT-228 — same inline-create serves attorney + bond originator (specialty from the picker).
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+            ? $request->input('specialty') : 'transfer_attorney';
 
         $firm = AgencyServiceProvider::query()
             ->where('name', $data['firm'])
-            ->where('specialty', 'transfer_attorney')
+            ->where('specialty', $specialty)
             ->first();
 
         if (! $firm) {
             $firm = AgencyServiceProvider::create([
                 'agency_id'     => $agencyId,
                 'name'          => $data['firm'],
-                'specialty'     => 'transfer_attorney',
+                'specialty'     => $specialty,
                 'address'       => $data['address'] ?? null,
                 'is_active'     => true,
                 'created_by_id' => $userId,

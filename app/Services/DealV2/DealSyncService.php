@@ -94,6 +94,86 @@ class DealSyncService
 
     // ── DR2 → DR1 ────────────────────────────────────────────────────────
 
+    /**
+     * AT-245 — mint the DR2 twin for a DR1 deal if it has none, idempotently.
+     *
+     * The overnight `deals:backfill-v2-twins` was one-time; without this, a deal
+     * captured after it stays twin-less and is invisible to distribution
+     * ("no DR2 record"). Called on capture (after agents are attached) and
+     * defensively before a distribution send. Same construction as the backfill:
+     * saveQuietly (no write-back), DR1 gets only its additive deal_v2_id pointer
+     * via a raw update. Returns the twin id, or null when no listing agent exists
+     * yet to satisfy the twin's NOT-NULL listing_agent_id.
+     */
+    public function ensureTwin(Deal $v1): ?int
+    {
+        if ($v1->deal_v2_id) {
+            return (int) $v1->deal_v2_id;
+        }
+
+        // Resumability: a twin may already exist with the pointer not yet set.
+        $existing = DealV2::withoutGlobalScopes()->where('legacy_deal_id', $v1->id)->first();
+        if ($existing) {
+            DB::table('deals')->where('id', $v1->id)->update(['deal_v2_id' => $existing->id]);
+            $v1->deal_v2_id = $existing->id;
+            return (int) $existing->id;
+        }
+
+        $listingAgentId = $this->resolveAgent($v1->id, 'listing') ?? $this->resolveAgent($v1->id, null);
+        if (! $listingAgentId) {
+            return null; // no agent on deal_user yet — cannot satisfy listing_agent_id
+        }
+
+        $incl   = (float) ($v1->total_commission ?? 0);
+        $amount = round($incl / 1.15, 2);
+        $vat    = round($incl - $amount, 2);
+        $price  = $v1->sale_price ?: ($v1->property_value ? (int) round((float) $v1->property_value) : 0);
+        $offer  = $v1->deal_date ?: ($v1->sale_date ?: $v1->created_at);
+        $status = $this->v1StateToV2Status($v1);
+
+        return (int) DB::transaction(function () use ($v1, $listingAgentId, $status, $price, $amount, $vat, $offer) {
+            $twin = new DealV2();
+            $twin->forceFill([
+                'agency_id'            => $v1->agency_id,
+                'branch_id'            => $v1->branch_id,
+                'legacy_deal_id'       => $v1->id,
+                'reference'            => 'DR1-' . $v1->id,
+                'deal_type'            => 'cash',
+                'status'               => $status,
+                'property_id'          => null,
+                'listing_agent_id'     => $listingAgentId,
+                'selling_agent_id'     => $this->resolveAgent($v1->id, 'selling'),
+                'pipeline_template_id' => null,
+                'purchase_price'       => $price,
+                'commission_amount'    => $amount,
+                'commission_vat'       => $vat,
+                'commission_status'    => $v1->commission_status ?: 'Not Paid',
+                'offer_date'           => $offer,
+                'actual_registration'  => $status === 'completed' ? $v1->registration_date : null,
+                'overall_rag'          => 'grey',
+                'backfilled_at'        => now(),
+                'created_by_id'        => $listingAgentId,
+            ]);
+            $twin->saveQuietly();
+            DB::table('deals')->where('id', $v1->id)->update(['deal_v2_id' => $twin->id]);
+            $v1->deal_v2_id = $twin->id;
+
+            return $twin->id;
+        });
+    }
+
+    /** Listing/selling agent from deal_user (mirrors BackfillV2Twins::resolveAgent). */
+    private function resolveAgent(int $dealId, ?string $side): ?int
+    {
+        $q = DB::table('deal_user')->where('deal_id', $dealId);
+        if ($side !== null) {
+            $q->where('side', $side);
+        }
+        $row = $q->orderBy('user_id')->first();
+
+        return $row ? (int) $row->user_id : null;
+    }
+
     public function syncFromV2(DealV2 $v2): void
     {
         if (self::$syncing || ! $v2->legacy_deal_id) {

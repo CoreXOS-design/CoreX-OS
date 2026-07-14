@@ -53,6 +53,35 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // ─────────────────────────────────────────────────────────────────────────────
+        // AT-261 — EVERY LISTENER WAS FIRING TWICE.
+        //
+        // Laravel's EventServiceProvider defaults `$shouldDiscoverEvents = true`, so the
+        // framework auto-discovers every listener in app/Listeners by type-hint and registers
+        // it as `Listener@handle` — ON TOP OF the explicit `Event::listen()` catalogue below.
+        // Two registrations, one dispatch, two executions. Silently.
+        //
+        // It was not theoretical. On live: 25 events, 31 listener classes, all double-firing.
+        // Retha got two emails for one P24 lead (Dalene de Sousa, 13 Jul) because
+        // EmailPortalLeadToAgent ran twice; the DR2 Wave 2 cascade
+        // (AutoDeclineSiblingDealsOnGrant, MarkPropertySoldOnDealMilestone,
+        // RevertPropertyStatusOnDealDeclined) ran twice, double-writing its audit rows; and
+        // RecordDomainEvent double-wrote the domain-events ledger. The deal STATE survived
+        // because the writes are idempotent — the audit trail did not.
+        //
+        // Discovery is therefore OFF, and the explicit catalogue in boot() is the single
+        // registration path. That is not just the smaller fix, it is the doctrinal one:
+        // non-negotiable #9 says the events catalogue IS the API contract between pillars.
+        // A contract that a directory scan can silently amend is not a contract.
+        //
+        // ⚠ DEPLOY NOTE: discovery is resolved at BOOT from the class map, so a deploy that
+        // adds a listener must run `composer dump-autoload` (and `php artisan event:clear`
+        // if an events cache was ever generated) — otherwise the new listener is simply not
+        // registered. Every listener now has exactly one home: the catalogue in boot().
+        // Add it there, or it does not run.
+        // ─────────────────────────────────────────────────────────────────────────────
+        \Illuminate\Foundation\Support\Providers\EventServiceProvider::disableEventDiscovery();
+
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarThresholdResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarNotificationDispatcher::class);
@@ -158,10 +187,17 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\LogPortalLeadReceived::class,
         );
-        Event::listen(
-            \App\Events\Leads\NewPortalLeadReceived::class,
-            \App\Listeners\Leads\PushNewPortalLeadToMobile::class,
-        );
+        // AT-235 (S2) — PushNewPortalLeadToMobile is RETIRED.
+        //
+        // It was a SECOND listener on this same event, pushing independently of the
+        // notification — and it never read `notify_push`, so an agent who had turned
+        // push off still got pushed (AT-235 C10). One real-world fact was producing
+        // two uncoordinated sends with two different idempotency schemes.
+        //
+        // Push is now simply one of the channels the gateway resolves for the ONE
+        // notification (NewPortalLeadAgentNotification::toFcmPayload()), so the
+        // agent's choice is honoured and the dispatch is recorded in the ledger like
+        // any other. EmailPortalLeadToAgent below is now the single producer.
         // Part 3 — targeted in-app + email to the listing agent (not agency-wide).
         Event::listen(
             \App\Events\Leads\NewPortalLeadReceived::class,
@@ -169,6 +205,54 @@ class AppServiceProvider extends ServiceProvider
         );
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // AT-261 — listeners that ONLY auto-discovery was registering.
+        //
+        // These 13 were never in the catalogue: the framework's directory scan was the ONLY
+        // thing wiring them up. Turning discovery off without adopting them here would have
+        // silently killed a mandate de-syndication, the deal-stage document distribution, an
+        // agency's setup portal, and the ENTIRE domain-event logging family — with no error,
+        // no failing test, and nothing to notice until someone asked why the ledger stopped.
+        //
+        // They are transcribed EXACTLY as discovery registered them (same event, same
+        // listener), so behaviour is unchanged: the only thing that goes away is the double
+        // firing. Where a listener type-hints an abstract base event, it is registered against
+        // that base here too — preserving today's semantics precisely, whatever they are.
+        // ─────────────────────────────────────────────────────────────────────────────
+        Event::listen(
+            \App\Events\Contact\ContactLinkedToProperty::class,
+            \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink::class,
+        );
+        Event::listen(
+            \App\Events\Mandate\MandateExpired::class,
+            \App\Listeners\Mandate\DesyndicateExpiredMandate::class,
+        );
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\CreateAgencySetupPortal::class,
+        );
+        Event::listen(
+            \App\Events\Contact\ContactTestimonialSubmitted::class,
+            \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,
+        );
+        Event::listen(
+            \App\Events\DealV2\DealStepCompleted::class,
+            \App\Listeners\DealV2\AutoDistributeStageDocuments::class,
+        );
+        Event::listen(
+            \App\Events\Demo\DemoAccessGranted::class,
+            \App\Listeners\Demo\SendDemoAccessGrantEmail::class,
+        );
+
+        // The domain-event logging family — every one of these was discovery-only.
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Deal\LogDealEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Document\LogDocumentEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Fica\LogFicaEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Contact\LogContactEvent::class);
+        Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Activity\LogAgentActivity::class);
 
         \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingObserver::class);
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);

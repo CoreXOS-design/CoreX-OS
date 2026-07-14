@@ -66,8 +66,15 @@ class CommissionSettingsController extends Controller
             }
         }
 
-        $agencyId = $user->effectiveAgencyId() ?? 1;
-        $settings = CommissionSetting::forAgency($agencyId);
+        // AT-253 (Rule 17) — this MUTATES commission settings. The old `?? 1` let a user with
+        // no agency overwrite AGENCY 1's splits, caps and fee structure — the money rules for a
+        // tenant they do not belong to. There is nothing to derive from, so refuse.
+        $agencyId = $user?->effectiveAgencyId();
+        if (! $agencyId) {
+            throw new \App\Exceptions\MissingAgencyContextException('commission settings');
+        }
+
+        $settings = CommissionSetting::forAgency((int) $agencyId);
         $settings->update($validated);
 
         return redirect()->route('corex.settings', ['s' => 'commission'])

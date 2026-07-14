@@ -30,7 +30,7 @@ class PropertyNoteController extends Controller
     {
         abort_unless((int) $note->property_id === $property->id, 404);
         abort_unless(
-            auth()->id() === $note->user_id || in_array(auth()->user()->effectiveRole(), ['super_admin', 'admin']),
+            auth()->id() === $note->user_id || in_array(auth()->user()?->effectiveRole(), ['super_admin', 'admin']),
             403
         );
 

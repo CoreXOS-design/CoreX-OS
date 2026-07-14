@@ -65,7 +65,7 @@ class PayrollEmployeeController extends Controller
 
     public function create()
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         // Users not yet on payroll (excluding soft-deleted payroll employees)
         $eligibleUsers = User::withoutGlobalScopes()
@@ -84,7 +84,7 @@ class PayrollEmployeeController extends Controller
         $validated = $request->validate([
             'user_id'              => [
                 'required', 'integer',
-                Rule::exists('users', 'id')->where('agency_id', auth()->user()->effectiveAgencyId()),
+                Rule::exists('users', 'id')->where('agency_id', auth()->user()?->effectiveAgencyId()),
             ],
             'employment_date'      => 'required|date',
             'designation_snapshot' => 'required|string|max:100',

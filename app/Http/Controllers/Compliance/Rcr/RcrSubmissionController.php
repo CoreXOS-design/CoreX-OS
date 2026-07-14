@@ -50,7 +50,7 @@ final class RcrSubmissionController extends Controller
     public function index(Request $request): View
     {
         $this->assertCompliance($request);
-        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $agencyId = (int) $request->user()?->effectiveAgencyId();
 
         $submissions = RcrSubmission::where('agency_id', $agencyId)
             ->with(['questionnaire:id,key,title,submission_deadline', 'assignedCo:id,name'])
@@ -71,7 +71,7 @@ final class RcrSubmissionController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $this->assertCompliance($request);
-        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $agencyId = (int) $request->user()?->effectiveAgencyId();
 
         $data = $request->validate([
             'questionnaire_id' => ['required', 'integer', 'exists:rcr_questionnaires,id'],
@@ -505,7 +505,7 @@ final class RcrSubmissionController extends Controller
 
     private function guardAgency(Request $request, RcrSubmission $submission): void
     {
-        $effective = (int) $request->user()->effectiveAgencyId();
+        $effective = (int) $request->user()?->effectiveAgencyId();
         if ((int) $submission->agency_id !== $effective) {
             abort(403, 'Cross-agency access denied.');
         }

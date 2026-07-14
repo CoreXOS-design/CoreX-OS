@@ -481,7 +481,22 @@ class PropertyWizardController extends Controller
             ]);
         }
 
-        $agent    = User::find($agentId);
+        // AT-253 (STANDARDS Rule 17) — User::find() returns NULL for an agent id that is
+        // soft-deleted or out of the caller's scope, and both lines below dereferenced it
+        // unconditionally: `$agent->agency_id` and `$agent->effectiveBranchId()` on null are a
+        // 500 on save. The `??` guarded the VALUE, never the RECEIVER. Reachable simply by
+        // saving the wizard after the chosen agent was deactivated in another tab.
+        $agent = User::find($agentId);
+
+        // ...and a missing agent is not merely a crash to dodge: the property would be stamped
+        // with an agent id that no longer resolves. Refuse it the same way this method already
+        // refuses the other unattributable cases — a clean 422, never a 500.
+        if (! $agent) {
+            throw ValidationException::withMessages([
+                'agent_id' => 'The selected agent no longer exists or is no longer active. Pick another agent before saving.',
+            ]);
+        }
+
         $agencyId = $agent->agency_id ?? $user->effectiveAgencyId();
         $branchId = $agent->effectiveBranchId() ?? $agent->branch_id;
 

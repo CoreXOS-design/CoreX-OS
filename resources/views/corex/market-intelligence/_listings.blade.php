@@ -150,6 +150,27 @@
             </a>
         </div>
     @else
+        @if(!empty($selectedBuyer))
+            @php
+                $sbName = trim(($selectedBuyer->first_name ?? '') . ' ' . ($selectedBuyer->last_name ?? ''));
+                $sbName = $sbName !== '' ? $sbName : ($selectedBuyer->email ?? 'this buyer');
+            @endphp
+            <div style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border-radius:6px;
+                        background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, var(--border));">
+                <span style="font-size:1rem;">🎯</span>
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:0.8125rem; font-weight:700; color: var(--text-primary);">Prospecting for {{ $sbName }}</div>
+                    <div style="font-size:0.6875rem; color: var(--text-secondary);">
+                        {{ $listings->total() }} propert{{ $listings->total() === 1 ? 'y' : 'ies' }} matching this buyer's wishlist — strongest match first (Core Matches score).
+                    </div>
+                </div>
+                <a href="{{ route('market-intelligence.work', request()->except(['buyer_id','page'])) }}"
+                   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold no-underline"
+                   style="background: color-mix(in srgb, var(--brand-icon) 14%, transparent); color: var(--brand-icon); border: 1px solid currentColor;">
+                    Clear buyer ×
+                </a>
+            </div>
+        @endif
         <div class="mi-row-stack" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
             @foreach($listings as $listing)
                 @php
@@ -180,6 +201,7 @@
                     'isManager' => $isManager,
                     'viewerId'  => $viewerId,
                     'showProspectedBadge' => $showProspectedBadge,
+                    'selectedScore' => $listing->selected_buyer_score ?? null,
                 ])
             @endforeach
         </div>

@@ -43,7 +43,13 @@ class PayrollTaxRebate extends Model
 
     public function scopeForTaxYear($query, Carbon $date)
     {
+        // AT-237 C3 — bound to the ACTUAL tax year window (start .. start + 1yr),
+        // symmetric with PayrollTaxTable::forTaxYear. Without the upper bound this
+        // silently forward-filled the previous year's rebate / UIF ceiling / SDL
+        // rate forever, so an unseeded new tax year produced a silently-wrong
+        // payslip. Now an out-of-range period returns NOTHING → hard stop upstream.
         return $query->where('tax_year_start', '<=', $date->toDateString())
+            ->whereRaw('DATE_ADD(tax_year_start, INTERVAL 1 YEAR) > ?', [$date->toDateString()])
             ->orderByDesc('tax_year_start')
             ->limit(1);
     }

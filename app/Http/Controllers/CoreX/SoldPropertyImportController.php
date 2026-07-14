@@ -44,7 +44,7 @@ class SoldPropertyImportController extends Controller
         $absolute = Storage::disk('local')->path($relative);
 
         try {
-            $rows = $importer->preview($absolute, $request->user()->effectiveAgencyId());
+            $rows = $importer->preview($absolute, $request->user()?->effectiveAgencyId());
         } catch (\Throwable $e) {
             Storage::disk('local')->delete($relative);
             return back()->withErrors(['file' => 'Could not read the spreadsheet: ' . $e->getMessage()]);

@@ -56,7 +56,7 @@ final class MisfiledDocumentsController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('access_misfiled_documents'), 403);
 
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
 
         $docs = $this->misfiledQuery($agencyId)
             ->with(['documentType:id,slug,label', 'uploader:id,name', 'properties'])
@@ -96,7 +96,7 @@ final class MisfiledDocumentsController extends Controller
             'contact_ids.*' => 'integer',
         ]);
 
-        $agencyId = (int) ($request->user()->effectiveAgencyId() ?? $document->agency_id ?? 0);
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? $document->agency_id ?? 0);
         $slug = $document->documentType?->slug;
         $dest = $slug ? $this->dest->destinationForSlug($agencyId, $slug) : ['property' => false, 'contact' => true];
 

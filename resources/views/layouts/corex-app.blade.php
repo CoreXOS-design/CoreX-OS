@@ -6,7 +6,8 @@
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="corex-auth" content="{{ auth()->check() ? '1' : '0' }}">
 
-        <title>{{ config('app.name', 'Laravel') }}</title>
+        {{-- AT-251 — non-production tab-title prefix ([QA]/[STAGING]); live sets no label → clean. --}}
+        <title>{{ (filled(config('app.env_label')) ? '['.config('app.env_label').'] ' : '') . config('app.name', 'Laravel') }}</title>
         <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=4">
         <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
         <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=4">
@@ -168,6 +169,11 @@
 
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
+
+        {{-- AT-220 — global session armour + persistent connection indicator on
+             every long-lived authenticated screen. Loaded before @stack('scripts')
+             so page-pushed scripts can rely on window.CoreXSessionGuard. --}}
+        @include('layouts.partials._session-guard')
 
         {{-- Partial-pushed scripts (e.g. P24 location pickers via @push('scripts')) --}}
         @stack('scripts')

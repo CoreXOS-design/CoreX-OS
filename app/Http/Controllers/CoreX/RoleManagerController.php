@@ -26,7 +26,7 @@ class RoleManagerController extends Controller
 
         $sections = $permissions->pluck('section')->unique()->values();
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         // Roles + grants are agency-scoped (.ai/specs/roles-permissions.md).
         // Show only THIS agency's grants; owners without an active agency
@@ -227,7 +227,7 @@ class RoleManagerController extends Controller
 
     public function savePermissions(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         // Only this agency's own non-owner roles may be edited here.
         $editableRoles = Role::where('is_owner', false)
@@ -312,7 +312,7 @@ class RoleManagerController extends Controller
 
     public function updateUserRole(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $request->validate([
             'user_id' => 'required|exists:users,id',
@@ -351,7 +351,7 @@ class RoleManagerController extends Controller
      */
     public function copyPermissions(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $agencyRoles = fn ($q) => $q->when($agencyId, fn ($qq) => $qq->where('agency_id', $agencyId), fn ($qq) => $qq->whereNull('agency_id'));
 
@@ -414,7 +414,7 @@ class RoleManagerController extends Controller
 
     public function storeRole(Request $request)
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         $request->validate([
             'label'       => 'required|string|max:100',
@@ -505,7 +505,7 @@ class RoleManagerController extends Controller
             abort(403, 'This role cannot be deleted.');
         }
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         // User queries are agency-scoped by the global AgencyScope, so this
         // counts/updates only THIS agency's users even though role names repeat.
@@ -541,7 +541,7 @@ class RoleManagerController extends Controller
      */
     protected function authorizeAgencyRole(Role $role): void
     {
-        $agencyId = auth()->user()->effectiveAgencyId();
+        $agencyId = auth()->user()?->effectiveAgencyId();
 
         if ($role->agency_id !== $agencyId) {
             abort(404);

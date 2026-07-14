@@ -51,7 +51,7 @@ class BackupController extends Controller
         // Audit FIRST — a reveal is recorded whether or not the read then succeeds.
         BackupPasswordReveal::create([
             'revealed_by'           => $request->user()->id,
-            'revealed_by_agency_id' => $request->user()->effectiveAgencyId(),
+            'revealed_by_agency_id' => $request->user()?->effectiveAgencyId(),
             'revealed_at'           => now(),
             'ip_address'            => $request->ip(),
             'user_agent'            => substr((string) $request->userAgent(), 0, 512),

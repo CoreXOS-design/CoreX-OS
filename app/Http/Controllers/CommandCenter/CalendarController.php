@@ -70,7 +70,7 @@ class CalendarController extends Controller
         $shared['deckLayout']  = $this->tiles->resolveLayout($user);
         $shared['deckSlots']   = $this->tiles->slotCount($user);
         // AT-164 Gate 7 — live-RAG light-poll interval (agency-configurable).
-        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+        $shared['pollSeconds'] = \App\Models\AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarPollSeconds();
         // AT-164 Gate 6 — layer toggles: the layer catalogue + the user's active set.
         $shared['layerCatalog'] = \App\Services\CommandCenter\Calendar\CalendarLayers::LAYERS;
         $shared['activeLayers'] = \App\Services\CommandCenter\Calendar\CalendarLayers::resolveActive($user, $request->input('layers'));
@@ -1280,6 +1280,13 @@ class CalendarController extends Controller
                                 'body'       => $addr . ($buyer ? ' — ' . $buyer : ''),
                                 'action_url' => route('corex.properties.show', $property->id) . '#recent-viewings-feedback',
                                 'severity'   => 'info',
+                                // AT-235 (R3) — the dedup key, now explicit rather than
+                                // defaulted. This is a DISCRETE event: every feedback
+                                // capture is a genuinely new fact, so each one should
+                                // notify. `now()` is the correct key here — unlike a
+                                // persistent condition, which must key off something
+                                // stable so it notifies once instead of every scan tick.
+                                'threshold_hit_at' => now(),
                             ]
                         );
                     } catch (\Throwable $e) {
@@ -1981,7 +1988,7 @@ class CalendarController extends Controller
             abort(422, 'Invalid range.');
         }
         // Cap the window (agency expansion limit) so the endpoint can't be asked for years.
-        $maxDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarMaxExpansionDays();
+        $maxDays = \App\Models\AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarMaxExpansionDays();
         if ($rangeStart->diffInDays($rangeEnd) > $maxDays) {
             $rangeEnd = $rangeStart->copy()->addDays($maxDays)->endOfDay();
         }
