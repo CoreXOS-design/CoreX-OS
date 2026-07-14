@@ -16,10 +16,20 @@ use Illuminate\Support\Facades\Schema;
  * deliberately NOT mirrored — those are property-working fields, out of scope
  * for contact-stage address capture.
  *
- * The legacy `address` column is intentionally KEPT. It becomes a denormalised
- * display string auto-composed from the structured fields on every save (see
- * Contact::syncStructuredAddress + ContactObserver), so every existing reader
- * of $contact->address keeps working unchanged.
+ * The legacy `address` column is intentionally KEPT — and it is a SEPARATE FACT,
+ * not a denormalised copy of these columns. `address` is where the person LIVES
+ * (their residential address); the structured columns below describe the PROPERTY
+ * they own and are being pitched about. A contact may live in Durban and be
+ * selling in Uvongo, so the two legitimately differ and nothing syncs one to the
+ * other. Compose a display string from the structured columns with
+ * Contact::composeStructuredAddress(), which explicitly "does NOT touch the
+ * residential `address` field".
+ *
+ * (AT-266: this docblock previously claimed `address` was "auto-composed from the
+ * structured fields on every save (see Contact::syncStructuredAddress +
+ * ContactObserver)". No such method has ever existed. The claim caused a live
+ * investigation to score 20 contacts as corrupt when they were correct — the
+ * comment was the bug. Corrected here rather than left to mislead the next reader.)
  */
 return new class extends Migration {
     public function up(): void
