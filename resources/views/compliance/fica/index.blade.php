@@ -101,6 +101,7 @@
             ['key' => 'draft',                 'label' => 'Awaiting Client',       'count' => $counts['draft']],
             ['key' => 'submitted',             'label' => 'Awaiting Agent Review', 'count' => $counts['submitted']],
             ['key' => 'agent_approved',        'label' => 'Awaiting CO Approval',  'count' => $counts['agent_approved']],
+            ['key' => 'referred_to_co',        'label' => 'Referred to CO',        'count' => $counts['referred_to_co'] ?? 0],
             ['key' => 'approved',              'label' => 'Approved',              'count' => $counts['approved']],
             ['key' => 'corrections_requested', 'label' => 'Corrections Needed',    'count' => $counts['corrections_requested']],
             ['key' => 'cancelled',             'label' => 'Cancelled',             'count' => $counts['cancelled']],

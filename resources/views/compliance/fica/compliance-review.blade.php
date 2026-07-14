@@ -189,6 +189,25 @@
                     <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition" onclick="return confirm('Are you sure?')">Reject</button>
                 </div>
             </form>
+
+            {{-- AT-236 — a secondary officer who cannot self-approve can refer instead --}}
+            @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true])
+
+            {{-- AT-236 — CO returns a REFERRED pack to whoever referred it, with comments --}}
+            @if($submission->status === 'referred_to_co')
+                <form method="POST" action="{{ route('compliance.fica.return-to-referrer', $submission) }}">
+                    @csrf
+                    <div class="bg-white border border-slate-200 p-5">
+                        <h3 class="text-sm font-bold text-slate-900 mb-1 pb-2 border-b border-amber-500">Return to Referrer</h3>
+                        <p class="text-xs text-slate-500 mb-3">
+                            Send this back to {{ $submission->referredBy->name ?? 'the referrer' }} with your comments
+                            @if($submission->referral_note)<br><span class="italic">Referred because: “{{ $submission->referral_note }}”</span>@endif
+                        </p>
+                        <textarea name="reviewer_notes" rows="2" required minlength="3" maxlength="2000" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-amber-500 mb-3" placeholder="Comments for the referrer..."></textarea>
+                        <button type="submit" class="w-full px-4 py-2 bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition">Return to Referrer</button>
+                    </div>
+                </form>
+            @endif
         </div>
     </div>
 </div>

@@ -416,6 +416,9 @@
                         </button>
                     </div>
                 </form>
+
+                {{-- AT-236 — Refer to CO (third action for a non-CO reviewer) --}}
+                @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true])
             @endif
 
             {{-- Awaiting CO — message for non-CO users --}}
