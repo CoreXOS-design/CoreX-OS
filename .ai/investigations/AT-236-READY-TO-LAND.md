@@ -3,7 +3,35 @@
 _2026-07-14. m3. Branch `AT-236` (off Staging), pushed. MODE: BUILD. QA1-only per governance._
 _Spec = the AT-236 investigation (`.ai/investigations/AT-236-fica-multi-officer.md`) + Johan's build word._
 
-## Status: BUILT + TESTED (8/8). QA1 host deploy BLOCKED — see §Blocker.
+## Status: DEPLOYED TO QA1 + REAL-PAGE VERIFIED as Falan (RO) & Elize (CO). 8/8 tests.
+
+**UPDATE 2026-07-14 (post-Johan QA):** the first build was never on the QA host (deploy was
+blocked on foreign uncommitted work; the tree cleared, m2 committed). Deployed, then Johan's test
+exposed a MODEL MISMATCH — the build treated MLRO/RO as a CO, so the two quick links weren't the
+two stations he wanted and read "awaiting CO" everywhere. **Reworked to his two-tier model and
+re-verified on QA1:**
+
+- **RO Approvals** (station 1, quick link + tab): the shared review pool (`agent_approved`), shown to
+  ANY authorized reviewer (RO/MLRO **or** CO) — not creator-scoped. `ficaRoApprovals`.
+- **Escalate to CO** (button): renamed, on every review surface for any **non-primary-CO** reviewer
+  (RO included); hidden for the primary CO (the target). Gated by `$viewerIsPrimaryCo`.
+- **CO Approvals Needed** (station 2, quick link + tab): escalated packs (`referred_to_co`), **strictly
+  the primary CO** (Elize). `ficaCoApprovalsNeeded`.
+- Labels relabelled (`agent_approved`→"RO Approval Needed", `referred_to_co`→"CO Approval Needed",
+  pipeline + tabs) so it no longer reads "awaiting CO" everywhere.
+
+**QA1 real-page verification (Tinker, live data, agency 1):**
+- Quick links — Falan (RO): "RO Approvals (5)"; Elize (CO): "RO Approvals" + "CO Approvals Needed"
+  (Falan never sees the CO station). ✔
+- Escalate button — Falan sees "Escalate to CO"; Elize (primary CO) does not. ✔
+- Full round-trip — Falan escalates `agent_approved`→`referred_to_co` (referred_by=Falan) → lands in
+  Elize's CO Approvals Needed, not Falan's → Elize returns to referrer→`corrections_requested`; audit
+  `referred_to_co → co_returned_to_referrer`. ✔
+- QA1 host `cc401313` (branch `AT-236` bb342657 merged); 4 migrations ran.
+
+---
+
+## Original build record (WS1-7)
 
 Six commits on `AT-236` (`d0de758c` → tip). All `php -l` clean; all blades compile
 (`view:cache`); the FICA workflow test is **8/8 green** and exercises the real routes/
