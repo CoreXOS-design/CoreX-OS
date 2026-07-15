@@ -277,16 +277,16 @@ class WebTemplateDataService
             // Financial
             'monthly_rental'        => $rental,
             'rental_amount'         => $rental,
-            'rental_amount_words'   => $rental ? $this->numberToWords((int) $rental) : '',
-            'rental_in_words'       => $rental ? $this->numberToWords((int) $rental) : '',
+            'rental_amount_words'   => $rental ? $this->numberToWords($rental) : '',
+            'rental_in_words'       => $rental ? $this->numberToWords($rental) : '',
             'deposit_amount'        => $deposit,
-            'deposit_amount_words'  => $deposit ? $this->numberToWords((int) $deposit) : '',
+            'deposit_amount_words'  => $deposit ? $this->numberToWords($deposit) : '',
             'commission_percent'    => $commission,
             'commission_amount'     => $commissionAmount,
             'marketing_fee'         => $details['marketing_fee'] ?? '',
             'marketing_agent'       => $agent->name ?? '',
             'price'                 => $price,
-            'price_in_words'        => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words'        => $price ? $this->numberToWords($price) : '',
             'commission_incl_vat'   => $serviceFee,
             // Mandate dates (sales)
             'mandate_start'         => $mandateStart,
@@ -574,8 +574,8 @@ class WebTemplateDataService
         $commissionBase = ($price && (float) $price > 0) ? (float) $price : (($rental && (float) $rental > 0) ? (float) $rental : 0);
         $commissionAmount = ($commissionBase > 0 && $commission) ? round($commissionBase * (float) $commission / 100, 2) : '';
 
-        $baseData['price_in_words'] = $price ? $this->numberToWords((int) $price) : '';
-        $baseData['deal_price_in_words'] = $price ? $this->numberToWords((int) $price) : '';
+        $baseData['price_in_words'] = $price ? $this->numberToWords($price) : '';
+        $baseData['deal_price_in_words'] = $price ? $this->numberToWords($price) : '';
         $baseData['commission_amount'] = $commissionAmount;
         $baseData['deal_commission_amount'] = $commissionAmount;
 
@@ -751,7 +751,7 @@ class WebTemplateDataService
             'lease_start'      => $details['lease_start'] ?? '',
             'lease_end'        => $details['lease_end'] ?? '',
             'marketing_fee'    => $details['marketing_fee'] ?? '',
-            'price_in_words'   => ($details['price'] ?? '') ? $this->numberToWords((int) ($details['price'] ?? 0)) : '',
+            'price_in_words'   => ($details['price'] ?? '') ? $this->numberToWords(($details['price'] ?? 0)) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
             default            => $details[$attr] ?? '',
         };
@@ -780,7 +780,7 @@ class WebTemplateDataService
         $leaseStart = $details['lease_start'] ?? '';
 
         return match ($attr) {
-            'price_in_words'    => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words'    => $price ? $this->numberToWords($price) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
             'lease_start_day'   => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
@@ -1084,7 +1084,7 @@ class WebTemplateDataService
             'net_to_owner' => $netToOwner, 'net_to_lessor' => $netToOwner,
             'lease_start' => $leaseStart, 'lease_end' => $leaseEnd,
             'lease_start_formatted' => $leaseStartFormatted, 'lease_end_formatted' => $leaseEndFormatted,
-            'price_in_words' => ($details['price'] ?? '') ? $this->numberToWords((int) $details['price']) : '',
+            'price_in_words' => ($details['price'] ?? '') ? $this->numberToWords($details['price']) : '',
             'mandate_start' => $details['mandate_start'] ?? '',
             'mandate_expiry' => $details['mandate_expiry'] ?? '',
             'mandate_start_formatted' => !empty($details['mandate_start']) ? date('j F Y', strtotime($details['mandate_start'])) : '',
@@ -1160,23 +1160,13 @@ class WebTemplateDataService
         return null;
     }
 
-    private function numberToWords(int $number): string
+    /**
+     * HD-4 — one converter, one rounding rule. Delegates to App\Support\AmountInWords (rounds
+     * half-up to whole rands, appends " Rand", no cents — Johan's document house rule). The
+     * ESignWizardController carried a byte-identical copy; both now share this one.
+     */
+    private function numberToWords(int|float|string|null $number): string
     {
-        if ($number === 0) return 'zero';
-
-        $ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
-                 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
-                 'seventeen', 'eighteen', 'nineteen'];
-        $tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
-
-        $convert = function (int $n) use (&$convert, $ones, $tens): string {
-            if ($n < 20) return $ones[$n];
-            if ($n < 100) return $tens[(int)($n / 10)] . ($n % 10 ? '-' . $ones[$n % 10] : '');
-            if ($n < 1000) return $ones[(int)($n / 100)] . ' hundred' . ($n % 100 ? ' and ' . $convert($n % 100) : '');
-            if ($n < 1000000) return $convert((int)($n / 1000)) . ' thousand' . ($n % 1000 ? ' ' . $convert($n % 1000) : '');
-            return $convert((int)($n / 1000000)) . ' million' . ($n % 1000000 ? ' ' . $convert($n % 1000000) : '');
-        };
-
-        return ucfirst($convert($number));
+        return \App\Support\AmountInWords::rands($number);
     }
 }

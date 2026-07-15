@@ -36,6 +36,8 @@ class SignatureTemplate extends Model
         'cancellation_reason',
         'cancelled_by',
         'cancelled_at',
+        'legal_deadline_at',
+        'deadline_source',
     ];
 
     protected $casts = [
@@ -46,6 +48,7 @@ class SignatureTemplate extends Model
         'sections_json' => 'array',
         'is_candidate_flow' => 'boolean',
         'completed_at' => 'datetime',
+        'legal_deadline_at' => 'datetime',
         'rejected_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
@@ -73,6 +76,26 @@ class SignatureTemplate extends Model
     // initial only the changed regions (focused view, not full re-sign).
     const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
+
+    // Track C (§11-A) — the legal-deadline lifecycle. A LAPSED ceremony cannot be signed; the only
+    // way back is a party-initialled date extension (revived), which can itself re-lapse.
+    const STATUS_LAPSED = 'lapsed';
+    const STATUS_EXTENSION_PROPOSED = 'extension_proposed';
+    const STATUS_REVIVED = 'revived';
+    const STATUS_RE_LAPSED = 're_lapsed';
+
+    /**
+     * States a ceremony can never come back FROM — a past legal deadline no longer means anything
+     * once the ceremony is here. Note 'lapsed'/'re_lapsed' are NOT terminal: they are past-deadline
+     * live states, so isLapsed() still reports true for them (they ARE lapsed).
+     */
+    const TERMINAL_STATUSES = [
+        self::STATUS_COMPLETED,
+        self::STATUS_CANCELLED,
+        self::STATUS_DECLINED,
+        self::STATUS_REJECTED,
+        self::STATUS_EXPIRED,
+    ];
 
     // amendment_status (the secondary column, varchar(255)) carries finer
     // amendment-phase state.
@@ -111,6 +134,31 @@ class SignatureTemplate extends Model
     public function requests()
     {
         return $this->hasMany(SignatureRequest::class);
+    }
+
+    /**
+     * Track C (§11-A.1) — has this ceremony's LEGAL deadline passed while it is still live?
+     *
+     * This is a COMPUTED predicate on `legal_deadline_at`, deliberately independent of the stored
+     * status. The pen must stop the instant the deadline passes — not only after the nightly sweeper
+     * (HD-11) gets around to writing status='lapsed'. A mark collected at 00:01 past a midnight
+     * deadline is exactly as void as one collected a week later; the guard cannot wait for a cron.
+     *
+     * Terminal ceremonies (completed/cancelled/declined/rejected/expired) are never "lapsed" — a
+     * past date no longer means anything once the ceremony is done. But 'lapsed'/'re_lapsed'
+     * themselves are NOT terminal, so this correctly keeps reporting true for them.
+     */
+    public function isLapsed(): bool
+    {
+        if ($this->legal_deadline_at === null) {
+            return false; // No legal clock set → nothing to lapse against (today's behaviour).
+        }
+
+        if (in_array($this->status, self::TERMINAL_STATUSES, true)) {
+            return false;
+        }
+
+        return $this->legal_deadline_at->isPast();
     }
 
     /**

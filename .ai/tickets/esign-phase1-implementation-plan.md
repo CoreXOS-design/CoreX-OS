@@ -381,3 +381,51 @@ the plan said the tracker "reads" — **does not exist**; the status grouping is
 display-only add: `for {{ heldSince->diffForHumans(null, true) }}` on the active-holder line, timed
 from `viewed_at` once opened else `sent_at`. View-only, no new data, no fidelity risk; all views
 compile. No new screen (STANDARDS: no duplication), nav + permission already present.
+
+### D-3 — ✅ RESOLVED (Johan, 2026-07-15) → HD-4 (amount-in-words) BUILT.
+
+**House rule, verbatim:** *"we dont use cents ever. figures get rounded to rands. never cents.
+numerical or words. no cents… The only time we ever use cents is on rental invoices for utilities.
+but thats accounting side not here."*
+
+Built: `App\Support\AmountInWords::rands()` — round-HALF-UP to whole rands, append " Rand", never a
+cents clause, never "only". Both legacy `numberToWords()` copies (WebTemplateDataService +
+ESignWizardController) were byte-identical; both now delegate to the one converter (BUILD_STANDARD
+§6). The `(int)` floor was stripped from all 11 call sites so the raw value reaches the converter and
+round-half-up actually applies (a lease escalation of R9,222.50 → R9,223, not R9,222). Rounding rule
+is stated in the converter docblock and marked a DOCUMENT-LAYER rule (utility invoices, accounting
+side, keep cents — not this). `tests/Unit/AmountInWordsTest.php` — 7 tests / 35 assertions.
+
+**"and" placement — ✅ RESOLVED (Johan, 2026-07-15): "always with the and".** British/SA legal
+style throughout ("two thousand and fifty Rand", "one million two hundred and three Rand"). The
+converter now inserts "and" before a trailing sub-100 group at every magnitude level; tests pin
+Johan's examples. One converter, both call sites inherit it.
+
+**CDS reconciliation (parsed vs computed):** per Johan, compare `deal.amount_words` (parsed) vs the
+computed value AT RAND PRECISION — both are whole rands now, so a sub-rand delta is never a real
+disagreement. Noted in the converter docblock; no active reconciliation engine exists to wire yet.
+
+### Track C status (2026-07-15, m6) — SPINE COMPLETE; HD-12 (revival) parked as a fresh block
+
+| Leg | Status |
+|---|---|
+| HD-9 legal deadline (armed at dispatch, mandate = property expiry) | ✅ QA1 `9157f1ee` |
+| HD-10 hard block (isLapsed computed · isSigningBlocked · 21 SigningController sites swept) | ✅ QA1 `9157f1ee` |
+| HD-11 sweeper records the lapse (lapsed / re_lapsed + audit, idempotent) | ✅ QA1 `fb54a541` |
+| HD-12 strike-and-fill extension → revival | ⏳ PARKED — the last leg |
+
+**The system is now strictly safer than before even without HD-12:** a lapsed mandate cannot be
+signed (system-enforced, was human-discipline) and the lapse is visible/recorded. The only thing
+missing is the *self-service* revival path; the fallback today is exactly the pre-Track-C reality —
+re-send a fresh ceremony. So parking HD-12 leaves no regression, only an un-built convenience.
+
+**HD-12 is a fresh multi-file block, not a quick add** — budget it as its own session:
+- `DocumentAmendment::TYPE_DEADLINE_EXTENSION` + the flow `lapsed → extension_proposed → revived`
+  (states already in the enum from HD-9's migration).
+- Rides `SignatureService::requeueAllPartiesForInitialing()` (P0-6 removed the void path, so it's
+  safe) — ALL parties initial the new date; all-party initial is FIXED, not agency-configurable (§11-A.2).
+- Strike-and-fill on the document surface: old date struck and PRESERVED on the page, new date
+  alongside — touches the recipient signing surface (pipeline-gated: SigningController /
+  InsertableBlockRenderer), so it carries a `tests/Feature/Docuperfect/SigningView/` diff duty.
+- On all-party initial → `revived` + new `legal_deadline_at` (stampLegalDeadline already refuses to
+  overwrite a set deadline, so revival owns it cleanly).

@@ -922,6 +922,10 @@ class SignatureService
                 'status' => SignatureTemplate::STATUS_SIGNING,
             ]);
 
+            // Track C (HD-9) — stamp the LEGAL deadline the moment the ceremony goes out. From here
+            // on, a signature after this date is void (§11-A), independent of the 14-day link TTL.
+            $this->stampLegalDeadline($template);
+
             // Find or create the agent's request and send it
             $agentRequest = $template->requests()
                 ->where('party_role', 'agent')
@@ -939,6 +943,44 @@ class SignatureService
                 ]);
             }
         });
+    }
+
+    /**
+     * Track C (HD-9) — set the ceremony's legal deadline from its source, at dispatch.
+     *
+     * A mandate's legal clock is the property's mandate expiry (`properties.expiry_date`, verified to
+     * exist). Only a mandate is wired today: an OTP is an alienation document that may not be
+     * e-signed at all (ECTA §13(1) — `isEsignBlocked()`), so its irrevocable-date clock has nothing
+     * to run against yet, and a lease has no single legal-lapse date. Absorb, never break: if there
+     * is no derivable date, leave it null and the ceremony simply never lapses (today's behaviour).
+     * Never overwrite a deadline already set (an extension/revival owns it after HD-12).
+     */
+    private function stampLegalDeadline(SignatureTemplate $template): void
+    {
+        if ($template->legal_deadline_at !== null) {
+            return;
+        }
+
+        $document = $template->document;
+        $docType  = strtolower((string) ($document?->template?->documentType?->slug
+            ?? $document?->template?->template_type ?? ''));
+
+        if ($docType !== 'mandate') {
+            return; // Only mandates carry a wired legal clock at launch.
+        }
+
+        $property = $document?->property_id ? \App\Models\Property::find($document->property_id) : null;
+        $expiry   = $property?->expiry_date;
+
+        if (! $expiry) {
+            return; // No mandate expiry on the property → nothing to lapse against.
+        }
+
+        // The document is valid for signing UP TO AND INCLUDING the expiry day.
+        $template->update([
+            'legal_deadline_at' => \Illuminate\Support\Carbon::parse($expiry)->endOfDay(),
+            'deadline_source'   => 'mandate_expiry',
+        ]);
     }
 
     // ──────────────────────────────────────────────
@@ -2491,6 +2533,57 @@ class SignatureService
      * Expire all outstanding requests past their expiry date.
      * Returns the number of expired requests.
      */
+    /**
+     * Track C (HD-11) — transition ceremonies whose LEGAL deadline has passed to a recorded lapse.
+     *
+     * The pen is already stopped the instant the deadline passes (HD-10, computed isLapsed()). This
+     * is the RECORD of that fact: a nightly sweep that moves a past-deadline live ceremony to
+     * 'lapsed' — or 're_lapsed' if it had been revived and lapsed again — with an audit row, so the
+     * tracker shows "Lapsed" and the evidence timeline (HD-13) can attribute the delay. A lapse is a
+     * transition, never a silent expiry.
+     */
+    public function lapseExpiredCeremonies(): int
+    {
+        $lapsed = 0;
+
+        // Live, past-deadline, and not already recorded as lapsed. Terminal states are excluded — a
+        // past date means nothing once a ceremony is done.
+        $alreadyRecorded = [SignatureTemplate::STATUS_LAPSED, SignatureTemplate::STATUS_RE_LAPSED];
+        $skip = array_merge(SignatureTemplate::TERMINAL_STATUSES, $alreadyRecorded);
+
+        $candidates = SignatureTemplate::query()
+            ->whereNotNull('legal_deadline_at')
+            ->where('legal_deadline_at', '<', now())
+            ->whereNotIn('status', $skip)
+            ->get();
+
+        foreach ($candidates as $template) {
+            $wasRevived = $template->status === SignatureTemplate::STATUS_REVIVED;
+            $newStatus  = $wasRevived ? SignatureTemplate::STATUS_RE_LAPSED : SignatureTemplate::STATUS_LAPSED;
+            $fromStatus = $template->status;
+
+            $template->update(['status' => $newStatus]);
+
+            SignatureAuditLog::log(
+                $template,
+                'ceremony_lapsed',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'from_status'       => $fromStatus,
+                    'to_status'         => $newStatus,
+                    'legal_deadline_at' => optional($template->legal_deadline_at)->toDateTimeString(),
+                    'deadline_source'   => $template->deadline_source,
+                ],
+                documentHash: $template->document_hash,
+            );
+
+            $lapsed++;
+        }
+
+        return $lapsed;
+    }
+
     public function expireOutstandingRequests(): int
     {
         $expired = 0;

@@ -45,7 +45,7 @@ class SigningController extends Controller
             ->firstOrFail();
 
         // Expired
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -492,7 +492,7 @@ class SigningController extends Controller
             ->with('template.creator')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token);
         }
 
@@ -555,7 +555,7 @@ class SigningController extends Controller
             ->with(['template.document', 'template.creator'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -597,7 +597,7 @@ class SigningController extends Controller
             ->with(['template.document', 'template.creator'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -639,7 +639,7 @@ class SigningController extends Controller
             ->with(['template.document'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', ['token' => $token]);
         }
 
@@ -847,7 +847,7 @@ class SigningController extends Controller
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -878,7 +878,7 @@ class SigningController extends Controller
             ->with(['template.document', 'sender'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -930,7 +930,7 @@ class SigningController extends Controller
             ->with('template')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1031,7 +1031,7 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1112,7 +1112,7 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1331,7 +1331,7 @@ class SigningController extends Controller
             ->with('template.document')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1620,7 +1620,7 @@ class SigningController extends Controller
             ->with('template')
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -1791,7 +1791,7 @@ class SigningController extends Controller
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -1886,7 +1886,7 @@ class SigningController extends Controller
             ->with(['template.document.template', 'template.markers'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -2053,7 +2053,7 @@ class SigningController extends Controller
             ->with(['template.document.template'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Signing link has expired.');
         }
@@ -2099,7 +2099,7 @@ class SigningController extends Controller
             ->with(['template.document.template'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['error' => 'Signing link has expired.'], 410);
         }
 
@@ -2591,7 +2591,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
@@ -2616,7 +2616,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             abort(403, 'Signing link has expired.');
         }
 
@@ -2991,7 +2991,7 @@ CSS;
             ->with(['template.document', 'template.amendments.acceptances'])
             ->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return view('docuperfect.signatures.external.expired', [
                 'request' => $signingRequest,
             ]);
@@ -3026,7 +3026,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
         }
 
@@ -3049,7 +3049,7 @@ CSS;
     {
         $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
 
-        if ($signingRequest->isExpired()) {
+        if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
         }
 
