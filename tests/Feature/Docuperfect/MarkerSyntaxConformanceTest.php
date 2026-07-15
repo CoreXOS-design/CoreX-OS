@@ -34,6 +34,85 @@ final class MarkerSyntaxConformanceTest extends TestCase
 
     // ── ONE TRUTH: what we READ is what we TEACH ─────────────────────────
 
+    /**
+     * AT-262-charset — THE LIVE BUG. The old name class was [A-Z_]+, so a marker named
+     * the way agents actually name fields ("Seller - Full name", "Property - Erf /
+     * Scheme", "Asking price (Rand)") failed at its first lowercase letter. This is the
+     * conductor's exact 13-marker doc: all 13 must now parse, each keeping its human
+     * name as the label.
+     */
+    public function test_all_thirteen_human_named_markers_are_detected(): void
+    {
+        $names = [
+            'Seller - Full name and surname', 'Property - Erf / Scheme / Unit number',
+            'Property - Complex / Estate name', 'Property - Street', 'Property - Township',
+            'Property - District', 'Seller - Physical address', 'Seller - Telephone',
+            'Seller - Email', 'Document - Asking price (Rand)', 'Document - Asking price in words',
+            'Document - Mandate expiry date', 'Document - Other conditions',
+        ];
+
+        $text = '';
+        foreach ($names as $n) {
+            $text .= "Field: ~~~~{$n}~~~~ line. ";
+        }
+        $result = $this->parseDocx($text);
+
+        $labels = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->where('type', 'insertable_block_placeholder')
+            ->pluck('custom_label')
+            ->all();
+
+        $this->assertCount(13, $labels, '13 human-named markers must ALL be detected, not just the caps-only ones');
+        foreach ($names as $n) {
+            $this->assertContains($n, $labels, "the marker \"{$n}\" was not detected — its human name was rejected");
+        }
+    }
+
+    /** A human name still yields a SAFE block id (no spaces/slashes leaking into the id). */
+    public function test_a_human_named_marker_gets_a_safe_slug_block_id(): void
+    {
+        $result = $this->parseDocx('~~~~Property - Erf / Scheme~~~~');
+
+        $block = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->firstWhere('type', 'insertable_block_placeholder');
+
+        $this->assertSame('property_erf_scheme', $block['block_id']);
+        $this->assertSame('Property - Erf / Scheme', $block['custom_label']);
+        $this->assertSame('custom_named', $block['purpose']);
+    }
+
+    /** The built-in purpose tokens still map to their purposes — not broken by the widening. */
+    public function test_builtin_purpose_tokens_still_map(): void
+    {
+        $result = $this->parseDocx('~~~~OTHER_CONDITIONS~~~~');
+        $block = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->firstWhere('type', 'insertable_block_placeholder');
+
+        $this->assertSame('other_conditions', $block['purpose']);
+    }
+
+    // ── AT-262 near-miss detection ───────────────────────────────────────
+
+    public function test_near_miss_detection_names_the_reason(): void
+    {
+        $svc = app(CdsParserService::class);
+
+        $wrongTildes = $svc->detectNearMissMarkers('here ~~Seller~~ there');
+        $this->assertNotEmpty($wrongTildes);
+        $this->assertStringContainsString('FOUR tildes', $wrongTildes[0]['reason']);
+
+        $badChar = $svc->detectNearMissMarkers('~~~~Price|Rand~~~~');
+        $this->assertNotEmpty($badChar);
+        $this->assertStringContainsString("isn't allowed", $badChar[0]['reason']);
+        $this->assertStringContainsString('|', $badChar[0]['reason']);
+
+        // A valid human-named marker is NOT a near-miss.
+        $this->assertEmpty($svc->detectNearMissMarkers('~~~~Seller - Full name~~~~'));
+    }
+
     /** Every syntax the parser advertises must be a syntax the parser actually detects. */
     public function test_every_advertised_marker_is_detected_by_the_parser(): void
     {
@@ -258,5 +337,61 @@ final class MarkerSyntaxConformanceTest extends TestCase
     private function esc(string $s): string
     {
         return htmlspecialchars($s, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    }
+
+    // ── AT-262-cds — the CDS import must accept a docx that sniffs as zip ──
+
+    /**
+     * THE LIVE BUG. The CDS import (~~~~NAME~~~~ path) validated `mimes:docx`, which
+     * checks the MIME php-fileinfo sniffs from the file's CONTENT. A .docx is a ZIP,
+     * and real Word documents frequently sniff as `application/zip` — so `mimes:docx`
+     * silently REJECTED a valid Word file and redirected back to the import screen
+     * with no visible feedback. An agent hit Import and nothing happened.
+     *
+     * The fix validates by CLIENT EXTENSION (`extensions:docx`), matching the working
+     * standard-import path. This proves a zip-sniffing .docx is now accepted, not
+     * bounced. It uploads a plain ZIP with a .docx name (the exact sniff condition);
+     * reaching the builder redirect proves validation passed.
+     */
+    public function test_cds_import_of_a_marked_docx_reaches_the_builder(): void
+    {
+        // The happy path the live bug broke: a valid marked .docx must pass validation
+        // and redirect INTO the builder, not bounce back to /import. (The zip-sniff
+        // mechanism itself is locked by the sibling test below — this env's fileinfo
+        // recognises a structured docx, so it can't reproduce the sniff here.)
+        $upload = new UploadedFile(
+            $this->writeDocx('Between ~~~~SELLER_NAME~~~~ and the agency.'),
+            'RealMandate.docx',
+            'application/octet-stream',   // as a browser may send it
+            null,
+            true,
+        );
+
+        $response = $this->actingAs($this->importer())
+            ->post(route('docuperfect.import.cds'), ['document' => $upload]);
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('/templates/cds/builder/', (string) $response->headers->get('Location'),
+            'a valid marked .docx must reach the builder, not bounce back to the import screen');
+    }
+
+    /** The old rule would have rejected exactly that file — lock the regression. */
+    public function test_mimes_docx_would_have_rejected_a_zip_sniffing_file(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'zipdocx') . '.docx';
+        $zip = new ZipArchive();
+        $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $zip->addFromString('a.txt', str_repeat('x', 200));
+        $zip->close();
+
+        $upload = new UploadedFile($path, 'RealMandate.docx', 'application/octet-stream', null, true);
+
+        $old = \Illuminate\Support\Facades\Validator::make(
+            ['document' => $upload], ['document' => 'required|file|mimes:docx']);
+        $new = \Illuminate\Support\Facades\Validator::make(
+            ['document' => $upload], ['document' => 'required|file|extensions:docx']);
+
+        $this->assertTrue($old->fails(), 'the OLD rule rejected a zip-sniffing .docx — this was the bug');
+        $this->assertTrue($new->passes(), 'the NEW rule accepts it — this is the fix');
     }
 }
