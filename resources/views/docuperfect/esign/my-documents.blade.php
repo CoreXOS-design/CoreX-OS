@@ -287,6 +287,18 @@
                                                 {{ $req->signer_name }}
                                                 — {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
                                             </span>
+                                            @php
+                                                // §6 — "who holds it, and FOR HOW LONG". The elapsed time on the
+                                                // party currently holding the document is what lets an agent spot a
+                                                // stall at a glance. Time it from when the document last landed with
+                                                // them: viewed_at once opened, sent_at while still unopened.
+                                                $heldSince = in_array($req->status, ['viewed', 'partially_signed'])
+                                                    ? ($req->viewed_at ?? $req->sent_at)
+                                                    : $req->sent_at;
+                                            @endphp
+                                            @if($heldSince)
+                                                <span class="text-[10px]" style="color: var(--text-muted);" title="Held by {{ $req->signer_name }} for this long">for {{ $heldSince->diffForHumans(null, true) }}</span>
+                                            @endif
                                             @if($req->fica_required && $req->contact_id)
                                                 @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
                                                 @if($ficaDone)

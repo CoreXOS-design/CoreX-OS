@@ -365,3 +365,19 @@ decimal (not `(int)`), a test matrix (whole rand · rand+cents · cents-only · 
 says); `price_in_words` is COMPUTED from the number. When both exist for one document they can
 disagree. Which wins — the parsed text or the computed value — is a doctrine call (fidelity vs
 correctness), not a lane call. Belongs with D-3 in front of Johan.
+
+### HD-8 (tracker) — ✅ the screen ALREADY EXISTS; closed the one doctrine gap
+
+Like HD-3, the plan claimed a build that was already done. The signing tracker is
+`ESignWizardController::myDocuments()` → `docuperfect/esign/my-documents.blade.php`, with TWO sidebar
+entries ("My E-Sign Documents" + "Authorise Documents"). It already groups by status
+(pending_approval / draft / ready / awaiting / completed / cancelled), shows the per-party holder and
+their state (sent / viewed / signing / waiting / completed / FICA), and offers **Send Reminder**
+(`docuperfect.signatures.sendReminder`), View Progress, and Cancel. `isAwaitingAgentReview()` — which
+the plan said the tracker "reads" — **does not exist**; the status grouping is the real signal.
+
+**The one genuine gap (§6: "who holds it, and FOR HOW LONG")** was that the active holder showed
+"sent"/"viewed" with no elapsed time, so a stalled party was invisible at a glance. Closed with a
+display-only add: `for {{ heldSince->diffForHumans(null, true) }}` on the active-holder line, timed
+from `viewed_at` once opened else `sent_at`. View-only, no new data, no fidelity risk; all views
+compile. No new screen (STANDARDS: no duplication), nav + permission already present.
