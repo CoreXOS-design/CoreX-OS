@@ -2196,9 +2196,28 @@ class PropertyController extends Controller
         // so we never surface the listing agent to them.
         $showAgent = $agentChoice !== 'none';
 
-        $displayAgent = $showAgent
-            ? (($agentChoice === 'me' && $authUser) ? $authUser : ($property->agent ?? $authUser))
-            : null;
+        $displayAgent = null;
+        if ($showAgent) {
+            if (ctype_digit((string) $agentChoice) && $property->agency_id) {
+                // A specific agent id baked into a shared link ("Show my info").
+                // The sharing agent's identity travels WITH the URL so it survives
+                // the link being opened by another viewer or while logged out —
+                // `agent=me` could only ever resolve against the CURRENT session,
+                // which is why a shared link previously fell back to the listing
+                // agent. This route is public, so resolve past AgencyScope, but
+                // only honour an agent belonging to THIS property's agency — never
+                // surface a cross-agency contact on a public page.
+                $displayAgent = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->where('id', (int) $agentChoice)
+                    ->where('agency_id', $property->agency_id)
+                    ->first();
+            } elseif ($agentChoice === 'me' && $authUser) {
+                $displayAgent = $authUser;
+            }
+
+            // Fallbacks: the listing agent, then whoever happens to be viewing.
+            $displayAgent = $displayAgent ?? ($property->agent ?? $authUser);
+        }
 
         return view('corex.properties.live-preview', compact('property', 'displayAgent', 'agentChoice', 'showAgent'));
     }

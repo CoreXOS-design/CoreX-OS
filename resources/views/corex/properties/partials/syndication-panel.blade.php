@@ -652,10 +652,17 @@
                     {{-- The preview page is public and shareable (routes/web.php —
                          no auth), so its URL is worth copying, not just opening.
                          Each row owns its copy state so one tick doesn't light both. --}}
-                    @php $synPreviewBase = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]); @endphp
+                    @php
+                        $synPreviewBase = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title)]);
+                        // Bake THIS agent's id into the "Show my info" link so the sharing
+                        // agent's identity travels with the URL. `?agent=me` resolved only
+                        // against the viewer's session, so a shared link opened by anyone
+                        // else fell back to the listing agent — this is that fix.
+                        $synMyAgentParam = 'agent=' . auth()->id();
+                    @endphp
 
                     <div class="flex items-center gap-2 flex-wrap" x-data="corexCopyLinkMixin()">
-                        <a href="{{ $synPreviewBase }}?agent=me"
+                        <a href="{{ $synPreviewBase }}?{{ $synMyAgentParam }}"
                            target="_blank"
                            class="flex-1 flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold no-underline"
                            style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
@@ -663,7 +670,7 @@
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
                             Show my info
                         </a>
-                        <button type="button" @click.stop="copyLink('{{ $synPreviewBase }}?agent=me')"
+                        <button type="button" @click.stop="copyLink('{{ $synPreviewBase }}?{{ $synMyAgentParam }}')"
                                 class="inline-flex items-center justify-center px-2 py-2 rounded-md transition-opacity"
                                 style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
                                 :title="copied ? 'Link copied' : 'Copy the preview link (your contact info)'"
