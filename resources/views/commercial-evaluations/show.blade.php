@@ -189,9 +189,14 @@
                                     {{ $formatZar($fin->net_operating_income) }}
                                 </td>
                                 <td class="px-3 py-2 text-right font-mono text-xs">{{ $formatZar($fin->ebitda) }}</td>
-                                <td class="px-3 py-2 text-right">
+                                <td class="px-3 py-2 text-right whitespace-nowrap">
                                     <button type="button" @click="editId = (editId === {{ $fin->id }} ? null : {{ $fin->id }})"
                                             class="text-xs font-medium" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
+                                    <form method="POST" action="{{ route('commercial-evaluations.financials.destroy', [$evaluation, $fin]) }}"
+                                          class="inline ml-3" onsubmit="return confirm('Remove financial year {{ $fin->financial_year }}? It can be recovered by an admin.')">
+                                        @csrf @method('DELETE')
+                                        <button type="submit" class="text-xs font-medium text-red-600">Delete</button>
+                                    </form>
                                 </td>
                             </tr>
                             {{-- Inline edit form — same field set as Add, pre-filled; PUT to updateFinancials --}}
