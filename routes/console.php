@@ -58,6 +58,15 @@ Schedule::command('sales-documents:send-reminders')->dailyAt('09:00');
 // each agency's retention window (envelopes retained). Runs daily at 03:30.
 Schedule::command('communications:purge-embargoed-bodies')->dailyAt('03:30')->withoutOverlapping();
 
+// Agency Billing (AT-11) — safety net. The AgencyHeadcountChanged listener already
+// reconciles a plan the moment a user is added/deactivated/archived through the app;
+// this sweep catches the paths that bypass the User model entirely (bulk imports, raw
+// UPDATEs) so no agency can sit on the wrong plan indefinitely with nobody told.
+// A no-op night costs one COUNT per agency and emails nobody (compare-and-set).
+// 03:00 — well clear of the 08:30 queue/SMTP contention window.
+// Spec: .ai/specs/agency-billing.md §7.4
+Schedule::command('corex:billing-reconcile')->dailyAt('03:00')->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.

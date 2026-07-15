@@ -589,6 +589,19 @@ class AppServiceProvider extends ServiceProvider
         );
         \App\Models\User::observe(\App\Observers\UserObserver::class);
 
+        // Agency Billing (AT-11) — the Agent pillar announces a headcount change;
+        // Billing reconciles the plan and, if it switched, emails andre@ + johan@.
+        // Cross-pillar via the events catalogue, per non-negotiable #9.
+        // Spec: .ai/specs/agency-billing.md §7.2
+        Event::listen(
+            \App\Events\Agent\AgencyHeadcountChanged::class,
+            \App\Listeners\Billing\ReconcileAgencySubscription::class,   // sync — one COUNT
+        );
+        Event::listen(
+            \App\Events\Billing\AgencyPlanChanged::class,
+            \App\Listeners\Billing\NotifyCoreXOfPlanChange::class,       // queued (on `default`)
+        );
+
         // Contact Testimonials — publish/unpublish fans out to per-website
         // testimonial.* webhooks. Spec: .ai/specs/testimonials.md §5.
         Event::listen(
