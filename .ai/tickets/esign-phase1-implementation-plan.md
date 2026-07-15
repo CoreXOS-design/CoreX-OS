@@ -396,10 +396,10 @@ round-half-up actually applies (a lease escalation of R9,222.50 → R9,223, not 
 is stated in the converter docblock and marked a DOCUMENT-LAYER rule (utility invoices, accounting
 side, keep cents — not this). `tests/Unit/AmountInWordsTest.php` — 7 tests / 35 assertions.
 
-**Left for Johan, deliberately not silently changed:** the legacy word-gen omits "and" between a
-thousands part and a trailing sub-100 ("two thousand fifty", "…thousand one"). Restyling that is a
-legal WORD-CHANGE (Document-Fidelity law) and its own decision — HD-4 preserves the existing words
-and only rounds + appends "Rand". Flag if the "and" placement matters on the mandate.
+**"and" placement — ✅ RESOLVED (Johan, 2026-07-15): "always with the and".** British/SA legal
+style throughout ("two thousand and fifty Rand", "one million two hundred and three Rand"). The
+converter now inserts "and" before a trailing sub-100 group at every magnitude level; tests pin
+Johan's examples. One converter, both call sites inherit it.
 
 **CDS reconciliation (parsed vs computed):** per Johan, compare `deal.amount_words` (parsed) vs the
 computed value AT RAND PRECISION — both are whole rands now, so a sub-rand delta is never a real

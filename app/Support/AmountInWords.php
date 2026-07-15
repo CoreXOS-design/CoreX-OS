@@ -44,7 +44,14 @@ final class AmountInWords
         return ucfirst(self::toWords($rands)) . ' Rand';
     }
 
-    /** The bare number in words, sentence-case, no currency word. */
+    /**
+     * The bare number in words, sentence-case, no currency word — British/SA legal style.
+     *
+     * "Always with the and" (Johan, 2026-07-15): the conjunction precedes the final sub-hundred group
+     * whenever a larger magnitude comes before it — "two thousand AND fifty", "one million two hundred
+     * AND three", "…fifty thousand AND one". The `and` before a <100 remainder is inserted at EVERY
+     * level (hundreds, thousands, millions), not only inside the hundreds block.
+     */
     private static function toWords(int $number): string
     {
         $ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
@@ -52,12 +59,15 @@ final class AmountInWords
                  'seventeen', 'eighteen', 'nineteen'];
         $tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 
-        $convert = function (int $n) use (&$convert, $ones, $tens): string {
+        // A remainder under 100 is joined with "and"; anything larger with a plain space.
+        $join = static fn (int $remainder): string => $remainder < 100 ? ' and ' : ' ';
+
+        $convert = function (int $n) use (&$convert, $ones, $tens, $join): string {
             if ($n < 20) return $ones[$n];
             if ($n < 100) return $tens[(int) ($n / 10)] . ($n % 10 ? '-' . $ones[$n % 10] : '');
             if ($n < 1000) return $ones[(int) ($n / 100)] . ' hundred' . ($n % 100 ? ' and ' . $convert($n % 100) : '');
-            if ($n < 1000000) return $convert((int) ($n / 1000)) . ' thousand' . ($n % 1000 ? ' ' . $convert($n % 1000) : '');
-            return $convert((int) ($n / 1000000)) . ' million' . ($n % 1000000 ? ' ' . $convert($n % 1000000) : '');
+            if ($n < 1000000) return $convert((int) ($n / 1000)) . ' thousand' . ($n % 1000 ? $join($n % 1000) . $convert($n % 1000) : '');
+            return $convert((int) ($n / 1000000)) . ' million' . ($n % 1000000 ? $join($n % 1000000) . $convert($n % 1000000) : '');
         };
 
         return $convert($number);
