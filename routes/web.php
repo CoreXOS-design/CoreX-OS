@@ -2986,6 +2986,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/check-held-address', [\App\Http\Controllers\CoreX\ContactController::class, 'checkHeldAddress'])->name('check-held-address');
         Route::post('/import',            [\App\Http\Controllers\CoreX\ContactImportController::class, 'import'])->name('import');
         Route::get('/export',             [\App\Http\Controllers\CoreX\ContactExportController::class, 'export'])->middleware('permission:contacts.export')->name('export');
+        // AT-273 — Street & Complex Search (address-only) results page + PDF. Static
+        // paths MUST be declared before the /{contact} wildcard so they aren't
+        // captured as a contact id.
+        Route::get('/street-complex-search',     [\App\Http\Controllers\CoreX\ContactController::class, 'streetComplexSearch'])->name('street-complex-search');
+        Route::get('/street-complex-search/pdf', [\App\Http\Controllers\CoreX\ContactController::class, 'streetComplexSearchPdf'])->name('street-complex-search.pdf');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->middleware('permission:contacts.delete')->name('destroy-all');
         Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
         Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');

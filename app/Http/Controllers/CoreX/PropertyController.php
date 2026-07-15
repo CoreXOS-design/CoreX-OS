@@ -512,14 +512,14 @@ class PropertyController extends Controller
                 ->get()
             : collect();
 
-        // AI photo suggestions — only when the agency has the feature on AND
-        // the user may use it. Built from completed, not-yet-reviewed image
-        // analyses and expressed in the web spaces/features vocabulary.
+        // AI photo suggestions — only when the user may use the feature. AI is
+        // universal at the agency level (no per-agency enable flag). Built from
+        // completed, not-yet-reviewed image analyses and expressed in the web
+        // spaces/features vocabulary.
         $aiImageSuggestions = ['hasSuggestions' => false, 'spaces' => [], 'features' => []];
         $user = auth()->user();
         if ($property->exists
-            && $user?->agency?->ai_image_recognition_enabled
-            && $user->hasPermission('use_property_image_ai')) {
+            && $user?->hasPermission('use_property_image_ai')) {
             $aiImageSuggestions = app(\App\Services\AI\PropertyAiSuggestionService::class)->forProperty($property);
         }
 

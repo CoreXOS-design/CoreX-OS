@@ -323,6 +323,73 @@
 
         <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
+            {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
+                 bar as just the property icon + a "?" help popover. Clicking the house
+                 reveals an inline input; because the address report is a DIFFERENT
+                 route than this filter form, it navigates via JS (scGo) rather than a
+                 nested form. Searches ONLY Address + Linked Properties. --}}
+            <div x-data="{ scOpen: false, scHelp: false,
+                           scGo(v) {
+                               v = (v || '').trim();
+                               if (!v) { this.$refs.scInput && this.$refs.scInput.focus(); return; }
+                               let u = '{{ route('corex.contacts.street-complex-search') }}?q=' + encodeURIComponent(v);
+                               @if($canPickAgent) u += '&agent_id=' + encodeURIComponent('{{ $filterAgentId }}'); @endif
+                               window.location.href = u;
+                           } }"
+                 class="flex items-center gap-1">
+
+                {{-- Property icon — click to open the street/complex search. --}}
+                <button type="button"
+                        @click="scOpen = !scOpen; scOpen && $nextTick(() => $refs.scInput && $refs.scInput.focus())"
+                        class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0 transition-all duration-300"
+                        :style="scOpen ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);'"
+                        :aria-expanded="scOpen"
+                        title="Street &amp; Complex Search — click to search by street or complex name">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                    </svg>
+                </button>
+
+                {{-- "?" help — sits right beside the house icon. --}}
+                <div class="relative flex-shrink-0">
+                    <button type="button" @click="scHelp = !scHelp" @click.outside="scHelp = false"
+                            class="inline-flex items-center justify-center w-6 h-6 transition-all duration-300"
+                            style="color:var(--text-muted);background:transparent;border:none;"
+                            :style="scHelp ? 'color:var(--brand-icon,#0ea5e9);' : ''"
+                            title="How does this work?">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                        </svg>
+                    </button>
+
+                    <div x-show="scHelp" x-cloak x-transition
+                         @keydown.escape.window="scHelp = false"
+                         class="absolute left-0 top-full mt-2 z-50 w-80 rounded-md p-3.5 text-xs font-normal normal-case"
+                         style="background:var(--surface);border:1px solid var(--border);box-shadow:0 12px 32px rgba(0,0,0,0.28);color:var(--text-secondary);line-height:1.5;">
+                        <div class="text-sm font-bold mb-1.5" style="color:var(--text-primary);">Street &amp; Complex Search</div>
+                        <p>Type a <strong style="color:var(--text-primary);">street name</strong> or <strong style="color:var(--text-primary);">complex / estate name</strong> and CoreX finds every contact whose <strong style="color:var(--text-primary);">Address</strong> or <strong style="color:var(--text-primary);">Linked Properties</strong> match. Names, phone numbers and emails are <em>not</em> searched here.</p>
+                        <p class="mt-2">The results open on their own page — each contact tagged with <em>Last Contacted</em>, <em>Last Modified</em> and its linked-property status — sortable (by unit number, complex, street…) and downloadable as a PDF.</p>
+                    </div>
+                </div>
+
+                {{-- Inline street/complex input — revealed when the house is clicked.
+                     Enter or the arrow navigates to the report (JS, not a form submit). --}}
+                <div x-show="scOpen" x-cloak x-transition class="relative">
+                    <input type="text" x-ref="scInput"
+                           @keydown.enter.prevent="scGo($refs.scInput.value)"
+                           placeholder="Street or complex name…"
+                           class="w-48 md:w-56 pl-3 pr-9 py-2 text-sm rounded-md"
+                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                    <button type="button" @click="scGo($refs.scInput.value)"
+                            class="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-7 h-7 rounded-md"
+                            style="background:var(--brand-icon,#0ea5e9);color:#fff;" title="Search street / complex">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
