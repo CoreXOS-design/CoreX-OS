@@ -152,8 +152,6 @@ class Agency extends Model
         'icon_color',
         'default_color',
         'button_color',
-        'ai_voice_enabled',
-        'ai_image_recognition_enabled',
         'logo_path',
         'email_disclaimer',
         'marketing_unsubscribe_footer',
@@ -341,8 +339,6 @@ class Agency extends Model
         'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
         'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
-        'ai_voice_enabled' => 'boolean',
-        'ai_image_recognition_enabled' => 'boolean',
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',

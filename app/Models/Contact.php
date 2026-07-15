@@ -451,6 +451,56 @@ class Contact extends Model
                     ->withTimestamps();
     }
 
+    /**
+     * Street & Complex Search (AT-273) — an ADDRESS-ONLY search, deliberately
+     * distinct from scopeSearch (which is name/id/phone/email). It matches ONLY
+     * the two address surfaces a user thinks of as "where this contact is":
+     *
+     *   1. the contact's own Address — the residential free-text `address`
+     *      column PLUS the structured property-address components
+     *      (complex_name / street_name / suburb / city); and
+     *   2. the contact's Linked Properties — the same address surfaces on any
+     *      `Property` joined through the contact_property pivot.
+     *
+     * Multi-token AND: every whitespace-separated token must hit at least one
+     * surface, so "marine estate" finds a contact only when BOTH words appear
+     * somewhere in its address graph — never everything matching either word.
+     * Name / phone / email are intentionally NOT searched here.
+     */
+    public function scopeStreetComplexSearch($query, ?string $term)
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+
+        foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $token) {
+            $like = '%' . $token . '%';
+
+            $query->where(function ($q) use ($like) {
+                // The contact's own address surfaces.
+                $q->where('address', 'like', $like)
+                  ->orWhere('complex_name', 'like', $like)
+                  ->orWhere('street_name', 'like', $like)
+                  ->orWhere('suburb', 'like', $like)
+                  ->orWhere('city', 'like', $like)
+                  // Linked Properties — the property's address surfaces.
+                  ->orWhereHas('properties', function ($p) use ($like) {
+                      $p->where('complex_name', 'like', $like)
+                        ->orWhere('street_name', 'like', $like)
+                        ->orWhere('suburb', 'like', $like)
+                        ->orWhere('city', 'like', $like)
+                        ->orWhere('address', 'like', $like)
+                        ->orWhere('title', 'like', $like);
+                  });
+            });
+        }
+
+        // Ordering is applied by the caller (ContactController::applyStreetComplexSort)
+        // so the results page and its PDF can share one sort selection.
+        return $query;
+    }
+
     public function getFullNameAttribute(): string
     {
         return $this->first_name . ' ' . $this->last_name;

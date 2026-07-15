@@ -33,9 +33,6 @@ class MobileEllieVoiceController extends Controller
         if (! $user || ! $user->hasPermission('use_ellie_voice')) {
             return response()->json(['error' => 'Permission denied.'], 403);
         }
-        if (! ($user->agency?->ai_voice_enabled)) {
-            return response()->json(['error' => 'AI voice commands are not enabled for your agency.'], 403);
-        }
 
         $request->validate([
             'audio' => 'required|file|max:5120', // 5MB

@@ -160,9 +160,6 @@ class PropertyImageAiController extends Controller
         if (! $user || ! $user->hasPermission('use_property_image_ai')) {
             abort(403, 'Permission denied.');
         }
-        if (! ($user->agency?->ai_image_recognition_enabled)) {
-            abort(403, 'AI image recognition is not enabled for your agency.');
-        }
         if ($user->agency_id && $property->agency_id !== $user->agency_id) {
             abort(404);
         }
