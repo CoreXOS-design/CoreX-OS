@@ -2533,6 +2533,57 @@ class SignatureService
      * Expire all outstanding requests past their expiry date.
      * Returns the number of expired requests.
      */
+    /**
+     * Track C (HD-11) — transition ceremonies whose LEGAL deadline has passed to a recorded lapse.
+     *
+     * The pen is already stopped the instant the deadline passes (HD-10, computed isLapsed()). This
+     * is the RECORD of that fact: a nightly sweep that moves a past-deadline live ceremony to
+     * 'lapsed' — or 're_lapsed' if it had been revived and lapsed again — with an audit row, so the
+     * tracker shows "Lapsed" and the evidence timeline (HD-13) can attribute the delay. A lapse is a
+     * transition, never a silent expiry.
+     */
+    public function lapseExpiredCeremonies(): int
+    {
+        $lapsed = 0;
+
+        // Live, past-deadline, and not already recorded as lapsed. Terminal states are excluded — a
+        // past date means nothing once a ceremony is done.
+        $alreadyRecorded = [SignatureTemplate::STATUS_LAPSED, SignatureTemplate::STATUS_RE_LAPSED];
+        $skip = array_merge(SignatureTemplate::TERMINAL_STATUSES, $alreadyRecorded);
+
+        $candidates = SignatureTemplate::query()
+            ->whereNotNull('legal_deadline_at')
+            ->where('legal_deadline_at', '<', now())
+            ->whereNotIn('status', $skip)
+            ->get();
+
+        foreach ($candidates as $template) {
+            $wasRevived = $template->status === SignatureTemplate::STATUS_REVIVED;
+            $newStatus  = $wasRevived ? SignatureTemplate::STATUS_RE_LAPSED : SignatureTemplate::STATUS_LAPSED;
+            $fromStatus = $template->status;
+
+            $template->update(['status' => $newStatus]);
+
+            SignatureAuditLog::log(
+                $template,
+                'ceremony_lapsed',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'from_status'       => $fromStatus,
+                    'to_status'         => $newStatus,
+                    'legal_deadline_at' => optional($template->legal_deadline_at)->toDateTimeString(),
+                    'deadline_source'   => $template->deadline_source,
+                ],
+                documentHash: $template->document_hash,
+            );
+
+            $lapsed++;
+        }
+
+        return $lapsed;
+    }
+
     public function expireOutstandingRequests(): int
     {
         $expired = 0;
