@@ -183,7 +183,7 @@ Each HD is one concern, ends green on its own test file, and is committable.
 |---|---|---|
 | ~~**HD-1**~~ **✅ LANDED** `8d4b1e9c` | **P1-3 · Recipients from the property-link role** (§2.1) | `Property::esignRoleForPivotRole()` + `PIVOT_NON_SIGNING_ROLES`; `ESignWizardController::resolveLinkedContactRole()` — link role primary, global type demoted to legacy-link fallback. `scopeForEsignRole()` needed no demotion (**zero callers**); the primary source was an inline join. **Extra defect found & closed:** portal lead services link enquirers with `contact_property.role='lead'` and type them "Buyer" — the old global-type read offered them as **signing recipients on the mandate**. 11 tests, both mechanisms RED-proofed. |
 | ~~**HD-2**~~ **✅ LANDED** `d20c8f58` | **P1-2a · Web-pack slot resolution** | `WebPackSlotResolver` + `WebPackSlotException`; wired into `store()`. **The client-side slot picker already existed** (`wizard.blade.php::_buildPackSlots`) — the gap was entirely server-side: `store()` fed the client's `resolved_template_ids` straight to `Template::find()`. **Extra defect found & closed — the ECTA §13(1) hole:** the alienation-document block is gated on `!$isPackFlow`, and the web-pack path ran **no** eligibility check at all (not even `is_esign`), so a **sale agreement inside a web pack was one click from being e-signed, and therefore void.** Also closed: any template id in the DB was accepted; a required doc could be dropped by omitting it from the post. 13 tests, RED-proof fails 9/13. |
-| **HD-3** | **P1-2b · Send-time variant picker** ✅ **LANDED** `749532d1`-adjacent (`WebPackStoreEndpointTest`) · **seeder BLOCKED** | Picker UI already existed; its contract is now proven at the HTTP boundary (6 tests: resolved set carried onto the flow, tampered post → 422 + **zero flows**, alienation doc → 422 `esign_blocked`, cross-tenant pack → 404). **⛔ BLOCKED — NEEDS JOHAN/m5, NOT A LANE CALL: the Sales Mandate Pack's COMPOSITION.** See §10. |
+| ~~**HD-3**~~ **✅ COMPLETE** | **P1-2b · Send-time variant picker + pack composition** | Picker proven at the HTTP boundary (6 tests). **Pack composition RESOLVED (D-1, Johan 2026-07-15): the web-pack system IS the spine — no seeder.** Investigation found the whole chain already built (builder → picker → resolver → boundary); reworked to spec the mechanism (`esign-ceremony-v3.md` §1.1) + prove Johan's exact Sales Mandate Pack (Mandate one-of · Disclosure required · FICA one-of — `WebPackSlotResolutionTest`, 15 green). See §10 D-1. |
 | **HD-4** | **P1-5 · Editable fields + P1-6 amount-in-words** | Populate `field_mappings.editable_by` on the mandate templates (infrastructure exists; **no template uses it**). `WebTemplateDataService::numberToWords()` takes an **`int`** — it **drops cents** and has no "Rand". Fix + reconcile with the CDS parser's `deal.amount_words` binding (two vocabularies, one concept). |
 
 ### Track B — the ceremony behaves (HD-5 → HD-8)
@@ -260,7 +260,31 @@ Each HD is one concern, ends green on its own test file, and is committable.
 
 ## 10. Open decisions — parked here rather than stalling a slice (m6, night of 2026-07-14)
 
-### D-1 (HD-3 seeder) — what IS the Sales Mandate Pack? **Needs Johan or m5. Not a lane call.**
+### D-1 — ✅ RESOLVED (Johan, 2026-07-15). There is NO seeder; the web-pack system is the spine.
+
+Johan's ruling, verbatim: *"in documents we created web packs. this should be in the spec. web packs
+were made for esign where one can pick — a mandate pack consist of mandate, mandatory disclosure,
+fica — this allows the user to then pick — open or exclusive mandate, mandatory, and which fica is
+applicable."*
+
+**The Sales Mandate Pack is not seeded — it is BUILT by a human through Documents → Web Packs**, as
+agency data, using the slot vocabulary that already exists. Composition = **Mandate** (selectable:
+Open/Exclusive) · **Mandatory Disclosure** (required) · **FICA** (selectable: applicable one). The
+agent's picks are made at send time through the existing wizard picker.
+
+**Investigation finding: the entire chain was already built and needed NO new code.**
+Documents → Web Packs (`WebPackController`, full CRUD, soft-delete, `access_docuperfect_packs`,
+sidebar entry) → the builder (`web-packs/form.blade.php`, required/selectable-grouped/optional +
+label) → the wizard picker (`esign/wizard.blade.php` step 1: radios per selectable group, checkbox
+per optional) → `WebPackSlotResolver` (HD-2) → proven at the HTTP boundary (HD-3). The web-pack
+system predates Phase 1 exactly as Johan said. HD-3's rework was therefore: **drop the seeder**,
+**spec the mechanism** (`esign-ceremony-v3.md` §1.1 — the builder is the surface + the canonical
+Sales Mandate Pack recipe), and **prove Johan's exact composition** (two independent selectable
+groups + one required, `WebPackSlotResolutionTest` — 15 tests green).
+
+_Original blocker text kept below for the record._
+
+### ~~D-1 (HD-3 seeder) — what IS the Sales Mandate Pack? Needs Johan or m5. Not a lane call.~~ (superseded above)
 
 The picker and the server-side resolver are done and proven. The seeder that creates the actual pack
 is **blocked on a fact nobody has written down**: which templates the pack contains, and which of

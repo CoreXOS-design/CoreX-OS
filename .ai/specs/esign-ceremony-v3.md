@@ -120,6 +120,36 @@ Every screen carries a nav entry the day it ships (non-negotiable #2).
 
 ---
 
+### 1.1 The mechanism is the existing WEB-PACK system — not a seeded pack (Johan, 2026-07-15)
+
+**Ruling.** The slot model above is not a thing to build — it is the **web-pack system already in
+Documents**, which predates Phase 1 and was made for exactly this. A pack is composed by a human,
+through the builder, as agency data; it is **never seeded from a template import**, and in
+particular never from a walk-test document.
+
+| Concern | Where it already lives |
+|---|---|
+| Build / edit a pack (full CRUD, soft-delete, permission `access_docuperfect_packs`) | `WebPackController`; **Documents → Web Packs** (`docuperfect.web-packs.*`), sidebar entry present |
+| Set each slot's nature — **required · selectable(one-of, grouped) · optional** — with a label | `resources/views/docuperfect/web-packs/form.blade.php` (`slot_type` / `slot_group` / `slot_label`) |
+| Offer the picks to the agent at send (radios for a selectable group, checkbox for optional) | `esign/wizard.blade.php` step 1 (`packSlots` / `slotSelections`) |
+| Resolve the picks server-side (pack-membership, required-always, exactly-one-per-group, re-run eligibility on the RESOLVED set) | `WebPackSlotResolver` (HD-2), proven at the HTTP boundary (HD-3) |
+
+**The canonical Sales Mandate Pack** (Johan's composition, verbatim) — an agency builds this ONCE
+in the web-pack builder; every send then offers the choices:
+
+| Slot | `slot_type` | Group | The agent's send-time choice |
+|---|---|---|---|
+| **Mandate** | `selectable` | A | **Open OR Exclusive** (sole) — one of |
+| **Mandatory Disclosure** | `required` | — | always included, not the agent's to drop |
+| **FICA** | `selectable` | B | **which FICA is applicable** — one of (Natural person / Company / Trust …) |
+
+The composition is therefore the AGENT'S CHOICE at send time, expressed through the web-pack
+picker — not a fixed bundle, and not something a lane hard-codes. A CoreX-standard starter pack
+MAY later be provided as global reference data (overridable per agency), but that is a distinct,
+Johan-authorised decision; the mechanism does not depend on it.
+
+---
+
 ## 2. Two consent profiles — adopt-once for all, gate-per-surface for clients
 
 **Doctrine (refinement A).** **The consent profile is a property of the signer role, not of the

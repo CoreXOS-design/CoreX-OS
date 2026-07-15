@@ -108,6 +108,63 @@ final class WebPackSlotResolutionTest extends TestCase
         $this->assertSame(['Sole Mandate', 'Seller Disclosure'], $resolved->pluck('name')->all());
     }
 
+    /**
+     * THE CANONICAL SALES MANDATE PACK (Johan's composition, 2026-07-15) — the whole point of the
+     * web-pack system, proven end to end through the resolver. TWO independent selectable groups
+     * (Mandate: Open|Exclusive · FICA: Natural|Company) plus one required Disclosure. The agent makes
+     * two picks; the Disclosure is never one of them; exactly the three chosen documents go out, in
+     * pack order. HD-2's other tests prove single groups — this proves the real pack.
+     */
+    public function test_the_sales_mandate_pack_resolves_two_independent_choices_plus_the_required_disclosure(): void
+    {
+        $pack = $this->pack('Sales Mandate Pack');
+
+        // Slot A — Mandate: open OR exclusive.
+        $open      = $this->template('Open Mandate');
+        $exclusive = $this->template('Exclusive Authority to Sell');
+        // Required — Mandatory Disclosure (not the agent's to drop).
+        $disclosure = $this->template('Seller Mandatory Disclosure');
+        // Slot B — FICA: whichever is applicable to the seller.
+        $ficaNatural = $this->template('FICA — Natural Person');
+        $ficaCompany = $this->template('FICA — Company');
+
+        $this->item($pack, $exclusive,   'selectable', 1, 'Mandate type',  0);
+        $this->item($pack, $open,         'selectable', 1, 'Mandate type',  10);
+        $this->item($pack, $disclosure,   'required',   null, null,          20);
+        $this->item($pack, $ficaNatural,  'selectable', 2, 'FICA',          30);
+        $this->item($pack, $ficaCompany,  'selectable', 2, 'FICA',          40);
+
+        // The agent chooses an Exclusive mandate for a company seller.
+        $resolved = $this->resolver->resolve($pack, [$exclusive->id, $ficaCompany->id]);
+
+        $this->assertSame(
+            ['Exclusive Authority to Sell', 'Seller Mandatory Disclosure', 'FICA — Company'],
+            $resolved->pluck('name')->all(),
+            'Exactly the two chosen variants plus the required Disclosure, in pack order.'
+        );
+        // Neither unchosen variant leaks through.
+        $this->assertFalse($resolved->contains('name', 'Open Mandate'));
+        $this->assertFalse($resolved->contains('name', 'FICA — Natural Person'));
+    }
+
+    /** Leaving EITHER of the mandate pack's two choices unmade is refused, naming the slot that is missing. */
+    public function test_the_sales_mandate_pack_refuses_a_half_made_selection(): void
+    {
+        $pack = $this->pack('Sales Mandate Pack');
+        $exclusive   = $this->template('Exclusive Authority to Sell');
+        $this->item($pack, $exclusive, 'selectable', 1, 'Mandate type', 0);
+        $this->item($pack, $this->template('Open Mandate'), 'selectable', 1, 'Mandate type', 10);
+        $this->item($pack, $this->template('Seller Mandatory Disclosure'), 'required', null, null, 20);
+        $this->item($pack, $this->template('FICA — Natural Person'), 'selectable', 2, 'FICA', 30);
+        $this->item($pack, $this->template('FICA — Company'), 'selectable', 2, 'FICA', 40);
+
+        // Mandate chosen, FICA left unmade.
+        $this->expectException(WebPackSlotException::class);
+        $this->expectExceptionMessage('Choose which FICA to send');
+
+        $this->resolver->resolve($pack, [$exclusive->id]);
+    }
+
     /** The point of a selectable group: a mandate, and it is either the Sole one or the Open one. */
     public function test_a_selectable_group_sends_exactly_the_chosen_variant(): void
     {
