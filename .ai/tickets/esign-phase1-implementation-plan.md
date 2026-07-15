@@ -330,3 +330,38 @@ what HD-5/HD-6 implement. `auto_advance` only ever *removes* a control. Nothing 
 belongs in a settings-shaped prompt, not a ceremony-shaped one. Johan's call whether it is launch
 scope at all — an agency that wants no agent checkpoint is asking for less oversight than the
 doctrine's default, so it may legitimately be a "deliberately NOT in the wizard" item (spec §5.1).
+
+### D-3 (HD-4, amount-in-words) — needs Johan's word on the LEGAL WORDING. One line unblocks it.
+
+`WebTemplateDataService::numberToWords()` has two defects and one duplicate:
+  - **Drops the cents.** Every call site casts `(int)`, so R 1,250,000.50 renders as "one million two
+    hundred and fifty thousand" — the 50 cents vanish from the controlling legal figure.
+  - **No currency word.** Output is a bare number-in-words, no "rand".
+  - **Duplicated byte-for-byte** in `ESignWizardController::numberToWords()` (line 3016) — a latent
+    divergence (BUILD_STANDARD §6). Fix once, in a shared converter both call.
+
+**Why this is NOT a 1am lane call.** The amount-in-words is the document's controlling figure, and
+STANDARDS' Document-Fidelity law is absolute: *"If a word changes, the document is legally
+compromised."* The exact wording is a genuine choice, and the codebase's OWN sample data contradicts
+itself — `WebTemplateController` seeds both `'Eight thousand five hundred Rand'` (capital, no cents)
+AND `'Eight thousand five hundred'` (no currency word). Guessing between them is exactly the
+word-change the law forbids.
+
+**The one decision needed from Johan** (everything else is mechanical, ~20 min once he answers):
+
+> For R 1,250,000.50, which rendering is legally correct on HFC's mandate/OTP?
+> - **(A, recommended)** `One million two hundred and fifty thousand rand and fifty cents`
+> - (B) `One million two hundred and fifty thousand Rand and fifty cents` (capital "Rand")
+> - (C) `... rand only` when cents are zero; `... rand and fifty cents` otherwise
+>
+> And: whole-rand amounts (cents = 00) → append `only`, or nothing?
+
+**Ready to build the moment he answers:** one `App\Support\AmountInWords` converter (rands + cents,
+his wording), both `numberToWords` copies deleted and delegated to it, call sites pass the real
+decimal (not `(int)`), a test matrix (whole rand · rand+cents · cents-only · zero · millions).
+
+**Separately parked — the CDS reconciliation (plan HD-4 "two vocabularies, one concept").**
+`deal.amount_words` is a field the CDS parser EXTRACTS from the document text (what the page literally
+says); `price_in_words` is COMPUTED from the number. When both exist for one document they can
+disagree. Which wins — the parsed text or the computed value — is a doctrine call (fidelity vs
+correctness), not a lane call. Belongs with D-3 in front of Johan.
