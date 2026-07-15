@@ -103,6 +103,15 @@ class DocumentImporterController extends Controller
             'status' => 'draft',
         ]);
 
+        // AT-262 near-miss guard — a marker-like sequence that did NOT parse (wrong
+        // tilde count, a stray ~, an empty ~~~~~~~~) is the single most likely thing
+        // an agent's first real doc gets wrong. Surface each with WHY, on the builder
+        // they land on, so they can fix it — never silently drop it.
+        $nearMisses = $parser->detectNearMissMarkers((string) ($cds['original_text'] ?? ''));
+        if (! empty($nearMisses)) {
+            session()->flash('cds_near_misses', $nearMisses);
+        }
+
         return redirect()->route('docuperfect.cds.builder', $draft);
     }
 
@@ -279,12 +288,20 @@ class DocumentImporterController extends Controller
             $blockCount = count($result['insertable_blocks'] ?? []);
             $zeroFields = ($fieldCount + $blockCount) === 0;
 
+            // AT-262 near-miss — marker-like sequences that did NOT parse, named with
+            // WHY. Surfaced whenever any exist (not only at zero) — a doc can detect
+            // some fields and still have a few mistyped ones the agent needs to fix.
+            $nearMisses = app(CdsParserService::class)->detectNearMissMarkers(
+                (string) ($result['plain_text'] ?? strip_tags($result['html'] ?? ''))
+            );
+
             \Log::info('[DocumentImporter] SUCCESS — draft saved to DB', [
                 'draft_id'    => $draft->id,
                 'redirect'    => $redirect,
                 'field_count' => $fieldCount,
                 'block_count' => $blockCount,
                 'zero_fields' => $zeroFields,
+                'near_misses' => count($nearMisses),
             ]);
 
             return response()->json([
@@ -294,7 +311,8 @@ class DocumentImporterController extends Controller
                 'field_count'      => $fieldCount,
                 'block_count'      => $blockCount,
                 'zero_fields'      => $zeroFields,
-                'accepted_markers' => $zeroFields ? CdsParserService::acceptedMarkers() : [],
+                'accepted_markers' => ($zeroFields || $nearMisses) ? CdsParserService::acceptedMarkers() : [],
+                'near_misses'      => $nearMisses,
             ]);
 
         } catch (\Throwable $e) {

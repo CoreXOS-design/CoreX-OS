@@ -34,6 +34,85 @@ final class MarkerSyntaxConformanceTest extends TestCase
 
     // ── ONE TRUTH: what we READ is what we TEACH ─────────────────────────
 
+    /**
+     * AT-262-charset — THE LIVE BUG. The old name class was [A-Z_]+, so a marker named
+     * the way agents actually name fields ("Seller - Full name", "Property - Erf /
+     * Scheme", "Asking price (Rand)") failed at its first lowercase letter. This is the
+     * conductor's exact 13-marker doc: all 13 must now parse, each keeping its human
+     * name as the label.
+     */
+    public function test_all_thirteen_human_named_markers_are_detected(): void
+    {
+        $names = [
+            'Seller - Full name and surname', 'Property - Erf / Scheme / Unit number',
+            'Property - Complex / Estate name', 'Property - Street', 'Property - Township',
+            'Property - District', 'Seller - Physical address', 'Seller - Telephone',
+            'Seller - Email', 'Document - Asking price (Rand)', 'Document - Asking price in words',
+            'Document - Mandate expiry date', 'Document - Other conditions',
+        ];
+
+        $text = '';
+        foreach ($names as $n) {
+            $text .= "Field: ~~~~{$n}~~~~ line. ";
+        }
+        $result = $this->parseDocx($text);
+
+        $labels = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->where('type', 'insertable_block_placeholder')
+            ->pluck('custom_label')
+            ->all();
+
+        $this->assertCount(13, $labels, '13 human-named markers must ALL be detected, not just the caps-only ones');
+        foreach ($names as $n) {
+            $this->assertContains($n, $labels, "the marker \"{$n}\" was not detected — its human name was rejected");
+        }
+    }
+
+    /** A human name still yields a SAFE block id (no spaces/slashes leaking into the id). */
+    public function test_a_human_named_marker_gets_a_safe_slug_block_id(): void
+    {
+        $result = $this->parseDocx('~~~~Property - Erf / Scheme~~~~');
+
+        $block = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->firstWhere('type', 'insertable_block_placeholder');
+
+        $this->assertSame('property_erf_scheme', $block['block_id']);
+        $this->assertSame('Property - Erf / Scheme', $block['custom_label']);
+        $this->assertSame('custom_named', $block['purpose']);
+    }
+
+    /** The built-in purpose tokens still map to their purposes — not broken by the widening. */
+    public function test_builtin_purpose_tokens_still_map(): void
+    {
+        $result = $this->parseDocx('~~~~OTHER_CONDITIONS~~~~');
+        $block = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->firstWhere('type', 'insertable_block_placeholder');
+
+        $this->assertSame('other_conditions', $block['purpose']);
+    }
+
+    // ── AT-262 near-miss detection ───────────────────────────────────────
+
+    public function test_near_miss_detection_names_the_reason(): void
+    {
+        $svc = app(CdsParserService::class);
+
+        $wrongTildes = $svc->detectNearMissMarkers('here ~~Seller~~ there');
+        $this->assertNotEmpty($wrongTildes);
+        $this->assertStringContainsString('FOUR tildes', $wrongTildes[0]['reason']);
+
+        $badChar = $svc->detectNearMissMarkers('~~~~Price|Rand~~~~');
+        $this->assertNotEmpty($badChar);
+        $this->assertStringContainsString("isn't allowed", $badChar[0]['reason']);
+        $this->assertStringContainsString('|', $badChar[0]['reason']);
+
+        // A valid human-named marker is NOT a near-miss.
+        $this->assertEmpty($svc->detectNearMissMarkers('~~~~Seller - Full name~~~~'));
+    }
+
     /** Every syntax the parser advertises must be a syntax the parser actually detects. */
     public function test_every_advertised_marker_is_detected_by_the_parser(): void
     {
