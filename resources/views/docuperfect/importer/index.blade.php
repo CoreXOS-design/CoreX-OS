@@ -410,6 +410,16 @@
                             <p class="text-[0.6875rem] pl-1" style="color: var(--text-secondary);">
                                 Custom-named block &mdash; e.g. <code class="font-mono">~~~~CUSTOM:Outstanding Repairs~~~~</code>
                             </p>
+
+                            {{-- AT-262 — name your own fields in plain language. --}}
+                            <div class="flex items-start gap-2 text-xs pt-2">
+                                <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                                      style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">~~~~Seller - Full name~~~~</code>
+                            </div>
+                            <p class="text-[0.6875rem] pl-1" style="color: var(--text-secondary);">
+                                Name a field however you like &mdash; e.g. <code class="font-mono">~~~~Property - Erf / Scheme~~~~</code> or <code class="font-mono">~~~~Asking price (Rand)~~~~</code>.
+                                A name may use {{ \App\Services\Docuperfect\CdsParserService::INSERTABLE_NAME_HUMAN }} (anything except the <span class="font-mono">~</span> itself).
+                            </p>
                         </div>
                     </div>
                 </div>

@@ -1,6 +1,27 @@
 @extends('layouts.corex')
 
 @section('corex-content')
+
+{{-- AT-262 — near-miss marker warning. A marker-like sequence in the imported doc
+     that did NOT parse (wrong tilde count, stray ~, empty) is listed here with WHY,
+     so the agent can fix the source doc instead of wondering why a field is missing. --}}
+@if(session('cds_near_misses'))
+    <div class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+        <p class="font-semibold mb-1" style="color: var(--ds-amber);">
+            {{ count(session('cds_near_misses')) }} marker-like {{ \Illuminate\Support\Str::plural('sequence', count(session('cds_near_misses'))) }} in your document {{ count(session('cds_near_misses')) === 1 ? 'was' : 'were' }} not recognised
+        </p>
+        <p class="mb-2" style="color: var(--text-muted);">These look like fields but did not parse. Fix them in Word and re-import:</p>
+        <ul class="space-y-1">
+            @foreach(session('cds_near_misses') as $miss)
+                <li class="flex items-start gap-2">
+                    <code class="font-mono px-1.5 py-0.5 rounded text-xs shrink-0" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">{{ $miss['raw'] }}</code>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $miss['reason'] }}</span>
+                </li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
 <div class="flex flex-col h-full overflow-hidden"
      x-data="cdsEditor()"
      x-init="init()">
