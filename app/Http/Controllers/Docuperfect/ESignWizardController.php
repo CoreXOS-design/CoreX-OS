@@ -2854,7 +2854,7 @@ class ESignWizardController extends Controller
             if ($detailKey === '_commission_words') {
                 $commVal = $details['commission'] ?? '';
                 if ($commVal !== '' && is_numeric($commVal)) {
-                    $field['value'] = $this->numberToWords((int) $commVal);
+                    $field['value'] = $this->numberToWords($commVal);
                 }
             } elseif (isset($details[$detailKey]) && $details[$detailKey] !== '') {
                 $field['value'] = (string) $details[$detailKey];
@@ -3008,29 +3008,19 @@ class ESignWizardController extends Controller
             'lease_start_day' => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
             'lease_start_year' => $leaseStart ? date('Y', strtotime($leaseStart)) : '',
-            'price_in_words' => $price ? $this->numberToWords((int) $price) : '',
+            'price_in_words' => $price ? $this->numberToWords($price) : '',
             default => '',
         };
     }
 
-    private function numberToWords(int $number): string
+    /**
+     * HD-4 — one converter, one rounding rule. Delegates to App\Support\AmountInWords (rounds
+     * half-up to whole rands, appends " Rand", no cents — Johan's document house rule). This was a
+     * byte-identical copy of WebTemplateDataService's; both now share the one implementation.
+     */
+    private function numberToWords(int|float|string|null $number): string
     {
-        if ($number === 0) return 'zero';
-
-        $ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
-                 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
-                 'seventeen', 'eighteen', 'nineteen'];
-        $tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
-
-        $convert = function (int $n) use (&$convert, $ones, $tens): string {
-            if ($n < 20) return $ones[$n];
-            if ($n < 100) return $tens[(int)($n / 10)] . ($n % 10 ? '-' . $ones[$n % 10] : '');
-            if ($n < 1000) return $ones[(int)($n / 100)] . ' hundred' . ($n % 100 ? ' and ' . $convert($n % 100) : '');
-            if ($n < 1000000) return $convert((int)($n / 1000)) . ' thousand' . ($n % 1000 ? ' ' . $convert($n % 1000) : '');
-            return $convert((int)($n / 1000000)) . ' million' . ($n % 1000000 ? ' ' . $convert($n % 1000000) : '');
-        };
-
-        return ucfirst($convert($number));
+        return \App\Support\AmountInWords::rands($number);
     }
 
     /**
