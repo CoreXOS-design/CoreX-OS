@@ -340,7 +340,12 @@ class TourRegistry
                     [
                         'element' => '[data-tour="mic-claim"]',
                         'title'   => 'Claim your lead',
-                        'body'    => 'Found the one? Claim it to reserve it as yours before another agent does. A claim is time-boxed — work it, or it releases back to the pool. That\'s the full loop: buyer → matches → claim.',
+                        'body'    => 'Found the one? Claim it to reserve it as yours before another agent does. A claim is time-boxed — work it, or it releases back to the pool.',
+                    ],
+                    [
+                        'element' => '[data-tour="mic-list"]',
+                        'title'   => 'Pitch the owner',
+                        'body'    => 'This is where a lead becomes a conversation. Open any property and hit "Pitch" — CoreX drops in the Prospecting Introduction (Sales & Rentals) template, ready to send to the owner by email or WhatsApp. It introduces you and asks for a short call about marketing their property, and the STOP / opt-out consent is handled for you. Buyer → match → claim → pitch: that\'s the full loop.',
                     ],
                 ],
             ],
