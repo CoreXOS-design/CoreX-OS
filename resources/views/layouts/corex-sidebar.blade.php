@@ -76,8 +76,15 @@
         // closed by ImpersonateController::start() and codified in
         // .ai/specs/multi-tenancy.md.
         $ownerRoleNames = \App\Models\User::ownerRoleNames();
+        // whereNull('deleted_at') is NOT optional: this is a raw DB::table query,
+        // so it carries NO SoftDeletes scope. Without it, ARCHIVED users were
+        // listed as impersonation targets — a dead button (the controller's route
+        // binding excludes trashed users, so the POST 404s), but an archived user
+        // must never appear anywhere as actionable. Found by the AT-11 billing
+        // test asserting a deleted user is absent from the page.
         $query = \Illuminate\Support\Facades\DB::table('users')
             ->where('is_active', 1)
+            ->whereNull('deleted_at')
             ->when(!empty($ownerRoleNames), fn($q) => $q->whereNotIn('role', $ownerRoleNames));
 
         if ($agencyFilterId) {
@@ -201,14 +208,16 @@
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
-        'admin.ai-usage.*'
+        'admin.ai-usage.*',
+        'admin.billing.*'
     )) {
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
         'admin.company-settings*',
         'corex.role-manager*',
         'admin.soft-deletes.*',
-        'staff-take-on.*'
+        'staff-take-on.*',
+        'billing.*'
     )) {
         $activeGroup = 'company';
     } elseif (request()->routeIs(
@@ -1478,7 +1487,10 @@
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on']))
+        {{-- `billing.view` is in this gate because the Company GROUP is only rendered when the user
+             holds at least one of its children's permissions — without it, a role granted only
+             billing.view would have the whole group hidden and could never reach Billing. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1498,6 +1510,11 @@
 
                 @permission('manage_performance_settings')
                 <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">Company Settings</a>
+                @endpermission
+
+                {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
+                @permission('billing.view')
+                <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
                 @endpermission
 
                 @permission('access_role_manager')
@@ -1765,6 +1782,12 @@
                 @permission('mic.view_ai_costs')
                 <a href="{{ route('admin.ai-usage.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ai-usage.*') ? 'active' : '' }}">AI Usage</a>
                 @endpermission
+
+                {{-- Agency Billing (AT-11) — every agency's CoreX bill + custom amounts/discounts.
+                     No @permission gate BY DESIGN: a permission key is grantable via Role Manager,
+                     and an agency admin handed it would see every other agency's commercial terms.
+                     Already inside @if($isOwner). Spec: agency-billing.md §9. --}}
+                <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
             </div>
         </div>
 
