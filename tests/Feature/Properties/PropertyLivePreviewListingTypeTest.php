@@ -255,6 +255,66 @@ final class PropertyLivePreviewListingTypeTest extends TestCase
         $this->assertSame('For Sale', $sale->statusBadge());
     }
 
+    /**
+     * The "Show my info" share link bakes the SHARING agent's id into the URL
+     * (?agent=<id>), not the session-relative ?agent=me.
+     *
+     * The reported bug: a colleague (not the listing agent) opened "Show my info"
+     * and copied the link. In their own browser it showed their details, but the
+     * link carried ?agent=me — and the preview route is PUBLIC (no auth), so when
+     * anyone else opened it, `me` resolved against their empty session and fell
+     * back to the LISTING agent. The recipient saw the wrong agent's contact card.
+     *
+     * A baked-in numeric id must survive being opened by an unauthenticated viewer.
+     */
+    public function test_a_shared_link_shows_the_sharing_agent_not_the_listing_agent(): void
+    {
+        [$agencyId, $listingAgent] = $this->agencyWithAgent();
+        $listingAgent->forceFill(['name' => 'Listing Owner'])->save();
+
+        $sharer = User::factory()->create([
+            'agency_id' => $agencyId,
+            'branch_id' => $agencyId,
+            'role'      => 'agent',
+            'name'      => 'Sharing Colleague',
+        ]);
+
+        $property = $this->property($agencyId, $listingAgent, 'ZZZ-Shared-By-Colleague', [
+            'listing_type' => 'sale',
+            'price'        => 1_500_000,
+        ]);
+
+        // Opened by nobody (public) — exactly the shared-link case that was broken.
+        $res = $this->get($this->previewUrl($property) . '?agent=' . $sharer->id)->assertOk();
+
+        $res->assertSee('Sharing Colleague', false);
+        $res->assertDontSee('Listing Owner', false);
+    }
+
+    /**
+     * A public page must never surface a cross-agency contact. An ?agent=<id>
+     * pointing at an agent in ANOTHER agency is ignored — the resolver is scoped
+     * to the property's agency and falls back to this property's listing agent.
+     */
+    public function test_a_cross_agency_agent_id_is_ignored_and_falls_back_to_the_listing_agent(): void
+    {
+        [$agencyId, $listingAgent] = $this->agencyWithAgent();
+        $listingAgent->forceFill(['name' => 'Listing Owner'])->save();
+
+        [$otherAgencyId, $foreign] = $this->agencyWithAgent();
+        $foreign->forceFill(['name' => 'Foreign Agent'])->save();
+
+        $property = $this->property($agencyId, $listingAgent, 'ZZZ-CrossAgency-Preview', [
+            'listing_type' => 'sale',
+            'price'        => 1_000_000,
+        ]);
+
+        $res = $this->get($this->previewUrl($property) . '?agent=' . $foreign->id)->assertOk();
+
+        $res->assertSee('Listing Owner', false);
+        $res->assertDontSee('Foreign Agent', false);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private function previewUrl(Property $p): string
