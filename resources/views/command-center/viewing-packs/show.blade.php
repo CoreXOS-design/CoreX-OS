@@ -390,7 +390,19 @@
                         'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
                     ], fn ($v) => $v !== null)) : null;
                 @endphp
-                @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
+                @if($pack->calendar_event_id)
+                    {{-- AT-111 direction 3 — this pack was launched from (or linked to) an
+                         appointment. "Update Appointment" pushes the ordered properties onto
+                         that existing event in place, rather than creating a new one. --}}
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Linked to an appointment. Push this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order) onto that existing event.</p>
+                    <form action="{{ route('corex.viewing-packs.update-appointment', $pack) }}" method="POST">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary w-full" style="text-align:center;" @disabled($pack->viewingPackProperties->isEmpty())>Update Appointment</button>
+                    </form>
+                    @if($pack->viewingPackProperties->isEmpty())
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Add at least one property first.</p>
+                    @endif
+                @elseif($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
                     <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
                     <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
                 @else

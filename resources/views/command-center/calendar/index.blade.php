@@ -1313,6 +1313,48 @@
                     </div>
                 </template>
 
+                {{-- AT-111 — Viewing Pack tie-in on the appointment: launch a pack
+                     (schedule-now-prep-later) or download the prepared pack's PDFs
+                     straight from the event, no trip back to the buyer pipeline. --}}
+                <template x-if="panelData.viewing_pack">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Viewing Pack</div>
+
+                        {{-- Not yet prepped → launch from the appointment. --}}
+                        <template x-if="panelData.viewing_pack.linked === false">
+                            <form :action="panelData.viewing_pack.launch_url" method="POST">
+                                @csrf
+                                <button type="submit" class="corex-btn-primary text-xs w-full justify-center">
+                                    Launch Viewing Pack for this appointment
+                                </button>
+                                <p class="text-[10px] mt-1" style="color: var(--text-muted);">Select the properties you can show, then Update Appointment.</p>
+                            </form>
+                        </template>
+
+                        {{-- Linked pack → open + (when prepared) download buttons. --}}
+                        <template x-if="panelData.viewing_pack.linked === true">
+                            <div class="space-y-2">
+                                <a :href="panelData.viewing_pack.open_url"
+                                   class="text-xs font-medium hover:underline inline-flex items-center gap-1" style="color: var(--brand-button);">
+                                    Open Viewing Pack
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-muted);" x-text="panelData.viewing_pack.status"></span>
+                                </a>
+                                <template x-if="panelData.viewing_pack.can_download">
+                                    <div class="flex items-center gap-2">
+                                        <a :href="panelData.viewing_pack.buyer_pack_url" target="_blank"
+                                           class="corex-btn-primary text-xs flex-1 justify-center no-underline">Download Buyer Pack</a>
+                                        <a :href="panelData.viewing_pack.agent_sheet_url" target="_blank"
+                                           class="text-xs flex-1 text-center px-3 py-2 rounded-md no-underline" style="border: 1px solid var(--border); color: var(--text-primary);">Agent Sheet</a>
+                                    </div>
+                                </template>
+                                <template x-if="!panelData.viewing_pack.can_download">
+                                    <p class="text-[10px]" style="color: var(--text-muted);">Add properties to the pack to enable downloads.</p>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
             </div>
 
             {{-- Sticky footer action bar --}}

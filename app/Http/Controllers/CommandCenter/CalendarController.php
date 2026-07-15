@@ -915,7 +915,58 @@ class CalendarController extends Controller
                 'inviter_name' => \App\Models\User::withoutGlobalScopes()->find($userInvitation->inviter_user_id)?->name ?? 'Unknown',
                 'respond_url' => route('command-center.calendar.invitations.respond', $userInvitation->id),
             ] : null,
+            // AT-111 — viewing-pack tie-in for the event panel: launch a pack from
+            // here (schedule-now-prep-later), and download the prepared pack's PDFs
+            // directly off the appointment. Only surfaced when the caller may use
+            // packs and (for launch) it's a viewing event.
+            'viewing_pack' => $this->buildEventViewingPack($calendarEvent, $user),
         ]);
+    }
+
+    /**
+     * AT-111 — the event panel's viewing-pack block.
+     *
+     * Returns null when the caller can't use packs at all. Otherwise:
+     *   - linked pack present → its id/status + download URLs (buyer pack + agent
+     *     sheet) when it's prepared, and an open URL;
+     *   - no pack yet, and this is a viewing-class event the caller may create for
+     *     → a launch URL (schedule-now-prep-later).
+     * Respects AT-112 row visibility: a linked pack outside the caller's scope is
+     * reported as not-downloadable (they see the appointment, not the pack).
+     */
+    private function buildEventViewingPack(CalendarEvent $calendarEvent, \App\Models\User $user): ?array
+    {
+        if (! $user->hasPermission('access_viewing_packs')) {
+            return null;
+        }
+
+        $pack = $calendarEvent->viewingPack()->first();
+
+        if ($pack && $pack->isVisibleTo($user) && $user->hasPermission('viewing_packs.view')) {
+            $ready = $pack->status === \App\Models\ViewingPack::STATUS_READY
+                || $pack->viewingPackProperties()->exists();
+
+            return [
+                'linked'          => true,
+                'id'              => $pack->id,
+                'status'          => $pack->status,
+                'open_url'        => route('corex.viewing-packs.show', $pack),
+                'can_download'    => $ready,
+                'buyer_pack_url'  => $ready ? route('corex.viewing-packs.buyer-pack', $pack) : null,
+                'agent_sheet_url' => $ready ? route('corex.viewing-packs.agent-sheet', $pack) : null,
+            ];
+        }
+
+        // No (visible) pack. Offer launch only for a viewing event the caller may create.
+        $isViewing = in_array($calendarEvent->category, ['viewing', 'viewings'], true);
+        if (! $pack && $isViewing && $user->hasPermission('viewing_packs.create')) {
+            return [
+                'linked'     => false,
+                'launch_url' => route('command-center.calendar.viewing-pack.launch', $calendarEvent),
+            ];
+        }
+
+        return null;
     }
 
     public function showFeedback(Request $request, CalendarEvent $calendarEvent)
