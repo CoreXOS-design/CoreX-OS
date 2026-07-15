@@ -269,6 +269,10 @@ class CommercialEvaluationController extends Controller
     public function updateFinancials(Request $request, CommercialEvaluation $evaluation, CommercialEvaluationFinancial $financial)
     {
         $this->authorizeEvaluation($evaluation);
+        // The financial row must belong to this evaluation — never let a mismatched
+        // URL edit another evaluation's captured financials.
+        abort_unless((int) $financial->commercial_evaluation_id === (int) $evaluation->id, 404);
+        $before = $financial->only($financial->getFillable());
         $validated = $request->validate([
             'financial_year'        => ['required', 'string', 'max:20'],
             'period_months'         => ['nullable', 'integer', 'min:1', 'max:24'],
@@ -327,6 +331,20 @@ class CommercialEvaluationController extends Controller
         $validated['ebitda'] = $validated['net_operating_income'];
 
         $financial->update($validated);
+
+        // Audit trail — who edited which financial-year row, and the before→after of
+        // every field that actually changed.
+        \Illuminate\Support\Facades\Log::info('commercial-evaluation financial edited', [
+            'evaluation_id'  => $evaluation->id,
+            'financial_id'   => $financial->id,
+            'financial_year' => $financial->financial_year,
+            'user_id'        => auth()->id(),
+            'agency_id'      => $financial->agency_id,
+            'changed'        => collect($financial->only($financial->getFillable()))
+                ->filter(fn ($v, $k) => ($before[$k] ?? null) !== $v)
+                ->map(fn ($v, $k) => ['from' => $before[$k] ?? null, 'to' => $v])
+                ->all(),
+        ]);
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
             ->with('success', 'Financial data updated.');
