@@ -76,7 +76,20 @@ class DocumentImporterController extends Controller
             abort(403);
         }
 
-        $request->validate(['document' => 'required|file|mimes:docx']);
+        // AT-262-cds — validate by CLIENT EXTENSION, not sniffed content MIME.
+        //
+        // `mimes:docx` checks the MIME php-fileinfo guesses from the file's CONTENT
+        // and maps it back to an extension. A .docx is a ZIP container, and real Word
+        // documents very often sniff as `application/zip` (→ extension `zip`), so
+        // `mimes:docx` SILENTLY REJECTS a perfectly valid .docx: the validator
+        // redirects back to /import with an error the author never sees, and the page
+        // just sits there — the exact "hit Import, nothing happens" symptom.
+        //
+        // The working standard-import path (parse()) has always validated by the
+        // client-supplied extension for this reason; this brings the CDS import into
+        // line with it. `extensions:docx` checks getClientOriginalExtension(), immune
+        // to the sniffing gotcha; the parser fails gracefully on a non-docx anyway.
+        $request->validate(['document' => 'required|file|extensions:docx']);
 
         $parser = app(CdsParserService::class);
         $cds = $parser->parse($request->file('document')->getPathname());
