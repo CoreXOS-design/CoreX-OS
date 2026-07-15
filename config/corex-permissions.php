@@ -277,6 +277,16 @@ return [
         ['key' => 'presentations.edit',          'label' => 'Edit',                        'section' => 'presentations',    'type' => 'action',  'module' => 'presentations',    'sort_order' => 12],
         ['key' => 'presentations.archive',       'label' => 'Archive',                     'section' => 'presentations',    'type' => 'action',  'module' => 'presentations',    'sort_order' => 13],
 
+        // AT-112 — Viewing Packs. Role-level visibility WITHIN an agency (agent
+        // sees own, branch manager the branch, admin all) is driven by the
+        // `.view` key's data scope (scope_defaults: admin=all/BM=branch/agent=own),
+        // read by ViewingPack::scopeVisibleTo(). Mirrors the presentations block.
+        ['key' => 'access_viewing_packs',        'label' => 'Access Viewing Packs',        'section' => 'viewing-packs',    'type' => 'access',  'module' => 'viewing_packs',    'sort_order' => 1],
+        ['key' => 'viewing_packs.view',          'label' => 'View',                        'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 10],
+        ['key' => 'viewing_packs.create',        'label' => 'Create',                      'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 11],
+        ['key' => 'viewing_packs.edit',          'label' => 'Edit',                        'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 12],
+        ['key' => 'viewing_packs.archive',       'label' => 'Archive',                     'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 13],
+
         // ── Filing Register ──
         ['key' => 'access_filing_register',      'label' => 'Access Filing Register',      'section' => 'filing-register',  'type' => 'access',  'module' => 'filing',           'sort_order' => 1],
         ['key' => 'filing.view',                 'label' => 'View',                        'section' => 'filing-register',  'type' => 'action',  'module' => 'filing',           'sort_order' => 10],
@@ -679,6 +689,9 @@ return [
                 'shared_drive.folders.delete', 'shared_drive.files.delete',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'presentations.view', 'presentations.create', 'presentations.edit',
+                // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).
+                'access_viewing_packs',
+                'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
                 'access_misfiled_documents', 'misfiled_documents.refile',
@@ -766,6 +779,9 @@ return [
                 'shared_drive.download', 'shared_drive.folders.create',
                 'access_presentations',
                 'presentations.view', 'presentations.create', 'presentations.edit',
+                // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).
+                'access_viewing_packs',
+                'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
                 'access_filing_register',
                 'filing.view', 'filing.create',
                 'access_commercial_evaluations',
