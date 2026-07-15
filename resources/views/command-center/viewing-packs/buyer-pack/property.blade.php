@@ -8,7 +8,9 @@
          notes page). --}}
     @php $buyerNotes = ['label' => 'Your notes', 'microcopy' => 'Jot your thoughts during the viewing — this space is yours to keep.']; @endphp
     @if($brochure)
-        @include('corex.properties._brochure', ['b' => $brochure, 'vpNotes' => $buyerNotes])
+        {{-- Agent-consensus one-pager (approved 2026-07-15): spaces + features, no
+             description. Buyer mode keeps the notes + QR footer. --}}
+        @include('command-center.viewing-packs.buyer-pack._onepager', ['b' => $brochure, 'vpNotes' => $buyerNotes, 'mode' => 'buyer'])
     @else
         <div class="pg" style="height:1020px; overflow:hidden;">
             <div style="font-size:13px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal);">Property {{ $seq }}</div>
