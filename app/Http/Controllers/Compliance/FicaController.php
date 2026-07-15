@@ -293,18 +293,30 @@ class FicaController extends Controller
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
+        // AT-269 (P2-49) — for a referred pack the decision actions belong to the
+        // station owner only; the view hides the buttons a non-owner cannot use so
+        // there are no dead buttons (No-Silent-Locks), matching the server guard.
+        $viewerOwnsReferralStation = $referrals->isReferralStationOwner($submission, Auth::user());
 
-        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo'));
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'viewerOwnsReferralStation'));
     }
 
     /**
      * Compliance officer final approval.
      */
-    public function complianceApprove(Request $request, FicaSubmission $submission)
+    public function complianceApprove(Request $request, FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer(), 403);
+
+        // AT-269 (P2-49) — the CO-decision station is action-enforced, not just
+        // hidden. A referred pack may only be decided by its recipient / the primary
+        // CO; a secondary officer POSTing here directly is refused, not merely
+        // un-shown the button.
+        if ($submission->status === 'referred_to_co' && ! $referrals->isReferralStationOwner($submission, $actor)) {
+            abort(403, 'Only the Compliance Officer this pack was referred to may decide it.');
+        }
 
         // AT-236 — SELF-APPROVAL SEPARATION (server-side, the gate not the UI).
         // The same person cannot approve their own FICA UNLESS they are the primary
@@ -383,10 +395,16 @@ class FicaController extends Controller
     /**
      * Compliance officer rejects or returns to agent.
      */
-    public function complianceReject(Request $request, FicaSubmission $submission)
+    public function complianceReject(Request $request, FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
-        abort_unless(Auth::user()->isComplianceOfficer(), 403);
+        $actor = Auth::user();
+        abort_unless($actor->isComplianceOfficer(), 403);
+
+        // AT-269 (P2-49) — station separation, action-enforced (see complianceApprove).
+        if ($submission->status === 'referred_to_co' && ! $referrals->isReferralStationOwner($submission, $actor)) {
+            abort(403, 'Only the Compliance Officer this pack was referred to may decide it.');
+        }
 
         $validated = $request->validate([
             'action'         => 'required|in:reject,return_to_agent',
@@ -458,6 +476,17 @@ class FicaController extends Controller
             return back()->withErrors(['refer' => 'This FICA can no longer be referred — it is ' . $submission->status_label . '.']);
         }
 
+        // AT-269 — a referral MUST have a Compliance Officer to land on. Resolve the
+        // recipient BEFORE mutating any state; with no active CO, block honestly and
+        // point to where one is appointed — never strand the pack in a CO-only queue
+        // with nobody notified and nobody able to decide it.
+        if (! $referrals->resolveRecipient((int) $submission->agency_id)) {
+            return back()->withErrors(['refer' =>
+                'This FICA can’t be escalated yet: your agency has no active Compliance Officer to receive it. '
+                . 'An administrator must appoint one under Company Settings → Compliance Officers before FICA packs can be escalated.',
+            ]);
+        }
+
         $validated = $request->validate([
             'referral_note' => 'required|string|min:3|max:2000',
         ], [], ['referral_note' => 'reason']);
@@ -475,14 +504,19 @@ class FicaController extends Controller
     public function returnToReferrer(Request $request, FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
-        abort_unless(Auth::user()->isComplianceOfficer(), 403);
+        $actor = Auth::user();
+        abort_unless($actor->isComplianceOfficer(), 403);
         abort_unless($submission->status === 'referred_to_co', 422, 'This FICA is not currently referred.');
+
+        // AT-269 (P2-49) — only the recipient / primary CO may return a referred pack.
+        abort_unless($referrals->isReferralStationOwner($submission, $actor), 403,
+            'Only the Compliance Officer this pack was referred to may return it.');
 
         $validated = $request->validate([
             'reviewer_notes' => 'required|string|min:3|max:2000',
         ]);
 
-        $referrals->returnToReferrer($submission, Auth::user(), trim($validated['reviewer_notes']));
+        $referrals->returnToReferrer($submission, $actor, trim($validated['reviewer_notes']));
 
         return redirect()->route('compliance.fica.index', ['tab' => 'referred_to_co'])
             ->with('success', 'Returned to the referrer with your comments.');
