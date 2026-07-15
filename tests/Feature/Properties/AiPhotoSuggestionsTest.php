@@ -35,7 +35,6 @@ class AiPhotoSuggestionsTest extends TestCase
 
         $this->agency = Agency::create([
             'name' => 'Coastal Realty', 'slug' => 'coastal-realty',
-            'ai_image_recognition_enabled' => true,
         ]);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
 

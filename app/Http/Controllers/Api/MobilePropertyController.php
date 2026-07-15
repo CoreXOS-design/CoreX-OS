@@ -636,10 +636,11 @@ class MobilePropertyController extends Controller
 
         $property->saveQuietly();
 
-        // Queue AI vision analysis (gated by agency flag + user permission)
+        // Queue AI vision analysis (gated by user permission — AI is universal
+        // at the agency level, so there is no per-agency enable flag).
         $analysisId = null;
         $u = $request->user();
-        if ($u?->agency?->ai_image_recognition_enabled && $u->hasPermission('use_property_image_ai')) {
+        if ($u?->hasPermission('use_property_image_ai')) {
             $analysis = \App\Models\PropertyImageAnalysis::create([
                 'agency_id'   => $property->agency_id,
                 'property_id' => $property->id,

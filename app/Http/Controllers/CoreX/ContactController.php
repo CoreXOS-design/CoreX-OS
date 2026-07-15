@@ -12,7 +12,9 @@ use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
 use App\Services\PermissionService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class ContactController extends Controller
 {
@@ -114,6 +116,236 @@ class ContactController extends Controller
         return view('corex.contacts.index', compact(
             'contacts', 'contactTypes', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
         ));
+    }
+
+    /**
+     * AT-273 — Street & Complex Search results page.
+     *
+     * An address-only search (Contact::scopeStreetComplexSearch) that renders a
+     * dedicated report of matching contacts, each tagged with Last Contacted,
+     * Last Modified and its Linked-Property status. The same result set is
+     * downloadable as a PDF via streetComplexSearchPdf(). Both honour the
+     * caller's contact data-scope (own / branch / all) exactly like index().
+     */
+    /**
+     * The Street & Complex Search sort options — key => human label. The label is
+     * shown in the sort dropdown and echoed onto the PDF header. Keys are the ONLY
+     * accepted `sort` values (anything else falls back to 'name').
+     */
+    public const STREET_COMPLEX_SORTS = [
+        'name'           => 'Contact name',
+        'unit'           => 'Unit number',
+        'complex'        => 'Complex name',
+        'street'         => 'Street name',
+        'suburb'         => 'Suburb',
+        'last_contacted' => 'Last contacted',
+        'last_modified'  => 'Last modified',
+        'linked'         => 'Linked properties',
+    ];
+
+    public function streetComplexSearch(Request $request)
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        $filterAgentId = '';
+        $canPickAgent  = false;
+        $query = $this->scopedContactBaseQuery($request, $user, $filterAgentId, $canPickAgent);
+
+        $term     = trim((string) $request->query('q', ''));
+        $cap      = 500;
+        $contacts = collect();
+        $total    = 0;
+        $capped   = false;
+
+        [$sort, $dir] = $this->resolveStreetComplexSort($request);
+
+        if ($term !== '') {
+            $query->streetComplexSearch($term)
+                  ->with(['agent', 'createdBy', 'type', 'properties'])
+                  ->withCount('properties');
+            $this->applyStreetComplexSort($query, $sort, $dir);
+            $total    = (clone $query)->count();
+            $contacts = $query->limit($cap)->get();
+            $capped   = $total > $cap;
+        }
+
+        $sortOptions = self::STREET_COMPLEX_SORTS;
+
+        return view('corex.contacts.street-complex-search', compact(
+            'contacts', 'term', 'cap', 'total', 'capped', 'filterAgentId', 'canPickAgent',
+            'sort', 'dir', 'sortOptions'
+        ));
+    }
+
+    /**
+     * AT-273 — the same Street & Complex Search result set as a downloadable PDF
+     * (dompdf). Mirrors the query in streetComplexSearch() exactly so the report
+     * on screen and the report on paper are identical.
+     */
+    public function streetComplexSearchPdf(Request $request)
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        $term = trim((string) $request->query('q', ''));
+        if ($term === '') {
+            return redirect()->route('corex.contacts.street-complex-search');
+        }
+
+        $filterAgentId = '';
+        $canPickAgent  = false;
+        $query = $this->scopedContactBaseQuery($request, $user, $filterAgentId, $canPickAgent);
+
+        $cap = 500;
+        [$sort, $dir] = $this->resolveStreetComplexSort($request);
+        $query->streetComplexSearch($term)
+              ->with(['agent', 'createdBy', 'type', 'properties'])
+              ->withCount('properties');
+        $this->applyStreetComplexSort($query, $sort, $dir);
+        $total    = (clone $query)->count();
+        $contacts = $query->limit($cap)->get();
+        $capped   = $total > $cap;
+
+        $agency      = \App\Models\Agency::find($user->effectiveAgencyId());
+        $generatedAt = now();
+        $sortLabel   = self::STREET_COMPLEX_SORTS[$sort] . ' (' . ($dir === 'desc' ? 'Z–A / newest' : 'A–Z / oldest') . ')';
+
+        $pdf = Pdf::loadView('corex.contacts.street-complex-search-pdf', compact(
+            'contacts', 'term', 'cap', 'total', 'capped', 'agency', 'generatedAt', 'sortLabel'
+        ) + ['generatedBy' => $user])->setPaper('a4', 'portrait');
+
+        // Embedded content only — no network fetches from within the renderer.
+        $pdf->setOption('isRemoteEnabled', false);
+        $pdf->setOption('isPhpEnabled', false);
+        $pdf->setOption('dpi', 96);
+
+        // dompdf must write its font-metrics cache; the default storage/fonts is
+        // owned by the deploy user and not writable by php-fpm on the servers.
+        // Point it at a runtime-created, web-writable dir (same fix as the
+        // property brochure PDF).
+        $fontDir = storage_path('app/dompdf-fonts');
+        if (! is_dir($fontDir)) {
+            @mkdir($fontDir, 0775, true);
+        }
+        if (is_dir($fontDir) && is_writable($fontDir)) {
+            $pdf->setOption('fontDir', $fontDir);
+            $pdf->setOption('fontCache', $fontDir);
+        }
+
+        $slug = Str::slug($term) ?: 'search';
+
+        return $pdf->download('Street-Complex-Search-' . $slug . '.pdf');
+    }
+
+    /**
+     * The contacts base query with the caller's data-scope applied — the same
+     * agent-scope narrowing index() performs (own / branch / all + explicit
+     * ?agent_id). Extracted so the Street & Complex Search page and its PDF
+     * scope identically. Sets $filterAgentId / $canPickAgent by reference for
+     * the caller to echo back into the view.
+     */
+    private function scopedContactBaseQuery(Request $request, User $user, string &$filterAgentId, bool &$canPickAgent)
+    {
+        $dataScope    = PermissionService::getDataScope($user, 'contacts');
+        $canPickAgent = in_array($dataScope, ['all', 'branch']);
+
+        if ($request->has('agent_id')) {
+            $filterAgentId = (string) $request->query('agent_id', '');
+        } elseif ($canPickAgent) {
+            $filterAgentId = (string) $user->id;
+        } else {
+            $filterAgentId = '';
+        }
+
+        $query = Contact::query();
+
+        if ($canPickAgent) {
+            if ($filterAgentId === 'unassigned') {
+                $query->whereNull('agent_id');
+            } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
+                $query->where('agent_id', (int) $filterAgentId);
+            } elseif ($dataScope === 'branch' && $user->branch_id) {
+                $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $user->branch_id));
+            }
+        } else {
+            // 'own' scope: agents see only their own (ContactScope also enforces this).
+            $query->where('created_by_user_id', $user->id);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Resolve the requested Street & Complex Search sort into a validated
+     * [key, direction] pair. Unknown keys fall back to 'name'. When no direction
+     * is supplied the default is per-field: date/linked sorts default to DESC
+     * (most recent / linked first), everything else to ASC (A–Z / 0–9).
+     */
+    private function resolveStreetComplexSort(Request $request): array
+    {
+        $sort = (string) $request->query('sort', 'name');
+        if (! array_key_exists($sort, self::STREET_COMPLEX_SORTS)) {
+            $sort = 'name';
+        }
+
+        $dir = strtolower((string) $request->query('dir', ''));
+        if (! in_array($dir, ['asc', 'desc'], true)) {
+            $dir = in_array($sort, ['last_contacted', 'last_modified', 'linked'], true) ? 'desc' : 'asc';
+        }
+
+        return [$sort, $dir];
+    }
+
+    /**
+     * Apply the chosen sort to a Street & Complex Search query. Sorts on the
+     * CONTACT's own columns (its captured structured address + the date tags),
+     * so it works whether the match came from the contact's address or a linked
+     * property. Blanks/nulls always sort last regardless of direction; a final
+     * id tiebreak keeps paging/limits stable. Requires withCount('properties')
+     * for the 'linked' sort.
+     */
+    private function applyStreetComplexSort($query, string $sort, string $dir)
+    {
+        $dir = $dir === 'desc' ? 'desc' : 'asc';
+
+        switch ($sort) {
+            case 'unit':
+                // Numeric-aware: "17" before "100"; "3A" sorts by its leading 17→3.
+                $query->orderByRaw("(unit_number IS NULL OR unit_number = '')")
+                      ->orderByRaw("CAST(unit_number AS UNSIGNED) $dir")
+                      ->orderBy('unit_number', $dir);
+                break;
+            case 'complex':
+                $query->orderByRaw("(complex_name IS NULL OR complex_name = '')")
+                      ->orderBy('complex_name', $dir);
+                break;
+            case 'street':
+                $query->orderByRaw("(street_name IS NULL OR street_name = '')")
+                      ->orderBy('street_name', $dir);
+                break;
+            case 'suburb':
+                $query->orderByRaw("(suburb IS NULL OR suburb = '')")
+                      ->orderBy('suburb', $dir);
+                break;
+            case 'last_contacted':
+                $query->orderByRaw('last_contacted_at IS NULL')
+                      ->orderBy('last_contacted_at', $dir);
+                break;
+            case 'last_modified':
+                $query->orderByRaw('COALESCE(modified_at, updated_at) IS NULL')
+                      ->orderByRaw('COALESCE(modified_at, updated_at) ' . $dir);
+                break;
+            case 'linked':
+                $query->orderBy('properties_count', $dir);
+                break;
+            case 'name':
+            default:
+                $query->orderBy('last_name', $dir)->orderBy('first_name', $dir);
+                break;
+        }
+
+        return $query->orderBy('id');
     }
 
     public function show(Request $request, Contact $contact)

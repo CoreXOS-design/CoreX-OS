@@ -43,7 +43,6 @@ class PropertyImageAiContractTest extends TestCase
         $this->agency = Agency::create([
             'name' => 'Coastal Realty',
             'slug' => 'coastal-realty',
-            'ai_image_recognition_enabled' => true,
         ]);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
 
@@ -73,7 +72,8 @@ class PropertyImageAiContractTest extends TestCase
         $res->assertOk()
             ->assertJsonStructure(['aiVoice', 'aiImageRecognition', 'agencyId', 'userId']);
 
-        // The exact key the client reads, and it reflects the agency flag.
+        // The exact key the client reads, and it reflects the user's permission
+        // (AI is universal at the agency level — there is no per-agency flag).
         $this->assertTrue($res->json('aiImageRecognition'));
         // The old snake_case key must NOT be what we emit (would read undefined).
         $this->assertArrayNotHasKey('ai_image_recognition', $res->json());
