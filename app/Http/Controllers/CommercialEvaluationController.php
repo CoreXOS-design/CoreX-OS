@@ -350,6 +350,27 @@ class CommercialEvaluationController extends Controller
             ->with('success', 'Financial data updated.');
     }
 
+    public function destroyFinancial(CommercialEvaluation $evaluation, CommercialEvaluationFinancial $financial)
+    {
+        $this->authorizeEvaluation($evaluation);
+        // Same belongs-to guard as the edit path — never delete another evaluation's row.
+        abort_unless((int) $financial->commercial_evaluation_id === (int) $evaluation->id, 404);
+
+        // Audit trail — who removed which financial-year row (soft delete; admin-recoverable).
+        \Illuminate\Support\Facades\Log::info('commercial-evaluation financial deleted', [
+            'evaluation_id'  => $evaluation->id,
+            'financial_id'   => $financial->id,
+            'financial_year' => $financial->financial_year,
+            'user_id'        => auth()->id(),
+            'agency_id'      => $financial->agency_id,
+        ]);
+
+        $financial->delete(); // SoftDeletes — recoverable, per doctrine (non-negotiable #1)
+
+        return redirect()->route('commercial-evaluations.show', $evaluation)
+            ->with('success', 'Financial year removed.');
+    }
+
     // ══════════════════════════════════════════
     //  Comparables
     // ══════════════════════════════════════════
