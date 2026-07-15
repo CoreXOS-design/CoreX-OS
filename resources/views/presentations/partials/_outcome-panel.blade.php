@@ -145,6 +145,7 @@
                 </div>
 
                 <form method="POST"
+                      x-ref="outcomeForm"
                       :action="`/presentations/${presentationId}/outcome`"
                       class="overflow-y-auto"
                       style="padding:18px 20px;"
@@ -360,8 +361,11 @@ function presentationOutcome(presentationId, prefillOutcome) {
         },
         submit() {
             this.submitting = true;
-            const form = this.$root.querySelector('form');
-            if (form) form.submit();
+            // The form is teleported to <body> (x-teleport), so it is NOT inside
+            // $root — use $refs (which survives teleport) to reach it. If it can't
+            // be found, reset so the button never strands on "Saving…".
+            const form = this.$refs.outcomeForm;
+            if (form) { form.submit(); } else { this.submitting = false; }
         },
         init() {
             if (prefillOutcome) {
