@@ -4,6 +4,10 @@ namespace App\Models;
 
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\User;
+use App\Services\PermissionService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,10 +25,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class ViewingPack extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     protected $fillable = [
         'agency_id',
+        'branch_id',
         'contact_id',
         'agent_id',
         'calendar_event_id',
@@ -81,5 +86,39 @@ class ViewingPack extends Model
     public function viewingPackProperties(): HasMany
     {
         return $this->hasMany(ViewingPackProperty::class);
+    }
+
+    /**
+     * AT-112 — role-level visibility WITHIN an agency, mirroring
+     * Presentation::scopeVisibleTo(). AgencyScope already isolates by agency and
+     * BranchScope handles Split Branches; this narrows to the caller's data scope:
+     *   all    → no extra filter (admin / owner)
+     *   branch → the caller's branch (branch manager / office admin)
+     *   own    → packs the caller owns as agent (agent)
+     *   null   → no rows (AT-265 fail-closed on an unseeded grants table)
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        $scope = PermissionService::getDataScope($user, 'viewing_packs');
+
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $query->where($this->qualifyColumn('branch_id'), $user->effectiveBranchId()),
+            'own'    => $query->where($this->qualifyColumn('agent_id'), $user->id),
+            default  => $query->whereRaw('1 = 0'),
+        };
+    }
+
+    /** True when this user may see this specific pack under their data scope. */
+    public function isVisibleTo(User $user): bool
+    {
+        $scope = PermissionService::getDataScope($user, 'viewing_packs');
+
+        return match ($scope) {
+            'all'    => true,
+            'branch' => (int) $this->branch_id === (int) $user->effectiveBranchId(),
+            'own'    => (int) $this->agent_id === (int) $user->id,
+            default  => false,
+        };
     }
 }

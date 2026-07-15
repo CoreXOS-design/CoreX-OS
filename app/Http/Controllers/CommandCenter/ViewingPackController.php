@@ -32,12 +32,28 @@ use Illuminate\Validation\Rule;
  */
 class ViewingPackController extends Controller
 {
+    /**
+     * AT-112 — row-level guard. The route middleware proves the caller MAY use
+     * the viewing-pack feature at their action level; this proves they may touch
+     * THIS pack under their data scope (own / branch / all). AgencyScope already
+     * 404s cross-agency; this 403s an in-agency pack outside the caller's scope
+     * (e.g. another agent's pack for an own-scope agent). Called at the top of
+     * every single-pack action.
+     */
+    private function guardVisible(ViewingPack $pack): void
+    {
+        abort_unless($pack->isVisibleTo(request()->user()), 403, 'This viewing pack is outside your access scope.');
+    }
+
     /** List packs for the current agency. ?archived=1 shows archived instead. */
     public function index(Request $request)
     {
         $showArchived = $request->boolean('archived');
 
+        // AT-112 — row-level visibility on top of the route's permission gate:
+        // agent sees own, branch manager the branch, admin all.
         $query = ViewingPack::query()
+            ->visibleTo($request->user())
             ->with(['contact', 'agent'])
             ->withCount('viewingPackProperties')
             ->latest();
@@ -57,6 +73,7 @@ class ViewingPackController extends Controller
     /** The pack workspace — Core Matches + ad-hoc search + selected list + docs. */
     public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->load([
             'contact',
             'agent',
@@ -92,6 +109,7 @@ class ViewingPackController extends Controller
      */
     public function addProperty(Request $request, ViewingPack $viewingPack, ViewingPackSelectionService $selection)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'property_id' => ['required', 'integer', Rule::exists('properties', 'id')],
         ]);
@@ -107,6 +125,7 @@ class ViewingPackController extends Controller
     /** Remove a selected property (soft delete; children cascade per Step 2). */
     public function removeProperty(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackSelectionService $selection)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
 
         $selection->removeProperty($viewingPackProperty);
@@ -123,6 +142,7 @@ class ViewingPackController extends Controller
      */
     public function reorderProperties(Request $request, ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'order'   => ['required', 'array'],
             'order.*' => ['integer'],
@@ -167,6 +187,7 @@ class ViewingPackController extends Controller
      */
     public function addDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
 
         $data = $request->validate([
@@ -182,6 +203,7 @@ class ViewingPackController extends Controller
     /** Untick a document (soft-remove the row; no hard delete). */
     public function removeDocument(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
         abort_unless((int) $viewingPackDocument->viewing_pack_property_id === (int) $viewingPackProperty->id, 404);
 
@@ -197,6 +219,7 @@ class ViewingPackController extends Controller
      */
     public function redactionData(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         try {
@@ -215,6 +238,7 @@ class ViewingPackController extends Controller
      */
     public function redactDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         $request->validate([
@@ -245,6 +269,7 @@ class ViewingPackController extends Controller
     /** Stream the flattened redacted artifact (authenticated + agency-scoped). */
     public function redactedFile(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         $path = $viewingPackDocument->redacted_file_path;
@@ -260,6 +285,7 @@ class ViewingPackController extends Controller
      */
     public function downloadBuyerPack(ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
     {
+        $this->guardVisible($viewingPack);
         return $buyerPdf->download($viewingPack);
     }
 
@@ -270,6 +296,7 @@ class ViewingPackController extends Controller
      */
     public function downloadAgentSheet(ViewingPack $viewingPack, ViewingPackAgentPdfService $agentPdf)
     {
+        $this->guardVisible($viewingPack);
         return $agentPdf->download($viewingPack);
     }
 
@@ -283,6 +310,7 @@ class ViewingPackController extends Controller
     /** Scoped property typeahead for ad-hoc selection (agency-bounded). */
     public function searchProperties(Request $request, ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $q = trim((string) $request->input('q', ''));
         if (strlen($q) < 2) {
             return response()->json([]);
@@ -343,6 +371,7 @@ class ViewingPackController extends Controller
     /** Edit pack metadata (title / status). Selection edits come in later steps. */
     public function update(Request $request, ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'title'  => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in(ViewingPack::STATUSES)],
@@ -359,6 +388,7 @@ class ViewingPackController extends Controller
     /** Archive (soft delete). Children cascade out via the model layer. */
     public function destroy(ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->delete();
 
         return redirect()
@@ -369,11 +399,86 @@ class ViewingPackController extends Controller
     /** Recover an archived pack (and the children it took down). */
     public function restore(ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->restore();
 
         return redirect()
             ->route('corex.viewing-packs.show', $viewingPack)
             ->with('success', 'Viewing Pack recovered.');
+    }
+
+    /**
+     * AT-111 direction 2 — LAUNCH a viewing pack from an EXISTING calendar event
+     * (schedule-now-prep-later). If the event already has a linked pack, open it;
+     * otherwise create one linked to the event, seeded with the event's buyer.
+     *
+     * Reuses the event's own agency/branch/contact — no parallel scheduling, no
+     * new event. The forward pack→calendar prefill handoff is unchanged; this is
+     * purely the reverse direction the AT-111 workflow needs.
+     */
+    public function launchFromEvent(Request $request, \App\Models\CommandCenter\CalendarEvent $calendarEvent)
+    {
+        abort_unless(app(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class)
+            ->canSee($calendarEvent, $request->user()), 403);
+
+        // Already linked → just open it (idempotent — never a second pack per event).
+        $existing = $calendarEvent->viewingPack()->first();
+        if ($existing) {
+            $this->guardVisible($existing);
+
+            return redirect()->route('corex.viewing-packs.show', $existing);
+        }
+
+        // Resolve the event's buyer: the direct contact_id, else a buyer/attendee link.
+        $contactId = $calendarEvent->contact_id;
+        if (! $contactId) {
+            $contactId = DB::table('calendar_event_links')
+                ->where('calendar_event_id', $calendarEvent->id)
+                ->where('linkable_type', Contact::class)
+                ->whereIn('role', ['buyer_contact', 'attendee'])
+                ->value('linkable_id');
+        }
+        abort_unless($contactId, 422, 'This appointment has no buyer contact to build a pack for.');
+
+        $buyer = Contact::findOrFail($contactId);   // AgencyScope 404s cross-agency
+
+        $pack = ViewingPack::create([
+            'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
+            'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
+            'contact_id'        => $buyer->id,
+            'agent_id'          => $request->user()->id,
+            'calendar_event_id' => $calendarEvent->id,
+            'status'            => ViewingPack::STATUS_DRAFT,
+            'title'             => $this->defaultTitle($buyer),
+        ]);
+
+        return redirect()
+            ->route('corex.viewing-packs.show', $pack)
+            ->with('success', 'Viewing Pack launched from the appointment. Add the properties you can show, then Update Appointment.');
+    }
+
+    /**
+     * AT-111 direction 3 — UPDATE APPOINTMENT: push this pack's final, drag-ordered
+     * properties onto the LINKED calendar event, in place. Reuses
+     * CalendarEventService::syncManualEventLinks (the SAME link-sync the calendar's
+     * own edit path uses) — never a parallel scheduler, never a new event.
+     */
+    public function updateAppointment(Request $request, ViewingPack $viewingPack, \App\Services\CommandCenter\CalendarEventService $calendar)
+    {
+        $this->guardVisible($viewingPack);
+        abort_unless($viewingPack->calendar_event_id, 422, 'This pack is not linked to an appointment yet.');
+
+        $event = \App\Models\CommandCenter\CalendarEvent::findOrFail($viewingPack->calendar_event_id);
+
+        // The pack's properties in the agent's manual drag order (spec §4).
+        $propertyIds = $viewingPack->viewingPackProperties()->ordered()->pluck('property_id')->all();
+
+        $calendar->syncManualEventLinks($event, [
+            'category'     => $event->category,
+            'property_ids' => $propertyIds,
+        ], $request->user());
+
+        return back()->with('success', 'Appointment updated with the pack\'s properties (' . count($propertyIds) . ').');
     }
 
     /** Auto title: "Viewing Pack — {Buyer} — {d M Y}". */
