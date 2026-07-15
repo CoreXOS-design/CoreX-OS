@@ -2026,6 +2026,13 @@ class ESignWizardController extends Controller
                 'status'              => SignatureTemplate::STATUS_DRAFT,
                 'parties_json'        => $parties,
                 'signing_order_json'  => $signingOrder,
+                // HD-6 (§4) — a MANDATE signs `sellers → agent`: joint sellers are one group, so the
+                // agent is not asked to authorise the gap between two people signing the same document
+                // for the same reason. Scoped to mandates ON PURPOSE — every other ceremony (leases in
+                // particular) gets NULL and keeps today's checkpoint-after-every-party behaviour
+                // unchanged, because changing how a live lease flow checkpoints is not a side effect
+                // this ticket is entitled to.
+                'group_order_json'    => $this->groupOrderForCeremony($template),
                 'created_by'          => $user->id,
                 'is_candidate_flow'   => $isCandidateFlow,
                 'supervisor_user_id'  => null,
@@ -2439,6 +2446,28 @@ class ESignWizardController extends Controller
      * Uses source_type/source_column/source_contact_type from
      * docuperfect_named_fields to resolve each field's value.
      */
+
+    /**
+     * HD-6 (§4) — the locked group order for this ceremony, or null to leave it ungrouped.
+     *
+     * Only a MANDATE is grouped today (`sellers → agent`). Everything else returns null and keeps the
+     * checkpoint-after-every-party behaviour it has now — silently changing how a live lease ceremony
+     * checkpoints is not something this ticket is entitled to do as a side effect.
+     *
+     * Matched on the classified document_type slug FIRST (DocumentTypeClassifier owns that answer, and
+     * a classified mandate stays a mandate whatever it is renamed), with the template's own type
+     * string as the fallback for templates that predate classification.
+     */
+    private function groupOrderForCeremony(?Template $template): ?array
+    {
+        if (! $template) {
+            return null;
+        }
+
+        $slug = strtolower(trim((string) ($template->documentType?->slug ?? $template->template_type ?? '')));
+
+        return $slug === 'mandate' ? SignatureTemplate::GROUP_ORDER_MANDATE : null;
+    }
 
     /**
      * The role a property-linked contact is offered to sign as — from the PROPERTY-LINK role.

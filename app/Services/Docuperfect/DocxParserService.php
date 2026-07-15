@@ -86,6 +86,32 @@ class DocxParserService
             ];
         }
 
+        // AT-262 — the markers the import screen actually TEACHES.
+        //
+        // The marker guide sits directly above the standard upload form and tells authors
+        // to mark fill-in areas with @@@@ / %%%% / #### / ~~~~NAME~~~~. Those belong to
+        // CdsParserService, behind a DIFFERENT form — this parser had never read them. So
+        // an author who followed the printed instructions uploaded a correctly-marked
+        // document, got ZERO blanks, and was told the import was ready.
+        //
+        // Same lesson as the ellipsis fix above: the importer was not detecting badly, it
+        // was looking for the wrong character. Additive — every shape BLANK_PATTERN
+        // already finds keeps working; these join them. Patterns come from
+        // CdsParserService::ACCEPTED_MARKERS so the syntax has ONE definition and the
+        // screen cannot teach something no parser reads.
+        foreach (CdsParserService::acceptedMarkers() as $marker) {
+            preg_match_all('/' . $marker['pattern'] . '/u', $normalizedHtml, $hits, PREG_OFFSET_CAPTURE);
+            foreach ($hits[0] as $hit) {
+                $blanks[] = [
+                    'offset' => $hit[1],
+                    'length' => strlen($hit[0]),
+                    'raw'    => $hit[0],
+                    'source' => 'marker',
+                    'label'  => null,
+                ];
+            }
+        }
+
         // Bracket placeholders — [Purchaser's full name]. Never the numeric [1] markers we
         // inject ourselves.
         preg_match_all('/\[([^\]]{1,80})\]/', $normalizedHtml, $brackets, PREG_OFFSET_CAPTURE);
@@ -116,8 +142,12 @@ class DocxParserService
                 $gapStart = $prev['offset'] + $prev['length'];
                 $gap      = $blank['offset'] - $gapStart;
 
-                $mergeable = $prev['source'] !== 'bracket'
-                    && $blank['source'] !== 'bracket'
+                // A marker is an explicit, deliberate act by the author — two of them side
+                // by side are two fields, never one. Same reasoning as brackets: only the
+                // RULED shapes (underscores/ellipses/dot leaders), which Mammoth genuinely
+                // splits mid-run, may be re-joined.
+                $mergeable = !in_array($prev['source'], ['bracket', 'marker'], true)
+                    && !in_array($blank['source'], ['bracket', 'marker'], true)
                     && $gap >= 0
                     && $gap <= 10
                     && trim(strip_tags(substr($normalizedHtml, $gapStart, max($gap, 0)))) === '';

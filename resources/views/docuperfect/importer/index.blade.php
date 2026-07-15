@@ -96,6 +96,11 @@
                 progress: '',
                 error: '',
 
+                // AT-262 — zero-field guard state.
+                zeroFields: false,
+                acceptedMarkers: [],
+                pendingRedirect: '',
+
                 async submitForm() {
                     const fileInput = this.$refs.fileInput;
                     const templateName = this.$refs.templateName.value.trim();
@@ -148,6 +153,19 @@
 
                         if (data.warnings && data.warnings.length) {
                             console.warn('Mammoth warnings:', data.warnings);
+                        }
+
+                        // AT-262 — zero-field guard. Never say "ready" when we found
+                        // nothing. Warn, teach the accepted markers, and let the author
+                        // decide: go back and mark the document, or continue anyway (a
+                        // document with no fill-ins is a legitimate template).
+                        if (data.zero_fields) {
+                            this.zeroFields = true;
+                            this.acceptedMarkers = data.accepted_markers || [];
+                            this.pendingRedirect = data.redirect;
+                            this.submitting = false;
+                            this.progress = '';
+                            return;
                         }
 
                         this.progress = 'Complete! Redirecting...';
@@ -244,6 +262,52 @@
                         border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
                         color: var(--text-primary);"
                  x-text="error"></div>
+
+            {{-- AT-262 — ZERO-FIELD WARNING. Warn AND teach: an import that found
+                 nothing is never reported as ready, and the author is shown the exact
+                 syntaxes the parser accepts (rendered from the parser's own list) so
+                 they can go and mark the document. Continuing is still allowed — a
+                 document with no fill-ins is a legitimate template — but it is now a
+                 deliberate choice rather than a silent one. --}}
+            <div x-show="zeroFields" x-cloak
+                 class="mb-4 rounded-md px-4 py-3 text-sm"
+                 style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent);
+                        color: var(--text-primary);">
+                <p class="font-semibold mb-1" style="color: var(--ds-amber);">
+                    No fields were found in this document.
+                </p>
+                <p class="mb-2" style="color: var(--text-muted);">
+                    The document imported fine — but it contains none of the markers the importer
+                    looks for, so there is nothing to map. Add the markers below in Word and upload
+                    again. (If this document genuinely has no fill-in areas, you can continue.)
+                </p>
+
+                <ul class="space-y-1 mb-3">
+                    <template x-for="m in acceptedMarkers" :key="m.token">
+                        <li class="flex items-start gap-2">
+                            <code class="font-mono px-1.5 py-0.5 rounded text-xs shrink-0"
+                                  style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);"
+                                  x-text="m.token"></code>
+                            <span class="text-xs" style="color: var(--text-muted);">
+                                <span class="font-semibold" style="color: var(--text-primary);" x-text="m.label"></span>
+                                — <span x-text="m.hint"></span>
+                            </span>
+                        </li>
+                    </template>
+                </ul>
+
+                <div class="flex items-center gap-2">
+                    <button type="button" @click="zeroFields = false; fileName = ''; $refs.fileInput.value = '';"
+                            class="corex-btn-primary text-xs">
+                        Go back and mark the document
+                    </button>
+                    <button type="button" @click="window.location.href = pendingRedirect"
+                            class="text-xs underline" style="color: var(--text-muted);">
+                        Continue anyway
+                    </button>
+                </div>
+            </div>
 
             {{-- Submit --}}
             <button type="button"
@@ -349,6 +413,27 @@
                         </div>
                     </div>
                 </div>
+                {{-- AT-262 — the Word-native conventions the standard importer ALSO reads.
+                     They were accepted by the parser but never taught, so authors only
+                     ever heard about half of what works. The screen now teaches
+                     everything it reads. --}}
+                <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);">
+                    <p class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-2"
+                       style="color: var(--text-secondary);">
+                        Also recognised (standard import)
+                    </p>
+                    <div class="flex items-center gap-2 text-xs mb-1">
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">________</code>
+                        <span style="color: var(--text-secondary);">An underscore run &mdash; the usual Word fill-in line</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
+                        <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">[Full Name]</code>
+                        <span style="color: var(--text-secondary);">A square-bracketed label</span>
+                    </div>
+                </div>
+
                 <p class="text-xs mt-3" style="color: var(--text-muted);">
                     The system auto-detects fields from surrounding text. You can also tag fields manually after import.
                 </p>
