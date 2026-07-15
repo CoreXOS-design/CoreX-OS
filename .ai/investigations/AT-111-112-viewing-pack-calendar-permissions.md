@@ -37,3 +37,7 @@ _INVESTIGATION (then BUILD). QA1 only. 2026-07-15. Builds on m3's [AT-113 readin
 ## Build order
 
 AT-112 foundation first (branch_id + keys + scopeVisible + middleware — AT-111's new surfaces must respect it), then AT-111 wiring on top. QA1 only.
+
+## PARKED 2026-07-15 (91% usage, Johan's freeze until Saturday reset)
+
+Both tickets BUILT + deployed to QA1 (host `af805cd8`); branch `at111-112-viewing-pack` pushed. Server-side real-page proof passed both directions (launch-from-event, update-appointment, download-on-event, own-scope isolation). **RESUME:** browser-level UI verification of the calendar event-panel viewing-pack card + the pack "Update Appointment" button on the real screen — the only step left. Also landed this lane while here: AT-262 CDS import extensions-fix + human-name marker charset + near-miss guard (all on QA1, 14/14). Frozen — no self-directed work until reset.
