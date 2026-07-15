@@ -151,6 +151,19 @@ class SignatureRequest extends Model
         return $this->token_expires_at && $this->token_expires_at->isPast();
     }
 
+    /**
+     * Track C (HD-10) — may this request accept a signature RIGHT NOW?
+     *
+     * Two independent clocks stop the pen: the 14-day link TTL (`isExpired()`) and the ceremony's
+     * LEGAL deadline (`template->isLapsed()`). A mark blocked by either is worthless, so the signing
+     * pipeline gates on this, not on `isExpired()` alone. `isExpired()` is left as pure link-TTL —
+     * its other callers (reminders, sales-doc flow) must not start treating a lapse as a dead link.
+     */
+    public function isSigningBlocked(): bool
+    {
+        return $this->isExpired() || (bool) $this->template?->isLapsed();
+    }
+
     public function isComplete(): bool
     {
         return $this->status === self::STATUS_COMPLETED;

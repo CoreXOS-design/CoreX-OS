@@ -922,6 +922,10 @@ class SignatureService
                 'status' => SignatureTemplate::STATUS_SIGNING,
             ]);
 
+            // Track C (HD-9) — stamp the LEGAL deadline the moment the ceremony goes out. From here
+            // on, a signature after this date is void (§11-A), independent of the 14-day link TTL.
+            $this->stampLegalDeadline($template);
+
             // Find or create the agent's request and send it
             $agentRequest = $template->requests()
                 ->where('party_role', 'agent')
@@ -939,6 +943,44 @@ class SignatureService
                 ]);
             }
         });
+    }
+
+    /**
+     * Track C (HD-9) — set the ceremony's legal deadline from its source, at dispatch.
+     *
+     * A mandate's legal clock is the property's mandate expiry (`properties.expiry_date`, verified to
+     * exist). Only a mandate is wired today: an OTP is an alienation document that may not be
+     * e-signed at all (ECTA §13(1) — `isEsignBlocked()`), so its irrevocable-date clock has nothing
+     * to run against yet, and a lease has no single legal-lapse date. Absorb, never break: if there
+     * is no derivable date, leave it null and the ceremony simply never lapses (today's behaviour).
+     * Never overwrite a deadline already set (an extension/revival owns it after HD-12).
+     */
+    private function stampLegalDeadline(SignatureTemplate $template): void
+    {
+        if ($template->legal_deadline_at !== null) {
+            return;
+        }
+
+        $document = $template->document;
+        $docType  = strtolower((string) ($document?->template?->documentType?->slug
+            ?? $document?->template?->template_type ?? ''));
+
+        if ($docType !== 'mandate') {
+            return; // Only mandates carry a wired legal clock at launch.
+        }
+
+        $property = $document?->property_id ? \App\Models\Property::find($document->property_id) : null;
+        $expiry   = $property?->expiry_date;
+
+        if (! $expiry) {
+            return; // No mandate expiry on the property → nothing to lapse against.
+        }
+
+        // The document is valid for signing UP TO AND INCLUDING the expiry day.
+        $template->update([
+            'legal_deadline_at' => \Illuminate\Support\Carbon::parse($expiry)->endOfDay(),
+            'deadline_source'   => 'mandate_expiry',
+        ]);
     }
 
     // ──────────────────────────────────────────────
