@@ -113,6 +113,13 @@
                             <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold"
                                   style="background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);">{{ $contact->type->name }}</span>
                             @endif
+                            {{-- Contact tags (e.g. Lead) — each its own pill, tinted with the
+                                 tag's colour so it reads distinctly from the type badge. --}}
+                            @foreach($contact->tags as $tag)
+                                @php $tagColor = $tag->color ?: 'var(--brand-icon,#0ea5e9)'; @endphp
+                                <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold"
+                                      style="background:color-mix(in srgb, {{ $tagColor }} 14%, transparent);color:{{ $tagColor }};border:1px solid color-mix(in srgb, {{ $tagColor }} 45%, transparent);">{{ $tag->name }}</span>
+                            @endforeach
                         </div>
                         <div class="text-xs mt-0.5" style="color:var(--text-muted);">
                             Agent: {{ optional($contact->agent)->name ?? optional($contact->createdBy)->name ?? '—' }}

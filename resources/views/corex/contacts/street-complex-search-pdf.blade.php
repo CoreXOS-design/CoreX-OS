@@ -65,6 +65,17 @@
             padding: 1px 4px;
             margin-left: 4px;
         }
+        .tag-badge {
+            display: inline-block;
+            font-size: 8px;
+            font-weight: bold;
+            color: #0369a1;
+            background: #e0f2fe;
+            border: 1px solid #7dd3fc;
+            border-radius: 3px;
+            padding: 1px 4px;
+            margin-left: 4px;
+        }
 
         .addr-label { color: #6b7280; font-weight: bold; font-size: 9px; }
         .addr-line  { font-size: 10px; font-weight: normal; color: #374151; margin-bottom: 3px; }
@@ -148,7 +159,7 @@
                 <tr>
                     {{-- Contact --}}
                     <td>
-                        <div class="name">{{ $fullName }}@if($contact->type)<span class="type-badge">{{ $contact->type->name }}</span>@endif</div>
+                        <div class="name">{{ $fullName }}@if($contact->type)<span class="type-badge">{{ $contact->type->name }}</span>@endif @foreach($contact->tags as $tag)<span class="tag-badge">{{ $tag->name }}</span>@endforeach</div>
                         <div class="sub">Agent: {{ optional($contact->agent)->name ?? optional($contact->createdBy)->name ?? '—' }}</div>
                         @if($contact->phone)<div class="sub">{{ $contact->phone }}</div>@endif
                     </td>

@@ -162,7 +162,7 @@ class ContactController extends Controller
 
         if ($term !== '') {
             $query->streetComplexSearch($term)
-                  ->with(['agent', 'createdBy', 'type', 'properties'])
+                  ->with(['agent', 'createdBy', 'type', 'tags', 'properties'])
                   ->withCount('properties');
             $this->applyStreetComplexSort($query, $sort, $dir);
             $total    = (clone $query)->count();
