@@ -31,10 +31,16 @@ class CdsParserService
         [
             'token'   => '~~~~NAME~~~~',
             'delim'   => '~~~~',   // what the import guide must show for this family
-            'pattern' => '~{4,}[A-Z_]+(?::[^~]+)?~{4,}',
+            // AT-262-charset — the NAME between the tildes may be any human-natural
+            // field name: letters, digits, spaces, and - / ( ) & ' . , : _
+            // (everything except the ~ delimiter). The old class was [A-Z_]+, which
+            // rejected the way agents actually name fields — "Seller - Full name",
+            // "Property - Erf / Scheme", "Asking price (Rand)" — at the FIRST lowercase
+            // letter. Teach the real syntax; don't force SHOUTING_SNAKE_CASE.
+            'pattern' => '~{4,}[A-Za-z0-9 _\/()&\'.,:-]+~{4,}',
             'label'   => 'Insertable block',
-            'hint'    => 'A live, agent-editable area — e.g. ~~~~OTHER_CONDITIONS~~~~, ~~~~INCLUDED_ITEMS~~~~, ~~~~EXCLUDED_ITEMS~~~~ or ~~~~CUSTOM:Outstanding Repairs~~~~',
-            'example' => '~~~~OTHER_CONDITIONS~~~~',
+            'hint'    => 'A live, agent-editable area named however you like — e.g. ~~~~Seller - Full name~~~~, ~~~~Property - Erf / Scheme~~~~, ~~~~Asking price (Rand)~~~~, or the built-in ~~~~OTHER_CONDITIONS~~~~',
+            'example' => '~~~~Seller - Full name~~~~',
         ],
         [
             'token'   => '@@@@',
@@ -61,6 +67,13 @@ class CdsParserService
             'example' => '####',
         ],
     ];
+
+    /**
+     * Human-readable description of the characters an insertable-block NAME may
+     * contain. ONE truth — the on-screen teaching and the near-miss guard both read
+     * this, so what we accept and what we tell the agent can never drift.
+     */
+    public const INSERTABLE_NAME_HUMAN = "letters, digits, spaces, and - / ( ) & ' . , : _";
 
     /** The accepted markers, for any surface that needs to TEACH them. */
     public static function acceptedMarkers(): array
@@ -820,8 +833,12 @@ class CdsParserService
                 $parts = preg_split($splitPattern, $item['value'], -1, PREG_SPLIT_DELIM_CAPTURE);
 
                 foreach ($parts as $part) {
-                    if (preg_match('/^~{4,}([A-Z_]+(?::[^~]+)?)~{4,}$/', $part, $m)) {
-                        $newContent[] = $this->parseInsertableBlockMarker($m[1]);
+                    // Reuse the ONE insertable pattern from ACCEPTED_MARKERS (no second
+                    // charset copy to drift). A part that IS a full insertable token has
+                    // its tilde fences stripped to recover the human name.
+                    if (preg_match('/^' . self::ACCEPTED_MARKERS[0]['pattern'] . '$/', $part)) {
+                        $name = preg_replace('/^~{4,}|~{4,}$/', '', $part);
+                        $newContent[] = $this->parseInsertableBlockMarker($name);
                     } elseif (preg_match('/^@{4,}$/', $part)) {
                         $newContent[] = [
                             'type' => 'field_placeholder',
@@ -880,17 +897,87 @@ class CdsParserService
             'INCLUDED_ITEMS'   => 'included_items',
             'EXCLUDED_ITEMS'   => 'excluded_items',
         ];
-        $purpose = $purposeMap[$token] ?? 'custom_named';
-        $blockId = strtolower($token);
+
+        // A built-in purpose token (all-caps snake) keeps its mapped purpose and a
+        // lower-cased block id. Any other name is a human-natural custom field
+        // ("Seller - Full name", "Asking price (Rand)"): carry the name verbatim as
+        // the label the builder shows, and derive a SAFE slug for the block id — never
+        // a raw id full of spaces and slashes.
+        $token = trim($token);
+        if (isset($purposeMap[$token])) {
+            return [
+                'type'         => 'insertable_block_placeholder',
+                'marker'       => 'insertable_block',
+                'block_id'     => strtolower($token),
+                'purpose'      => $purposeMap[$token],
+                'custom_label' => null,
+                'raw_token'    => $token,
+            ];
+        }
+
+        $blockId = \Illuminate\Support\Str::slug($token !== '' ? $token : 'unnamed', '_');
 
         return [
             'type'         => 'insertable_block_placeholder',
             'marker'       => 'insertable_block',
-            'block_id'     => $blockId,
-            'purpose'      => $purpose,
-            'custom_label' => null,
+            'block_id'     => $blockId !== '' ? $blockId : 'unnamed',
+            'purpose'      => 'custom_named',
+            'custom_label' => $token,
             'raw_token'    => $token,
         ];
+    }
+
+    /**
+     * AT-262 near-miss detection. Scans raw text for marker-LIKE sequences that did
+     * NOT parse — an agent's first real doc almost always has a few — and says WHY,
+     * so the low/zero-field guard can teach instead of silently dropping them.
+     *
+     * A near-miss is any run bounded by 2+ tildes that is not a valid insertable
+     * token. Two failure classes are named:
+     *   - wrong tilde count (~~Name~~ or ~~~Name~~~ — needs FOUR each side);
+     *   - a disallowed character in the name (only the ~ delimiter is disallowed now,
+     *     so this catches e.g. a stray ~ or a truly empty ~~~~~~~~).
+     *
+     * @return list<array{raw:string, name:string, reason:string}>
+     */
+    public function detectNearMissMarkers(string $text): array
+    {
+        $valid = '/^' . self::ACCEPTED_MARKERS[0]['pattern'] . '$/';
+        $nameClass = '[A-Za-z0-9 _\/()&\'.,:-]';
+
+        // Candidate: 2+ tildes, a (possibly empty) non-tilde run, 2+ tildes.
+        preg_match_all('/~{2,}[^~]{0,120}~{2,}/', $text, $cands);
+
+        $misses = [];
+        $seen = [];
+        foreach ($cands[0] as $raw) {
+            if (preg_match($valid, $raw)) {
+                continue; // a real, accepted marker
+            }
+            if (isset($seen[$raw])) {
+                continue;
+            }
+            $seen[$raw] = true;
+
+            $name = trim(preg_replace('/^~+|~+$/', '', $raw));
+            $lead = strlen($raw) - strlen(ltrim($raw, '~'));
+            $tail = strlen($raw) - strlen(rtrim($raw, '~'));
+
+            if ($lead < 4 || $tail < 4) {
+                $reason = "uses {$lead}/{$tail} tildes — a marker needs FOUR tildes on each side: ~~~~{$name}~~~~";
+            } elseif ($name === '') {
+                $reason = 'is empty — put a field name between the tildes, e.g. ~~~~Seller - Full name~~~~';
+            } else {
+                preg_match_all('/' . $nameClass . '/u', $name, $ok);
+                $bad = preg_replace('/' . $nameClass . '/u', '', $name);
+                $badChars = implode(' ', array_unique(preg_split('//u', $bad, -1, PREG_SPLIT_NO_EMPTY) ?: []));
+                $reason = "the name contains a character that isn't allowed ({$badChars}); allowed: " . self::INSERTABLE_NAME_HUMAN;
+            }
+
+            $misses[] = ['raw' => $raw, 'name' => $name, 'reason' => $reason];
+        }
+
+        return $misses;
     }
 
     /**
