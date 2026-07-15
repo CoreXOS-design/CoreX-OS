@@ -141,7 +141,7 @@
     {{-- ═══════════════════════════════════════════
          FINANCIAL DATA
     ═══════════════════════════════════════════ --}}
-    <div class="ds-status-card mb-6" x-data="{ showFinancialForm: false }">
+    <div class="ds-status-card mb-6" x-data="{ showFinancialForm: false, editId: null }">
         <div class="px-5 py-4">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Financial Data</h3>
@@ -154,125 +154,7 @@
             <div x-show="showFinancialForm" x-transition class="mb-4 p-4 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <form method="POST" action="{{ route('commercial-evaluations.financials.store', $evaluation) }}">
                     @csrf
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Financial Year <span class="text-red-500">*</span></label>
-                            <input type="text" name="financial_year" required placeholder="e.g. 2025"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Period (months)</label>
-                            <input type="number" name="period_months" value="12" min="1" max="24"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                    </div>
-
-                    {{-- Income Section --}}
-                    <h4 class="text-xs font-semibold uppercase tracking-wider mb-2 mt-4" style="color: var(--text-secondary);">Income (ZAR per annum)</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Gross Revenue</label>
-                            <input type="number" step="0.01" name="gross_revenue" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @if($isCommercialOrIndustrial)
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Rental Income</label>
-                            <input type="number" step="0.01" name="rental_income" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                        @if($evaluation->property_type === 'hospitality')
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Room Revenue</label>
-                            <input type="number" step="0.01" name="room_revenue" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Food & Beverage Revenue</label>
-                            <input type="number" step="0.01" name="food_beverage_revenue" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Other Income</label>
-                            <input type="number" step="0.01" name="other_income" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @if($isCommercialOrIndustrial)
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Vacancy Rate (%)</label>
-                            <input type="number" step="0.01" name="vacancy_rate" placeholder="0" min="0" max="100"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                    </div>
-
-                    {{-- Expenses Section --}}
-                    <h4 class="text-xs font-semibold uppercase tracking-wider mb-2 mt-4" style="color: var(--text-secondary);">Operating Expenses (ZAR per annum)</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Rates & Taxes</label>
-                            <input type="number" step="0.01" name="rates_taxes" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Insurance</label>
-                            <input type="number" step="0.01" name="insurance" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Utilities</label>
-                            <input type="number" step="0.01" name="utilities" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Security</label>
-                            <input type="number" step="0.01" name="security" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Maintenance & Repairs</label>
-                            <input type="number" step="0.01" name="maintenance" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Management Fees</label>
-                            <input type="number" step="0.01" name="management_fees" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @if(in_array($evaluation->property_type, ['hospitality', 'agricultural']))
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Salaries & Wages</label>
-                            <input type="number" step="0.01" name="salaries_wages" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Marketing</label>
-                            <input type="number" step="0.01" name="marketing" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @if($evaluation->property_type === 'hospitality')
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Food & Beverage Costs</label>
-                            <input type="number" step="0.01" name="food_beverage_cost" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                        @if($evaluation->property_type === 'agricultural')
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Farm Operating Costs</label>
-                            <input type="number" step="0.01" name="farm_operating_costs" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                        @endif
-                        <div>
-                            <label class="ds-label text-xs block mb-1">Other Expenses</label>
-                            <input type="number" step="0.01" name="other_expenses" placeholder="0"
-                                   class="w-full ds-field rounded-md px-3 py-1.5 text-sm">
-                        </div>
-                    </div>
+                    @include('commercial-evaluations.partials._financial-year-fields', ['fin' => null])
 
                     <div class="flex items-center gap-2 mt-3">
                         <button type="submit" class="corex-btn-primary text-xs">Save Financial Year</button>
@@ -294,6 +176,7 @@
                                 <th class="text-right px-3 py-2 text-xs font-semibold" style="color: var(--text-muted);">Total Expenses</th>
                                 <th class="text-right px-3 py-2 text-xs font-semibold" style="color: var(--text-muted);">NOI</th>
                                 <th class="text-right px-3 py-2 text-xs font-semibold" style="color: var(--text-muted);">EBITDA</th>
+                                <th class="text-right px-3 py-2 text-xs font-semibold" style="color: var(--text-muted);"></th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[color:var(--border)]">
@@ -306,6 +189,24 @@
                                     {{ $formatZar($fin->net_operating_income) }}
                                 </td>
                                 <td class="px-3 py-2 text-right font-mono text-xs">{{ $formatZar($fin->ebitda) }}</td>
+                                <td class="px-3 py-2 text-right">
+                                    <button type="button" @click="editId = (editId === {{ $fin->id }} ? null : {{ $fin->id }})"
+                                            class="text-xs font-medium" style="color: var(--brand-icon, #0ea5e9);">Edit</button>
+                                </td>
+                            </tr>
+                            {{-- Inline edit form — same field set as Add, pre-filled; PUT to updateFinancials --}}
+                            <tr x-show="editId === {{ $fin->id }}" x-cloak>
+                                <td colspan="6" class="px-3 py-3" style="background: var(--surface-2);">
+                                    <form method="POST" action="{{ route('commercial-evaluations.financials.update', [$evaluation, $fin]) }}">
+                                        @csrf
+                                        @method('PUT')
+                                        @include('commercial-evaluations.partials._financial-year-fields', ['fin' => $fin])
+                                        <div class="flex items-center gap-2 mt-3">
+                                            <button type="submit" class="corex-btn-primary text-xs">Update {{ $fin->financial_year }}</button>
+                                            <button type="button" @click="editId = null" class="text-xs" style="color: var(--text-secondary);">Cancel</button>
+                                        </div>
+                                    </form>
+                                </td>
                             </tr>
                             @endforeach
                         </tbody>
