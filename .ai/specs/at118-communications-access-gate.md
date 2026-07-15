@@ -1,7 +1,25 @@
 # CoreX OS — AT-118: Communications Access Gate
 
+> **⚠️ DOCTRINE REVERSAL — Johan's ruling, 2026-07-15 (supersedes the own/branch/all
+> design below for the `branch` tier).** Verbatim: *"bm do not see threads by default.
+> admin and users sees it. bm goes to request access."*
+>
+> Communication THREADS are private to their **owner + admins/owner-role** only. **There
+> is NO branch tier for communications** — a Branch Manager does **not** see an agent's
+> messages by default, regardless of any stored `role_permissions` row. This was fine for
+> operational data (deals/calendar/tasks/outreach, where BM oversight is legitimate), but
+> message *bodies* are qualitatively different, and agents objected.
+>
+> **Implementation:** a code ceiling in `PermissionService::getDataScope()` clamps any
+> resolved `communications` scope of `'branch'` down to `'own'` (admins/owners keep `'all'`
+> via the break-glass). The BM's path to a specific thread is the **request-access valve
+> (Flow A, §below)** — unchanged. This also collapses the BM's compliance-archive *body*
+> view to `'own'`, by design. Data cleanup of stored `branch` rows: `comms:reconcile-thread-scope`
+> (report-first). The own/branch/all text that follows describes the *original* AT-118
+> build and is retained for history; where it says `branch` for communications, read `own`.
+
 **Spec ID:** AT-118
-**Status:** Draft — ready for build (decisions locked)
+**Status:** Draft — ready for build (decisions locked); **branch tier reversed 2026-07-15 (see banner)**
 **Author:** Johan (product owner — requirements) + Claude (senior engineer — implementation)
 **Date:** 2026-06-30
 **Audit basis:** `.ai/audits/2026-06-30-at118-comms-access-gate-audit.md`

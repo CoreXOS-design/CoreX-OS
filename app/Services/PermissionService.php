@@ -230,7 +230,8 @@ class PermissionService
             // Test-suite posture only: the historic role-shaped defaults.
             return match ($role) {
                 'super_admin', 'admin' => 'all',
-                'branch_manager', 'office_admin' => 'branch',
+                // AT-118 reversal (Johan 2026-07-15): no branch tier for communications.
+                'branch_manager', 'office_admin' => $module === 'communications' ? 'own' : 'branch',
                 default => 'own', // agent, viewer, etc.
             };
         }
@@ -251,6 +252,20 @@ class PermissionService
                 return $split ? 'branch' : 'all';
             }
             return 'all';
+        }
+
+        // AT-118 REVERSAL — CODE CEILING (Johan's ruling, 2026-07-15): "bm do not see
+        // threads by default. admin and users sees it. bm goes to request access."
+        // Communication THREADS are private to their owner + admins. There is NO
+        // branch tier for communications — a Branch Manager does not see an agent's
+        // messages, regardless of any stored role_permissions row that says 'branch'
+        // (the original AT-118 own/branch/all design, now reversed). Admins/owners
+        // already returned 'all' above via the break-glass. This ceiling forces any
+        // resolved 'branch' comms scope down to 'own'; the BM's path to a specific
+        // thread is the AT-118/132 request-access valve (unchanged). This also
+        // collapses the BM's compliance-archive body view to 'own', by design.
+        if ($module === 'communications' && $stored === 'branch') {
+            return 'own';
         }
 
         return $stored;
