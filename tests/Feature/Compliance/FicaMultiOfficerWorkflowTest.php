@@ -221,4 +221,86 @@ final class FicaMultiOfficerWorkflowTest extends TestCase
         // An RO (Falan/mlro) is NOT the primary CO → the CO station is not theirs: 0.
         $this->assertSame(0, $m->invoke($svc, $this->mlro, $this->agencyId)['count']);
     }
+
+    // ── 4. AT-269 — no-recipient block, re-route, station enforcement ──────
+
+    /** With NO active CO, escalation is blocked BEFORE any state change (no orphan). */
+    public function test_refer_is_blocked_when_no_compliance_officer_is_designated(): void
+    {
+        // End the only CO so the agency has no active primary/recipient.
+        FicaOfficerAppointment::where('agency_id', $this->agencyId)->primary()
+            ->update(['ended_on' => now()->subDay()->toDateString()]);
+        $this->assertNull(app(FicaReferralService::class)->resolveRecipient($this->agencyId));
+
+        $sub = $this->submission($this->agent->id, 'submitted');
+
+        $resp = $this->actingAs($this->agent)
+            ->from(route('compliance.fica.show', $sub))
+            ->post(route('compliance.fica.refer-to-co', $sub), ['referral_note' => 'needs CO sign-off']);
+
+        $resp->assertSessionHasErrors('refer');
+        // The pack did NOT move — it is not stranded in referred_to_co.
+        $this->assertSame('submitted', $sub->fresh()->status);
+        $this->assertDatabaseMissing('fica_status_history', [
+            'fica_submission_id' => $sub->id, 'action' => 'referred_to_co',
+        ]);
+    }
+
+    /** Ending the recipient CO auto-returns open referrals to their referrer (no orphan). */
+    public function test_ending_the_only_co_returns_open_referrals_to_the_referrer(): void
+    {
+        $sub = $this->submission($this->agent->id, 'referred_to_co');
+        $sub->update(['referred_by' => $this->agent->id, 'referred_at' => now(), 'referral_note' => 'escalated']);
+
+        // No CO remains after this.
+        app(FicaReferralService::class)->reconcileOpenReferrals($this->agencyId); // recipient still exists → re-route (no state change)
+        $this->assertSame('referred_to_co', $sub->fresh()->status);
+
+        FicaOfficerAppointment::where('agency_id', $this->agencyId)->primary()
+            ->update(['ended_on' => now()->subDay()->toDateString()]);
+
+        $summary = app(FicaReferralService::class)->reconcileOpenReferrals($this->agencyId);
+
+        $this->assertSame(1, $summary['returned']);
+        $this->assertSame('corrections_requested', $sub->fresh()->status);
+        $this->assertDatabaseHas('fica_status_history', [
+            'fica_submission_id' => $sub->id, 'action' => 'referral_auto_returned',
+        ]);
+    }
+
+    /** Appointing a new primary re-routes the open referral to them (idempotent for the incumbent). */
+    public function test_new_primary_reroutes_open_referrals(): void
+    {
+        $sub = $this->submission($this->agent->id, 'referred_to_co');
+        $sub->update(['referred_by' => $this->agent->id, 'referred_at' => now(), 'referral_note' => 'escalated']);
+
+        $newPrimary = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'super_admin']);
+        $this->appoint($newPrimary, FicaOfficerAppointment::ROLE_PRIMARY); // booted() ends the old primary
+
+        $summary = app(FicaReferralService::class)->reconcileOpenReferrals($this->agencyId);
+
+        // Still owned by a CO → re-routed, not returned; state preserved.
+        $this->assertSame(1, $summary['rerouted']);
+        $this->assertSame('referred_to_co', $sub->fresh()->status);
+        $this->assertSame($newPrimary->id, app(FicaReferralService::class)->resolveRecipient($this->agencyId)->id);
+    }
+
+    /** P2-49 — a secondary officer cannot decide a referred pack, even by POSTing directly. */
+    public function test_secondary_officer_cannot_approve_a_referred_pack(): void
+    {
+        $sub = $this->submission($this->agent->id, 'referred_to_co');
+        $sub->update(['referred_by' => $this->agent->id, 'referred_at' => now()]);
+
+        // The MLRO is a CO but NOT the recipient/primary → station is not theirs.
+        $this->assertFalse(app(FicaReferralService::class)->isReferralStationOwner($sub, $this->mlro));
+
+        $this->actingAs($this->mlro)
+            ->post(route('compliance.fica.compliance-approve', $sub), [])
+            ->assertForbidden();
+
+        $this->assertSame('referred_to_co', $sub->fresh()->status);
+
+        // The primary CO (the recipient) IS the station owner.
+        $this->assertTrue(app(FicaReferralService::class)->isReferralStationOwner($sub, $this->primaryCo));
+    }
 }

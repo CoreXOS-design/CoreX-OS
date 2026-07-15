@@ -113,6 +113,16 @@
             {{-- TFS Screening Panel --}}
             @include('compliance.fica.partials.tfs-panel', ['submission' => $submission])
 
+            {{-- AT-269 (P2-49) — a REFERRED pack is the station of its recipient / the
+                 primary CO only. Any other officer sees why it is read-only, not a row
+                 of buttons that would 403. Non-referred packs (RO station) are unchanged. --}}
+            @if($submission->status === 'referred_to_co' && ! ($viewerOwnsReferralStation ?? false))
+                <div class="bg-amber-50 border border-amber-300 p-5 text-sm text-amber-800">
+                    <strong>Awaiting the Compliance Officer’s decision.</strong>
+                    This FICA was escalated and can only be decided by the Compliance Officer it was referred to.
+                    You can review the details above, but the approve, return and reject actions are theirs.
+                </div>
+            @else
             {{-- Approve Form --}}
             <form method="POST" action="{{ route('compliance.fica.compliance-approve', $submission) }}" @submit.prevent="submitApproval">
                 @csrf
@@ -189,12 +199,14 @@
                     <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition" onclick="return confirm('Are you sure?')">Reject</button>
                 </div>
             </form>
+            @endif
 
             {{-- AT-236 — Escalate to CO (any non-primary-CO reviewer, e.g. an RO who cannot self-approve) --}}
             @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
 
-            {{-- AT-236 — CO returns a REFERRED pack to whoever referred it, with comments --}}
-            @if($submission->status === 'referred_to_co')
+            {{-- AT-236 — CO returns a REFERRED pack to whoever referred it, with comments.
+                 AT-269 — station-owner only, matching the server guard. --}}
+            @if($submission->status === 'referred_to_co' && ($viewerOwnsReferralStation ?? false))
                 <form method="POST" action="{{ route('compliance.fica.return-to-referrer', $submission) }}">
                     @csrf
                     <div class="bg-white border border-slate-200 p-5">
