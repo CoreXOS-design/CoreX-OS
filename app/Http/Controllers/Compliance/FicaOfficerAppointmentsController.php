@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\User;
+use App\Services\Compliance\FicaReferralService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -52,6 +53,10 @@ class FicaOfficerAppointmentsController extends Controller
             'appointment_letter_path' => $letterPath,
             'notes'                  => $validated['notes'],
         ]);
+
+        // AT-269 — the CO who receives referrals just changed: re-route any open
+        // escalations to the new recipient (or return them if none now resolves).
+        app(FicaReferralService::class)->reconcileOpenReferrals((int) $agencyId);
 
         return back()->with('success', "{$validated['full_name']} appointed as Primary Compliance Officer.")
             ->with('tab', 'user');
@@ -110,6 +115,9 @@ class FicaOfficerAppointmentsController extends Controller
             ]);
         }
 
+        // AT-269 — an MLRO may be the configured referral recipient; re-resolve.
+        app(FicaReferralService::class)->reconcileOpenReferrals((int) $agencyId);
+
         return back()->with('success', 'MLROs updated.')
             ->with('tab', 'user');
     }
@@ -122,6 +130,10 @@ class FicaOfficerAppointmentsController extends Controller
         abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
 
         $appointment->update(['ended_on' => now()->toDateString()]);
+
+        // AT-269 — ending an officer may leave open referrals without a recipient;
+        // re-route to whoever now resolves, or return them to their referrers.
+        app(FicaReferralService::class)->reconcileOpenReferrals((int) $appointment->agency_id);
 
         return back()->with('success', "{$appointment->full_name}'s appointment ended.")
             ->with('tab', 'user');
@@ -158,6 +170,9 @@ class FicaOfficerAppointmentsController extends Controller
         }
 
         \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->update($update);
+
+        // AT-269 — the referral recipient may have just changed; re-route open packs.
+        app(FicaReferralService::class)->reconcileOpenReferrals((int) $agencyId);
 
         return back()->with('success', 'Refer-to-CO settings saved.')->with('tab', 'user');
     }

@@ -110,6 +110,8 @@ class NotificationEventTypeSeeder extends Seeder
 
             // AT-236 — Refer-to-CO. In-app + email (the class has toArray + toMail).
             $this->row('fica.referred_to_co', 'contact', 'Compliance', 'FICA referred to you (Compliance Officer)', 'none', null, null, null, 40, false, null, inApp: true, email: true, push: false),
+            // AT-269 — a referral was returned to its referrer (by the CO, or auto when the CO designation changed).
+            $this->row('fica.referral_returned', 'contact', 'Compliance', 'FICA referral returned to you', 'none', null, null, null, 41, false, null, inApp: true, email: true, push: false),
 
             // AT-265 — the permission system is unavailable (role_permissions empty → every
             // non-owner denied). In-app + email so it reaches an owner who is not at a screen; no
