@@ -429,3 +429,49 @@ re-send a fresh ceremony. So parking HD-12 leaves no regression, only an un-buil
   InsertableBlockRenderer), so it carries a `tests/Feature/Docuperfect/SigningView/` diff duty.
 - On all-party initial → `revived` + new `legal_deadline_at` (stampLegalDeadline already refuses to
   overwrite a set deadline, so revival owns it cleanly).
+
+---
+
+## ⏸ PARKED — E-SIGN FULLY PAUSED (Johan, 2026-07-15, usage-cap protection)
+
+No further e-sign work until Johan lifts this. Weekly-cap protection: dev stops at 90%, budget
+reserved for fixes. Everything below is on `origin/QA1` (QA host only — nothing on Staging/live).
+
+### Landed this phase (QA1)
+HD-1 property-link recipients · HD-2 web-pack slot resolver (+ECTA hole closed) · HD-3 picker +
+D-1 (web-pack IS the spine) · HD-3b compose-sales-mandate-pack command · HD-4 amount-in-words
+(rand-rounded, "always with the and") · HD-5/6 group checkpoints + mandate order · HD-7 per-document
+distribution (+POPIA guard) · HD-8 tracker "for how long" · HD-9/10/11 Track C lapse spine
+(deadline + hard block + recorded sweeper). AT-265 (fail-closed) + reconcile evidence pack also this
+session.
+
+### REMAINING when resumed
+- **HD-12** — strike-and-fill extension → revival. The 4 lapse states are already in the enum
+  (HD-9 migration); `stampLegalDeadline()` already refuses to overwrite so revival owns the deadline
+  cleanly. Rides `requeueAllPartiesForInitialing()` (all-party initial, FIXED not configurable,
+  §11-A.2). Touches the pipeline-gated signing surface (visible strike-and-fill) → carries a
+  `tests/Feature/Docuperfect/SigningView/` diff duty. Fresh multi-file block.
+- **HD-13** — evidence report. A READ over the immutable SignatureAuditLog, including the
+  `ceremony_lapsed` rows HD-11 now writes. Reachable from the tracker row + owning deal/listing;
+  auto-generates on lapse.
+- **D-2** (parked) — `esign_checkpoint_mode` setting; owes the onboarding-wizard obligation (#10a).
+  Mandatory default is correct, nothing blocked.
+
+### PACK DECISIONS — Johan's rulings (2026-07-15), apply when e-sign resumes
+- **FICA → COMPLIANCE FLOW (chosen).** The pack's FICA is handled via the FICA Compliance module
+  (Schedule 4-7), NOT a DocuPerfect template slot. So the Sales Mandate Pack has **no FICA slot** —
+  `compose-sales-mandate-pack` already composes without one, correctly. **Future enhancement:** a
+  wet-ink-upload-AT-THE-GATE step (upload the applicable FICA at the compliance gate) — spec when
+  resumed.
+- **Open mandate = a SEPARATE source doc Johan supplies.** Not a clause-variant of the EATS. Until
+  he provides it, the Mandate slot carries only the Exclusive variant (command folds Open in on a
+  re-run once its template exists).
+- **Exclusive candidate = Johan's OWN re-import** through the corrected builder when e-sign resumes
+  (not #69, not the static #111 seeder).
+- **FFC warranty clause = awaiting attorney wording** (the EATS source carries the explicit
+  "Johan to insert verbatim statutory text" placeholder). Hard content gap; production-blocks the
+  mandate template until supplied.
+
+### RESUME ENTRY POINT
+Branch `esign-phase1` (tracks `origin/QA1`). Pick up at HD-12, or wire the pack once Johan supplies
+the Open source + re-imports the Exclusive. Everything green; no half-built state.
