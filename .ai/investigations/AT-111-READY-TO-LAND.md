@@ -41,15 +41,19 @@ AT-112 gating, and the reverse-direction test (`ViewingPackCalendarPermissionTes
 - My payload/panel: the `linked_viewing_pack` shape was tinker-verified on my
   original build; the payload code is unchanged by the merge.
 
-## Flags for the other lane to confirm (their methods)
-- `updateAppointment` syncs the `subject_property` LINK set but does **not** update
-  the scalar `calendar_events.property_id` ("primary"). Fine for multi-property
-  viewing events (the panel reads `linked_properties`); a single-property consumer
-  would see a stale primary. Confirm intended.
-- `launchFromEvent` resolves the buyer via `Contact::findOrFail` — `Contact` carries
-  Branch/ContactScope, so a legitimately cross-branch linked buyer 404s. The
-  calendar's own panel resolves linked contacts with `withoutGlobalScopes`; consider
-  matching that here.
+## Two known bugs FIXED in the kept methods (QA1 `0ab243d3`)
+- `updateAppointment` now updates the scalar `calendar_events.property_id` (first in
+  drag order) **as well as** the `subject_property` link set — the event "primary"
+  no longer goes stale on single-property surfaces. Verified: `event.property_id` =
+  first ordered property.
+- `launchFromEvent` resolves the buyer via `Contact::withoutGlobalScopes()->find()`
+  + agency-verify (the id comes from the event itself; a linked buyer may sit outside
+  the agent's branch — matches the calendar panel). Replaces the branch-scoped
+  `Contact::findOrFail` that 404'd a cross-/null-branch buyer.
+
+Re-verified end-to-end on QA1 (tinker, rolled back): launch (cross-branch buyer) →
+create; re-launch → open (1 pack); update → `[p2,p1]` drag order + `property_id=p2`;
+payload count=2.
 
 ## Deliberately NOT in scope
 AT-112 permission gating is the other lane's ticket (landed). Agent-sheet/buyer-pack
