@@ -346,21 +346,34 @@ class OnboardingPortalController extends Controller
             return null;
         }
 
-        P24ImportRow::whereIn('id', $rows->pluck('id'))->update([
+        $ids = $rows->pluck('id');
+        P24ImportRow::whereIn('id', $ids)->update([
             'processing_at'          => now(),
             'confirmed_via'          => 'portal',
             'confirmed_by_portal_id' => $portal->id,
         ]);
 
-        return Bus::batch(
-            $rows->map(fn ($row) => new ConfirmP24PropertyRowJob($row->id, null))->all()
-        )
-            ->name("p24-import-portal-{$portal->id}")
-            ->onQueue('p24import')
-            // One rate-limited gallery must not fail the whole import — each row
-            // heals independently on its own retries.
-            ->allowFailures()
-            ->dispatch();
+        try {
+            return Bus::batch(
+                $rows->map(fn ($row) => new ConfirmP24PropertyRowJob($row->id, null))->all()
+            )
+                ->name("p24-import-portal-{$portal->id}")
+                ->onQueue('p24import')
+                // One rate-limited gallery must not fail the whole import — each row
+                // heals independently on its own retries.
+                ->allowFailures()
+                ->dispatch();
+        } catch (\Throwable $e) {
+            // The rows were stamped `processing_at` up front, but the batch never
+            // dispatched (e.g. a serialization/config error). Un-stamp them so
+            // they don't sit orphaned as "processing" forever — `confirmAllFiltered`
+            // filters on whereNull('processing_at'), so a stale stamp would make a
+            // row permanently un-re-importable. Re-throw so the caller surfaces the
+            // failure instead of a silent no-op. (This is the exact trap that left
+            // 506 rows stuck when the Batchable bug threw here — AT/2026-07-17.)
+            P24ImportRow::whereIn('id', $ids)->update(['processing_at' => null]);
+            throw $e;
+        }
     }
 
     public function finish(Request $request)
