@@ -773,21 +773,10 @@
             <div class="px-3.5 py-3 flex flex-col flex-1">
 
                 @php
-                    $addrParts = [];
-                    if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
-                    if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
-                    if (!empty($property->street_number) && !empty($property->street_name)) {
-                        $addrParts[] = $property->street_number . ' ' . $property->street_name;
-                    } elseif (!empty($property->street_name)) {
-                        $addrParts[] = $property->street_name;
-                    } elseif (!empty($property->address)) {
-                        $addrParts[] = $property->address;
-                    }
-                    if (!empty($property->suburb)) $addrParts[] = $property->suburb;
-                    if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
-                        $addrParts[] = $property->city;
-                    }
-                    $addrLine = count($addrParts) ? implode(', ', $addrParts) : null;
+                    // AT-266 — one canonical display address (Property::buildDisplayAddress).
+                    // This block used to re-implement it inline; the model method is the
+                    // single source so every list, card and pitch reads the same address.
+                    $addrLine = $property->buildDisplayAddress();
                 @endphp
 
                 {{-- Address (primary — an agent recognises the address first) --}}
