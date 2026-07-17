@@ -617,8 +617,11 @@ Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin
     Route::post('/rows/{row}/resolve-agent', [\App\Http\Controllers\Admin\ImporterController::class, 'resolveAgentRow'])->name('row.resolve-agent');
     Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmBulk'])->name('rows.bulk-confirm');
     Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeBulk'])->name('rows.bulk-exclude');
-    Route::post('/agents/{user}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
-    Route::post('/runs/{run}/invite-all', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAllInvites'])->name('invite.all');
+    // Agent invites — the last step of onboarding, driven from the Property
+    // Onboarding review page once an agency's properties are in. Deliberately
+    // agency-scoped, not run-scoped: see ImporterController::sendAgencyInvites.
+    Route::post('/agents/{userId}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
+    Route::post('/agencies/{agency}/invite-agents', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAgencyInvites'])->name('agency.invite-agents');
 
     // Onboarding portals — admin management
     Route::post('/portals', [\App\Http\Controllers\Admin\ImporterController::class, 'createPortal'])->name('portal.create');

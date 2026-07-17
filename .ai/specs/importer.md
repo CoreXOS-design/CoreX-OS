@@ -67,8 +67,11 @@ Join key: `ListingNumber` → matches `Listings.ListingNumber`.
 - All imported agents are created with `is_active = false` (inactive) regardless of their P24 `Status` — the admin explicitly activates them by sending an invite.
 - No password set; `password` column gets a random unusable hash.
 - Role defaulted to `agent`.
-- After import, the preview/run detail shows each agent with a **Send Invite** button (and a **Send All Invites** bulk action). Invite = signed email link → set-password screen → on completion `is_active` flips to true and `email_verified_at` is set.
+- Invites are **not** sent from the import flow. They are the **last step of onboarding** and are sent per-agency from the Property Review page — see §5.2 `review.blade.php` → *Agents*. Rationale (2026-07-17): an agent invited mid-import lands in a CoreX with no properties in it. Invites go out once the agency's stock is in, so the first thing an agent sees on login is their own listings.
+- Invite = signed email link → set-password screen → on completion `is_active` flips to true and `email_verified_at` is set.
 - Invites use Laravel's password-reset/`Notification` system with a custom `AgentInviteNotification` subject "Welcome to CoreX OS — set your password".
+- `users.invited_at` records the last invite sent. Stamped by `SendAgentInviteJob` **after** the notification is handed to the mailer — never at dispatch time, so a failed send does not mark an agent invited. It is the single choke point for both the bulk and per-agent paths, so the two can never disagree about who has been invited.
+- Agent invite state is derived, not stored: `is_active` → **Active**; `invited_at` set and inactive → **Invited**; neither → **Not invited**.
 - Agents must exist in `users` **before** the listings pass runs, so that listings can resolve `agent_id` by `p24_agent_id` lookup.
 
 ### 4.2 Listings CSV → `properties` table
@@ -148,6 +151,8 @@ Layout:
 **`show.blade.php` — Run detail (post-import)**
 Read-only view of a completed run: counts, per-row outcomes, download failures, links to created records.
 
+Carries **no invite actions** — an agents run detail instead states that the agents were imported inactive and links to Property Onboarding, where invites are sent as the last step. The page is a record of what the import did, not a place to act.
+
 **`review.blade.php` — Property Review Queue (persistent, standalone)**
 Sidebar entry: **Admin → Importer → Property Review** (own nav link, route `admin.importer.review`).
 
@@ -169,6 +174,22 @@ Layout:
 - Confirming a row triggers the same write path as bulk confirm (transactional): creates/updates `properties`, downloads any pending images, links `agent_id`, writes `images_json`, marks row `confirmed`.
 - Excluding a row soft-marks it (`excluded=true`); nothing is written to `properties`. Can be un-excluded later.
 - Empty state: "No listings pending review. Start a new import from Admin → Importer."
+
+**Agents section (per agency card) — the last step of onboarding** *(added 2026-07-17)*
+
+This is the ONLY place agent invites are sent. It sits below the portal block on each agency card, because it is the step that follows the properties being in.
+
+- **Scope is the agency, not the run.** Covers every agent imported for that agency across *all* its agent runs — an agency imported over two runs is still one agency to the person pressing the button, and they should not need to know which run an agent arrived in. Sourced from `p24_import_rows` (`row_type=agent`, `status=confirmed`, `target_id` not null) so the list means "agents we imported", not "agents that exist" — an agent the agency added by hand afterwards is not ours to invite.
+- **Count strip:** Imported / Not invited / Invited / Active.
+- **`Send invite links (N)`** — one press, sends to every **Not invited** agent. N is the pending count, so the button never overstates what it will do.
+- **Safe to press twice.** Already-invited and already-active agents are skipped and reported back concretely: *"Invites queued for 12 agents. Skipped 3 already invited and 2 already active."* Re-sending is a deliberate per-agent decision, never a side effect of a second press.
+- **Expandable agent list** — per agent: name, email, state badge, and a **Send invite** / **Re-send** button. This is the bounced-email path: chase one agent without re-mailing the agency.
+- Bulk sends are logged to the agency's Activity history as `agents.invites_sent` with `{sent, skipped_invited, skipped_active, skipped_no_email, total_imported}`. `portal_id` is null — the event belongs to the agency, not to a portal.
+- **Prevent-or-absorb:** the button is only rendered when there is something to send (prevent); the controller ALSO handles a press with nothing to send by reporting why, never an error (absorb). Both, because the page is a form and a stale tab can post either way.
+
+**Tenancy — non-obvious and load-bearing.** `User`, `P24ImportRun`, `P24OnboardingPortal` and `P24PortalEvent` are all tenant-scoped, and `AgencyScope`/`BranchScope` resolve against the **viewing owner's own** agency. They no-op for an owner *only* while `session('active_agency_id')` is unset — the moment an owner uses the agency switcher, a scoped query returns an empty set and this page silently reports "no agents" for an agency that has twenty, with no error to explain it. Every cross-agency query on this page therefore drops those scopes explicitly (`withoutGlobalScope`). SoftDeletes is deliberately left ON, so an archived agent drops out of the list and the counts. Covered by `AgentInviteFromReviewTest::test_invites_still_work_when_the_owner_has_switched_into_another_agency`.
+
+**Queueing.** Bulk invites `dispatch()` (never `dispatchSync`) — an agency with 40 agents means 40 SMTP round trips, which would time out the request. `SendAgentInviteJob` carries an explicit `$timeout` for the same reason `SyncAgentToP24Job` needed one. Consequence: **QA sites have no queue worker**, so the invite flow gets its first real QA on Staging, not on QA1/QA2. The flash message says "queued" vs "sent" based on `config('queue.default')` rather than claiming a send that has not happened.
 
 Persistence: rows live in `listing_import_rows` with `row_type=listing`, `status` one of `pending|confirmed|excluded|error`. The review screen simply queries this table — admin can close and re-open any time.
 
@@ -214,7 +235,10 @@ Columns on `p24_import_rows`:
 
 ### 6.2 New migration
 - `users`: add `p24_agent_id` (int, nullable, index), `source_reference` (string, nullable).
+- `users`: add `invited_at` (timestamp, nullable) — last agent invite sent. Without it there is no way to tell an already-invited agent from a never-invited one, so a second press of the bulk button would re-mail the whole agency. *(2026-07-17)*
 - `properties`: add `p24_listing_number` (string, nullable, index) if not present.
+
+> `users.email` is **NOT NULL + UNIQUE**. The only representable "no contact address" state is the empty string, so invite guards test `blank()`, not `=== null`.
 
 All schema changes via new migrations, never edit historical ones.
 
@@ -228,10 +252,7 @@ The importer is **sequential and enforced in two stages** — agents must be imp
 1. Admin opens **Admin → Importer**, picks Target Agency.
 2. Uploads `*-export-agents.csv`. Server parses, validates, shows preview.
 3. Admin confirms. Job creates all agents in `users` as **inactive** (`is_active=false`, no password), downloads profile photos, stores `p24_agent_id` + `source_reference`.
-4. Run detail page shows all imported agents with:
-   - Per-row **Send Invite** button
-   - **Send All Invites** bulk action at top
-5. Agent receives email → sets password → account flips to active.
+4. Run detail page shows all imported agents and their outcomes. **No invites are sent here** — the agents sit inactive and un-emailed until Stage 3.
 
 ### Stage 2 — Listings + Images
 6. Admin returns to **Admin → Importer** (or is auto-advanced from Stage 1 completion).
@@ -243,7 +264,13 @@ The importer is **sequential and enforced in two stages** — agents must be imp
     - Downloads images per `ListingNumber` in order, writes `images_json`.
 11. Run marked `completed`; listings now live under their agent's name and under Properties.
 
-*Agents activation (invite → password set) can happen in parallel with Stage 2 — a listing can be assigned to an inactive agent; it becomes visible in their dashboard the moment they activate.*
+### Stage 3 — Invite the agents (last step) *(2026-07-17)*
+12. Admin opens **Admin → Importer → Property Onboarding** (`admin.importer.review`). The agency's card appears here once it has listings (or a portal) — properties first, by construction.
+13. The card's **Agents** section shows Imported / Not invited / Invited / Active.
+14. Admin presses **Send invite links (N)** → every not-yet-invited agent is queued an invite. Already-invited and already-active agents are skipped and reported. A bounced individual is chased with the per-agent **Re-send**.
+15. Agent receives email → sets password → `is_active` flips to true and the card's Active count rises.
+
+*A listing can be assigned to an inactive agent; it becomes visible in their dashboard the moment they activate. The ordering is deliberate: an agent invited before Stage 2 logs into an empty CoreX, which is the first impression we get exactly once.*
 
 ---
 
@@ -291,7 +318,10 @@ Sidebar entry gated by `@can('admin.importer')`. Route middleware `can:admin.imp
 ## 11. Files to Create / Modify
 
 **New**
-- `app/Http/Controllers/Admin/ImporterController.php` (index, parseAgents, parseListings, preview, confirm, show, cancel, sendInvite, sendAllInvites)
+- `app/Http/Controllers/Admin/ImporterController.php` (index, parseAgents, parseListings, preview, confirm, show, cancel, review, sendInvite, sendAgencyInvites)
+  - `sendAllInvites(P24ImportRun $run)` / route `admin.importer.invite.all` — **REMOVED 2026-07-17**, replaced by `sendAgencyInvites(Agency $agency)` / route `admin.importer.agency.invite-agents`.
+- `database/migrations/2026_07_17_120000_add_invited_at_to_users_table.php`
+- `tests/Feature/Importer/AgentInviteFromReviewTest.php` — invite move + skip logic + agency-switcher tenancy regression
 - `app/Notifications/AgentInviteNotification.php`
 - `app/Services/Importer/P24AgentsCsvParser.php`
 - `app/Services/Importer/P24ListingsCsvParser.php`

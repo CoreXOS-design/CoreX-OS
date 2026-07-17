@@ -11,6 +11,8 @@ use App\Models\P24ImportRow;
 use App\Models\P24ImportRun;
 use App\Models\P24OnboardingPortal;
 use App\Models\P24PortalEvent;
+use App\Models\Scopes\AgencyScope;
+use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Notifications\OnboardingPortalInvitation;
 use App\Services\Importer\P24AgentsCsvParser;
@@ -329,10 +331,12 @@ class ImporterController extends Controller
     public function review(Request $request)
     {
         // Agencies that either have at least one listing row OR an existing portal
-        $agencyIdsWithRows = P24ImportRun::where('kind', 'listings_images')
+        $agencyIdsWithRows = P24ImportRun::withoutGlobalScope(AgencyScope::class)
+            ->where('kind', 'listings_images')
             ->whereNotNull('agency_id')
             ->distinct()->pluck('agency_id');
-        $agencyIdsWithPortals = P24OnboardingPortal::whereNull('deleted_at')
+        $agencyIdsWithPortals = P24OnboardingPortal::withoutGlobalScope(AgencyScope::class)
+            ->whereNull('deleted_at')
             ->distinct()->pluck('agency_id');
         $agencyIds = $agencyIdsWithRows->merge($agencyIdsWithPortals)->unique()->filter()->values();
 
@@ -341,7 +345,7 @@ class ImporterController extends Controller
         $cards = $agencies->map(function (Agency $agency) {
             $rowQ = P24ImportRow::query()
                 ->where('row_type', 'listing')
-                ->whereHas('run', fn($r) => $r->where('agency_id', $agency->id));
+                ->whereHas('run', fn($r) => $r->withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id));
 
             $counts = [
                 'pending'    => (clone $rowQ)->where('status', 'pending')->whereNull('processing_at')->count(),
@@ -352,21 +356,79 @@ class ImporterController extends Controller
                 'total'      => (clone $rowQ)->count(),
             ];
 
-            $portals = P24OnboardingPortal::where('agency_id', $agency->id)
+            $portals = P24OnboardingPortal::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)
                 ->orderByDesc('id')->limit(10)->get();
 
-            $events = P24PortalEvent::where('agency_id', $agency->id)
+            $events = P24PortalEvent::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)
                 ->orderByDesc('id')->limit(25)->get();
 
+            $agents = $this->importedAgents($agency);
+
             return [
-                'agency'  => $agency,
-                'counts'  => $counts,
-                'portals' => $portals,
-                'events'  => $events,
+                'agency'      => $agency,
+                'counts'      => $counts,
+                'portals'     => $portals,
+                'events'      => $events,
+                'agents'      => $agents,
+                'agentCounts' => $this->agentInviteCounts($agents),
             ];
         });
 
         return view('admin.importer.review', compact('cards'));
+    }
+
+    /**
+     * Every agent CoreX imported for this agency, across every agent run it
+     * has ever had — an agency imported over two runs still gets one list.
+     *
+     * Sourced from the import rows rather than `users.role = 'agent'` so the
+     * list means "agents we imported", not "agents that exist". An agent the
+     * agency added by hand afterwards is not ours to invite.
+     *
+     * Unscoped deliberately: the importer is owner-only and spans agencies,
+     * but AgencyScope/BranchScope resolve against the *viewing* owner's own
+     * agency. They no-op for an owner until they use the agency switcher —
+     * at which point a scoped query silently returns an empty list and the
+     * page reports "no agents" for an agency that has twenty. SoftDeletes is
+     * left on, so an archived agent drops out of the list and the counts.
+     */
+    private function importedAgents(Agency $agency): \Illuminate\Support\Collection
+    {
+        $userIds = P24ImportRow::query()
+            ->where('row_type', 'agent')
+            ->where('status', 'confirmed')
+            ->whereNotNull('target_id')
+            ->whereHas('run', fn($r) => $r->withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id))
+            ->pluck('target_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($userIds->isEmpty()) {
+            return collect();
+        }
+
+        return User::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
+            ->whereIn('id', $userIds)
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * The three states that drive both the card and the bulk button's skip
+     * logic. `active` = already set a password via a previous invite;
+     * `invited` = invite sent, not yet accepted; `pending` = never invited.
+     */
+    private function agentInviteCounts(\Illuminate\Support\Collection $agents): array
+    {
+        return [
+            'total'   => $agents->count(),
+            'active'  => $agents->filter(fn(User $u) => (bool) $u->is_active)->count(),
+            'invited' => $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at !== null)->count(),
+            'pending' => $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at === null)->count(),
+        ];
     }
 
     public function createPortal(Request $request)
@@ -533,24 +595,112 @@ class ImporterController extends Controller
         return response()->json(['ok' => true, 'count' => count($ids)]);
     }
 
-    public function sendInvite(User $user)
+    /**
+     * Invite one agent — the "chase the bounced one" path.
+     *
+     * Bound by raw id, not by `User $user`: implicit route-model binding
+     * resolves through AgencyScope, so an owner who has switched agencies
+     * would get a 404 on an agent that plainly exists on the page in front
+     * of them.
+     */
+    public function sendInvite(Request $request, int $userId)
     {
-        SendAgentInviteJob::dispatchSync($user->id);
-        return back()->with('status', "Invite sent to {$user->email}");
+        $user = User::withoutGlobalScopes([AgencyScope::class, BranchScope::class])->find($userId);
+
+        if (!$user) {
+            return back()->with('error', 'That agent no longer exists — they may have been archived since this page loaded.');
+        }
+
+        if (blank($user->email)) {
+            return back()->with('error', "{$user->name} has no email address on file, so there is nowhere to send an invite.");
+        }
+
+        $resend = $user->invited_at !== null;
+        SendAgentInviteJob::dispatch($user->id);
+
+        return back()->with('status', $this->inviteVerb(1) . ' for ' . $user->email . ($resend ? ' (re-sent).' : '.'));
     }
 
-    public function sendAllInvites(P24ImportRun $run)
+    /**
+     * Send invite links to every agent imported for this agency — the last
+     * step of onboarding, once their properties are in.
+     *
+     * Agency-scoped rather than run-scoped: an agency imported over two agent
+     * runs is still one agency to the person pressing the button, and they
+     * should not have to know which run an agent arrived in.
+     *
+     * Safe to press twice. Agents who already accepted an invite (`is_active`)
+     * or already hold an unaccepted one (`invited_at`) are skipped and
+     * reported, so a second press chases only the genuinely uninvited rather
+     * than re-mailing the whole agency. Re-sending is a per-agent decision.
+     */
+    public function sendAgencyInvites(Request $request, Agency $agency)
     {
-        abort_if($run->kind !== 'agents', 400);
-        $userIds = $run->rows()
-            ->where('row_type', 'agent')
-            ->where('status', 'confirmed')
-            ->whereNotNull('target_id')
-            ->pluck('target_id');
-        foreach ($userIds as $uid) {
-            SendAgentInviteJob::dispatchSync((int)$uid);
+        $agents = $this->importedAgents($agency);
+        $counts = $this->agentInviteCounts($agents);
+
+        $sendable = $agents->filter(
+            fn(User $u) => !$u->is_active && $u->invited_at === null && filled($u->email)
+        );
+
+        // Absorb rather than reject: nothing to do is a normal end-state here,
+        // not an error. Tell them why the press did nothing.
+        if ($sendable->isEmpty()) {
+            $why = match (true) {
+                $counts['total'] === 0 => 'No agents have been imported for ' . $agency->name . ' yet.',
+                $counts['pending'] === 0 => 'Every imported agent for ' . $agency->name . ' has already been invited or is already active.',
+                default => 'No agent for ' . $agency->name . ' has an email address on file.',
+            };
+            return back()->with('status', $why);
         }
-        return back()->with('status', 'Invites sent to ' . count($userIds) . ' agents.');
+
+        foreach ($sendable as $agent) {
+            SendAgentInviteJob::dispatch($agent->id);
+        }
+
+        $noEmail = $agents->filter(fn(User $u) => !$u->is_active && $u->invited_at === null && blank($u->email))->count();
+
+        $skips = collect([
+            $counts['invited'] ? $counts['invited'] . ' already invited' : null,
+            $counts['active'] ? $counts['active'] . ' already active' : null,
+            $noEmail ? $noEmail . ' with no email address' : null,
+        ])->filter();
+
+        P24PortalEvent::log([
+            'portal_id'   => null,
+            'agency_id'   => $agency->id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'agents.invites_sent',
+            'meta_json'   => [
+                'sent'            => $sendable->count(),
+                'skipped_invited' => $counts['invited'],
+                'skipped_active'  => $counts['active'],
+                'skipped_no_email' => $noEmail,
+                'total_imported'  => $counts['total'],
+            ],
+            'ip'          => $request->ip(),
+        ]);
+
+        $message = $this->inviteVerb($sendable->count()) . ' for ' . $sendable->count() . ' ' .
+            str('agent')->plural($sendable->count()) . '.';
+
+        if ($skips->isNotEmpty()) {
+            $message .= ' Skipped ' . $skips->join(', ', ' and ') . '.';
+        }
+
+        return back()->with('status', $message);
+    }
+
+    /**
+     * Invites go through the queue, so on a queued connection "sent" is a lie
+     * until the worker picks them up — say what actually happened instead.
+     */
+    private function inviteVerb(int $count): string
+    {
+        return config('queue.default') === 'sync'
+            ? ($count === 1 ? 'Invite sent' : 'Invites sent')
+            : ($count === 1 ? 'Invite queued' : 'Invites queued');
     }
 
     /**

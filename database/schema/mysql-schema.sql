@@ -149,6 +149,8 @@ DROP TABLE IF EXISTS `agencies`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `agencies` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `fica_referral_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `fica_referral_recipient_user_id` bigint unsigned DEFAULT NULL,
   `payroll_default_cut_day` tinyint unsigned DEFAULT NULL,
   `payroll_default_daily_rate_basis` enum('fixed_21_67','calendar_working_days','hours_per_day') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'fixed_21_67',
   `wa_history_backfill` tinyint(1) NOT NULL DEFAULT '1',
@@ -171,6 +173,7 @@ CREATE TABLE `agencies` (
   `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ncc_registration_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fic_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_agency_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -341,7 +344,9 @@ CREATE TABLE `agencies` (
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
   KEY `agencies_default_branch_id_foreign` (`default_branch_id`),
   KEY `agencies_req_ext_auth_idx` (`require_external_access_authorization`),
-  CONSTRAINT `agencies_default_branch_id_foreign` FOREIGN KEY (`default_branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL
+  KEY `agencies_fica_referral_recipient_user_id_foreign` (`fica_referral_recipient_user_id`),
+  CONSTRAINT `agencies_default_branch_id_foreign` FOREIGN KEY (`default_branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `agencies_fica_referral_recipient_user_id_foreign` FOREIGN KEY (`fica_referral_recipient_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_access_request_admins`;
@@ -817,15 +822,15 @@ DROP TABLE IF EXISTS `agency_subscriptions`;
 CREATE TABLE `agency_subscriptions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `plan` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'team',
+  `plan` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'team',
   `plan_changed_at` timestamp NULL DEFAULT NULL,
   `custom_amount_zar` decimal(12,2) DEFAULT NULL,
-  `custom_amount_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `custom_amount_note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `discount_percent` decimal(5,2) DEFAULT NULL,
   `discount_months` smallint unsigned DEFAULT NULL,
   `discount_starts_on` date DEFAULT NULL,
-  `discount_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `discount_note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -4293,6 +4298,7 @@ CREATE TABLE `deal_step_instances` (
   `trigger_step_instance_id` bigint unsigned DEFAULT NULL,
   `days_offset` int NOT NULL DEFAULT '0',
   `due_date` date DEFAULT NULL,
+  `due_date_manual` tinyint(1) NOT NULL DEFAULT '0',
   `activated_at` datetime DEFAULT NULL,
   `completed_at` datetime DEFAULT NULL,
   `completed_by_id` bigint unsigned DEFAULT NULL,
@@ -5822,6 +5828,31 @@ CREATE TABLE `fica_resend_logs` (
   CONSTRAINT `fica_resend_logs_resent_by_foreign` FOREIGN KEY (`resent_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `fica_status_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `fica_status_history` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `fica_submission_id` bigint unsigned NOT NULL,
+  `from_status` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `to_status` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `action` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `actor_tier` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `meta` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `fica_hist_submission_idx` (`agency_id`,`fica_submission_id`,`id`),
+  KEY `fica_hist_action_idx` (`agency_id`,`action`),
+  KEY `fica_status_history_fica_submission_id_foreign` (`fica_submission_id`),
+  KEY `fica_status_history_actor_user_id_foreign` (`actor_user_id`),
+  CONSTRAINT `fica_status_history_actor_user_id_foreign` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fica_status_history_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fica_status_history_fica_submission_id_foreign` FOREIGN KEY (`fica_submission_id`) REFERENCES `fica_submissions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `fica_submissions`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -5835,7 +5866,7 @@ CREATE TABLE `fica_submissions` (
   `token_expires_at` datetime DEFAULT NULL,
   `entity_type` enum('natural','company','trust','partnership') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'natural',
   `form_data` json DEFAULT NULL,
-  `status` enum('draft','submitted','under_review','agent_approved','corrections_requested','approved','rejected','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'draft',
+  `status` enum('draft','submitted','under_review','agent_approved','corrections_requested','approved','rejected','cancelled','referred_to_co') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `intake_type` enum('online','wet_ink') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'online',
   `wet_ink_received_date` date DEFAULT NULL,
   `wet_ink_confirmed_by` bigint unsigned DEFAULT NULL,
@@ -5853,6 +5884,9 @@ CREATE TABLE `fica_submissions` (
   `co_verified_at` datetime DEFAULT NULL,
   `co_verification_data` json DEFAULT NULL,
   `co_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `referred_by` bigint unsigned DEFAULT NULL,
+  `referred_at` timestamp NULL DEFAULT NULL,
+  `referral_note` text COLLATE utf8mb4_unicode_ci,
   `co_signature_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `pdf_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `signature_data` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -5873,11 +5907,13 @@ CREATE TABLE `fica_submissions` (
   KEY `fica_submissions_branch_id_foreign` (`branch_id`),
   KEY `fica_submissions_agency_branch_idx` (`agency_id`,`branch_id`),
   KEY `fica_submissions_fica_expires_at_index` (`fica_expires_at`),
+  KEY `fica_submissions_referred_by_foreign` (`referred_by`),
   CONSTRAINT `fica_submissions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fica_submissions_agent_verified_by_foreign` FOREIGN KEY (`agent_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_submissions_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_submissions_co_verified_by_foreign` FOREIGN KEY (`co_verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_submissions_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fica_submissions_referred_by_foreign` FOREIGN KEY (`referred_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_submissions_requested_by_foreign` FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fica_submissions_verified_by_foreign` FOREIGN KEY (`verified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fica_submissions_wet_ink_confirmed_by_foreign` FOREIGN KEY (`wet_ink_confirmed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -9134,6 +9170,7 @@ CREATE TABLE `properties` (
   `category` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `listing_type_pending` tinyint(1) NOT NULL DEFAULT '0',
   `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `pre_deal_offer_status` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
   `status_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
@@ -12030,6 +12067,7 @@ CREATE TABLE `users` (
   `is_admin` tinyint(1) NOT NULL DEFAULT '0',
   `target_listings` int NOT NULL DEFAULT '0',
   `email_verified_at` timestamp NULL DEFAULT NULL,
+  `invited_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `remember_token` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `api_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12175,6 +12213,7 @@ CREATE TABLE `viewing_packs` (
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned NOT NULL,
   `agent_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
   `calendar_event_id` bigint unsigned DEFAULT NULL,
   `tour_at` datetime DEFAULT NULL,
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
@@ -12188,8 +12227,11 @@ CREATE TABLE `viewing_packs` (
   KEY `viewing_packs_calendar_event_id_foreign` (`calendar_event_id`),
   KEY `viewing_packs_agency_id_contact_id_index` (`agency_id`,`contact_id`),
   KEY `viewing_packs_agency_id_agent_id_index` (`agency_id`,`agent_id`),
+  KEY `viewing_packs_branch_id_foreign` (`branch_id`),
+  KEY `viewing_packs_agency_id_branch_id_index` (`agency_id`,`branch_id`),
   CONSTRAINT `viewing_packs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `viewing_packs_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_packs_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `viewing_packs_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE SET NULL,
   CONSTRAINT `viewing_packs_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -13459,3 +13501,14 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (992,'2026_08_01_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (993,'2026_08_02_000001_backfill_communications_owner_user_id_at246',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (994,'2026_07_14_100000_add_p24_agent_sync_signatures_to_users',186);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (995,'2026_07_14_120000_create_agency_subscriptions_table',187);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (996,'2026_07_14_120000_add_due_date_manual_to_deal_step_instances',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (997,'2026_07_15_090001_add_branch_id_to_viewing_packs',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (998,'2026_07_17_100000_register_compliance_document_expiry_notifications',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (999,'2026_07_17_120000_add_invited_at_to_users_table',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1000,'2026_07_26_090000_add_ncc_registration_number_to_agencies_table',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1001,'2026_08_02_100001_add_listing_type_pending_to_properties',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1002,'2026_08_03_000001_create_fica_status_history_table',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1003,'2026_08_03_000002_add_referred_to_co_to_fica_submissions',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1004,'2026_08_03_000003_register_fica_referred_to_co_notification',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1005,'2026_08_03_000004_add_fica_referral_settings_to_agencies',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1006,'2026_08_05_000001_register_fica_referral_returned_notification',188);

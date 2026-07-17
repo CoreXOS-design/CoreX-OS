@@ -163,6 +163,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'invited_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
         'show_on_website' => 'boolean',
