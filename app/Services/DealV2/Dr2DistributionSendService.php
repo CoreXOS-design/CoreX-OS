@@ -86,6 +86,17 @@ class Dr2DistributionSendService
         $reference = $deal->deal_no ?: ('#' . $deal->id);
         $address   = $property?->buildDisplayAddress() ?: ($deal->property_address ?: '');
 
+        // AT-231 P1 — stamp a machine-resolvable deal reference so an attorney's
+        // reply files itself back onto THIS deal hands-free (the inbound half of
+        // the loop). The token encodes the immutable deals.id (deal_no is a
+        // reassignable human label); regex /\[CX-D(\d+)\]/ recovers it on the way
+        // back. See .ai/specs/at231-inbound-attorney-comms-filing.md §3.1.
+        $dealToken  = '[CX-D' . $deal->id . ']';
+        $mailDomain = strtolower(Str::after((string) config('mail.from.address', ''), '@'));
+        if ($mailDomain === '') {
+            $mailDomain = 'corexos.co.za';
+        }
+
         if ($mode === DealDocumentDistribution::MODE_DIRECT_ATTACHMENT) {
             $parts = $this->splitBySize($docs, $this->composer->sizeLimitBytes((int) $deal->agency_id));
         } else {
@@ -97,6 +108,17 @@ class Dr2DistributionSendService
         foreach ($parts as $i => $partDocs) {
             $partNo    = $i + 1;
             $partLabel = $partOf > 1 ? "Part {$partNo} of {$partOf}" : null;
+
+            // AT-231 P1 — a known, bracketless Message-ID per email part. Persisted as
+            // the outbound comm's thread_key so a reply's References/In-Reply-To resolves
+            // to this deal. Email only (WA replies come via WAHA, not email threading).
+            $messageId = $channel === DealDocumentDistribution::CHANNEL_EMAIL
+                ? 'cx-d' . $deal->id . '.' . strtolower($groupKey) . '.p' . $partNo . '@' . $mailDomain
+                : null;
+
+            // Subject carries the human reference, the optional part label, and the
+            // machine token — one string, reused by the email and the comms record.
+            $subject = 'Documents — ' . $reference . ($partLabel ? " ({$partLabel})" : '') . ' ' . $dealToken;
 
             // Build per-doc distribution rows + the delivery payload for this part.
             $secureLinks = [];
@@ -159,7 +181,7 @@ class Dr2DistributionSendService
             }
 
             // Deliver (email real via Mailer; WhatsApp = log-only deeplink idiom on staging).
-            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel);
+            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel, $dealToken, $messageId);
             $delivered = $delivered || $partDelivered;
 
             // 3-pillar comms — deal (twin) + property + recipient contact (resolved by id, form-safe).
@@ -174,11 +196,12 @@ class Dr2DistributionSendService
                 (int) $deal->agency_id,
                 $actor->id,
                 $email ?: ($phone ?: 'whatsapp'),
-                'Documents — ' . $reference . ($partLabel ? " ({$partLabel})" : ''),
+                $subject,
                 (string) $message,
                 $links,
                 $attachments,
                 $channel,
+                $messageId,   // AT-231 P1 — thread_key (email only; null for WA)
             );
 
             // Anchor each row to the comms record + mark sent.
@@ -222,7 +245,7 @@ class Dr2DistributionSendService
     }
 
     /** Actually deliver a part. Email → Mailer; WhatsApp → deeplink+provisional-log (no real dispatch on staging). */
-    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel): bool
+    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel, string $dealToken = '', ?string $messageId = null): bool
     {
         if ($channel === DealDocumentDistribution::CHANNEL_WHATSAPP) {
             // The message + secure links go to the recipient over WhatsApp. On staging (WAHA not
@@ -233,7 +256,7 @@ class Dr2DistributionSendService
         try {
             $files = array_map(fn ($a) => ['path' => $a['path'], 'filename' => $a['filename']], $attachments);
             Mail::to($email)->send(
-                (new DealPackMail($name ?: 'there', $ref, $address, $message, $files, $secureLinks, $partLabel))->fromAgent($actor)
+                (new DealPackMail($name ?: 'there', $ref, $address, $message, $files, $secureLinks, $partLabel, $dealToken, $messageId))->fromAgent($actor)
             );
             return true;
         } catch (\Throwable $e) {

@@ -113,21 +113,22 @@ class OutboundProvisionalLogger
         ?string $body,
         array $linkModels = [],
         array $attachments = [],
-        string $channel = Communication::CHANNEL_EMAIL   // AT-228 — email|whatsapp
+        string $channel = Communication::CHANNEL_EMAIL,   // AT-228 — email|whatsapp
+        ?string $threadKey = null   // AT-231 P1 — the outbound Message-ID (email only) so a reply threads back to this deal
     ): Communication {
         $now      = now();
         $textHash = MessageTextHasher::hash($channel, $subject, $body);
 
         return DB::transaction(function () use (
             $agencyId, $ownerUserId, $recipientEmail, $subject, $body,
-            $linkModels, $attachments, $now, $channel, $textHash
+            $linkModels, $attachments, $now, $channel, $textHash, $threadKey
         ) {
             $communication = Communication::create([
                 'agency_id'               => $agencyId,
                 'channel'                 => $channel,
                 'direction'               => Communication::DIRECTION_OUTBOUND,
                 'external_id'             => 'provisional:' . Str::uuid()->toString(),
-                'thread_key'              => null,
+                'thread_key'              => $threadKey,
                 'from_identifier'         => null,
                 'participant_identifiers' => array_values(array_filter([$recipientEmail])),
                 'occurred_at'             => $now,
