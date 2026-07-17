@@ -28,6 +28,7 @@ class EmailArchiveIngestor
     public const RESULT_PENDING     = 'pending';
     public const RESULT_DUPLICATE   = 'duplicate';
     public const RESULT_DROPPED     = 'dropped';
+    public const RESULT_PARKED      = 'parked';   // AT-231 — known-attorney email held for deal filing
 
     public function __construct(
         private CommunicationStorageService $storage,
@@ -35,6 +36,7 @@ class EmailArchiveIngestor
         private CommunicationIngestFilter $ingestFilter,
         private ProvisionalReconciler $reconciler,
         private EmailQuoteStripper $quoteStripper,
+        private CorrespondenceFilingService $correspondence,
     ) {
     }
 
@@ -69,10 +71,27 @@ class EmailArchiveIngestor
         $contact = $counterpart !== '' ? $this->resolver->resolve($counterpart, $agencyId) : null;
 
         if (! $contact) {
-            // No contact match → discard. The never-business filter (AT-43, POPIA
-            // minimisation) still classifies WHY for the audit line, but under
-            // match-only every unmatched message is dropped regardless — nothing
-            // is written to disk or any table.
+            // AT-231 — before discarding, try the attorney-correspondence path: an
+            // inbound email from a KNOWN attorney-firm sender is PARKED (stored +
+            // resolved to a deal), not dropped. POPIA scope: ONLY a known attorney
+            // sender parks; every other unknown sender still drops (unchanged).
+            if ($direction === Communication::DIRECTION_INBOUND && $counterpart !== ''
+                && ($attorney = $this->correspondence->resolveSender($counterpart, $agencyId))) {
+                $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
+                $common = $this->buildCommon($mailbox, $msg, $externalId, $direction, $stored, $attachments);
+
+                return DB::transaction(function () use ($common, $attachments, $agencyId, $msg, $attorney) {
+                    $communication = Communication::create($common);
+                    $this->storeAttachments($communication, $agencyId, $attachments);
+                    $this->correspondence->park($communication, $msg, $attorney);
+
+                    return self::RESULT_PARKED;
+                });
+            }
+
+            // No contact match AND not a known attorney → discard. The never-business
+            // filter (AT-43, POPIA minimisation) still classifies WHY for the audit
+            // line, but under match-only every unmatched message is dropped regardless.
             $dropReason = $this->ingestFilter->dropReasonForUnknown($counterpart, $mailbox->agency)
                 ?? 'no_contact_match';
 
@@ -92,37 +111,7 @@ class EmailArchiveIngestor
 
         // Matched → now (and only now) persist the raw .eml and build the index row.
         $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
-
-        $common = [
-            'agency_id'              => $agencyId,
-            'channel'                => Communication::CHANNEL_EMAIL,
-            'direction'              => $direction,
-            'external_id'            => $externalId,
-            'thread_key'             => $msg['thread_key'] ?? null,
-            'from_identifier'        => $msg['from'] ?? null,
-            'participant_identifiers' => array_values($msg['participants'] ?? []),
-            'occurred_at'            => $msg['occurred_at'] ?? now(),
-            'captured_at'            => now(),
-            'subject'                => isset($msg['subject']) ? Str::limit((string) $msg['subject'], 1000, '') : null,
-            'body_text'              => $msg['body_text'] ?? null,
-            'body_preview'           => isset($msg['body_text']) ? Str::limit((string) $msg['body_text'], 160) : null,
-            // AT-182 — derived display body (reply-quote stripped) for the thread view; set
-            // only when quoting was confidently removed, else null → falls back to body_text.
-            // The raw body_text above is NEVER modified (immutable compliance record).
-            'body_display'           => ($ds = $this->quoteStripper->strip($msg['body_text'] ?? null))['stripped'] ? $ds['display'] : null,
-            'raw_path'               => $stored['path'],
-            'content_hash'           => $stored['content_hash'],
-            'text_hash'              => MessageTextHasher::hash(
-                Communication::CHANNEL_EMAIL,
-                $msg['subject'] ?? null,
-                $msg['body_text'] ?? null
-            ),
-            'has_attachments'        => count($attachments) > 0,
-            'source_ref'             => 'mailbox:' . $mailbox->id,
-            // AT-122 — provenance: the agent whose mailbox ingested this. Nullable
-            // (agency-level mailboxes have no owner). Provenance only — not gated.
-            'owner_user_id'          => $mailbox->user_id,
-        ];
+        $common = $this->buildCommon($mailbox, $msg, $externalId, $direction, $stored, $attachments);
 
         return DB::transaction(function () use ($contact, $direction, $common, $attachments, $agencyId, $mailbox) {
             // AT-59: an outbound message may already exist as a provisional row
@@ -159,6 +148,45 @@ class EmailArchiveIngestor
 
             return self::RESULT_ARCHIVED;
         });
+    }
+
+    /**
+     * Build the Communication index row from a normalized message. Shared by the
+     * known-contact archive path and the AT-231 known-attorney park path, so both
+     * store an identical, immutable spine row (only the linking differs).
+     */
+    private function buildCommon(CommunicationMailbox $mailbox, array $msg, string $externalId, string $direction, array $stored, array $attachments): array
+    {
+        return [
+            'agency_id'              => (int) $mailbox->agency_id,
+            'channel'                => Communication::CHANNEL_EMAIL,
+            'direction'              => $direction,
+            'external_id'            => $externalId,
+            'thread_key'             => $msg['thread_key'] ?? null,
+            'from_identifier'        => $msg['from'] ?? null,
+            'participant_identifiers' => array_values($msg['participants'] ?? []),
+            'occurred_at'            => $msg['occurred_at'] ?? now(),
+            'captured_at'            => now(),
+            'subject'                => isset($msg['subject']) ? Str::limit((string) $msg['subject'], 1000, '') : null,
+            'body_text'              => $msg['body_text'] ?? null,
+            'body_preview'           => isset($msg['body_text']) ? Str::limit((string) $msg['body_text'], 160) : null,
+            // AT-182 — derived display body (reply-quote stripped) for the thread view; set
+            // only when quoting was confidently removed, else null → falls back to body_text.
+            // The raw body_text above is NEVER modified (immutable compliance record).
+            'body_display'           => ($ds = $this->quoteStripper->strip($msg['body_text'] ?? null))['stripped'] ? $ds['display'] : null,
+            'raw_path'               => $stored['path'],
+            'content_hash'           => $stored['content_hash'],
+            'text_hash'              => MessageTextHasher::hash(
+                Communication::CHANNEL_EMAIL,
+                $msg['subject'] ?? null,
+                $msg['body_text'] ?? null
+            ),
+            'has_attachments'        => count($attachments) > 0,
+            'source_ref'             => 'mailbox:' . $mailbox->id,
+            // AT-122 — provenance: the agent whose mailbox ingested this. Nullable
+            // (agency-level mailboxes have no owner). Provenance only — not gated.
+            'owner_user_id'          => $mailbox->user_id,
+        ];
     }
 
     private function alreadySeen(int $agencyId, string $externalId): bool
