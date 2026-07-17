@@ -34,6 +34,16 @@ class Property extends Model
     public bool $skipNewListingAutomation = false;
 
     /**
+     * Set by the P24 importer (ConfirmP24PropertyRowJob) so a bulk import — which
+     * saves properties with p24_ref/status set from the export — does NOT make the
+     * PropertyObserver fire live P24 push/deactivation calls. An import is a
+     * snapshot load, not a live edit; without this an import of off-market stock
+     * would hit P24 (or 401) once per listing and churn the portal. Declared (not
+     * dynamic) so it survives PHP 8.2 strictness.
+     */
+    public bool $skipSyndicationAutomation = false;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,

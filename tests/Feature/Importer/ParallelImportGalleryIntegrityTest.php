@@ -282,6 +282,25 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         $this->assertSame('pending', $property->gallery_import_status);
     }
 
+    public function test_importing_an_off_market_listing_fires_no_p24_syndication_jobs(): void
+    {
+        Queue::fake();
+        // A Sold (off-market) listing. Normally a status→off-market change on a
+        // P24-live property triggers a desyndication push; an import is a snapshot
+        // load, not a live edit, so it must fire NOTHING at P24 (a bulk import of
+        // off-market stock would otherwise 401/churn once per listing — the 59
+        // "Deactivation failed: HTTP 401" rows in the run-10 audit).
+        $row = $this->listingRow($this->urls(2));
+        $row->update(['mapped_json' => array_merge($row->mapped_json, ['status' => 'Sold'])]);
+
+        (new ConfirmP24PropertyRowJob($row->id, $this->owner->id))->handle();
+
+        $property = Property::withoutGlobalScopes()->find($row->fresh()->target_id);
+        $this->assertSame('Sold', $property->status);
+        Queue::assertNotPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
+        Queue::assertNotPushed(\App\Jobs\SubmitListingToProperty24::class);
+    }
+
     // ---- Import All = one Bus batch -----------------------------------------
 
     public function test_confirm_job_is_batchable_so_import_all_can_dispatch(): void

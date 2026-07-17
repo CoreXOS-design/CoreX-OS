@@ -378,6 +378,7 @@ class PropertyObserver
         // reasoning as the website webhook block above): the $onPortal check
         // already excludes brand-new, not-yet-syndicated stock.
         if (array_key_exists('status', $property->getChanges())
+            && !$property->skipSyndicationAutomation
             && $this->isOffMarketStatus((string) $property->status)) {
             try {
                 // Only dispatch when the property is actually on a portal or a
@@ -418,8 +419,12 @@ class PropertyObserver
             }
         }
 
-        // P24 syndication auto-sync
-        if (!$property->p24_syndication_enabled || !$property->p24_ref) {
+        // P24 syndication auto-sync. Suppressed during a P24 import — the confirm
+        // job saves p24_ref/status/fields straight from the export, and re-pushing
+        // each of those to P24 (or hitting 401s in a credential-less env) is churn,
+        // not a real edit. The agent manages syndication after the import lands.
+        if ($property->skipSyndicationAutomation
+            || !$property->p24_syndication_enabled || !$property->p24_ref) {
             return;
         }
 

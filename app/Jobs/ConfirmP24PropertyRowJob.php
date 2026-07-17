@@ -150,16 +150,26 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 }
 
                 if ($existing) {
-                    $existing->fill($attrs)->save();
+                    $existing->fill($attrs);
+                    // A re-import is a snapshot load, not a live edit — it must not
+                    // fire P24 push/deactivation calls off the back of a status or
+                    // field change (a bulk import of off-market stock would 401 on
+                    // every one and churn P24 with thousands of calls). See flag below.
+                    $existing->skipSyndicationAutomation = true;
+                    $existing->skipNewListingAutomation = true;
+                    $existing->save();
                     $property = $existing;
                 } else {
                     // Imported stock is existing inventory, not a freshly
                     // captured mandate — suppress the new-listing document-chase
                     // chore tasks AutoEventService would otherwise generate
                     // (the leak that grew an 18k-task backlog and OOM'd the
-                    // Tasks page). The created() observer reads this flag.
+                    // Tasks page), AND the syndication push/deactivation the
+                    // PropertyObserver would fire for imported stock. The observer
+                    // and created() observer read these flags.
                     $property = new Property($attrs);
                     $property->skipNewListingAutomation = true;
+                    $property->skipSyndicationAutomation = true;
                     $property->save();
                 }
 
