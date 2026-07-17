@@ -516,3 +516,40 @@ This is also the canon-divergence fix: the gate keys on **APPROVED**, with **pen
 rather than an open one. Build the FICA gate exactly to these three states + the on-approval release
 event. FICA remains the Compliance-module flow (not a pack template) — the future wet-ink-upload-at-
 gate enhancement plugs in here.
+
+---
+
+## E-SIGN PROGRAMME METHODOLOGY — LAW (Johan, 2026-07-17)
+
+**"E-sign starts with the CDS import. Only once we pass CDS imports do we test further. If we change
+a template importer anywhere down the line, testing restarts from the top."**
+
+### The stage gate
+1. **STAGE 1 — CDS IMPORT (the gate).** Nothing wizard-side is worked or tested until the import
+   stage is signed off. Sign-off loop:
+   fix → m2 deploys (`scripts/qa-deploy.sh`) → m4 camera-imports the marked EATS replica FRESH and
+   verifies bindings render auto-correct (screenshot-2 state) → **Johan's own import + binding
+   verify-pass = the stage sign-off.**
+2. **STAGE 2 — WIZARD.** Only entered AFTER Stage 1 sign-off.
+
+### THE TOP-DOWN RESET RULE
+**Any future change to the template importer resets Stage 2 (wizard) testing from scratch.** A
+wizard-stage pass is only valid against a frozen importer. Touch the importer → re-sign-off Stage 1
+→ re-test Stage 2 top to bottom.
+
+### CURRENT GATE STATE
+- Import fix READY on QA1 (`c213363a`): `DocxParserService::bindAttributesFromContext` (the .docx
+  Claude-AI path — the real one) + `CdsParserService::attributeFieldFromContext` (deterministic).
+  Awaiting m2 deploy → m4 fresh-import verify → Johan sign-off.
+
+### PARKED — WIZARD-SIDE (no code until Stage 1 signs off)
+- **B4 commission persist** — root found (refreshPreviewDebounced re-renders from persisted step_data;
+  a step-4 commission edit isn't saved before the re-render). Fix = persist step-4 details before the
+  debounced re-render. NOT STARTED (parked).
+- **Draft-freeze re-resolve** — old drafts serve frozen snapshot values (`fill_review.fieldValues`
+  overlay + property snapshot); re-walks should re-resolve. NOT STARTED (parked).
+- **HD-12** strike-and-fill extension → revival (Track C last leg). Parked.
+- **HD-13** evidence report (read over SignatureAuditLog incl. ceremony_lapsed). Parked.
+- **D1** address component-tick picker · **D2** reuse builder Sig/Ini tagging · **D3** fill & review
+  last-look. Parked.
+- **D4** FICA once-per-contact gate (LOCKED spec) — parked (wizard/gate stage).
