@@ -200,6 +200,29 @@ final class BuyerCountCanonicalReconciliationTest extends TestCase
         $this->assertStringNotContainsString('{buyer_count}', $tpl['body']);
     }
 
+    /** AT-144 — a property under a SOLE/EXCLUSIVE mandate blocks the buyer claim (open stock only). */
+    public function test_sole_mandate_property_blocks_the_buyer_claim(): void
+    {
+        [$agencyId, $agent] = $this->seedAgencyAndAgent();
+        $seller = $this->seedSeller($agencyId);
+        $propertyId = $this->seedProperty($agencyId, $agent->id, price: 1_200_000, beds: 3, type: 'house', status: 'active');
+        $this->seedMatchingBuyer($agencyId, $agent->id, priceMin: 1_000_000, priceMax: 1_400_000, beds: 3, type: 'house');
+        $property = \App\Models\Property::withoutGlobalScopes()->find($propertyId);
+        $body = $this->body('Active Buyer Match — Your Property (DISABLED)');
+
+        // Open stock → allowed (no mandate_conflict).
+        $property->mandate_type = 'Open';
+        $property->save();
+        $this->assertArrayNotHasKey('mandate_conflict', $this->compose($agencyId, $seller, $property, $agent, $body)->validationIssues);
+
+        // Sole mandate → blocked, not sendable.
+        $property->mandate_type = 'sole';
+        $property->save();
+        $ctx = $this->compose($agencyId, $seller, $property, $agent, $body);
+        $this->assertArrayHasKey('mandate_conflict', $ctx->validationIssues);
+        $this->assertFalse($ctx->isSendable(), 'a buyer-claim send must be blocked on a sole/exclusive mandate');
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private function compose(int $agencyId, Contact $seller, ?\App\Models\Property $property, User $agent, string $body)
