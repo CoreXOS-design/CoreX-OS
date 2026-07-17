@@ -2735,6 +2735,35 @@ CREATE TABLE `communication_attachments` (
   CONSTRAINT `comm_att_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_filing_suspense`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_filing_suspense` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `communication_id` bigint unsigned NOT NULL,
+  `channel` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'email',
+  `suggested_deal_id` bigint unsigned DEFAULT NULL,
+  `confidence` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'low',
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `resolved_deal_id` bigint unsigned DEFAULT NULL,
+  `resolved_by_user_id` bigint unsigned DEFAULT NULL,
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  `matched_signal_type` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `matched_signal_value` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `attorney_provider_id` bigint unsigned DEFAULT NULL,
+  `attorney_provider_contact_id` bigint unsigned DEFAULT NULL,
+  `note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `cfs_agency_comm_uq` (`agency_id`,`communication_id`),
+  KEY `cfs_agency_status_idx` (`agency_id`,`status`),
+  KEY `cfs_agency_deal_idx` (`agency_id`,`suggested_deal_id`),
+  KEY `communication_filing_suspense_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_flag_alerts`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2791,6 +2820,32 @@ CREATE TABLE `communication_flags` (
   CONSTRAINT `cf_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `cf_contradby_fk` FOREIGN KEY (`contradicted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `cf_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `communication_learned_refs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `communication_learned_refs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `deal_id` bigint unsigned NOT NULL,
+  `attorney_provider_id` bigint unsigned DEFAULT NULL,
+  `attorney_provider_contact_id` bigint unsigned DEFAULT NULL,
+  `signal_type` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `signal_value` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_verified` tinyint(1) NOT NULL DEFAULT '0',
+  `verified_by_user_id` bigint unsigned DEFAULT NULL,
+  `verified_at` timestamp NULL DEFAULT NULL,
+  `hits` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `clr_agency_signal_uq` (`agency_id`,`signal_type`,`signal_value`),
+  KEY `clr_agency_verified_idx` (`agency_id`,`is_verified`),
+  KEY `clr_agency_firm_idx` (`agency_id`,`attorney_provider_id`),
+  KEY `communication_learned_refs_agency_id_index` (`agency_id`),
+  KEY `communication_learned_refs_deal_id_index` (`deal_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_links`;
@@ -13582,3 +13637,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1028,'2026_08_03_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1029,'2026_08_03_000002_add_referred_to_co_to_fica_submissions',218);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1030,'2026_08_03_000003_register_fica_referred_to_co_notification',218);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1031,'2026_08_03_000004_add_fica_referral_settings_to_agencies',218);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1032,'2026_07_27_000001_create_communication_learned_refs_table',219);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1033,'2026_07_27_000002_create_communication_filing_suspense_table',220);
