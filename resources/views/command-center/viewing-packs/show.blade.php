@@ -316,22 +316,17 @@
                                                 <span class="flex-1 min-w-[10rem] text-sm" style="color: var(--text-primary);">{{ $label }}</span>
                                                 @if($isIn)
                                                     @php $vpdRow = $vpdByDoc[$doc->id]; $isRedacted = !empty($vpdRow->redacted_file_path); @endphp
-                                                    {{-- AT-110 Bug 1 — HONEST state. "Included" alone is a lie: a doc does
-                                                         NOT appear in the buyer pack until it is redacted (the PDF service
-                                                         skips any included doc with a NULL redacted artifact). So: green
-                                                         "Included ✓" only once redacted; amber "needs redaction" otherwise. --}}
+                                                    {{-- AT-111 (Johan's ruling) — an added document is IN the buyer pack. Redaction
+                                                         is the agent's OPTION, not an obligation: no gate, no badge, no confirm.
+                                                         The redacted copy is used when one exists, otherwise the original as-is. --}}
                                                     @if($isRedacted)
-                                                        <span class="ds-badge ds-badge-success" title="Redacted and included — this document WILL appear in the buyer pack">Included ✓</span>
                                                         <a href="{{ route('corex.viewing-packs.properties.documents.redacted-file', [$pack, $vpp, $vpdRow]) }}" target="_blank" rel="noopener"
-                                                           class="ds-badge ds-badge-default no-underline" title="View the flattened, redacted copy">View redacted</a>
-                                                    @else
-                                                        <span class="ds-badge"
-                                                              style="background: color-mix(in srgb, #f59e0b 15%, transparent); color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);"
-                                                              title="This document will NOT appear in the buyer pack until you redact it. Click Redact.">Needs redaction</span>
+                                                           class="ds-badge ds-badge-default no-underline" title="View the redacted copy that appears in the buyer pack">View redacted</a>
                                                     @endif
                                                     <button type="button"
                                                             class="text-xs font-semibold"
                                                             style="color: var(--brand-icon);"
+                                                            title="Optional — black out sensitive details. The document is already in the pack; the redacted copy replaces the original once you redact."
                                                             @click="$dispatch('open-redactor', {
                                                                 dataUrl: '{{ route('corex.viewing-packs.properties.documents.redaction-data', [$pack, $vpp, $vpdRow]) }}',
                                                                 postUrl: '{{ route('corex.viewing-packs.properties.documents.redact', [$pack, $vpp, $vpdRow]) }}',

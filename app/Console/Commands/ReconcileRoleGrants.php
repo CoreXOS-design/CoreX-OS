@@ -41,6 +41,7 @@ class ReconcileRoleGrants extends Command
     protected $signature = 'corex:reconcile-role-grants
         {--roles=agent : Comma-separated closed-include roles to reconcile down to config}
         {--apply : Soft-delete the over-grants (default = dry-run report only)}
+        {--keys= : Comma-separated permission keys — restrict the strip to ONLY these keys (e.g. AT-283 deal-register/settlement scoping). Default: every off-config over-grant.}
         {--snapshot= : Path to write the rollback snapshot JSON (default: storage/app/permission-reconcile/reconcile-<timestamp>.json)}
         {--rollback= : Restore a prior reconcile from its snapshot JSON — one-command undo}';
 
@@ -69,6 +70,12 @@ class ReconcileRoleGrants extends Command
         }
 
         $apply       = (bool) $this->option('apply');
+        // AT-283 — optional surgical key filter: strip ONLY these keys, not every
+        // off-config over-grant. Empty = the original behaviour (all over-grants).
+        $keyFilter   = array_values(array_filter(array_map('trim', explode(',', (string) $this->option('keys')))));
+        if (!empty($keyFilter)) {
+            $this->warn('Key filter active — restricting the strip to: ' . implode(', ', $keyFilter));
+        }
         $planRows    = [];   // flat list of over-grant rows to remove
         $grandTotal  = 0;
 
@@ -101,7 +108,8 @@ class ReconcileRoleGrants extends Command
             $this->info("Role: {$role}  (config include = " . count($expected) . ' keys)');
 
             foreach ($byAgency as $agency => $agencyRows) {
-                $over = array_filter($agencyRows, fn ($r) => !in_array($r->permission_key, $expected, true));
+                $over = array_filter($agencyRows, fn ($r) => !in_array($r->permission_key, $expected, true)
+                    && (empty($keyFilter) || in_array($r->permission_key, $keyFilter, true)));
                 $ctx  = $agency === 'NULL' ? 'template (agency NULL)' : "agency {$agency}";
 
                 if (empty($over)) {

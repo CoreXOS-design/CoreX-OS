@@ -75,7 +75,9 @@ class PrivatePropertyListingMapper
             'Description'             => $property->description ?? '',
             'Price'                   => $property->effectivePrice(), // rental_amount for rentals, price for sales (PP carries rent in Price + RentalPriceType)
             'Deposit'                 => $listingType === 'Rental' ? (float) ($property->deposit_amount ?? 0) : 0.0,
-            'ListingDate'             => $property->created_at ? $property->created_at->format('Y-m-d\TH:i:s') : now()->format('Y-m-d\TH:i:s'),
+            // AT-287 — the PP "listed" date is the syndication GO-LIVE date, never the
+            // CoreX capture time (a 2-week compliance hold would otherwise reach PP stale).
+            'ListingDate'             => self::resolveListingDate($property),
             'ExpiryDate'              => $expiryDate,
             'AvailableFrom'           => now()->format('Y-m-d\TH:i:s'),
             'AgentId'                 => $this->buildAgentIdString($property),
@@ -742,6 +744,27 @@ class PrivatePropertyListingMapper
     {
         return strtolower((string) ($property->listing_type ?? $property->mandate_type)) === 'rental'
             ? 'Rental' : 'Sale';
+    }
+
+    /**
+     * AT-287 — the date PP shows as "listed on". This MUST be the syndication
+     * GO-LIVE date, never the CoreX capture time (properties.created_at): a
+     * property captured, then held ~2 weeks for compliance, then syndicated would
+     * otherwise reach PP already 2 weeks stale ("withheld advertising").
+     *
+     *   • pp_activated_at — stamped once at first PP go-live and held stable
+     *     (PrivatePropertySyndicationService), so a resubmit never moves the date.
+     *   • listed_date     — a genuine historical listing date carried by imported
+     *     stock (never set at capture for CoreX-native listings).
+     *   • now()           — the FIRST submit, before pp_activated_at exists: the
+     *     go-live moment is right now.
+     *
+     * created_at is deliberately NOT in the chain.
+     */
+    public static function resolveListingDate(Property $property): string
+    {
+        return ($property->pp_activated_at ?? $property->listed_date ?? now())
+            ->format('Y-m-d\TH:i:s');
     }
 
     /**
