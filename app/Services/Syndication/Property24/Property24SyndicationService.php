@@ -457,7 +457,12 @@ class Property24SyndicationService
             return null;
         }
 
-        return (bool) ($result['data'] ?? false);
+        // Read the client's normalised answer. This used to cast 'data' directly:
+        // the live payload is the ARRAY ['raw' => '1'] or ['raw' => ''], and both
+        // are non-empty arrays, so (bool) returned true unconditionally — this
+        // "is it still live" guard answered YES for every listing, including the
+        // ~10.7k weekly checks where P24 said it was off the portal.
+        return $result['on_portal'] ?? null;
     }
 
     public function deactivateListing(Property $property): array
@@ -535,25 +540,29 @@ class Property24SyndicationService
             return ['success' => false, 'message' => $result['message'] ?? 'Status check failed', 'status' => $property->p24_syndication_status];
         }
 
-        // is-on-portal returns a bare boolean. When P24 sends it as
-        // Content-Type: application/json, the client decodes it to a PHP bool
-        // and wraps it as ['data' => true|false] — so array-accessing $data['raw']
-        // on a scalar yields null and the status never reconciled (listings stuck
-        // 'submitted' forever). Handle the scalar/bool shape first.
-        $data = $result['data'] ?? [];
-        $isOnPortal = is_array($data)
-            ? ($data['raw'] ?? $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null)
-            : $data;
+        // The client owns this endpoint's wire format and hands us a normalised
+        // true|false|null — never re-parse 'data' here. See
+        // Property24ApiClient::interpretOnPortalPayload for the format and for why
+        // parsing it in this method left every listing unreconciled.
+        $isOnPortal = $result['on_portal'] ?? null;
 
-        if ($isOnPortal === true || $isOnPortal === 'true' || $isOnPortal === 'True') {
+        if ($isOnPortal === true) {
             if ($property->p24_syndication_status !== 'active') {
                 $property->update(['p24_syndication_status' => 'active', 'p24_activated_at' => $property->p24_activated_at ?? now(), 'p24_last_error' => null]);
                 $this->log('info', "Property #{$property->id} confirmed active on P24");
             }
-        } elseif ($isOnPortal === false || $isOnPortal === 'false' || $isOnPortal === 'False') {
+        } elseif ($isOnPortal === false) {
             if ($property->p24_syndication_status === 'active') {
                 $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => 'Listing not currently on portal']);
+                $this->log('info', "Property #{$property->id} is no longer on P24 — demoted to 'submitted'");
             }
+        } else {
+            // Unknown answer — leave the status alone. Guessing here is what turns
+            // one odd response into a wrongly-delisted or wrongly-live listing.
+            $this->log('warning', "P24 is-on-portal returned an unrecognised payload for property #{$property->id} — status left unchanged", [
+                'property_id' => $property->id,
+                'data'        => $result['data'] ?? null,
+            ]);
         }
 
         return [

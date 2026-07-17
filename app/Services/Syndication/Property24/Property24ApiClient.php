@@ -148,10 +148,76 @@ class Property24ApiClient
 
     /**
      * Check if a listing is on the portal.
+     *
+     * Adds a normalised 'on_portal' => true|false|null to the result. Callers MUST
+     * read that and never re-parse 'data' themselves — interpretOnPortalPayload is
+     * the single place that knows this endpoint's wire format. null = P24 did not
+     * give us a usable answer; it NEVER means "not on portal".
      */
     public function isOnPortal(int $propertyId, int $listingNumber): array
     {
-        return $this->request('GET', "/listings/{$listingNumber}/is-on-portal", [], $propertyId, 'status_check');
+        $result = $this->request('GET', "/listings/{$listingNumber}/is-on-portal", [], $propertyId, 'status_check');
+
+        $result['on_portal'] = ($result['success'] ?? false)
+            ? self::interpretOnPortalPayload($result['data'] ?? null)
+            : null;
+
+        return $result;
+    }
+
+    /**
+     * Normalise every shape is-on-portal has been observed to return.
+     *
+     * P24 answers this endpoint as text/plain with a PHP-style boolean cast of the
+     * body — "1" for true and an EMPTY body for false ((string) true === "1",
+     * (string) false === ""). request() wraps any non-JSON body as ['raw' => ...],
+     * so the live payloads are ['raw' => '1'] and ['raw' => ''] — verified against
+     * 137,766 production status_checks over 7 days, which contained those two
+     * values and nothing else. The empty answer is a STABLE per-listing result
+     * (listings return it on 288/288 consecutive checks), not transport noise.
+     *
+     * This previously compared the raw string against true/'true'/'True' with ===,
+     * so BOTH branches were unreachable for the real payload: ~137k status_checks a
+     * week resolved to nothing, listings that P24 had activated sat at 'submitted'
+     * ("Submitted, awaiting activation…") forever, and listings P24 had dropped
+     * stayed 'active' forever. The bug survived because the only test faked a
+     * Content-Type P24 does not send (application/json + 'true'), which decodes to
+     * a real bool and hit the one branch that did work.
+     *
+     * Returns null for anything unrecognised — an unknown answer must leave the
+     * local status untouched rather than silently reading as "not on portal".
+     */
+    public static function interpretOnPortalPayload(mixed $data): ?bool
+    {
+        // Unwrap request()'s non-JSON envelope, plus the object shapes P24 uses on
+        // sibling endpoints. Note: '' is a MEANINGFUL value here, so coalesce on
+        // array_key_exists rather than ?? (which would skip an empty-string raw).
+        if (is_array($data)) {
+            foreach (['raw', 'isOnPortal', 'IsOnPortal'] as $key) {
+                if (array_key_exists($key, $data)) {
+                    $data = $data[$key];
+                    break;
+                }
+            }
+        }
+
+        if (is_bool($data)) {
+            return $data;
+        }
+
+        if (is_int($data)) {
+            return match ($data) { 1 => true, 0 => false, default => null };
+        }
+
+        if (! is_string($data)) {
+            return null;
+        }
+
+        return match (strtolower(trim($data))) {
+            '1', 'true'       => true,
+            '', '0', 'false'  => false,
+            default           => null,
+        };
     }
 
     /**
