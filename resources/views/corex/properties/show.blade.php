@@ -165,24 +165,17 @@
                         @endif
                     </div>
                     @php
-                        $sbAddrParts = [];
-                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
-                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
-                        if (!empty($property->street_number) && !empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
-                        } elseif (!empty($property->street_name)) {
-                            $sbAddrParts[] = $property->street_name;
-                        } elseif (!empty($property->address)) {
-                            $sbAddrParts[] = $property->address;
-                        }
-                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
-                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
-                            $sbAddrParts[] = $property->city;
-                        }
+                        // AT-266 — one canonical display address (Property::buildDisplayAddress),
+                        // not an inline re-implementation. $sbAddr is the address string; it
+                        // falls back to title/'Unknown Property' internally, so $hasRealAddr
+                        // tells the two-line layout whether there is a real address to show
+                        // above the title.
+                        $sbAddr = $property->buildDisplayAddress();
+                        $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
                     @endphp
-                    @if(count($sbAddrParts))
+                    @if($hasRealAddr)
                         {{-- Address primary, heading small underneath --}}
-                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ $sbAddr }}">{{ $sbAddr }}</div>
                         @if($property->title)
                         <div class="text-[11px] mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
                         @endif

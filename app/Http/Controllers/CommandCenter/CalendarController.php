@@ -1331,10 +1331,11 @@ class CalendarController extends Controller
                             || !$property->agent) {
                             continue;
                         }
-                        $addr = $property->address;
-                        if (blank($addr)) {
-                            $addr = trim(trim(($property->street_number ?? '') . ' ' . ($property->street_name ?? '')) . ', ' . ($property->suburb ?? ''), ' ,');
-                        }
+                        // AT-266 — canonical display address; buildDisplayAddress already
+                        // falls back to title, so no inline street/suburb re-compose.
+                        $addr = trim((string) $property->address) !== ''
+                            ? $property->address
+                            : $property->buildDisplayAddress();
                         $addr = $addr ?: ($property->title ?: ('Property #' . $property->id));
                         $buyer = $buyerByProperty[$pid] ?? null;
                         $dispatcher->fire(
