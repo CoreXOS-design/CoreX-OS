@@ -1929,7 +1929,9 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Importer</div>
-                <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index') ? 'active' : '' }}">P24 Importer</a>
+                {{-- Run detail + preview are children of the importer index — they keep
+                     "P24 Importer" lit so the nav never loses its place mid-import. --}}
+                <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index', 'admin.importer.show', 'admin.importer.preview') ? 'active' : '' }}">P24 Importer</a>
                 <a href="{{ route('admin.importer.review') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.review') ? 'active' : '' }}">Property Review</a>
                 <a href="{{ route('admin.importer.p24-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.p24-locations') ? 'active' : '' }}">P24 Locations</a>
                 <a href="{{ route('admin.importer.pp-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.pp-locations') ? 'active' : '' }}">PP Locations</a>
