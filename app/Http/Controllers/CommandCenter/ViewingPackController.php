@@ -3,17 +3,20 @@
 namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
+use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\Property;
 use App\Models\ViewingPack;
 use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
+use App\Services\CommandCenter\CalendarEventService;
 use App\Services\ViewingPack\ViewingPackAgentPdfService;
 use App\Services\ViewingPack\ViewingPackBuyerPdfService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
 use App\Services\ViewingPack\ViewingPackRedactionService;
 use App\Services\ViewingPack\ViewingPackSelectionService;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -32,12 +35,28 @@ use Illuminate\Validation\Rule;
  */
 class ViewingPackController extends Controller
 {
+    /**
+     * AT-112 — row-level guard. The route middleware proves the caller MAY use
+     * the viewing-pack feature at their action level; this proves they may touch
+     * THIS pack under their data scope (own / branch / all). AgencyScope already
+     * 404s cross-agency; this 403s an in-agency pack outside the caller's scope
+     * (e.g. another agent's pack for an own-scope agent). Called at the top of
+     * every single-pack action.
+     */
+    private function guardVisible(ViewingPack $pack): void
+    {
+        abort_unless($pack->isVisibleTo(request()->user()), 403, 'This viewing pack is outside your access scope.');
+    }
+
     /** List packs for the current agency. ?archived=1 shows archived instead. */
     public function index(Request $request)
     {
         $showArchived = $request->boolean('archived');
 
+        // AT-112 — row-level visibility on top of the route's permission gate:
+        // agent sees own, branch manager the branch, admin all.
         $query = ViewingPack::query()
+            ->visibleTo($request->user())
             ->with(['contact', 'agent'])
             ->withCount('viewingPackProperties')
             ->latest();
@@ -57,6 +76,7 @@ class ViewingPackController extends Controller
     /** The pack workspace — Core Matches + ad-hoc search + selected list + docs. */
     public function show(ViewingPack $viewingPack, ViewingPackSelectionService $selection, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->load([
             'contact',
             'agent',
@@ -92,6 +112,7 @@ class ViewingPackController extends Controller
      */
     public function addProperty(Request $request, ViewingPack $viewingPack, ViewingPackSelectionService $selection)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'property_id' => ['required', 'integer', Rule::exists('properties', 'id')],
         ]);
@@ -107,6 +128,7 @@ class ViewingPackController extends Controller
     /** Remove a selected property (soft delete; children cascade per Step 2). */
     public function removeProperty(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackSelectionService $selection)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
 
         $selection->removeProperty($viewingPackProperty);
@@ -123,6 +145,7 @@ class ViewingPackController extends Controller
      */
     public function reorderProperties(Request $request, ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'order'   => ['required', 'array'],
             'order.*' => ['integer'],
@@ -167,6 +190,7 @@ class ViewingPackController extends Controller
      */
     public function addDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
 
         $data = $request->validate([
@@ -182,6 +206,7 @@ class ViewingPackController extends Controller
     /** Untick a document (soft-remove the row; no hard delete). */
     public function removeDocument(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackDocumentService $docs)
     {
+        $this->guardVisible($viewingPack);
         abort_unless((int) $viewingPackProperty->viewing_pack_id === (int) $viewingPack->id, 404);
         abort_unless((int) $viewingPackDocument->viewing_pack_property_id === (int) $viewingPackProperty->id, 404);
 
@@ -197,6 +222,7 @@ class ViewingPackController extends Controller
      */
     public function redactionData(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         try {
@@ -215,6 +241,7 @@ class ViewingPackController extends Controller
      */
     public function redactDocument(Request $request, ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument, ViewingPackRedactionService $redaction)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         $request->validate([
@@ -239,12 +266,13 @@ class ViewingPackController extends Controller
             return response()->json(['ok' => true, 'redacted_file_path' => $viewingPackDocument->fresh()->redacted_file_path]);
         }
 
-        return back()->with('success', 'Document redacted — a flattened copy was added to the buyer pack.');
+        return back()->with('success', 'Document redacted — the redacted copy now appears in the buyer pack.');
     }
 
     /** Stream the flattened redacted artifact (authenticated + agency-scoped). */
     public function redactedFile(ViewingPack $viewingPack, ViewingPackProperty $viewingPackProperty, ViewingPackDocument $viewingPackDocument)
     {
+        $this->guardVisible($viewingPack);
         $this->guardDocumentRow($viewingPack, $viewingPackProperty, $viewingPackDocument);
 
         $path = $viewingPackDocument->redacted_file_path;
@@ -260,6 +288,7 @@ class ViewingPackController extends Controller
      */
     public function downloadBuyerPack(ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
     {
+        $this->guardVisible($viewingPack);
         return $buyerPdf->download($viewingPack);
     }
 
@@ -270,6 +299,7 @@ class ViewingPackController extends Controller
      */
     public function downloadAgentSheet(ViewingPack $viewingPack, ViewingPackAgentPdfService $agentPdf)
     {
+        $this->guardVisible($viewingPack);
         return $agentPdf->download($viewingPack);
     }
 
@@ -283,6 +313,7 @@ class ViewingPackController extends Controller
     /** Scoped property typeahead for ad-hoc selection (agency-bounded). */
     public function searchProperties(Request $request, ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $q = trim((string) $request->input('q', ''));
         if (strlen($q) < 2) {
             return response()->json([]);
@@ -328,6 +359,19 @@ class ViewingPackController extends Controller
             'title'      => $this->defaultTitle($buyer),
         ]);
 
+        // AT-111 R2 — if the agent arrived from a buyer-less appointment ("Prepare
+        // viewing pack" -> pick a buyer), link this new pack back to that event and
+        // carry its viewing date. Consumed once, agency-checked.
+        if ($eventId = session()->pull('viewing_pack_link_event')) {
+            $event = CalendarEvent::find($eventId);
+            if ($event && (int) $event->agency_id === (int) $pack->agency_id) {
+                $pack->forceFill([
+                    'calendar_event_id' => $event->id,
+                    'tour_at'           => $event->event_date,
+                ])->save();
+            }
+        }
+
         return redirect()
             ->route('corex.viewing-packs.show', $pack)
             ->with('success', 'Viewing Pack started. Add properties to begin.');
@@ -340,9 +384,16 @@ class ViewingPackController extends Controller
     // (built server-side in show.blade from the pack's ordered properties + buyer).
     // No parallel scheduling logic remains.
 
-    /** Edit pack metadata (title / status). Selection edits come in later steps. */
-    public function update(Request $request, ViewingPack $viewingPack)
+    /**
+     * Edit pack metadata (title / status) AND — AT-111 R2 (Johan's forward sync) —
+     * on save, link the pack to its calendar appointment (already-linked, or matched
+     * by buyer + viewing date) and push the pack's properties + buyer onto that
+     * event, so the appointment shows the properties, parties, and the pack download
+     * buttons. No-op when there is no appointment to sync.
+     */
+    public function update(Request $request, ViewingPack $viewingPack, CalendarEventService $calendar)
     {
+        $this->guardVisible($viewingPack);
         $data = $request->validate([
             'title'  => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in(ViewingPack::STATUSES)],
@@ -353,12 +404,20 @@ class ViewingPackController extends Controller
             'status' => $data['status'],
         ]);
 
-        return back()->with('success', 'Viewing Pack updated.');
+        $event = $this->linkedOrMatchedEvent($viewingPack->fresh());
+        if ($event) {
+            $this->pushPackToEvent($viewingPack->fresh(), $event, $calendar, $request->user());
+        }
+
+        return back()->with('success', $event
+            ? 'Viewing Pack saved — the linked appointment now shows its properties, parties and downloads.'
+            : 'Viewing Pack saved.');
     }
 
     /** Archive (soft delete). Children cascade out via the model layer. */
     public function destroy(ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->delete();
 
         return redirect()
@@ -369,11 +428,170 @@ class ViewingPackController extends Controller
     /** Recover an archived pack (and the children it took down). */
     public function restore(ViewingPack $viewingPack)
     {
+        $this->guardVisible($viewingPack);
         $viewingPack->restore();
 
         return redirect()
             ->route('corex.viewing-packs.show', $viewingPack)
             ->with('success', 'Viewing Pack recovered.');
+    }
+
+    /**
+     * AT-111 direction 2 — LAUNCH a viewing pack from an EXISTING calendar event
+     * (schedule-now-prep-later). If the event already has a linked pack, open it;
+     * otherwise create one linked to the event, seeded with the event's buyer.
+     *
+     * Reuses the event's own agency/branch/contact — no parallel scheduling, no
+     * new event. The forward pack→calendar prefill handoff is unchanged; this is
+     * purely the reverse direction the AT-111 workflow needs.
+     */
+    public function launchFromEvent(Request $request, \App\Models\CommandCenter\CalendarEvent $calendarEvent)
+    {
+        abort_unless(app(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class)
+            ->canSee($calendarEvent, $request->user()), 403);
+
+        // Already linked → just open it (idempotent — never a second pack per event).
+        $existing = $calendarEvent->viewingPack()->first();
+        if ($existing) {
+            $this->guardVisible($existing);
+
+            return redirect()->route('corex.viewing-packs.show', $existing);
+        }
+
+        // Resolve the event's buyer: the direct contact_id, else a buyer/attendee link.
+        $contactId = $calendarEvent->contact_id;
+        if (! $contactId) {
+            $contactId = DB::table('calendar_event_links')
+                ->where('calendar_event_id', $calendarEvent->id)
+                ->where('linkable_type', Contact::class)
+                ->whereIn('role', ['buyer_contact', 'attendee'])
+                ->value('linkable_id');
+        }
+        // AT-111 R2 — no buyer on the appointment: don't dead-end (Johan hit a 422
+        // on a bare time-slot). Stash the event and send the agent to the buyer
+        // pipeline to pick one; the next pack they build links back to THIS
+        // appointment (consumed once, in store()).
+        if (! $contactId) {
+            session(['viewing_pack_link_event' => $calendarEvent->id]);
+
+            return redirect()->route('command-center.buyers.pipeline')
+                ->with('info', 'This appointment has no buyer yet. Open the buyer and click "Build Viewing Pack" — the pack will link to this appointment.');
+        }
+
+        // AT-111 — resolve the buyer WITHOUT branch/contact scopes: the id came
+        // from the event itself (already agency-consistent), and a linked buyer may
+        // legitimately sit outside the acting agent's branch (the calendar panel
+        // resolves linked contacts the same way). Verify agency to stay tenant-safe.
+        $eventAgencyId = (int) ($calendarEvent->agency_id ?? $request->user()->effectiveAgencyId());
+        $buyer = Contact::withoutGlobalScopes()->find($contactId);
+        abort_unless($buyer && (int) $buyer->agency_id === $eventAgencyId, 422, 'The appointment\'s buyer contact could not be found.');
+
+        $pack = ViewingPack::create([
+            'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
+            'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
+            'contact_id'        => $buyer->id,
+            'agent_id'          => $request->user()->id,
+            'calendar_event_id' => $calendarEvent->id,
+            'tour_at'           => $calendarEvent->event_date,
+            'status'            => ViewingPack::STATUS_DRAFT,
+            'title'             => $this->defaultTitle($buyer),
+        ]);
+
+        return redirect()
+            ->route('corex.viewing-packs.show', $pack)
+            ->with('success', 'Viewing Pack launched from the appointment. Add the properties you can show, then Save to update the appointment.');
+    }
+
+    /**
+     * AT-111 direction 3 — UPDATE APPOINTMENT: push this pack's final, drag-ordered
+     * properties onto the LINKED calendar event, in place. Reuses
+     * CalendarEventService::syncManualEventLinks (the SAME link-sync the calendar's
+     * own edit path uses) — never a parallel scheduler, never a new event.
+     */
+    public function updateAppointment(Request $request, ViewingPack $viewingPack, CalendarEventService $calendar)
+    {
+        $this->guardVisible($viewingPack);
+        abort_unless($viewingPack->calendar_event_id, 422, 'This pack is not linked to an appointment yet.');
+
+        $event = CalendarEvent::findOrFail($viewingPack->calendar_event_id);
+        $this->pushPackToEvent($viewingPack, $event, $calendar, $request->user());
+
+        $n = $viewingPack->viewingPackProperties()->count();
+
+        return back()->with('success', 'Appointment updated with the pack\'s properties & parties (' . $n . ').');
+    }
+
+    /**
+     * AT-111 R2 — the calendar appointment this pack should sync to: the one it is
+     * already linked to, else the single viewing appointment for this buyer on the
+     * pack's viewing date. Returns null when there is nothing to link (never guesses
+     * across multiple matches; never creates an event).
+     */
+    private function linkedOrMatchedEvent(ViewingPack $pack): ?CalendarEvent
+    {
+        if ($pack->calendar_event_id) {
+            return CalendarEvent::find($pack->calendar_event_id);
+        }
+        if (! $pack->tour_at || ! $pack->contact_id) {
+            return null;
+        }
+
+        $matches = CalendarEvent::query()
+            ->where('category', 'viewing')
+            ->whereDate('event_date', $pack->tour_at->toDateString())
+            ->where(function ($q) use ($pack) {
+                $q->where('contact_id', $pack->contact_id)
+                    ->orWhereIn('id', function ($sub) use ($pack) {
+                        $sub->select('calendar_event_id')->from('calendar_event_links')
+                            ->where('role', 'buyer_contact')
+                            ->where('linkable_type', Contact::class)
+                            ->where('linkable_id', $pack->contact_id);
+                    });
+            })
+            ->limit(2)->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
+    /**
+     * AT-111 R2 — push a pack onto its appointment: link it, sync the ordered
+     * properties (subject_property + scalar primary), and ensure the buyer is a
+     * party (non-destructive — never wipes the agent or other attendees). The event
+     * panel then renders the properties, parties, and the pack download buttons.
+     */
+    private function pushPackToEvent(ViewingPack $pack, CalendarEvent $event, CalendarEventService $calendar, \App\Models\User $user): void
+    {
+        if ((int) $pack->calendar_event_id !== (int) $event->id) {
+            $pack->forceFill(['calendar_event_id' => $event->id])->save();
+        }
+
+        $propertyIds = $pack->viewingPackProperties()->ordered()->pluck('property_id')->map(fn ($i) => (int) $i)->all();
+        $calendar->update($event, ['property_id' => $propertyIds[0] ?? $event->property_id]);
+        $calendar->syncManualEventLinks($event, ['category' => $event->category, 'property_ids' => $propertyIds], $user);
+
+        if ($pack->contact_id) {
+            $exists = DB::table('calendar_event_links')
+                ->where('calendar_event_id', $event->id)
+                ->where('role', 'buyer_contact')
+                ->where('linkable_type', Contact::class)
+                ->where('linkable_id', $pack->contact_id)
+                ->exists();
+            if (! $exists) {
+                DB::table('calendar_event_links')->insert([
+                    'agency_id'          => $event->agency_id,
+                    'calendar_event_id'  => $event->id,
+                    'linkable_type'      => Contact::class,
+                    'linkable_id'        => $pack->contact_id,
+                    'role'               => 'buyer_contact',
+                    'created_by_user_id' => $user->id,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]);
+            }
+            if (! $event->contact_id) {
+                $event->forceFill(['contact_id' => $pack->contact_id])->save();
+            }
+        }
     }
 
     /** Auto title: "Viewing Pack — {Buyer} — {d M Y}". */
