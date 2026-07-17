@@ -536,6 +536,12 @@
                                                @input.debounce.300ms="setManualLabel(tag.id, $event.target.value)">
                                     </template>
 
+                                    {{-- AT-177 (Johan) — binding chip shows party · attribute, not bare party --}}
+                                    <template x-if="bindingChip(tag.id)">
+                                        <span class="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200"
+                                              x-text="bindingChip(tag.id)"></span>
+                                    </template>
+
                                     {{-- Field group preview --}}
                                     <template x-if="getMapping(tag.id).mappingType === 'field_group'">
                                         <div class="text-[10px] text-gray-500 bg-white rounded px-2 py-1.5 mb-1.5 border border-gray-200">
@@ -1695,6 +1701,29 @@ function cdsEditor() {
 
         getMapping(tagId) {
             return this.mappings[tagId] || this._emptyInputMapping(null);
+        },
+
+        // AT-177 (Johan) — the binding chip shows the bound ATTRIBUTE, not just the party:
+        // "Seller · Address", not a bare "Seller". Party from the typeKey, attribute from the
+        // selected named field's name (its trailing word). Empty until a real binding exists.
+        bindingChip(tagId) {
+            const m = this.getMapping(tagId);
+            if (!m || !m.typeKey || m.typeKey === 'sf:manual' || m.mappingType !== 'named_field') return '';
+
+            const partyMap = {
+                'sf:contact_seller': 'Seller', 'sf:contact_buyer': 'Buyer',
+                'sf:contact_lessor': 'Lessor', 'sf:contact_lessee': 'Lessee',
+                'sf:property': 'Property', 'sf:agent': 'Agent',
+            };
+            const party = partyMap[m.typeKey] || '';
+            if (!m.namedFieldId) return party;
+
+            const nf = (this.getFieldsForType(m.typeKey) || []).find(f => String(f.id) === String(m.namedFieldId));
+            if (!nf) return party;
+
+            // "Seller Address" / "contact.address" → the attribute word.
+            let attr = (nf.name || '').replace(new RegExp('^' + party + '\\s*', 'i'), '').trim() || nf.name || '';
+            return party ? (party + ' · ' + attr) : attr;
         },
 
         _emptyInputMapping(confidence) {
