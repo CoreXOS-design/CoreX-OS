@@ -359,6 +359,19 @@ class ViewingPackController extends Controller
             'title'      => $this->defaultTitle($buyer),
         ]);
 
+        // AT-111 R2 — if the agent arrived from a buyer-less appointment ("Prepare
+        // viewing pack" -> pick a buyer), link this new pack back to that event and
+        // carry its viewing date. Consumed once, agency-checked.
+        if ($eventId = session()->pull('viewing_pack_link_event')) {
+            $event = CalendarEvent::find($eventId);
+            if ($event && (int) $event->agency_id === (int) $pack->agency_id) {
+                $pack->forceFill([
+                    'calendar_event_id' => $event->id,
+                    'tour_at'           => $event->event_date,
+                ])->save();
+            }
+        }
+
         return redirect()
             ->route('corex.viewing-packs.show', $pack)
             ->with('success', 'Viewing Pack started. Add properties to begin.');
@@ -371,8 +384,14 @@ class ViewingPackController extends Controller
     // (built server-side in show.blade from the pack's ordered properties + buyer).
     // No parallel scheduling logic remains.
 
-    /** Edit pack metadata (title / status). Selection edits come in later steps. */
-    public function update(Request $request, ViewingPack $viewingPack)
+    /**
+     * Edit pack metadata (title / status) AND — AT-111 R2 (Johan's forward sync) —
+     * on save, link the pack to its calendar appointment (already-linked, or matched
+     * by buyer + viewing date) and push the pack's properties + buyer onto that
+     * event, so the appointment shows the properties, parties, and the pack download
+     * buttons. No-op when there is no appointment to sync.
+     */
+    public function update(Request $request, ViewingPack $viewingPack, CalendarEventService $calendar)
     {
         $this->guardVisible($viewingPack);
         $data = $request->validate([
@@ -385,7 +404,14 @@ class ViewingPackController extends Controller
             'status' => $data['status'],
         ]);
 
-        return back()->with('success', 'Viewing Pack updated.');
+        $event = $this->linkedOrMatchedEvent($viewingPack->fresh());
+        if ($event) {
+            $this->pushPackToEvent($viewingPack->fresh(), $event, $calendar, $request->user());
+        }
+
+        return back()->with('success', $event
+            ? 'Viewing Pack saved — the linked appointment now shows its properties, parties and downloads.'
+            : 'Viewing Pack saved.');
     }
 
     /** Archive (soft delete). Children cascade out via the model layer. */
@@ -441,7 +467,16 @@ class ViewingPackController extends Controller
                 ->whereIn('role', ['buyer_contact', 'attendee'])
                 ->value('linkable_id');
         }
-        abort_unless($contactId, 422, 'This appointment has no buyer contact to build a pack for.');
+        // AT-111 R2 — no buyer on the appointment: don't dead-end (Johan hit a 422
+        // on a bare time-slot). Stash the event and send the agent to the buyer
+        // pipeline to pick one; the next pack they build links back to THIS
+        // appointment (consumed once, in store()).
+        if (! $contactId) {
+            session(['viewing_pack_link_event' => $calendarEvent->id]);
+
+            return redirect()->route('command-center.buyers.pipeline')
+                ->with('info', 'This appointment has no buyer yet. Open the buyer and click "Build Viewing Pack" — the pack will link to this appointment.');
+        }
 
         // AT-111 — resolve the buyer WITHOUT branch/contact scopes: the id came
         // from the event itself (already agency-consistent), and a linked buyer may
@@ -457,13 +492,14 @@ class ViewingPackController extends Controller
             'contact_id'        => $buyer->id,
             'agent_id'          => $request->user()->id,
             'calendar_event_id' => $calendarEvent->id,
+            'tour_at'           => $calendarEvent->event_date,
             'status'            => ViewingPack::STATUS_DRAFT,
             'title'             => $this->defaultTitle($buyer),
         ]);
 
         return redirect()
             ->route('corex.viewing-packs.show', $pack)
-            ->with('success', 'Viewing Pack launched from the appointment. Add the properties you can show, then Update Appointment.');
+            ->with('success', 'Viewing Pack launched from the appointment. Add the properties you can show, then Save to update the appointment.');
     }
 
     /**
@@ -472,27 +508,90 @@ class ViewingPackController extends Controller
      * CalendarEventService::syncManualEventLinks (the SAME link-sync the calendar's
      * own edit path uses) — never a parallel scheduler, never a new event.
      */
-    public function updateAppointment(Request $request, ViewingPack $viewingPack, \App\Services\CommandCenter\CalendarEventService $calendar)
+    public function updateAppointment(Request $request, ViewingPack $viewingPack, CalendarEventService $calendar)
     {
         $this->guardVisible($viewingPack);
         abort_unless($viewingPack->calendar_event_id, 422, 'This pack is not linked to an appointment yet.');
 
-        $event = \App\Models\CommandCenter\CalendarEvent::findOrFail($viewingPack->calendar_event_id);
+        $event = CalendarEvent::findOrFail($viewingPack->calendar_event_id);
+        $this->pushPackToEvent($viewingPack, $event, $calendar, $request->user());
 
-        // The pack's properties in the agent's manual drag order (spec §4).
-        $propertyIds = $viewingPack->viewingPackProperties()->ordered()->pluck('property_id')->all();
+        $n = $viewingPack->viewingPackProperties()->count();
 
-        // AT-111 — update BOTH places the calendar reads a manual event's
-        // properties: the scalar primary (property_id) AND the subject_property
-        // link set. Without the scalar update the event's "primary" property goes
-        // stale on single-property surfaces.
-        $calendar->update($event, ['property_id' => $propertyIds[0] ?? null]);
-        $calendar->syncManualEventLinks($event, [
-            'category'     => $event->category,
-            'property_ids' => $propertyIds,
-        ], $request->user());
+        return back()->with('success', 'Appointment updated with the pack\'s properties & parties (' . $n . ').');
+    }
 
-        return back()->with('success', 'Appointment updated with the pack\'s properties (' . count($propertyIds) . ').');
+    /**
+     * AT-111 R2 — the calendar appointment this pack should sync to: the one it is
+     * already linked to, else the single viewing appointment for this buyer on the
+     * pack's viewing date. Returns null when there is nothing to link (never guesses
+     * across multiple matches; never creates an event).
+     */
+    private function linkedOrMatchedEvent(ViewingPack $pack): ?CalendarEvent
+    {
+        if ($pack->calendar_event_id) {
+            return CalendarEvent::find($pack->calendar_event_id);
+        }
+        if (! $pack->tour_at || ! $pack->contact_id) {
+            return null;
+        }
+
+        $matches = CalendarEvent::query()
+            ->where('category', 'viewing')
+            ->whereDate('event_date', $pack->tour_at->toDateString())
+            ->where(function ($q) use ($pack) {
+                $q->where('contact_id', $pack->contact_id)
+                    ->orWhereIn('id', function ($sub) use ($pack) {
+                        $sub->select('calendar_event_id')->from('calendar_event_links')
+                            ->where('role', 'buyer_contact')
+                            ->where('linkable_type', Contact::class)
+                            ->where('linkable_id', $pack->contact_id);
+                    });
+            })
+            ->limit(2)->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
+    /**
+     * AT-111 R2 — push a pack onto its appointment: link it, sync the ordered
+     * properties (subject_property + scalar primary), and ensure the buyer is a
+     * party (non-destructive — never wipes the agent or other attendees). The event
+     * panel then renders the properties, parties, and the pack download buttons.
+     */
+    private function pushPackToEvent(ViewingPack $pack, CalendarEvent $event, CalendarEventService $calendar, \App\Models\User $user): void
+    {
+        if ((int) $pack->calendar_event_id !== (int) $event->id) {
+            $pack->forceFill(['calendar_event_id' => $event->id])->save();
+        }
+
+        $propertyIds = $pack->viewingPackProperties()->ordered()->pluck('property_id')->map(fn ($i) => (int) $i)->all();
+        $calendar->update($event, ['property_id' => $propertyIds[0] ?? $event->property_id]);
+        $calendar->syncManualEventLinks($event, ['category' => $event->category, 'property_ids' => $propertyIds], $user);
+
+        if ($pack->contact_id) {
+            $exists = DB::table('calendar_event_links')
+                ->where('calendar_event_id', $event->id)
+                ->where('role', 'buyer_contact')
+                ->where('linkable_type', Contact::class)
+                ->where('linkable_id', $pack->contact_id)
+                ->exists();
+            if (! $exists) {
+                DB::table('calendar_event_links')->insert([
+                    'agency_id'          => $event->agency_id,
+                    'calendar_event_id'  => $event->id,
+                    'linkable_type'      => Contact::class,
+                    'linkable_id'        => $pack->contact_id,
+                    'role'               => 'buyer_contact',
+                    'created_by_user_id' => $user->id,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]);
+            }
+            if (! $event->contact_id) {
+                $event->forceFill(['contact_id' => $pack->contact_id])->save();
+            }
+        }
     }
 
     /** Auto title: "Viewing Pack — {Buyer} — {d M Y}". */
