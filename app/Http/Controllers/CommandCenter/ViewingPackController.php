@@ -443,7 +443,13 @@ class ViewingPackController extends Controller
         }
         abort_unless($contactId, 422, 'This appointment has no buyer contact to build a pack for.');
 
-        $buyer = Contact::findOrFail($contactId);   // AgencyScope 404s cross-agency
+        // AT-111 — resolve the buyer WITHOUT branch/contact scopes: the id came
+        // from the event itself (already agency-consistent), and a linked buyer may
+        // legitimately sit outside the acting agent's branch (the calendar panel
+        // resolves linked contacts the same way). Verify agency to stay tenant-safe.
+        $eventAgencyId = (int) ($calendarEvent->agency_id ?? $request->user()->effectiveAgencyId());
+        $buyer = Contact::withoutGlobalScopes()->find($contactId);
+        abort_unless($buyer && (int) $buyer->agency_id === $eventAgencyId, 422, 'The appointment\'s buyer contact could not be found.');
 
         $pack = ViewingPack::create([
             'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
@@ -476,6 +482,11 @@ class ViewingPackController extends Controller
         // The pack's properties in the agent's manual drag order (spec §4).
         $propertyIds = $viewingPack->viewingPackProperties()->ordered()->pluck('property_id')->all();
 
+        // AT-111 — update BOTH places the calendar reads a manual event's
+        // properties: the scalar primary (property_id) AND the subject_property
+        // link set. Without the scalar update the event's "primary" property goes
+        // stale on single-property surfaces.
+        $calendar->update($event, ['property_id' => $propertyIds[0] ?? null]);
         $calendar->syncManualEventLinks($event, [
             'category'     => $event->category,
             'property_ids' => $propertyIds,
