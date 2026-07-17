@@ -727,6 +727,24 @@ class TemplateController extends Controller
                     'filled_by' => $this->inferFilledBy($item['field_name'] ?? ''),
                 ];
             }
+
+            // AT-262 — a custom-named insertable marker (~~~~Seller - Full name~~~~)
+            // is a bindable field: surface it in the fields list so the Input counter
+            // and the sidebar show it. Built-in insertable blocks (OTHER_CONDITIONS
+            // etc.) are areas, not fields, and are deliberately skipped.
+            if (($item['type'] ?? '') === 'insertable_block_placeholder'
+                && ($item['purpose'] ?? '') === 'custom_named') {
+                $label = $item['custom_label'] ?? $item['raw_token'] ?? 'FIELD';
+                $fieldName = $item['block_id'] ?? '';
+                $fields[] = [
+                    'index' => $index++,
+                    'label' => $label,
+                    'field_name' => $fieldName,
+                    'field_type' => 'text',
+                    'source' => $this->inferSource($fieldName),
+                    'filled_by' => $this->inferFilledBy($fieldName),
+                ];
+            }
         }
 
         // Check label_value_group pairs
