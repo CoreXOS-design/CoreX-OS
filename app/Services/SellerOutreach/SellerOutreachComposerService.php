@@ -193,6 +193,20 @@ final class SellerOutreachComposerService
                 'bedroom_segment_id' => $mergeFields['__bedroom_segment_id'] ?? null,
                 'price_band_id' => $mergeFields['__price_band_id'] ?? null,
             ],
+            // AT-144 — the AUDITABLE basis behind the {matching_buyer_count} claim:
+            // the EXACT matched-buyer contact_ids + score/tier, the engine, and the
+            // countable/active gate, frozen at send time so a seller challenge is
+            // answerable with the buyers actually held then (not a number that
+            // re-derives differently months later). Null in address-only mode (no
+            // per-property claim is made) — matches the collapsing display token.
+            'matched_buyer_basis' => ($mergeFields['__matching_buyer_basis'] ?? null) === null ? null : [
+                'count' => $mergeFields['__matching_buyer_basis']['count'],
+                'contact_ids' => $mergeFields['__matching_buyer_basis']['contact_ids'],
+                'buyers' => $mergeFields['__matching_buyer_basis']['buyers'],
+                'engine' => 'PropertyMatchScoringService::countableActiveBuyerBasisForProperty (canonical MatchingService::matchesForProperty)',
+                'gate' => 'countable (agency min_countable_criteria) + active buyer_state (new/warm) + score >= MIN_SCORE_TO_DISPLAY',
+                'property_id' => $property?->id,
+            ],
             'snapshot_taken_at' => now()->toIso8601String(),
         ];
 
@@ -290,9 +304,13 @@ final class SellerOutreachComposerService
         // segment collapses, leaving only the honest area-level statement. (The
         // town-level {buyer_count} above stays on the ProspectingIntelligence
         // area-demand path — only the per-property CLAIM moves to canonical.)
-        $matchingBuyerCount = $property === null
+        // AT-144 — fetch the canonical count AND its auditable basis (the exact
+        // matched-buyer contact_ids + score/tier) in one call, so composeContext can
+        // freeze the buyers behind the claimed number into the immutable snapshot.
+        $matchingBuyerBasis = $property === null
             ? null
-            : $this->buyerDemand->countableActiveBuyerCountForProperty($property);
+            : $this->buyerDemand->countableActiveBuyerBasisForProperty($property);
+        $matchingBuyerCount = $matchingBuyerBasis === null ? null : (int) $matchingBuyerBasis['count'];
 
         return [
             'seller_name' => $this->sellerDisplayName($contact),
@@ -333,6 +351,9 @@ final class SellerOutreachComposerService
                 ? ''
                 : (string) $matchingBuyerCount,
             '__matching_buyer_count' => $matchingBuyerCount,
+            // AT-144 — internal, never rendered (renderBody skips `__` keys). The
+            // auditable basis behind the claim; lifted into facts_snapshot below.
+            '__matching_buyer_basis' => $matchingBuyerBasis,
             // `tracking_link` is intentionally NOT substituted into the body
             // here — `renderBody()` skips it so the agent sees the literal
             // `{tracking_link}` merge token in the composer's textarea

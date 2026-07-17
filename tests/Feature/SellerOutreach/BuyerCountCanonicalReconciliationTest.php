@@ -131,6 +131,75 @@ final class BuyerCountCanonicalReconciliationTest extends TestCase
         $this->assertSame($before, $after, 'an empty (uncountable) wishlist must not increment the canonical count');
     }
 
+    /** AT-144 — the matched-buyer BASIS is frozen into facts_snapshot (auditability). */
+    public function test_matched_buyer_basis_is_snapshotted_with_the_exact_buyers(): void
+    {
+        [$agencyId, $agent] = $this->seedAgencyAndAgent();
+        $seller = $this->seedSeller($agencyId);
+        $propertyId = $this->seedProperty($agencyId, $agent->id, price: 1_200_000, beds: 3, type: 'house', status: 'active');
+        $this->seedMatchingBuyer($agencyId, $agent->id, priceMin: 1_000_000, priceMax: 1_400_000, beds: 3, type: 'house');
+        $property = \App\Models\Property::withoutGlobalScopes()->find($propertyId);
+
+        $svc = app(PropertyMatchScoringService::class);
+        $canonical = $svc->countableActiveBuyerCountForProperty($property);
+        $basis = $svc->countableActiveBuyerBasisForProperty($property);
+
+        // Basis accessor == count accessor, and exposes the EXACT buyers.
+        $this->assertSame($canonical, $basis['count']);
+        $this->assertCount($canonical, $basis['contact_ids']);
+        $this->assertGreaterThanOrEqual(1, $canonical);
+        $this->assertArrayHasKey('score', $basis['buyers'][0]);
+        $this->assertArrayHasKey('tier', $basis['buyers'][0]);
+        $buyerId = (int) Contact::where('agency_id', $agencyId)
+            ->where('first_name', 'Active')->where('last_name', 'Buyer')->value('id');
+        $this->assertContains($buyerId, $basis['contact_ids']);
+
+        // The SEND snapshot freezes it — a seller challenge is answerable with facts.
+        $ctx = $this->compose($agencyId, $seller, $property, $agent, $this->body('Active Buyer Match — Your Property (DISABLED)'));
+        $mb = $ctx->factsSnapshot['matched_buyer_basis'] ?? null;
+        $this->assertIsArray($mb);
+        $this->assertSame($canonical, $mb['count']);
+        $this->assertSame($basis['contact_ids'], $mb['contact_ids']);
+        $this->assertNotEmpty($mb['engine']);
+        $this->assertNotEmpty($mb['gate']);
+        $this->assertSame($propertyId, $mb['property_id']);
+    }
+
+    /** AT-144 — zero matches → snapshot basis is an honest empty record + gate fires. */
+    public function test_zero_matches_snapshot_basis_is_empty(): void
+    {
+        [$agencyId, $agent] = $this->seedAgencyAndAgent();
+        $seller = $this->seedSeller($agencyId);
+        $propertyId = $this->seedProperty($agencyId, $agent->id, price: 9_500_000, beds: 5, type: 'house', status: 'active');
+        $property = \App\Models\Property::withoutGlobalScopes()->find($propertyId);
+
+        $ctx = $this->compose($agencyId, $seller, $property, $agent, $this->body('Active Buyer Match — Your Property (DISABLED)'));
+        $mb = $ctx->factsSnapshot['matched_buyer_basis'] ?? null;
+        $this->assertSame(0, $mb['count']);
+        $this->assertSame([], $mb['contact_ids']);
+        $this->assertArrayHasKey('no_buyers', $ctx->validationIssues);
+    }
+
+    /** AT-144 — the new buyer-demand template ships DISABLED, per-property token only. */
+    public function test_active_buyer_match_template_ships_disabled_and_token_based(): void
+    {
+        $ref = new ReflectionMethod(HfcConsentTemplatesSeeder::class, 'templates');
+        $ref->setAccessible(true);
+        $tpl = null;
+        foreach ($ref->invoke(new HfcConsentTemplatesSeeder()) as $t) {
+            if ($t['name'] === 'Active Buyer Match — Your Property (DISABLED)') {
+                $tpl = $t;
+                break;
+            }
+        }
+        $this->assertNotNull($tpl, 'new AT-144 template must exist in the seeder');
+        $this->assertFalse($tpl['is_active'], 'ships DISABLED pending Johan wording pick');
+        $this->assertStringContainsString('{?matching_buyer_count}', $tpl['body']);
+        $this->assertStringContainsString('{/matching_buyer_count}', $tpl['body']);
+        // per-property claim ONLY — never the looser town-level {buyer_count}.
+        $this->assertStringNotContainsString('{buyer_count}', $tpl['body']);
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private function compose(int $agencyId, Contact $seller, ?\App\Models\Property $property, User $agent, string $body)
