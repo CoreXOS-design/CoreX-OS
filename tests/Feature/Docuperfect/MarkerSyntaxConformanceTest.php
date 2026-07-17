@@ -278,6 +278,77 @@ final class MarkerSyntaxConformanceTest extends TestCase
         ]);
     }
 
+    /**
+     * AT-262 — THE LIVE BUG behind "13/13 in the unit but 1 on the real screen". Word
+     * fragments typed text across many <w:r> runs, so "~~~~Seller - Full name~~~~"
+     * arrives as separate runs "~~", "~~", "Seller - Full", "name", "~~~~". The parser
+     * scanned each run alone → no complete marker → only the odd single-run marker
+     * survived. It must coalesce runs before detecting markers.
+     */
+    public function test_markers_split_across_word_runs_are_still_detected(): void
+    {
+        $names = [
+            'Seller - Full name and surname', 'Property - Erf / Scheme / Unit number',
+            'Document - Asking price (Rand)', 'Document - Other conditions',
+        ];
+
+        // Each marker fragmented the way Word does: tildes split, name split, mixed bold.
+        $paras = '';
+        foreach ($names as $n) {
+            $mid = (int) floor(strlen($n) / 2);
+            $a = $this->esc(substr($n, 0, $mid));
+            $b = $this->esc(substr($n, $mid));
+            $paras .= '<w:p>'
+                . '<w:r><w:t xml:space="preserve">Enter </w:t></w:r>'
+                . '<w:r><w:t xml:space="preserve">~~</w:t></w:r>'
+                . '<w:r><w:t xml:space="preserve">~~</w:t></w:r>'
+                . '<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">' . $a . '</w:t></w:r>'
+                . '<w:r><w:t xml:space="preserve">' . $b . '</w:t></w:r>'
+                . '<w:r><w:t xml:space="preserve">~~~~</w:t></w:r>'
+                . '<w:r><w:t xml:space="preserve"> here.</w:t></w:r>'
+                . '</w:p>';
+        }
+        $path = $this->writeRawDocx($paras);
+        $result = app(CdsParserService::class)->parse($path);
+        @unlink($path);
+
+        $labels = collect($result['sections'] ?? [])
+            ->flatMap(fn ($s) => $s['content'] ?? [])
+            ->where('type', 'insertable_block_placeholder')
+            ->pluck('custom_label')->all();
+
+        $this->assertCount(count($names), $labels,
+            'markers split across Word runs must be reunited before detection');
+        foreach ($names as $n) {
+            $this->assertContains($n, $labels, "the run-split marker \"{$n}\" was not detected");
+        }
+    }
+
+    /** Build a .docx from a raw <w:p>…</w:p> body (for run-splitting scenarios). */
+    private function writeRawDocx(string $bodyXml): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'cdssplit') . '.docx';
+        $document = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+            . $bodyXml . '</w:body></w:document>';
+        $rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>';
+        $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>';
+        $zip = new ZipArchive();
+        $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', $contentTypes);
+        $zip->addFromString('_rels/.rels', $rels);
+        $zip->addFromString('word/document.xml', $document);
+        $zip->close();
+
+        return $path;
+    }
+
     private function parseDocx(string $text): array
     {
         $path = $this->writeDocx($text);

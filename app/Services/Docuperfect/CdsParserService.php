@@ -813,6 +813,63 @@ class CdsParserService
      *     Purpose tokens: OTHER_CONDITIONS, INCLUDED_ITEMS, EXCLUDED_ITEMS,
      *     or CUSTOM:<label>.
      */
+    /**
+     * AT-262 — merge consecutive text runs into single items so a marker Word split
+     * across runs is scanned as one string. Non-text items (placeholders, breaks) are
+     * pass-through boundaries — a run of text items between them is concatenated into
+     * one. Formatting flags are kept only when every merged run shared them (a marker
+     * is uniform plain text, so its fragments merge cleanly; genuinely mixed-format
+     * prose simply loses the intra-run flags on the merged span, which the CDS builder
+     * re-tags structurally anyway).
+     *
+     * @param  array<int,array<string,mixed>> $content
+     * @return array<int,array<string,mixed>>
+     */
+    private function coalesceTextRuns(array $content): array
+    {
+        $out = [];
+        $buf = null; // ['value'=>..., 'bold'=>?, 'italic'=>?, 'underline'=>?, 'mixed'=>bool]
+
+        $flush = function () use (&$buf, &$out) {
+            if ($buf === null) {
+                return;
+            }
+            $item = ['type' => 'text', 'value' => $buf['value']];
+            if (!$buf['mixed']) {
+                if (!empty($buf['bold'])) $item['bold'] = true;
+                if (!empty($buf['italic'])) $item['italic'] = true;
+                if (!empty($buf['underline'])) $item['underline'] = true;
+            }
+            $out[] = $item;
+            $buf = null;
+        };
+
+        foreach ($content as $item) {
+            if (($item['type'] ?? null) !== 'text') {
+                $flush();
+                $out[] = $item;
+                continue;
+            }
+
+            $fmt = [!empty($item['bold']), !empty($item['italic']), !empty($item['underline'])];
+            if ($buf === null) {
+                $buf = [
+                    'value' => (string) ($item['value'] ?? ''),
+                    'bold' => $fmt[0], 'italic' => $fmt[1], 'underline' => $fmt[2],
+                    'mixed' => false,
+                ];
+            } else {
+                $buf['value'] .= (string) ($item['value'] ?? '');
+                if ([$buf['bold'], $buf['italic'], $buf['underline']] !== $fmt) {
+                    $buf['mixed'] = true;
+                }
+            }
+        }
+        $flush();
+
+        return $out;
+    }
+
     private function detectMarkers(array $sections): array
     {
         // Composed from ACCEPTED_MARKERS — the same array the import screen teaches
@@ -823,8 +880,16 @@ class CdsParserService
         foreach ($sections as &$section) {
             if (!isset($section['content'])) continue;
 
+            // AT-262 — reunite runs BEFORE marker detection. Word fragments typed text
+            // across many <w:r> runs (proofing marks, rsid boundaries), so a marker the
+            // agent typed as "~~~~Seller - Full name~~~~" arrives as separate items
+            // "~~~~" / "Seller - Full name" / "~~~~". Each item alone is not a complete
+            // marker, so scanning items individually found none. Coalescing consecutive
+            // text runs into one buffer makes the marker whole again.
+            $content = $this->coalesceTextRuns($section['content']);
+
             $newContent = [];
-            foreach ($section['content'] as $item) {
+            foreach ($content as $item) {
                 if ($item['type'] !== 'text') {
                     $newContent[] = $item;
                     continue;
