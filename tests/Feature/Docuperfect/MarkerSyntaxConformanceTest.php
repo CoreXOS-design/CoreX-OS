@@ -69,6 +69,59 @@ final class MarkerSyntaxConformanceTest extends TestCase
         }
     }
 
+    /**
+     * AT-262 — the BUILDER must SURFACE the named markers, not just detect them.
+     * cds_json carried 13 markers but the canvas renderer and the field extractor
+     * only understood field_placeholder/signature/initial, so the 13 custom-named
+     * insertable markers rendered nowhere and the Input counter read 0. A
+     * custom-named marker is a bindable field: it must become a canvas chip AND a
+     * fields-list entry.
+     */
+    public function test_custom_named_markers_render_as_field_chips_and_extract_as_fields(): void
+    {
+        $names = [
+            'Seller - Full name and surname', 'Property - Erf / Scheme / Unit number',
+            'Document - Asking price (Rand)', 'Document - Other conditions',
+        ];
+        $text = '';
+        foreach ($names as $n) {
+            $text .= "Field: ~~~~{$n}~~~~ line. ";
+        }
+        $cds = $this->parseDocx($text);
+
+        // Canvas: one field chip per name, carrying the human label.
+        $html = app(\App\Services\Docuperfect\CdsRendererService::class)->render($cds);
+        $this->assertSame(count($names), substr_count($html, 'data-field-name'),
+            'each custom-named marker must render as a canvas field chip');
+        foreach ($names as $n) {
+            $this->assertStringContainsString($n, $html, "the chip for \"{$n}\" is missing from the canvas");
+        }
+
+        // Fields sidebar / Input counter: one entry per name.
+        $ctrl = app(\App\Http\Controllers\Docuperfect\TemplateController::class);
+        $ref = new \ReflectionMethod($ctrl, 'extractFieldsFromCds');
+        $ref->setAccessible(true);
+        $fields = $ref->invoke($ctrl, $cds);
+        $this->assertCount(count($names), $fields, 'the Input counter must read the number of named markers');
+        $labels = array_column($fields, 'label');
+        foreach ($names as $n) {
+            $this->assertContains($n, $labels);
+        }
+    }
+
+    /** Built-in insertable purposes are AREAS, not fields — they must NOT become field chips. */
+    public function test_builtin_insertable_blocks_are_not_extracted_as_fields(): void
+    {
+        $cds = $this->parseDocx('Terms: ~~~~OTHER_CONDITIONS~~~~ end.');
+
+        $ctrl = app(\App\Http\Controllers\Docuperfect\TemplateController::class);
+        $ref = new \ReflectionMethod($ctrl, 'extractFieldsFromCds');
+        $ref->setAccessible(true);
+        $fields = $ref->invoke($ctrl, $cds);
+
+        $this->assertCount(0, $fields, 'OTHER_CONDITIONS is an insertable area, not a bindable field');
+    }
+
     /** A human name still yields a SAFE block id (no spaces/slashes leaking into the id). */
     public function test_a_human_named_marker_gets_a_safe_slug_block_id(): void
     {
