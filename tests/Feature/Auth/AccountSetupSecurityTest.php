@@ -25,8 +25,9 @@ final class AccountSetupSecurityTest extends TestCase
 
     private function pendingInvitee(): User
     {
+        // AT-268 — a real pending invite carries an UNUSABLE password (no longer the public constant).
         return User::factory()->create([
-            'password'          => 'INVITE_PENDING',
+            'password'          => User::pendingInvitePassword(),
             'email_verified_at' => null,
         ]);
     }
@@ -34,6 +35,7 @@ final class AccountSetupSecurityTest extends TestCase
     public function test_unsigned_post_is_rejected(): void
     {
         $invitee = $this->pendingInvitee();
+        $originalHash = $invitee->fresh()->password;
 
         // The attack: POST straight to the endpoint with no signature.
         $this->post("/account-setup/{$invitee->id}", [
@@ -41,9 +43,13 @@ final class AccountSetupSecurityTest extends TestCase
             'password_confirmation' => 'attackerpass123',
         ])->assertForbidden();   // 403 from the 'signed' middleware
 
-        $this->assertTrue(
+        // The password is untouched — asserted by unchanged hash, NOT by the old public constant
+        // (AT-268: pinning the constant was pinning the vulnerability itself).
+        $this->assertSame($originalHash, $invitee->fresh()->password,
+            'the password must be untouched after an unsigned attempt');
+        $this->assertFalse(
             Hash::check('INVITE_PENDING', $invitee->fresh()->password),
-            'the password must be untouched after an unsigned attempt'
+            'a pending invite must never carry the public INVITE_PENDING constant (AT-268)'
         );
         $this->assertNull($invitee->fresh()->email_verified_at);
     }
