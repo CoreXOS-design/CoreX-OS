@@ -405,6 +405,26 @@ class OnboardingPortalController extends Controller
         $portal->update(['completed_at' => now()]);
         $this->logEvent($portal, $request, 'portal.finished');
 
+        // Review is done — close out every run behind this portal that has no
+        // outstanding rows, so a run never lingers in 'pending_confirm' after the
+        // agency has finished (galleries keep streaming on their own lane; that's
+        // not "outstanding" for the run's purposes). Belt-and-suspenders with the
+        // Import-All batch's finally callback for paths that don't go through it
+        // (row-by-row confirm, exclude-the-rest).
+        $runIds = (clone $portal->rowsQuery())->distinct()->pluck('run_id')->filter()->all();
+        foreach ($runIds as $runId) {
+            $outstanding = P24ImportRow::where('run_id', $runId)
+                ->where('row_type', 'listing')
+                ->where(function ($q) {
+                    $q->where('status', 'pending')->orWhereNotNull('processing_at');
+                })->exists();
+            if (!$outstanding) {
+                P24ImportRun::where('id', $runId)
+                    ->whereNotIn('status', ['cancelled', 'failed'])
+                    ->update(['status' => 'completed', 'confirmed_at' => now(), 'completed_at' => now()]);
+            }
+        }
+
         $agency = $portal->agency;
         $counts = $this->counts($portal);
         return view('onboarding.portal.finish', compact('portal', 'agency', 'counts'));
