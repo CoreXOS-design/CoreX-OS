@@ -1044,7 +1044,12 @@ class ESignWizardController extends Controller
                 // blank TOWNSHIP. Carry both so township can resolve from whichever the agent filled.
                 'town'              => $p->town ?? '',
                 'city'              => $p->city ?? '',
+                // AT-177 — the sf:property address components the CDS split needs to resolve.
+                'street_name'       => $p->street_name ?? '',
+                'district'          => $p->district ?? '',
+                'erf'               => $p->property_number ?? '',
                 'erf_no'            => $p->property_number ?? '',
+                'property_number'   => $p->property_number ?? '',
                 'complex_name'      => $p->complex_name ?? '',
                 'unit_number'       => $p->unit_number ?? '',
                 'property_type'     => $p->property_type ?? '',
