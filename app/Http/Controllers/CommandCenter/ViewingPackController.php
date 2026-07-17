@@ -266,7 +266,7 @@ class ViewingPackController extends Controller
             return response()->json(['ok' => true, 'redacted_file_path' => $viewingPackDocument->fresh()->redacted_file_path]);
         }
 
-        return back()->with('success', 'Document redacted — a flattened copy was added to the buyer pack.');
+        return back()->with('success', 'Document redacted — the redacted copy now appears in the buyer pack.');
     }
 
     /** Stream the flattened redacted artifact (authenticated + agency-scoped). */
