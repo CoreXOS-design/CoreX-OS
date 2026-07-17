@@ -232,6 +232,56 @@ class Dr2DistributionTest extends TestCase
         $this->assertSame('sent', $dist->status);
     }
 
+    /** AT-231 P1 — outbound stamps a machine-resolvable deal token + a known Message-ID (thread_key). */
+    public function test_email_send_stamps_cx_deal_token_and_message_id_thread_key(): void
+    {
+        Storage::fake('local');
+        Mail::fake();
+        $ctx = $this->makeDeal();
+        $otp = $this->fileDoc($ctx, 'otp');
+        $recipient = app(Dr2DistributionComposer::class)->recipientsFor($ctx['deal'], 'seller')[0];
+        app(Dr2DistributionSendService::class)->sendToParty(
+            $ctx['deal'], 'seller', $recipient, [$otp->id], 'direct_attachment', 'email', 'Please find attached.', $ctx['agent']
+        );
+
+        $token = '[CX-D' . $ctx['deal']->id . ']';
+
+        // The outbound email carries the machine token in its subject and a known bracketless Message-ID.
+        Mail::assertSent(DealPackMail::class, function (DealPackMail $mail) use ($token, $ctx) {
+            return $mail->dealToken === $token
+                && str_contains($mail->envelope()->subject, $token)
+                && is_string($mail->messageId)
+                && str_starts_with($mail->messageId, 'cx-d' . $ctx['deal']->id . '.');
+        });
+
+        // The outbound comm persists that Message-ID as thread_key so a reply threads back to this deal.
+        $dist = DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $ctx['twinId'])->first();
+        $comm = Communication::withoutGlobalScopes()->find($dist->communication_id);
+        $this->assertNotNull($comm->thread_key);
+        $this->assertStringStartsWith('cx-d' . $ctx['deal']->id . '.', $comm->thread_key);
+        $this->assertStringContainsString($token, (string) $comm->subject);
+
+        // Lock the recovery contract P2's inbound matcher depends on.
+        preg_match('/\[CX-D(\d+)\]/', (string) $comm->subject, $m);
+        $this->assertSame((int) $ctx['deal']->id, (int) ($m[1] ?? 0));
+    }
+
+    /** AT-231 P1 — WhatsApp carries the token in the subject but has no email Message-ID to thread on. */
+    public function test_whatsapp_send_has_token_in_subject_but_null_thread_key(): void
+    {
+        Storage::fake('local');
+        Mail::fake();
+        $ctx = $this->makeDeal();
+        $otp = $this->fileDoc($ctx, 'otp');
+        $recipient = app(Dr2DistributionComposer::class)->recipientsFor($ctx['deal'], 'seller')[0];
+        app(Dr2DistributionSendService::class)->sendToParty($ctx['deal'], 'seller', $recipient, [$otp->id], 'direct_attachment', 'whatsapp', 'hi', $ctx['agent']);
+
+        $dist = DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $ctx['twinId'])->first();
+        $comm = Communication::withoutGlobalScopes()->find($dist->communication_id);
+        $this->assertStringContainsString('[CX-D' . $ctx['deal']->id . ']', (string) $comm->subject);
+        $this->assertNull($comm->thread_key, 'WA has no email Message-ID to thread on');
+    }
+
     public function test_distribution_is_soft_deletable(): void
     {
         Storage::fake('local');

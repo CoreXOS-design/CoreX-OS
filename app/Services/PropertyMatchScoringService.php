@@ -210,22 +210,13 @@ class PropertyMatchScoringService
         // active/working (looking now). The AT-71 countable gate is inherited
         // from matchesForProperty(). This replaces the old property_buyer_matches
         // (Engine B) read so the seller panel and Core Matches never disagree.
-        $activeBuyers     = [];
-        $activeContactIds = [];
-        $canonical = app(MatchingService::class)->matchesForProperty($property)
-            ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
-            ->groupBy('contact_id')
-            ->map(fn ($g) => $g->sortByDesc('match_score')->first());
-        foreach ($canonical as $m) {
-            $contact = $m->contact;
-            if (!$contact || !in_array($contact->buyer_state, self::ACTIVE_BUYER_STATES, true)) {
-                continue;
-            }
-            $score              = (int) $m->match_score;
-            $activeContactIds[] = (int) $contact->id;
-            $activeBuyers[]     = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
-        }
-        usort($activeBuyers, fn ($a, $b) => $b['score'] <=> $a['score']);
+        // AT-144 — the canonical active-buyer set is computed ONCE (contact_id =>
+        // [score,tier], score-desc) and shared by this demand array (count +
+        // anonymised) and the auditable basis accessor below, so the seller-outreach
+        // snapshot records the EXACT buyers behind the claimed count.
+        $activeMap        = $this->activeCanonicalBuyersForProperty($property);
+        $activeContactIds = array_keys($activeMap);
+        $activeBuyers     = array_values($activeMap); // already score-desc
 
         // ── THIS-PROPERTY HISTORIC buyers ──────────────────────────────────
         // Buyers who physically engaged THIS property before (a buyer_property_views
@@ -335,6 +326,64 @@ class PropertyMatchScoringService
         }
         $demand = $this->getBuyerDemandForProperty((int) $property->id, (int) $property->agency_id);
         return (int) ($demand['active']['count'] ?? 0);
+    }
+
+    /**
+     * AT-144 — the canonical, countable, ACTIVE-state buyer set matching a property,
+     * as an ordered map contact_id => ['score'=>int,'tier'=>string] (highest first).
+     * SINGLE source for both getBuyerDemandForProperty()['active'] and the auditable
+     * basis accessor — no matching logic reimplemented: it reads the canonical
+     * MatchingService::matchesForProperty() (AT-71 ->countable() gate inherited),
+     * dedupes per buyer, floors at MIN_SCORE_TO_DISPLAY, keeps only buyer_state
+     * new/warm. Kept PRIVATE so buyer contact_ids never leak into a seller-facing
+     * return (getBuyerDemandForProperty still exposes only count + anonymised).
+     *
+     * @return array<int, array{score:int, tier:string}>
+     */
+    private function activeCanonicalBuyersForProperty(Property $property): array
+    {
+        $canonical = app(MatchingService::class)->matchesForProperty($property)
+            ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
+            ->groupBy('contact_id')
+            ->map(fn ($g) => $g->sortByDesc('match_score')->first());
+
+        $map = [];
+        foreach ($canonical as $m) {
+            $contact = $m->contact;
+            if (!$contact || !in_array($contact->buyer_state, self::ACTIVE_BUYER_STATES, true)) {
+                continue;
+            }
+            $score = (int) $m->match_score;
+            $map[(int) $contact->id] = ['score' => $score, 'tier' => MatchingService::tierFor($score)];
+        }
+        uasort($map, fn ($a, $b) => $b['score'] <=> $a['score']);
+
+        return $map;
+    }
+
+    /**
+     * AT-144 — the AUDITABLE basis behind a seller-outreach buyer claim: the exact
+     * count PLUS the matched-buyer contact_ids and their score/tier. Frozen into the
+     * immutable per-send facts_snapshot so any seller challenge ("prove you had N
+     * active buyers looking for my property") is answerable with the ACTUAL buyers
+     * held at send time — not a number that silently re-derives differently later.
+     * Same canonical engine + countable/active gate as
+     * countableActiveBuyerCountForProperty(); `count` equals that method's value.
+     *
+     * @return array{count:int, contact_ids:int[], buyers:array<int,array{score:int,tier:string}>}
+     */
+    public function countableActiveBuyerBasisForProperty(Property $property): array
+    {
+        if (!$property->id) {
+            return ['count' => 0, 'contact_ids' => [], 'buyers' => []];
+        }
+        $map = $this->activeCanonicalBuyersForProperty($property);
+
+        return [
+            'count'       => count($map),
+            'contact_ids' => array_keys($map),
+            'buyers'      => array_values($map),
+        ];
     }
 
     /**
