@@ -84,9 +84,13 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     'property_type', 'category', 'expiry_date',
                     'levy', 'special_levy', 'rates_taxes',
                     'latitude', 'longitude',
-                    'youtube_video_id', 'matterport_id',
+                    'youtube_video_id', 'matterport_id', 'eyespy_360_id',
                     'features_json', 'spaces_json', 'pet_friendly',
                     'lease_period', 'p24_listing_number',
+                    // Fields the CSV carries that were previously dropped (audit
+                    // run 10, 2026-07-17) — every P24 column now lands somewhere.
+                    'occupation_date', 'source_reference', 'lightstone_id',
+                    'development_id', 'p24_suburb_id', 'erf_area_unit', 'floor_area_unit',
                 ];
                 $attrs = [];
                 foreach ($fillable as $k) {
@@ -117,6 +121,16 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     if (array_key_exists($notNull, $attrs) && $attrs[$notNull] === null) {
                         unset($attrs[$notNull]);
                     }
+                }
+
+                // p24_suburb_id is FK-constrained to p24_suburbs. The CSV's raw
+                // P24 SuburbId only matches when that suburb is seeded locally
+                // (reference tables can be partial per environment); an unseeded
+                // id 1452s the whole confirm. Only set it when it resolves — the
+                // raw value is always preserved in features_json.p24_source_suburb_id.
+                if (!empty($attrs['p24_suburb_id'])
+                    && !DB::table('p24_suburbs')->where('id', $attrs['p24_suburb_id'])->exists()) {
+                    unset($attrs['p24_suburb_id']);
                 }
 
                 // Link the P24 listing number so a later push UPDATES the

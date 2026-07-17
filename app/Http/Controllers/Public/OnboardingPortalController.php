@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Public;
 use App\Http\Controllers\Controller;
 use App\Jobs\ConfirmP24PropertyRowJob;
 use App\Models\P24ImportRow;
+use App\Models\P24ImportRun;
 use App\Models\P24OnboardingPortal;
 use App\Models\P24PortalEvent;
 use App\Models\Property;
@@ -353,6 +354,10 @@ class OnboardingPortalController extends Controller
             'confirmed_by_portal_id' => $portal->id,
         ]);
 
+        // The runs these rows belong to — marked completed once the batch drains
+        // so the importer UI stops showing them as pending_confirm forever.
+        $runIds = $rows->pluck('run_id')->unique()->values()->all();
+
         try {
             return Bus::batch(
                 $rows->map(fn ($row) => new ConfirmP24PropertyRowJob($row->id, null))->all()
@@ -362,6 +367,22 @@ class OnboardingPortalController extends Controller
                 // One rate-limited gallery must not fail the whole import — each row
                 // heals independently on its own retries.
                 ->allowFailures()
+                ->finally(function () use ($runIds) {
+                    // Property writes are done (galleries stream on their own lane).
+                    // Mark each run completed only if nothing is still pending/processing.
+                    foreach ($runIds as $runId) {
+                        $outstanding = P24ImportRow::where('run_id', $runId)
+                            ->where('row_type', 'listing')
+                            ->where(function ($q) {
+                                $q->where('status', 'pending')->orWhereNotNull('processing_at');
+                            })->exists();
+                        if (!$outstanding) {
+                            P24ImportRun::where('id', $runId)
+                                ->whereNotIn('status', ['cancelled', 'failed'])
+                                ->update(['status' => 'completed', 'confirmed_at' => now(), 'completed_at' => now()]);
+                        }
+                    }
+                })
                 ->dispatch();
         } catch (\Throwable $e) {
             // The rows were stamped `processing_at` up front, but the batch never
