@@ -261,6 +261,15 @@ class DocxParserService
             Log::info('DocxParser: Empty text, using regex fields');
         }
 
+        // Step 3b (AT-177, Johan 2026-07-17) — CONTEXT-AWARE ATTRIBUTE BINDING. The Claude/regex
+        // detector binds a party marker to the party (often the NAME); the words AROUND the blank
+        // ("Physical address", "Telephone number", "Email address", "ID number", "in words") must
+        // guide the ATTRIBUTE. This deterministic post-process corrects a GENERIC contact/name
+        // binding to the specific column its context names — parser-agnostic (runs on AI and regex
+        // output alike), so the builder shows [Seller address] out of the box and the human vet
+        // confirms rather than repairs. It never overrides an already-specific binding.
+        $fields = $this->bindAttributesFromContext($fields);
+
         // Step 4: Inject field-blank spans into Mammoth HTML
         $html = $this->injectFieldSpans($html, $fields);
 
@@ -996,5 +1005,74 @@ class DocxParserService
         }
 
         return 'text';
+    }
+
+    /**
+     * AT-177 — correct each field's binding to the ATTRIBUTE its surrounding words name.
+     *
+     * Deterministic, and only ever REFINES a generic binding — a blank the detector left as a
+     * party name / custom / unbound, whose context clearly names an attribute. An already-specific
+     * binding (contact.address, property.erf_number, …) is never touched. The party (Seller/Buyer)
+     * is resolved downstream from data-contact-type, so this only fixes the attribute half.
+     *
+     * @param  array<int,array<string,mixed>>  $fields
+     * @return array<int,array<string,mixed>>
+     */
+    private function bindAttributesFromContext(array $fields): array
+    {
+        // Bindings we are allowed to OVERRIDE — a generic contact name, a custom/unbound blank.
+        $generic = static function (string $key): bool {
+            $k = strtolower(trim($key));
+            return $k === ''
+                || in_array($k, ['contact.full_names', 'contact.full_name', 'contact.name', 'contact.names'], true)
+                || str_starts_with($k, 'custom.')
+                || str_starts_with($k, 'manual.');
+        };
+
+        foreach ($fields as &$field) {
+            $current = (string) ($field['suggested_key'] ?? $field['key'] ?? '');
+            if (! $generic($current)) {
+                continue; // already specific — leave it exactly as bound
+            }
+
+            $context = strtolower(trim(
+                ($field['context_before'] ?? '') . ' ' . ($field['suggested_label'] ?? '') . ' ' . ($field['context_after'] ?? '')
+            ));
+            if ($context === '') {
+                continue;
+            }
+
+            $newKey = $this->attributeKeyFromContext($context, $current);
+            if ($newKey !== null && $newKey !== $current) {
+                $field['suggested_key'] = $newKey;
+                if (isset($field['key'])) {
+                    $field['key'] = $newKey;
+                }
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * The binding key a context resolves to, or null to leave it. Most-specific keyword first so
+     * "physical address" is never misread as a name; price/amount "in words" → the words variable.
+     */
+    private function attributeKeyFromContext(string $context, string $current): ?string
+    {
+        // Price / amount / sum in words — only meaningful for a numeric/price-ish blank or a plain one.
+        if (preg_match('/\bin\s*words\b/', $context)) {
+            return 'property.price_in_words';
+        }
+
+        // Email FIRST — "Email address" contains "address", so address must be tested last or it
+        // would swallow it. Then phone, then id, then the generic address.
+        return match (true) {
+            (bool) preg_match('/\be-?mail\b/', $context)                                          => 'contact.email',
+            (bool) preg_match('/\b(tel|telephone|phone|cell|mobile|landline|contact\s*number)\b/', $context) => 'contact.phone',
+            (bool) preg_match('/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/', $context) => 'contact.id_number',
+            (bool) preg_match('/\b(physical|residential|postal)?\s*address\b/', $context)        => 'contact.address',
+            default                                                                              => null,
+        };
     }
 }
