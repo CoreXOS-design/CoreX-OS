@@ -774,16 +774,21 @@
                      emails and whatsapps." These ARE those screens — they already existed
                      but were scattered under WhatsApp/Email with consent-framed labels.
                      Consolidated here, first, with plain labels. Gates unchanged per page. --}}
-                @php $canCapture = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review') || $u->hasPermission('manage_communication_mailboxes'); @endphp
+                @php $canCapture = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review') || $u->hasPermission('manage_communication_mailboxes') || $u->hasPermission('triage_communications'); @endphp
                 @if($canCapture)
                 <div style="{{ $navSection }}">Capture — what gets imported</div>
                 @permission('access_communication')
-                {{-- AT-136 — per-agent WhatsApp capture: which contacts' WhatsApp you archive. --}}
-                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Capture</a>
+                {{-- AT-136/AT-274 — per-agent WhatsApp consent: which contacts' WhatsApp you archive. --}}
+                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Consent</a>
+                @endpermission
+                @permission('triage_communications')
+                {{-- AT-274 — moved up from "Archive & Review": the per-agent incoming-message
+                     triage queue is an ingestion surface, so it belongs with capture/consent. --}}
+                <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Review Incoming Messages</a>
                 @endpermission
                 @permission('communications.capture_review')
-                {{-- AT-136 — BM/admin review of agents' capture decisions (declaration, never content). --}}
-                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">Capture Review</a>
+                {{-- AT-136/AT-274 — BM/admin review of agents' capture decisions (declaration, never content). --}}
+                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">WhatsApp Consent — Review</a>
                 @endpermission
                 @permission('manage_communication_mailboxes')
                 {{-- Email is mailbox-level (no per-contact choice): which mailboxes are imported. --}}
@@ -796,9 +801,8 @@
                 @permission('access_communication_archive')
                 <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Message Archive</a>
                 @endpermission
-                @permission('triage_communications')
-                <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Message Triage</a>
-                @endpermission
+                {{-- AT-274 — "Review Incoming Messages" (triage) relocated up into the
+                     "Capture — what gets imported" section for findability. --}}
                 @permission('view_communication_flag_register')
                 <a href="{{ route('compliance.comm-flags.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-flags.*') ? 'active' : '' }}">Flagged Messages</a>
                 @endpermission

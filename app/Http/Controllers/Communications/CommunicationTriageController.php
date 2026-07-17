@@ -23,12 +23,20 @@ class CommunicationTriageController extends Controller
     public function index()
     {
         $user = Auth::user();
-        $agencyId = $user->effectiveAgencyId();
-        abort_unless($agencyId, 403, 'No agency context.');
+
+        // AT-274 guard-first / never-blank: a System Owner (or any null-agency actor)
+        // passes the permission gate via break-glass but has no single agency context.
+        // The old `abort_unless($agencyId, 403)` rendered blank in the app chrome for
+        // Johan. Render the screen with an explained no-context state instead — the
+        // page must always either render or say why not.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0) {
+            return view('communications.triage.index', ['items' => collect(), 'noContext' => true]);
+        }
 
         $items = $this->triage->pendingForAgent($agencyId, $user->id);
 
-        return view('communications.triage.index', ['items' => $items]);
+        return view('communications.triage.index', ['items' => $items, 'noContext' => false]);
     }
 
     /**
