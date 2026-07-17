@@ -23,8 +23,9 @@
         'bounced'        => 'Bounced',
         default          => ucfirst((string) $send->outcome),
     };
+    // AT-266 — canonical street line (unit + complex + street); suburb appended below.
     $propAddr = $send->property
-        ? trim(((string) ($send->property->street_number ?? '')) . ' ' . ((string) ($send->property->street_name ?? '')))
+        ? $send->property->composeAddressFromParts()
         : '';
     // AT-61 — address-only sends have no property; fall back to the recorded
     // address/suburb snapshot so the row still says what was pitched about.
