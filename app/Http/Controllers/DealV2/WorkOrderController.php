@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Http\Controllers\DealV2;
+
+use App\Http\Controllers\Controller;
+use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\DealV2\AgencyServiceProviderContact;
+use App\Models\DealV2\DealDocumentDistribution;
+use App\Models\DealV2\DealStepInstance;
+use App\Models\DealV2\DealV2;
+use App\Services\DealV2\AgencyServiceProviderService;
+use App\Services\DealV2\DealDistributionService;
+use App\Services\DealV2\WorkAuthorisationGenerator;
+use Illuminate\Http\Request;
+
+/**
+ * AT-229 DR2 W3 — the OPTIONAL "send work order" flow off a pipeline step.
+ *
+ * form()  → the auto-filled authorisation fields + the supplier picker payload.
+ * send()  → build the work-authorisation PDF from the (edited) fields, resolve or
+ *           ad-hoc-create the supplier (never preselected — Q2), address its primary
+ *           contact (Q5), send via the built distribution chain (+ audit), and link
+ *           the supplier to the deal. Skippable — never blocks the step.
+ */
+class WorkOrderController extends Controller
+{
+    /** The form fields the agent may edit before send (all auto-filled by default). */
+    private const FIELD_KEYS = [
+        'date', 'service_label', 'property_address',
+        'seller_name', 'seller_email', 'seller_tel',
+        'purchaser_name', 'purchaser_tel', 'attorneys',
+        'rep_name', 'rep_email', 'rep_tel',
+        'keys_name', 'keys_tel', 'payer', 'notes',
+    ];
+
+    public function form(DealV2 $dealV2, DealStepInstance $dealStepInstance, WorkAuthorisationGenerator $generator)
+    {
+        abort_unless((int) $dealStepInstance->deal_id === (int) $dealV2->id, 404);
+
+        $serviceType = $dealStepInstance->pipelineStep?->work_order_service_type;
+        $defaults    = $generator->defaultFields($dealV2, $serviceType);
+
+        $suppliers = AgencyServiceProvider::query()
+            ->where('is_active', true)
+            ->with(['serviceContacts' => fn ($q) => $q->where('is_active', true)])
+            ->orderByDesc('is_preferred')->orderBy('name')
+            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred']);
+
+        return response()->json([
+            'service_type' => $serviceType,
+            'fields'       => $defaults,
+            'suppliers'    => $suppliers,
+        ]);
+    }
+
+    public function send(Request $request, DealV2 $dealV2, DealStepInstance $dealStepInstance, WorkAuthorisationGenerator $generator, AgencyServiceProviderService $providers, DealDistributionService $distribution)
+    {
+        abort_unless((int) $dealStepInstance->deal_id === (int) $dealV2->id, 404);
+
+        $data = $request->validate([
+            // Supplier: an existing directory id OR an ad-hoc capture (never preselected).
+            'service_provider_id'         => ['nullable', 'integer'],
+            'service_provider_contact_id' => ['nullable', 'integer'],
+            'supplier_name'               => ['nullable', 'string', 'max:255'],
+            'supplier_company'            => ['nullable', 'string', 'max:255'],
+            'supplier_email'              => ['nullable', 'email', 'max:255'],
+            'supplier_phone'              => ['nullable', 'string', 'max:60'],
+            'service_type'                => ['nullable', 'string', 'max:40'],
+            'notes'                       => ['nullable', 'string'],
+            'payer'                       => ['nullable', 'string'],
+        ]);
+
+        $actor       = $request->user();
+        $agencyId    = (int) ($dealV2->agency_id ?: 0);
+        $serviceType = $dealStepInstance->pipelineStep?->work_order_service_type ?? ($data['service_type'] ?? null);
+
+        // Resolve the supplier — existing directory row, else ad-hoc create (Q2).
+        if (! empty($data['service_provider_id'])) {
+            $provider = AgencyServiceProvider::findOrFail($data['service_provider_id']);
+        } else {
+            abort_if(empty($data['supplier_name']), 422, 'Pick a supplier or capture a new one to send the work order.');
+            $provider = $providers->findOrCreate($agencyId, [
+                'name'      => $data['supplier_name'],
+                'company'   => $data['supplier_company'] ?? null,
+                'email'     => $data['supplier_email'] ?? null,
+                'phone'     => $data['supplier_phone'] ?? null,
+                'specialty' => $serviceType ?: 'other',
+            ], $actor->id);
+        }
+
+        // Address the supplier's PRIMARY contact (selectable — Q5), else the firm email.
+        $toEmail = null;
+        $toName  = $provider->name;
+        if (! empty($data['service_provider_contact_id'])) {
+            $contact = AgencyServiceProviderContact::where('service_provider_id', $provider->id)
+                ->find($data['service_provider_contact_id']);
+            if ($contact) {
+                $toEmail = $contact->email;
+                $toName  = $contact->contact_person ?: $contact->attorney_name ?: $provider->name;
+            }
+        }
+        $toEmail = $toEmail ?: $provider->email;
+        abort_if(! $toEmail, 422, 'The chosen supplier has no email address to send the work order to.');
+
+        // Link the supplier to the deal (idempotent) + build the auth PDF from the
+        // auto-filled fields overlaid with the agent's edits.
+        $providers->attachToDeal($dealV2, $provider, 'service_provider');
+        $fields = array_merge(
+            $generator->defaultFields($dealV2, $serviceType),
+            array_filter($request->only(self::FIELD_KEYS), fn ($v) => $v !== null)
+        );
+
+        $document = $generator->generate($dealV2, $fields, $provider, $actor);
+
+        $distribution->send(
+            $dealV2,
+            $document,
+            'service_provider',
+            DealDocumentDistribution::MODE_DIRECT_ATTACHMENT,
+            ['type' => 'provider', 'model' => $provider, 'email' => $toEmail, 'name' => $toName],
+            $actor,
+            false
+        );
+
+        $msg = "Work order sent to {$toName} ({$toEmail}). The returned certificate/invoice will auto-file when you upload it.";
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'message' => $msg, 'document_id' => $document->id]);
+        }
+
+        return back()->with('success', $msg);
+    }
+}
