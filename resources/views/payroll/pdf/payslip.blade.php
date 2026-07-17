@@ -46,6 +46,7 @@
         <div class="reg-info">
             @if($agency->reg_no)Reg: {{ $agency->reg_no }}@endif
             @if($agency->vat_no) | VAT: {{ $agency->vat_no }}@endif
+            @if($agency->ncc_registration_number) | NCC: {{ $agency->ncc_registration_number }}@endif
             @if($agency->paye_registration_no) | PAYE: {{ $agency->paye_registration_no }}@endif
             @if($agency->uif_employer_no) | UIF: {{ $agency->uif_employer_no }}@endif
             <br>

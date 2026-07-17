@@ -112,6 +112,9 @@ class NotificationEventTypeSeeder extends Seeder
             $this->row('fica.referred_to_co', 'contact', 'Compliance', 'FICA referred to you (Compliance Officer)', 'none', null, null, null, 40, false, null, inApp: true, email: true, push: false),
             // AT-269 — a referral was returned to its referrer (by the CO, or auto when the CO designation changed).
             $this->row('fica.referral_returned', 'contact', 'Compliance', 'FICA referral returned to you', 'none', null, null, null, 41, false, null, inApp: true, email: true, push: false),
+            // AT-236 — company document expiry engine. Lead time is the doc-type's own renewal_days (agency-configurable), NOT a per-user threshold → unit 'none'.
+            $this->row('compliance.document_expiring', 'agent', 'Compliance', 'Company document expiring soon', 'none', null, null, null, 42, false, null, inApp: true, email: true, push: false),
+            $this->row('compliance.document_expired',  'agent', 'Compliance', 'Company document expired', 'none', null, null, null, 43, false, null, inApp: true, email: true, push: false),
 
             // AT-265 — the permission system is unavailable (role_permissions empty → every
             // non-owner denied). In-app + email so it reaches an owner who is not at a screen; no

@@ -129,8 +129,16 @@ class AgencyComplianceProvision extends Model
     /**
      * Build the full state matrix for the agency documents index.
      */
-    public static function stateMatrixForAgency(int $agencyId): Collection
+    public static function stateMatrixForAgency(?int $agencyId): Collection
     {
+        // Owner-context guard: a System Owner (super_admin, NULL agency) who has not
+        // yet selected an agency reaches here with null. The route's agency.required
+        // middleware already redirects them to the switcher, but never let this method
+        // itself 500 on a null — return an empty matrix rather than a TypeError.
+        if (! $agencyId) {
+            return collect();
+        }
+
         $types = AgencyDocumentTypeConfig::active()->ordered()->get();
         $branches = Branch::where('agency_id', $agencyId)->orderBy('name')->get();
 
