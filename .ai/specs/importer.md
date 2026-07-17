@@ -358,7 +358,7 @@ Sidebar entry gated by `@can('admin.importer')`. Route middleware `can:admin.imp
 ## 13. Open Questions
 
 1. When agent email collides with an existing CoreX user (different agency), do we **skip**, **update**, or **refuse import**? → *Proposal: skip with warning; admin can manually re-assign.*
-2. Should re-import update image files, or only when P24 URL changes? → *Proposal: hash-compare filename; only re-download if URL differs.*
+2. Should re-import update image files, or only when P24 URL changes? → **RESOLVED (2026-07-17):** the download skips when the inbound URL-set signature is unchanged AND the gallery is already `complete`; when the URL set differs it force-drops the stale ordinals and refetches the whole gallery. See §14.3 changed-gallery guard.
 3. Should inactive P24 agents be imported at all, or skipped by default? → *Proposal: import but mark `is_active=false`, checkbox in preview to exclude.*
 4. Image storage: local disk vs S3? → *Proposal: whatever current `properties.images_json` uses — mirror that.*
 
@@ -401,6 +401,16 @@ concurrency to "go faster".
   re-import refetches nothing.
 - Rebuilds `gallery_images_json` / `images_json` from **every ordinal on disk**,
   so a recovered middle image closes the gap rather than leaving a hole.
+- **Changed-gallery guard (2026-07-17):** the "fetch only what's missing"
+  optimisation assumes the ordinal→image mapping is stable, which holds for an
+  unchanged gallery or an incomplete heal. When the inbound URL set actually
+  *changes*, the confirm job detects the signature change and dispatches the
+  download with `force=true`; the download then **drops the stale ordinals and
+  refetches the whole gallery** and zeroes `gallery_stored_count`. Without this,
+  fetch-only-missing would see `1.jpg..N.jpg` present, refetch nothing, and leave
+  the listing marked `complete` while rendering the *previous* photos. The clear
+  is guarded to the first attempt so a released retry never wipes what it just
+  pulled, and a forced job never short-circuits on skip-if-unchanged.
 - If still short after a pass, `release()`s to retry; only when `tries` are
   exhausted does it stop — and then it records `incomplete` with a **WARNING**
   naming expected/stored/missing. **It can never report `complete` while short.**

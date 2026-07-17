@@ -57,7 +57,13 @@ class DownloadP24RowImagesJob implements ShouldQueue
      * via onQueue() (not a redeclared $queue property, which conflicts with the
      * Queueable trait).
      */
-    public function __construct(public int $propertyId, public array $urls)
+    /**
+     * @param bool $force When the confirm job detects the inbound gallery
+     *   CHANGED (a different P24 URL set from what produced the files on disk),
+     *   it passes force=true so this job drops the stale ordinals and refetches
+     *   the whole gallery instead of healing the new set against old files.
+     */
+    public function __construct(public int $propertyId, public array $urls, public bool $force = false)
     {
         $this->onQueue('p24images');
     }
@@ -81,13 +87,27 @@ class DownloadP24RowImagesJob implements ShouldQueue
 
         // Skip-if-unchanged: an unchanged P24 gallery that is already fully
         // stored costs nothing on a re-import. Signature is the INBOUND set;
-        // status guards against skipping a gallery that was short last time.
-        if ($property->gallery_import_status === 'complete'
+        // status guards against skipping a gallery that was short last time. A
+        // forced refetch (the gallery changed) never short-circuits here.
+        if (!$this->force
+            && $property->gallery_import_status === 'complete'
             && $property->p24_source_image_signature === self::signatureFor($urls)) {
             return;
         }
 
         $dir = "properties/{$property->id}";
+
+        // Changed gallery: the files on disk belong to the PREVIOUS URL set, so
+        // fetch-only-missing would refetch nothing and leave the listing marked
+        // complete while showing the old photos. Drop the old ordinals so every
+        // position is refetched fresh. Guarded to the first attempt — a released
+        // retry must never wipe the images it just downloaded. Numeric ordinal
+        // files only; a generated thumbs/ subdir keeps its own lifecycle.
+        if ($this->force && ($this->job === null || $this->attempts() <= 1)) {
+            foreach ($this->presentOrdinals($dir) as $path) {
+                Storage::disk('public')->delete($path);
+            }
+        }
 
         // Which ordinals (1-based) already have a file on disk? Fetch only the rest.
         $present = $this->presentOrdinals($dir);

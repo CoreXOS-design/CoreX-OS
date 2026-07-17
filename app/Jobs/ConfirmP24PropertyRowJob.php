@@ -59,9 +59,10 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
         $propertyId = null;
         $imageUrls = [];
         $skipImages = false;
+        $galleryChanged = false;
 
         try {
-            DB::transaction(function () use ($row, $mapped, $run, &$propertyId, &$imageUrls, &$skipImages) {
+            DB::transaction(function () use ($row, $mapped, $run, &$propertyId, &$imageUrls, &$skipImages, &$galleryChanged) {
                 $listingNumber = $mapped['p24_listing_number'] ?? $row->external_id;
 
                 $existing = Property::withoutGlobalScopes()
@@ -180,9 +181,21 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 // unchanged, already-complete gallery keeps 'complete' so the
                 // download job short-circuits instead of re-walking the CDN.
                 $newSig = DownloadP24RowImagesJob::signatureFor($imageUrls);
+                $oldSig = $property->p24_source_image_signature;
                 $skipImages = $property->gallery_import_status === 'complete'
-                    && $property->p24_source_image_signature === $newSig
+                    && $oldSig === $newSig
                     && (int) $property->gallery_stored_count >= count($imageUrls);
+
+                // The P24 gallery genuinely CHANGED since we last stored it — a
+                // different inbound URL set, not just an incomplete heal of the
+                // same one. The files already on disk are the OLD gallery; the
+                // download job must drop them and refetch every ordinal fresh,
+                // NOT "heal" the new set against stale files (fetch-only-missing
+                // would see 1.jpg..N.jpg present and refetch nothing, leaving the
+                // listing marked complete while rendering the previous photos).
+                // Only a change when we had a prior set — a first import
+                // (oldSig null) is not a change.
+                $galleryChanged = $oldSig !== null && $oldSig !== $newSig;
 
                 $galleryMeta = [
                     'gallery_expected_count'     => count($imageUrls),
@@ -190,6 +203,12 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 ];
                 if (!$skipImages) {
                     $galleryMeta['gallery_import_status'] = empty($imageUrls) ? 'complete' : 'pending';
+                }
+                // A changed gallery restarts its stored count from zero — the old
+                // count described the old photos and would otherwise read as
+                // spurious progress until the refetch overwrites it.
+                if ($galleryChanged) {
+                    $galleryMeta['gallery_stored_count'] = 0;
                 }
                 $property->forceFill($galleryMeta)->save();
             });
@@ -199,7 +218,7 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
             // while its gallery fills. Nothing to fetch when the set is empty or
             // an unchanged gallery is already complete.
             if ($propertyId && !empty($imageUrls) && !$skipImages) {
-                DownloadP24RowImagesJob::dispatch($propertyId, $imageUrls);
+                DownloadP24RowImagesJob::dispatch($propertyId, $imageUrls, $galleryChanged);
             }
         } catch (\Throwable $e) {
             Log::error('ConfirmP24PropertyRowJob failed', ['row_id' => $row->id, 'error' => $e->getMessage()]);

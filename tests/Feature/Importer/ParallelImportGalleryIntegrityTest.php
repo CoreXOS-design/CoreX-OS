@@ -156,6 +156,35 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_changed_gallery_reimport_refetches_every_ordinal_not_just_missing(): void
+    {
+        // First import of URL set A — two images land on disk, marked complete.
+        Http::fake(fn () => Http::response($this->jpegBytes(), 200, ['Content-Type' => 'image/jpeg']));
+        $property = $this->property();
+        $setA = ['https://images.prop24.com/gallery/a-1.jpg', 'https://images.prop24.com/gallery/a-2.jpg'];
+        (new DownloadP24RowImagesJob($property->id, $setA))->handle();
+        $this->assertSame('complete', $property->fresh()->gallery_import_status);
+
+        // P24 replaces the gallery with a DIFFERENT set B (same size). The files
+        // 1.jpg/2.jpg on disk belong to set A, so fetch-only-missing would pull
+        // nothing and leave the listing showing the OLD photos while marked
+        // complete. force=true (which the confirm job sets on a signature change)
+        // must drop the stale ordinals and refetch every position of the new set.
+        Http::fake(fn () => Http::response($this->jpegBytes(), 200, ['Content-Type' => 'image/jpeg']));
+        $setB = ['https://images.prop24.com/gallery/b-1.jpg', 'https://images.prop24.com/gallery/b-2.jpg'];
+        (new DownloadP24RowImagesJob($property->id, $setB, true))->handle();
+
+        // Every ordinal of the NEW set was fetched — none skipped as "present".
+        $this->assertSame(1, Http::recorded(fn ($r) => str_contains($r->url(), 'b-1.jpg'))->count());
+        $this->assertSame(1, Http::recorded(fn ($r) => str_contains($r->url(), 'b-2.jpg'))->count());
+
+        $property->refresh();
+        $this->assertSame('complete', $property->gallery_import_status);
+        $this->assertSame(2, $property->gallery_stored_count);
+        // Signature now reflects set B, so the next unchanged re-import skips.
+        $this->assertSame(DownloadP24RowImagesJob::signatureFor($setB), $property->p24_source_image_signature);
+    }
+
     public function test_a_genuinely_imageless_listing_is_complete_not_stuck_pending(): void
     {
         Http::fake();
@@ -217,6 +246,40 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         (new ConfirmP24PropertyRowJob($row->id, $this->owner->id))->handle();
 
         Queue::assertNotPushed(DownloadP24RowImagesJob::class);
+    }
+
+    public function test_confirm_of_a_changed_gallery_requeues_the_download_with_force(): void
+    {
+        Queue::fake();
+        $newUrls = $this->urls(3);
+        $row = $this->listingRow($newUrls);
+
+        // Pre-existing property imported from a DIFFERENT (older, smaller) url set,
+        // so its stored signature no longer matches the incoming gallery.
+        Property::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id,
+            'branch_id' => $this->agency->id,
+            'agent_id' => $this->agent->id,
+            'external_id' => (string) Str::uuid(),
+            'title' => 'Existing', 'property_type' => 'house', 'status' => 'active', 'price' => 1000000,
+            'p24_listing_number' => $row->external_id,
+            'gallery_import_status' => 'complete',
+            'gallery_expected_count' => 2,
+            'gallery_stored_count' => 2,
+            'p24_source_image_signature' => DownloadP24RowImagesJob::signatureFor($this->urls(2)),
+        ]);
+
+        (new ConfirmP24PropertyRowJob($row->id, $this->owner->id))->handle();
+
+        // A changed gallery re-queues the download WITH force=true so stale
+        // ordinals are dropped, not healed against.
+        Queue::assertPushed(DownloadP24RowImagesJob::class, fn ($job) => $job->force === true);
+
+        // And the stale stored-count is reset so it doesn't read as spurious
+        // progress before the refetch overwrites it.
+        $property = Property::withoutGlobalScopes()->where('p24_listing_number', $row->external_id)->first();
+        $this->assertSame(0, (int) $property->gallery_stored_count);
+        $this->assertSame('pending', $property->gallery_import_status);
     }
 
     // ---- Import All = one Bus batch -----------------------------------------
