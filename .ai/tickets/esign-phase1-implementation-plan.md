@@ -553,3 +553,8 @@ wizard-stage pass is only valid against a frozen importer. Touch the importer �
 - **D1** address component-tick picker · **D2** reuse builder Sig/Ini tagging · **D3** fill & review
   last-look. Parked.
 - **D4** FICA once-per-contact gate (LOCKED spec) — parked (wizard/gate stage).
+
+### D-slot design note (Johan, 2026-07-17) — component-tickbox selection
+For D1-D3, Johan floated a right-panel component-tickbox model (tick the components → composed
+display). He is FLEXIBLE: ticks OR field-groups, decide in build. Parked with the wizard queue.
+The builder binding chip ("Seller · Address") is BUILT (QA1 17039678) as the display half.
