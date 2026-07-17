@@ -412,7 +412,7 @@ before returning. Returning content only in the reply is not sufficient."
 | Build | Vite — `npm run dev` (local), `npm run build` (production) |
 | Database | MySQL via Laragon (local), MySQL on server (production) |
 | Server | Ubuntu at 91.99.130.85, codebase at /corex |
-| Domain | corex.hfcoastal.co.za |
+| Domain | **corexos.co.za** (canonical; `www.` also served). `corex.hfcoastal.co.za` is RETIRED — 308-redirects here, serves no app (2026-07-17). Its DNS + TLS cert must STAY: the cert lineage is named for it but its SANs cover corexos.co.za, so dropping it breaks the main site. |
 | Repo | johan7610/hfc-dash |
 | Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |
 | Tests | scripts/dev-check.ps1 — 894 tests, 2236 assertions |

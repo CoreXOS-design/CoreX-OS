@@ -182,7 +182,7 @@ Full spec and verification checklist: `.ai/specs/multi-tenancy.md`.
 |------|-------|
 | Server | Ubuntu at `91.99.130.85` |
 | Codebase | `/corex` |
-| Domain | `corex.hfcoastal.co.za` |
+| Domain | `corexos.co.za` (canonical; `www.corexos.co.za` also served). `corex.hfcoastal.co.za` RETIRED 2026-07-17 → 308 redirect only; keep its DNS + cert (SANs cover corexos.co.za). |
 | GitHub repo | `johan7610/hfc-dash` |
 | Branch: production | `main` |
 | Branch: Johan dev | `HFC2402` |

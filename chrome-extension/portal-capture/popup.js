@@ -79,8 +79,7 @@
         var baseUrl = baseUrlInput.value.replace(/\/+$/, '');
         for (var i = 0; i < tabs.length; i++) {
             var tabUrl = tabs[i].url || '';
-            var match = tabUrl.match(/^https?:\/\/(?:127\.0\.0\.1|localhost):8000\/presentations\/(\d+)/) ||
-                        tabUrl.match(/^https?:\/\/corex\.hfcoastal\.co\.za\/presentations\/(\d+)/);
+            var match = matchCorexPresentation(tabUrl);
             if (match) {
                 var detectedId = match[1];
                 var detectedTitle = (tabs[i].title || '').replace(/\s*[-|].*$/, '');
@@ -275,8 +274,7 @@
                             var nexusTabId = null;
                             for (var i = 0; i < allTabs.length; i++) {
                                 var tabUrl = allTabs[i].url || '';
-                                if (/^https?:\/\/(?:127\.0\.0\.1|localhost):8000\/presentations\//.test(tabUrl) ||
-                                    /^https?:\/\/corex\.hfcoastal\.co\.za\/presentations\//.test(tabUrl)) {
+                                if (isCorexPresentationUrl(tabUrl)) {
                                     nexusTabId = allTabs[i].id;
                                     break;
                                 }
