@@ -151,6 +151,26 @@ Schedule::command('corex:queue-healthcheck')
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
+// Property24 portal-presence sweep — the COLD half of the reconcile, nightly.
+//
+// SyncProperty24Activations above only ever looks at enabled listings sitting at
+// submitted/pending/active (191 rows). Everything claiming to be OFF the portal —
+// deactivated/error/rejected, 252 rows — was reconciled by NOTHING: the command
+// existed but was never scheduled, so drift was only ever repaired when a human
+// thought to run it by hand. That is how listings ended up publicly live on P24
+// while CoreX reported them withdrawn (#2142), and how 17 rows accumulated a
+// status that flatly contradicted the portal.
+//
+// Deliberately WITHOUT --withdraw: this pass corrects the local status (no portal
+// writes) and logs `P24 STRANDED ADVERT` for anything live that should not be.
+// Auto-pulling a public advert on a cron is a decision for Johan, not a default.
+// ~252 calls at ~0.7s + 1s self-throttle ≈ 7 min, off-peak.
+Schedule::command('p24:reconcile-portal-presence')
+    ->dailyAt('02:45')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('p24-portal-presence-sweep');
+
 // Property24 ExDev buyer-enquiry leads pull — runs every 5 minutes.
 // Persists into portal_leads alongside PP leads. See .ai/specs/portal-leads.md.
 Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
