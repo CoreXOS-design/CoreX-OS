@@ -527,40 +527,39 @@ class WebTemplateDataService
 
             $value = '';
 
-            // If we have a named field, use its source_column for precise resolution
+            // If we have a named field, resolve it to its ACTUAL attribute.
             if ($namedField) {
-                $nfKey = $namedField->key ?? '';
-                $nfSourceType = $namedField->source_type ?? $source;
-                $nfSourceColumn = $namedField->source_column ?? '';
-                $nfContactType = $namedField->source_contact_type ?? $field['sourceContactType'] ?? '';
+                // AT-177 B2 (root fix, host-diagnosed 2026-07-17) — key off the FIELD-LEVEL binding
+                // signals the CDS import writes reliably: typeKey (sf:contact_<role> / sf:property),
+                // sourceType, sourceContactType — NOT the named field's source_type. The old code
+                // preferred `$namedField->source_type`, which for these imports is not 'contact', so
+                // the contact branch never fired; the empty result was then stripped by array_filter
+                // below and the seller NAME bled through from base data. That is why three deploys
+                // changed nothing — there were no labels for the label-keyword guard to match. The
+                // ATTRIBUTE comes from the named field's source_column (the import stores it there,
+                // parsed from the blade data-field "source_type.source_column"); label is last resort.
+                $typeKey = (string) ($field['typeKey'] ?? '');
+                $fSource = strtolower((string) ($field['sourceType'] ?? $namedField->source_type ?? $source));
+                $fRole   = (string) ($field['sourceContactType'] ?? $namedField->source_contact_type ?? '');
+                if ($fRole === '' && str_starts_with($typeKey, 'sf:contact_')) {
+                    $fRole = ucfirst(substr($typeKey, strlen('sf:contact_')));
+                }
 
-                // Bug 1: a role-bound contact field (Seller/Buyer/Lessor/Lessee)
-                // must concatenate its column across EVERY recipient of that
-                // role — same join field groups use — so two sellers' IDs
-                // render "3112 and 6789", consistent with the name field.
-                // Generic contact fields (no contact type) keep single-contact
-                // behaviour to avoid mixing unrelated roles.
-                if ($nfSourceType === 'contact' && !empty($nfContactType)) {
-                    $parts = explode('.', $nfKey, 2);
-                    $attr = count($parts) === 2 ? $parts[1] : ($nfSourceColumn ?: '');
+                $isContact  = $fSource === 'contact'  || str_starts_with($typeKey, 'sf:contact_');
+                $isProperty = $fSource === 'property' || $typeKey === 'sf:property';
 
-                    // B2 — a party-bound custom field with no real attribute mapping (the CDS import
-                    // binds it to the ROLE but not to name/id/address/…). Without an attribute it fell
-                    // through to the party NAME, so "Seller - Physical address", "- Telephone" and
-                    // "- Email" all rendered the seller's name. Johan's rule: derive the attribute from
-                    // the LABEL — the human's own statement of what the spot holds. The explicit
-                    // mapping still wins when present; the label only fills the gap.
-                    if (! $this->isKnownContactAttribute($attr)) {
-                        $fromLabel = $this->contactAttributeFromLabel($field['label'] ?? $field['manualLabel'] ?? '');
-                        if ($fromLabel !== null) {
-                            $attr = $fromLabel;
-                        }
-                    }
-
-                    $value = $this->resolveContactColumnAllRecipients($nfContactType, $attr, $recipients);
+                if ($isContact && $fRole !== '') {
+                    $attr  = $this->attributeForNamedField($namedField, $field);
+                    $value = $this->resolveContactColumnAllRecipients($fRole, $attr, $recipients);
+                } elseif ($isProperty) {
+                    // Property component fields (Complex / Number / Town / Street / District — the
+                    // sf:property split) resolve their column here; B1 township fallback lives in
+                    // resolvePropertyFromKey.
+                    $attr  = $this->attributeForNamedField($namedField, $field);
+                    $value = $this->resolvePropertyFromKey($attr, $property, $details);
                 } else {
                     $value = $this->resolveByNamedFieldKey(
-                        $nfKey, $nfSourceType, $nfSourceColumn, $nfContactType,
+                        $namedField->key ?? '', $namedField->source_type ?? $source, $namedField->source_column ?? '', $fRole,
                         $property, $contactsByRole, $details, $agent
                     );
                 }
@@ -714,10 +713,17 @@ class WebTemplateDataService
             'suburb', 'township' => $property['suburb'] ?? $property['town'] ?? $property['city'] ?? '',
             'erf', 'erf_number', 'property_number' => $property['erf'] ?? $property['erf_number'] ?? $property['property_number'] ?? '',
             'complex_name'       => $property['complex_name'] ?? '',
-            'unit_number'        => $property['unit_number'] ?? '',
-            'district'           => $property['district'] ?? 'Ray Nkonyeni',
+            'unit_number', 'number' => $property['unit_number'] ?? '',
+            // AT-177 — the sf:property address components (split at import): Town / Street / District.
+            'town'               => $property['town'] ?? $property['city'] ?? $property['suburb'] ?? '',
+            'street_name', 'street_address' => $property['street_name'] ?? $property['address'] ?? $property['title'] ?? '',
+            'district'           => $property['district'] ?? $property['town'] ?? $property['city'] ?? '',
             'property_type'      => $property['property_type'] ?? '',
             'price'              => $details['price'] ?? $property['price'] ?? '',
+            // B3 — a price-in-words component resolves to the WORDS (whole rands, "and", no cents),
+            // keyed off its source_column since these imports carry no descriptive label.
+            'price_in_words', 'amount_in_words', 'price_words', 'asking_price_in_words'
+                => ($p = ($details['price'] ?? $property['price'] ?? '')) !== '' ? \App\Support\AmountInWords::rands($p) : '',
             // Bug 2: the "Commission Percent" (property/commission_percent)
             // source must pull the Step-4 Document Details value first, then
             // fall back to the property record. Without this arm it hit the
@@ -737,6 +743,29 @@ class WebTemplateDataService
      * Resolve a contact value from a key attribute.
      * Handles specific attributes like "surname", "first_name", "full_name", "id_number".
      */
+    /**
+     * AT-177 B2 — the ATTRIBUTE a named field resolves to, from its own definition.
+     *
+     * Priority: the named field's `source_column` (the import parses this from the blade
+     * data-field "source_type.source_column", so it is the authoritative attribute) → a dotted
+     * "source.attribute" key → the field label keyword (last resort, for hand-tagged fields that
+     * carry a descriptive label but no column).
+     */
+    private function attributeForNamedField($namedField, array $field): string
+    {
+        $col = trim((string) ($namedField->source_column ?? ''));
+        if ($col !== '') {
+            return $col;
+        }
+
+        $key = (string) ($namedField->key ?? $field['field_name'] ?? '');
+        if (str_contains($key, '.')) {
+            return explode('.', $key, 2)[1];
+        }
+
+        return $this->contactAttributeFromLabel($field['label'] ?? $field['manualLabel'] ?? '') ?? '';
+    }
+
     /** B2 — the contact attributes resolveContactFromKey knows how to resolve. */
     private function isKnownContactAttribute(?string $attr): bool
     {
