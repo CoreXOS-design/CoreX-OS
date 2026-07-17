@@ -390,7 +390,23 @@
                         'prefill_properties' => $schedProps->isNotEmpty() ? json_encode($schedProps->all()) : null,
                     ], fn ($v) => $v !== null)) : null;
                 @endphp
-                @if($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
+                @if($pack->calendar_event_id)
+                    {{-- AT-111 — this pack was launched from an existing appointment.
+                         "Update appointment" pushes the finalised properties (in drag
+                         order) onto that event in place — no new event. --}}
+                    @php $linkedEvent = $pack->calendarEvent; @endphp
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">
+                        Linked to a calendar appointment@if($linkedEvent && $linkedEvent->event_date) on <strong>{{ $linkedEvent->event_date->format('D, d M Y H:i') }}</strong>@endif.
+                        Updating pushes this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order) onto that event.
+                    </p>
+                    <form method="POST" action="{{ route('corex.viewing-packs.update-appointment', $pack) }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary w-full" @disabled($pack->viewingPackProperties->isEmpty())>Update appointment</button>
+                    </form>
+                    @if($pack->viewingPackProperties->isEmpty())
+                        <p class="text-xs mt-2" style="color: var(--text-muted);">Add at least one property, then update the appointment.</p>
+                    @endif
+                @elseif($scheduleUrl && $pack->viewingPackProperties->isNotEmpty())
                     <p class="text-xs mb-2" style="color: var(--text-muted);">Opens the Calendar with the buyer, this pack's {{ $pack->viewingPackProperties->count() }} {{ \Illuminate\Support\Str::plural('property', $pack->viewingPackProperties->count()) }} (in order), and a viewing pre-filled.</p>
                     <a href="{{ $scheduleUrl }}" class="corex-btn-primary w-full no-underline" style="text-align:center;">Schedule Viewing</a>
                 @else

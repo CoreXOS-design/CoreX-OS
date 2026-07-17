@@ -1662,10 +1662,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('viewing-packs')->name('corex.viewing-packs.')->group(function () {
         Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->name('store');
+        // AT-111 — REVERSE link: launch/open a pack FROM an existing calendar
+        // appointment (schedule-now-prep-later). Static prefix so it never
+        // collides with the {viewingPack} routes below.
+        Route::post('/from-event/{calendarEvent}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'launchFromEvent'])->name('from-event');
         Route::get('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'show'])->name('show');
         Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
         Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
         Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
+        // AT-111 — push the pack's finalised properties onto the LINKED appointment in place.
+        Route::post('/{viewingPack}/update-appointment', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'updateAppointment'])->name('update-appointment');
         // AT-XX — scheduling reuses the calendar prefill handoff (link built in
         // show.blade), not a pack-side scheduler. The old POST schedule route +
         // ViewingPackCalendarService were removed (no parallel scheduling logic).
