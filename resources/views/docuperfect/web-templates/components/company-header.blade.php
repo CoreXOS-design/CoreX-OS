@@ -67,6 +67,7 @@ if (isset($logo_url)) $logoPath = $logo_url;
             {{ $d('address') }}<br>
             Reg no: &nbsp;&nbsp; {{ $d('reg_no') }}<br>
             Vat: {{ $d('vat_no') }}<br>
+            @if($d('ncc_registration_number'))NCC: &nbsp;&nbsp; {{ $d('ncc_registration_number') }}<br>@endif
             Email Address: &nbsp;&nbsp; {{ $d('email') }}<br>
             {{ $d('phone_label') ?: 'Cell:' }} &nbsp;&nbsp; {{ $d('phone') }}
         </div>
