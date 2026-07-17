@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\P24ImportRow;
 use App\Models\Property;
+use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -21,7 +22,11 @@ use Illuminate\Support\Facades\Log;
  */
 class ConfirmP24PropertyRowJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    // Batchable is REQUIRED — Import All dispatches these via Bus::batch(), and
+    // Bus::batch() throws "does not use the Batchable trait" at dispatch without
+    // it. (Bus::fake() in tests does NOT enforce this, so the guard test below
+    // asserts the trait directly.)
+    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
      * The wide, cheap lane. A confirm is a DB write and no CDN call, so this

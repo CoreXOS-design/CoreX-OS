@@ -284,6 +284,19 @@ class ParallelImportGalleryIntegrityTest extends TestCase
 
     // ---- Import All = one Bus batch -----------------------------------------
 
+    public function test_confirm_job_is_batchable_so_import_all_can_dispatch(): void
+    {
+        // Bus::batch() throws "does not use the Batchable trait" at dispatch if
+        // the job lacks it — but Bus::fake() (used by the batch test below) does
+        // NOT enforce that, so assert the trait directly. This is the regression
+        // that shipped an Import All which 500'd on the real dispatch path.
+        $this->assertContains(
+            \Illuminate\Bus\Batchable::class,
+            class_uses_recursive(ConfirmP24PropertyRowJob::class),
+            'ConfirmP24PropertyRowJob must use Batchable or Bus::batch() throws at dispatch.'
+        );
+    }
+
     public function test_import_all_dispatches_one_batch_and_marks_rows_processing(): void
     {
         Bus::fake();
