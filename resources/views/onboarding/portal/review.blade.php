@@ -46,9 +46,9 @@
                 </button>
                 <span class="text-xs text-muted" x-text="selected.length + ' selected'"></span>
             </div>
-            <a href="{{ route('onboarding.portal.finish', $portal->urlKey()) }}"
-               class="rounded-md px-3 py-1.5 text-xs border border-subtle">
-                Finish review →
+            <a href="{{ route('onboarding.portal.invites', $portal->urlKey()) }}"
+               class="portal-cta rounded-md px-3 py-1.5 text-xs font-semibold">
+                Continue to agent invites →
             </a>
         </div>
     </form>

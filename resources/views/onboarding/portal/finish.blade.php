@@ -9,7 +9,13 @@
             </svg>
         </div>
         <h1 class="text-2xl font-bold mb-1">Review submitted</h1>
-        <p class="text-sm text-muted mb-6">Thank you, CoreX has been notified.</p>
+        <p class="text-sm text-muted mb-4">Thank you, CoreX has been notified.</p>
+
+        @if (session('status'))
+            <div class="mb-6 rounded-md bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-800">
+                {{ session('status') }}
+            </div>
+        @endif
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 my-6 text-left">
             <div class="rounded-md bg-surface-2 p-3 text-center">

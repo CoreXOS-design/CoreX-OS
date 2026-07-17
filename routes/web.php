@@ -645,6 +645,9 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
     Route::get('/', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'welcome'])->name('welcome');
     Route::get('/review', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'review'])->name('review');
     Route::get('/status', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'status'])->name('status');
+    // Agent-invite step — sits between property review and finish.
+    Route::get('/invites', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'inviteAgents'])->name('invites');
+    Route::post('/invites/send', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'sendInvites'])->name('invites.send');
     Route::get('/finish', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'finish'])->name('finish');
     Route::post('/rows/{rowId}/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmRow'])->name('row.confirm');
     Route::post('/rows/{rowId}/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'excludeRow'])->name('row.exclude');

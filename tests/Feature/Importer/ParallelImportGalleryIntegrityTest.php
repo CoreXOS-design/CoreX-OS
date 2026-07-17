@@ -4,6 +4,7 @@ namespace Tests\Feature\Importer;
 
 use App\Jobs\ConfirmP24PropertyRowJob;
 use App\Jobs\DownloadP24RowImagesJob;
+use App\Jobs\SendAgentInviteJob;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\P24ImportRow;
@@ -372,6 +373,39 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         $this->actingAs($admin)
             ->getJson('/api/v1/importer/gallery-reconciliation')
             ->assertForbidden();
+    }
+
+    // ---- Agent-invite step (review -> invites -> finish) --------------------
+
+    public function test_invite_step_sends_only_to_selected_eligible_agents(): void
+    {
+        Queue::fake();
+        $portal = $this->portal();
+
+        // pending + email → invitable, and it's ticked (posted)
+        $eligible = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent',
+            'p24_agent_id' => 111, 'is_active' => false, 'invited_at' => null, 'email' => 'a@x.com']);
+        // already on CoreX → never invited, even though posted
+        $active = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent',
+            'p24_agent_id' => 112, 'is_active' => true, 'email' => 'b@x.com']);
+        // invitable but UNticked (not posted) → excluded
+        $excluded = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent',
+            'p24_agent_id' => 113, 'is_active' => false, 'invited_at' => null, 'email' => 'c@x.com']);
+        // different agency → filtered by scope even though posted
+        $otherAgency = Agency::create(['name' => 'Other Co', 'slug' => 'other-co']);
+        $other = User::factory()->create(['agency_id' => $otherAgency->id, 'role' => 'agent',
+            'p24_agent_id' => 114, 'is_active' => false, 'email' => 'd@x.com']);
+
+        $this->post("/onboarding/{$portal->urlKey()}/invites/send", [
+            'agent_ids' => [$eligible->id, $active->id, $other->id],
+        ])->assertRedirect(route('onboarding.portal.finish', $portal->urlKey()));
+
+        // Exactly one invite — the ticked, eligible, same-agency agent.
+        Queue::assertPushed(SendAgentInviteJob::class, 1);
+        Queue::assertPushed(SendAgentInviteJob::class, fn ($j) => $j->userId === $eligible->id);
+        foreach ([$active->id, $excluded->id, $other->id] as $notInvited) {
+            Queue::assertNotPushed(SendAgentInviteJob::class, fn ($j) => $j->userId === $notInvited);
+        }
     }
 
     // ---- helpers ------------------------------------------------------------

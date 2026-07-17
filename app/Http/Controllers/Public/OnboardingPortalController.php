@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ConfirmP24PropertyRowJob;
+use App\Jobs\SendAgentInviteJob;
 use App\Models\P24ImportRow;
 use App\Models\P24ImportRun;
 use App\Models\P24OnboardingPortal;
@@ -395,6 +396,81 @@ class OnboardingPortalController extends Controller
             P24ImportRow::whereIn('id', $ids)->update(['processing_at' => null]);
             throw $e;
         }
+    }
+
+    /**
+     * The agency's imported agents, ordered by name. Scoped to the portal's
+     * agency and to P24-imported users (p24_agent_id set) so the portal only ever
+     * exposes agents that belong to this onboarding.
+     */
+    private function portalAgents(P24OnboardingPortal $portal): \Illuminate\Support\Collection
+    {
+        return User::withoutGlobalScopes()
+            ->where('agency_id', $portal->agency_id)
+            ->whereNotNull('p24_agent_id')
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'is_active', 'invited_at', 'p24_agent_id']);
+    }
+
+    /**
+     * Agent-invite step — shown after property review, before finish. Lists every
+     * imported agent so the agency can send invite links, EXCLUDING anyone they
+     * don't want on CoreX (uncheck to exclude). Already-active/already-invited
+     * agents are shown for context but not re-sent by default.
+     */
+    public function inviteAgents(Request $request)
+    {
+        $portal = $this->portal($request);
+        $this->guardActive($portal);
+
+        $agents = $this->portalAgents($portal);
+        $agency = $portal->agency;
+        $counts = $this->counts($portal);
+        $this->logEvent($portal, $request, 'portal.invites.viewed', [
+            'meta_json' => ['agent_count' => $agents->count()],
+        ]);
+
+        return view('onboarding.portal.invites', compact('portal', 'agency', 'agents', 'counts'));
+    }
+
+    /**
+     * Send invite links to the selected agents, then continue to finish. Only
+     * agents that (a) belong to this portal's agency, (b) have an email, and
+     * (c) are not already active are ever sent — a checked already-invited agent
+     * is re-sent. Excluded (unchecked) agents get nothing.
+     */
+    public function sendInvites(Request $request)
+    {
+        $portal = $this->portal($request);
+        $this->guardActive($portal);
+
+        $selected = collect((array) $request->input('agent_ids', []))
+            ->map(fn ($id) => (int) $id)->filter()->unique();
+
+        // Re-derive the eligible set server-side — never trust the posted ids
+        // beyond intersecting them with this agency's imported, invitable agents.
+        $eligible = $this->portalAgents($portal)
+            ->filter(fn (User $u) => !$u->is_active && filled($u->email));
+
+        $toInvite = $eligible->filter(fn (User $u) => $selected->contains($u->id));
+
+        foreach ($toInvite as $agent) {
+            SendAgentInviteJob::dispatch($agent->id);
+        }
+
+        $this->logEvent($portal, $request, 'portal.invites.sent', [
+            'meta_json' => [
+                'requested'  => $selected->count(),
+                'sent'       => $toInvite->count(),
+                'excluded'   => $eligible->count() - $toInvite->count(),
+            ],
+        ]);
+
+        return redirect()
+            ->route('onboarding.portal.finish', $portal->urlKey())
+            ->with('status', $toInvite->isEmpty()
+                ? 'No invites sent — you can invite agents later from CoreX.'
+                : $toInvite->count() . ' invite link' . ($toInvite->count() === 1 ? '' : 's') . ' sent.');
     }
 
     public function finish(Request $request)
