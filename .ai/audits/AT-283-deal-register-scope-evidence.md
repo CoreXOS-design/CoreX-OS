@@ -18,24 +18,25 @@
 | office_admin | 3 | 3 | 3 |
 | super_admin | 1 | 1 | 1 |
 
-## Reconcile set (ARMED — NOT yet applied; waits for Johan's "clean it")
-Config `role_defaults` updated so these become off-config over-grants, then the surgical `--keys` filter strips only them:
+## Reconcile set (ARMED — NOT yet applied; waits for Johan's literal "clean it")
+Config `role_defaults` reflects the target so these are off-config over-grants; the surgical `--keys` filter strips only them (soft-delete, reversible via snapshot):
 
 - **agent** — strip `access_deal_register` (3) + `access_deal_register_v2` (3) + `settle_deals` (3) = **9 rows**
 - **branch_manager** — strip `settle_deals` (3) = **3 rows**
-- **TOTAL = 12 rows** (soft-delete, reversible via snapshot)
+- **office_admin** — strip `access_deal_register` (3) + `access_deal_register_v2` (3) + `settle_deals` (3) = **9 rows**
+- **TOTAL = 21 rows**
 
 **Command (run on LIVE only on Johan's word):**
 ```
 php artisan corex:reconcile-role-grants \
-  --roles=agent,branch_manager \
+  --roles=agent,branch_manager,office_admin \
   --keys=access_deal_register,access_deal_register_v2,settle_deals \
   --apply
 ```
 Dry-run (no `--apply`) reports first; `--apply` writes a snapshot JSON; `--rollback=<snapshot>` is one-command undo.
 
-## ⚠️ OPEN — office_admin (needs Johan's ruling, NOT armed)
-`office_admin` currently holds all three (3 each = **9 rows**). Johan's ruling named agent/BM/admin only. Settlement is often a finance/back-office function → office_admin may legitimately need `settle_deals`. **Not included in the reconcile set until Johan rules** whether office_admin counts as "admin" (keep) or a restricted role (strip). Config `role_defaults['office_admin']` currently excludes all three, so a default reconcile would strip them — deliberately held.
+## office_admin — RESOLVED (Johan's final ruling)
+"strip - settlement is payslips - only admin can do this." office_admin gets NO deal register and NO settlement → its 9 rows (register DR1+DR2 + settle) are IN the strip set. Only `admin` + `super_admin` retain deal register + settlement.
 
 ## Verification
 - Route gates confirmed: settlement = `permission:settle_deals` (DR1 `web.php:573-583`, DR2 `:715-719`); DR2 register = `access_deal_register_v2` (`:825`).

@@ -880,6 +880,10 @@ return [
         // an agency can widen it to branch/all or remove it entirely. The default
         // is deliberately minimal (own), not broad.
         'office_admin' => [
+            // AT-283 (Johan's final ruling): "settlement is payslips — only admin can do
+            // this." office_admin gets NO deal register and NO settlement — already
+            // excluded here, so the reconcile strips its stale access_deal_register /
+            // _v2 / settle_deals grants as over-grants.
             'include' => [
                 'communications.view',
             ],
