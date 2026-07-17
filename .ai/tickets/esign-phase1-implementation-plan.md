@@ -475,3 +475,44 @@ session.
 ### RESUME ENTRY POINT
 Branch `esign-phase1` (tracks `origin/QA1`). Pick up at HD-12, or wire the pack once Johan supplies
 the Open source + re-imports the Exclusive. Everything green; no half-built state.
+
+---
+
+## AT-177 Wizard Walk package (2026-07-17) — bugs fixed, design specced
+
+**Bugs (fixed, QA1 `5e149af4`):** B1 township town/city fallback · B2 party-bound attribute-from-label
+(Johan's keyword map — the fix for his real doc) · B3 "in words" spot → AmountInWords · B4 commission
+server re-render (needs live-walk confirm on step-4 persist timing).
+
+### Design specs (build after bugs)
+
+**D1 — Address display picker (property step).** Left panel lists address COMPONENTS (unit, complex,
+street nr, street name, erf, suburb, township, region) each with a tick → the ticked set composes the
+displayed address. Blank components are editable inline on the left (this is the real fix for B1's
+township — the agent fills/toggles it). Composed value flows to `property_address` / the address
+data-fields. Reuses the component-tick model shared with D-B2/B3.
+
+**D2 — Document sections step = the builder's Sig/Ini visual tagging, reused.** Do NOT build a
+parallel signature mechanism. The signing-surface markers already come from the blade's
+signature-line / signature-block includes (SignatureService::countSignatureLocationsPerRole +
+createMarkersFromBlocks). The wizard's "document sections" tagging surfaces the SAME builder Sig/Ini
+tool so a spot tagged in the builder is the spot that signs — one mechanism, one truth. (This is also
+the mechanism for the EATS's 3 generic mid-doc signatures — tag them all-parties.)
+
+**D3 — Fill & review = one last-look surface.** Every field from every pane (property, recipients,
+details, custom) rendered together, each editable, as the final pre-send review. Reads the resolved
+field set; writes back through the same autosave the render uses.
+
+**D4 — FICA gate: asked ONCE PER CONTACT, never per document (Johan LOCKED 2026-07-17).**
+Scenario (his words): a client gets 3 docs to sign; on the 1st they complete FICA; on the rest we
+already know FICA is pending, so we do NOT ask again.
+Gate states, keyed on the CONTACT (not the document):
+  - **no submission** → questionnaire at the first document's gate.
+  - **submission pending** → every other document's gate shows a HELD state "FICA awaiting approval"
+    — NO re-ask.
+  - **approved** → ALL held ceremonies for that contact RELEASE automatically (a gateway event on
+    approval fires the gate-release).
+This is also the canon-divergence fix: the gate keys on **APPROVED**, with **pending as a HELD state**
+rather than an open one. Build the FICA gate exactly to these three states + the on-approval release
+event. FICA remains the Compliance-module flow (not a pack template) — the future wet-ink-upload-at-
+gate enhancement plugs in here.
