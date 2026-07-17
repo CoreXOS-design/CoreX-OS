@@ -613,6 +613,34 @@ class User extends Authenticatable
         return null;
     }
 
+    /**
+     * AT-268 — the password a freshly-INVITED user is created with: unusable, unguessable, unshared.
+     *
+     * An invited account must not be loginable until the invitee redeems their signed setup link and
+     * sets a real password. The old code used the constant string 'INVITE_PENDING', which the `hashed`
+     * cast turned into a valid bcrypt hash of a value printed in the source, the tests and the ticket
+     * — so `Auth::attempt(..., 'INVITE_PENDING')` logged you in as any un-accepted invite. This is a
+     * fresh 72-char random string (the `hashed` cast hashes it on assignment); nothing ever reads it
+     * back, and AccountSetupController overwrites it with the invitee's real password on acceptance.
+     */
+    public static function pendingInvitePassword(): string
+    {
+        return \Illuminate\Support\Str::random(72);
+    }
+
+    /**
+     * AT-268 — is this account an invite that has not been accepted yet?
+     *
+     * `email_verified_at` is CoreX's invite-accepted marker: AccountSetupController stamps it to now()
+     * the moment the invitee sets their password. Null therefore means "invited, not yet redeemed".
+     * The login gate refuses these regardless of the password supplied (belt-and-braces over the
+     * unusable password above).
+     */
+    public function isPendingInvite(): bool
+    {
+        return $this->email_verified_at === null;
+    }
+
     // ── Owner role checks (the ONLY hardcoded concept) ──
 
     /**

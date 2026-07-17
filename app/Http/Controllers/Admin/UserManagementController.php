@@ -164,7 +164,7 @@ class UserManagementController extends Controller
             'name'                        => $fullName,
             'email'                       => $data['email'],
             'display_email'               => ($data['display_email'] ?? null) ?: null,
-            'password'                    => 'INVITE_PENDING',
+            'password'                    => \App\Models\User::pendingInvitePassword(),
             'role'                        => $data['role'],
             'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
             'agency_id'                   => auth()->user()?->effectiveAgencyId(),

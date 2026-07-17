@@ -72,7 +72,7 @@ class P24ImportVettingAgents extends Command
                 $user = User::create([
                     'name'       => trim($a['firstname'] . ' ' . $a['lastname']),
                     'email'      => $a['email'],
-                    'password'   => 'INVITE_PENDING',
+                    'password'   => \App\Models\User::pendingInvitePassword(),
                     'role'       => 'agent',
                     'agency_id'  => $agencyId,
                     'branch_id'  => $branchId ?: null,
