@@ -298,7 +298,7 @@ TXT,
                 'description' => 'Buyer-demand pitch (AT-144, Johan wording 2026-07-17) — "we have N buyers matching your property; list it with us and we can send it to them". States the REAL canonical count ({matching_buyer_count} token; blocked at zero by no_buyers; matched-buyer basis snapshotted per send for auditability). DISABLED — Johan enables after a one-glance confirm.',
                 'email_subject' => 'Buyers looking for a home like yours in {property_suburb}',
                 'body' => <<<'TXT'
-Hi {seller_name}, I'm {agent_name} from {agency_name} — a registered estate agency on the KZN South Coast.
+Hi {seller_name}, I'm {agent_name} from {agency_name} — a registered estate agency on the KZN Coast.
 {?matching_buyer_count}We have {matching_buyer_count} buyer(s) matching your property in {property_suburb} right now — list it with us and we can put it straight in front of them. {/matching_buyer_count}I'd be glad to tell you what they're looking for and what your property could achieve in today's market.
 May I share the details with you by WhatsApp, SMS or email?
 - Reply OPT IN and I'll send what these buyers are looking for
