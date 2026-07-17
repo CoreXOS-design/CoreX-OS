@@ -295,13 +295,13 @@ TXT,
                 'name' => 'Active Buyer Match — Your Property (DISABLED)',
                 'is_active' => false,
                 'is_default_for_channel' => false,
-                'description' => 'Buyer-demand pitch (AT-144) — states the REAL canonical count of active buyers matching THIS property ({matching_buyer_count} token; blocked at zero by no_buyers; the matched-buyer basis is snapshotted per send for auditability). DISABLED — Johan re-enables after his wording pick.',
+                'description' => 'Buyer-demand pitch (AT-144, Johan wording 2026-07-17) — "we have N buyers matching your property; list it with us and we can send it to them". States the REAL canonical count ({matching_buyer_count} token; blocked at zero by no_buyers; matched-buyer basis snapshotted per send for auditability). DISABLED — Johan enables after a one-glance confirm.',
                 'email_subject' => 'Buyers looking for a home like yours in {property_suburb}',
                 'body' => <<<'TXT'
 Hi {seller_name}, I'm {agent_name} from {agency_name} — a registered estate agency on the KZN South Coast.
-{?matching_buyer_count}We currently have {matching_buyer_count} active buyer(s) on our books looking for a property like yours in {property_suburb}. {/matching_buyer_count}If you've ever considered selling, I'd be glad to tell you what they're looking for — and what your home could achieve in today's market.
+{?matching_buyer_count}We have {matching_buyer_count} buyer(s) matching your property in {property_suburb} right now — list it with us and we can put it straight in front of them. {/matching_buyer_count}I'd be glad to tell you what they're looking for and what your property could achieve in today's market.
 May I share the details with you by WhatsApp, SMS or email?
-- Reply OPT IN and I'll send what buyers near you are looking for
+- Reply OPT IN and I'll send what these buyers are looking for
 - Reply OPT OUT and I won't contact you again
 Manage your preferences or opt out anytime: {opt_out_link}.
 {agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
