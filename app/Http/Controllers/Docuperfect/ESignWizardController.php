@@ -1039,6 +1039,11 @@ class ESignWizardController extends Controller
                 'source'            => 'properties',
                 'address'           => $p->buildDisplayAddress(),
                 'suburb'            => $p->suburb ?? '',
+                // B1 — the property's area also lives in town/city (set via the city/town selector).
+                // The panel only carried `suburb`, so a property whose area is in `town` rendered a
+                // blank TOWNSHIP. Carry both so township can resolve from whichever the agent filled.
+                'town'              => $p->town ?? '',
+                'city'              => $p->city ?? '',
                 'erf_no'            => $p->property_number ?? '',
                 'complex_name'      => $p->complex_name ?? '',
                 'unit_number'       => $p->unit_number ?? '',

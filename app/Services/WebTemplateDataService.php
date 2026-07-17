@@ -105,7 +105,7 @@ class WebTemplateDataService
 
         // Property values
         $address    = $property['address'] ?? $property['title'] ?? '';
-        $suburb     = $property['suburb'] ?? '';
+        $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1 — township falls back to town/city
         $leaseStart = $details['lease_start'] ?? '';
         $leaseEnd   = $details['lease_end'] ?? '';
         $rental     = $details['monthly_rental'] ?? $property['rental_amount'] ?? '';
@@ -542,7 +542,21 @@ class WebTemplateDataService
                 // behaviour to avoid mixing unrelated roles.
                 if ($nfSourceType === 'contact' && !empty($nfContactType)) {
                     $parts = explode('.', $nfKey, 2);
-                    $attr = count($parts) === 2 ? $parts[1] : ($nfSourceColumn ?: $nfKey);
+                    $attr = count($parts) === 2 ? $parts[1] : ($nfSourceColumn ?: '');
+
+                    // B2 — a party-bound custom field with no real attribute mapping (the CDS import
+                    // binds it to the ROLE but not to name/id/address/…). Without an attribute it fell
+                    // through to the party NAME, so "Seller - Physical address", "- Telephone" and
+                    // "- Email" all rendered the seller's name. Johan's rule: derive the attribute from
+                    // the LABEL — the human's own statement of what the spot holds. The explicit
+                    // mapping still wins when present; the label only fills the gap.
+                    if (! $this->isKnownContactAttribute($attr)) {
+                        $fromLabel = $this->contactAttributeFromLabel($field['label'] ?? $field['manualLabel'] ?? '');
+                        if ($fromLabel !== null) {
+                            $attr = $fromLabel;
+                        }
+                    }
+
                     $value = $this->resolveContactColumnAllRecipients($nfContactType, $attr, $recipients);
                 } else {
                     $value = $this->resolveByNamedFieldKey(
@@ -555,6 +569,16 @@ class WebTemplateDataService
             // Fallback: source-based resolution (backward compat for mappings without named fields)
             if (($value === '' || $value === null) && !$namedField) {
                 $value = $this->resolveBySource($source, $fieldName ?: $varName, $property, $contactsByRole, $details, $agent);
+            }
+
+            // B3 — a "… in words" spot renders the amount in WORDS, not the figure. The price/amount
+            // resolves to a number in both spots; when the label says "in words" (Johan's num/alpha
+            // rule) it runs through the rand converter. Same keyword-resolve-now pattern as B2.
+            if ($this->labelWantsWords($field['label'] ?? $field['manualLabel'] ?? '')) {
+                $numeric = preg_replace('/[^0-9.\-]/', '', (string) $value);
+                if ($numeric !== '' && is_numeric($numeric)) {
+                    $value = \App\Support\AmountInWords::rands($numeric);
+                }
             }
 
             $data[$varName] = (string) ($value ?? '');
@@ -685,7 +709,9 @@ class WebTemplateDataService
             'address', 'street'  => $property['address'] ?? $property['title'] ?? '',
             'address+suburb', 'full_address', 'property_full_address'
                 => trim(($property['address'] ?? '') . ', ' . ($property['suburb'] ?? ''), ', '),
-            'suburb', 'township' => $property['suburb'] ?? '',
+            // B1 — TOWNSHIP falls back to town then city when suburb is blank, so a property whose
+            // area was captured in the town/city selector no longer renders an empty township.
+            'suburb', 'township' => $property['suburb'] ?? $property['town'] ?? $property['city'] ?? '',
             'erf', 'erf_number', 'property_number' => $property['erf'] ?? $property['erf_number'] ?? $property['property_number'] ?? '',
             'complex_name'       => $property['complex_name'] ?? '',
             'unit_number'        => $property['unit_number'] ?? '',
@@ -711,6 +737,48 @@ class WebTemplateDataService
      * Resolve a contact value from a key attribute.
      * Handles specific attributes like "surname", "first_name", "full_name", "id_number".
      */
+    /** B2 — the contact attributes resolveContactFromKey knows how to resolve. */
+    private function isKnownContactAttribute(?string $attr): bool
+    {
+        return in_array(strtolower(trim((string) $attr)), [
+            'surname', 'last_name', 'first_name', 'full_name', 'name', 'full_names', 'first_name+last_name',
+            'id_number', 'email', 'phone', 'cell', 'tel', 'address',
+            'bank_name', 'bank_account_name', 'bank_account_number', 'bank_branch_name', 'bank_branch_code', 'bank_account_type',
+        ], true);
+    }
+
+    /**
+     * B2 — derive a contact ATTRIBUTE from a field's human label (Johan's keyword map).
+     *
+     * Order matters: the most specific keyword wins, so "Physical address" resolves to `address`
+     * and not to `name` on the word "name" appearing elsewhere. Surname is tested before the
+     * generic name. Returns null when the label names no known attribute (leave resolution as-is).
+     */
+    private function contactAttributeFromLabel(string $label): ?string
+    {
+        $l = strtolower($label);
+
+        return match (true) {
+            (bool) preg_match('/\b(id|identity)\b|id\s*number|identity\s*number/', $l) => 'id_number',
+            (bool) preg_match('/\baddress\b|physical\s*address|residential/', $l)      => 'address',
+            (bool) preg_match('/\b(tel|telephone|phone|cell|mobile|contact\s*number)\b/', $l) => 'phone',
+            (bool) preg_match('/\be-?mail\b/', $l)                                     => 'email',
+            // "Full name and surname" is ONE field for the whole name — it must beat the surname
+            // keyword that also appears in it. Composite full-name is checked before surname.
+            (bool) preg_match('/\bfull\s*names?\b/', $l)                               => 'name',
+            (bool) preg_match('/\b(surname|last\s*name)\b/', $l)                       => 'last_name',
+            (bool) preg_match('/\bfirst\s*name\b/', $l)                                => 'first_name',
+            (bool) preg_match('/\bname\b/', $l)                                        => 'name',
+            default                                                                    => null,
+        };
+    }
+
+    /** B3 — does this label ask for the amount IN WORDS (alpha), not the figure? */
+    private function labelWantsWords(string $label): bool
+    {
+        return (bool) preg_match('/\b(in\s*words|words|amount\s*in\s*words|alpha)\b/i', $label);
+    }
+
     private function resolveContactFromKey(string $attr, array $contact)
     {
         return match ($attr) {
@@ -994,7 +1062,7 @@ class WebTemplateDataService
         $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
         $seller2Name = trim(($seller2['first_name'] ?? '') . ' ' . ($seller2['last_name'] ?? '')) ?: ($seller2['name'] ?? '');
         $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
-
+        $suburb     = $property['suburb'] ?? $property['town'] ?? $property['city'] ?? ''; // B1
         $address    = $property['address'] ?? $property['title'] ?? '';
         $suburb     = $property['suburb'] ?? '';
         $leaseStart = $details['lease_start'] ?? '';

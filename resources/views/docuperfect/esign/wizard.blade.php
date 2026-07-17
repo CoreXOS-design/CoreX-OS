@@ -601,7 +601,7 @@
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Commission (%)</label>
                                 <input type="text" x-model="details.commission"
-                                       @input="updatePreviewField('commission_percent', $event.target.value)"
+                                       @input="updatePreviewField('commission_percent', $event.target.value); refreshPreviewDebounced()"
                                        class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 7.5">
                             </div>
                             <div class="grid grid-cols-2 gap-4">
@@ -679,7 +679,10 @@
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Commission (%)</label>
-                                    <input type="text" x-model="details.commission" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 8.5">
+                                    {{-- B4 — this second commission input had NO preview handler at all, so editing it
+                                         never touched the render. Parity with the sales input + a server re-render so the
+                                         NAMED professional-fee field and the DERIVED amounts (fee, VAT) recompute too. --}}
+                                    <input type="text" x-model="details.commission" @input="updatePreviewField('commission_percent', $event.target.value); refreshPreviewDebounced()" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 8.5">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Marketing Fee (R)</label>
