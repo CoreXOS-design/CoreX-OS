@@ -1670,6 +1670,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:access_viewing_packs')->group(function () {
         Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->middleware('permission:viewing_packs.view')->name('index');
         Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->middleware('permission:viewing_packs.create')->name('store');
+        // AT-111 direction 2 — REVERSE link: launch/open a pack FROM an existing
+        // calendar appointment (schedule-now-prep-later). Launching creates a pack,
+        // so it is gated like store. Static prefix — never collides with {viewingPack}.
+        Route::post('/from-event/{calendarEvent}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'launchFromEvent'])->middleware('permission:viewing_packs.create')->name('from-event');
         Route::get('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'show'])->middleware('permission:viewing_packs.view')->name('show');
         Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->middleware('permission:viewing_packs.edit')->name('update');
         Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->middleware('permission:viewing_packs.archive')->name('destroy');

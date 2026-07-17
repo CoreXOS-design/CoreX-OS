@@ -812,6 +812,25 @@ class CalendarController extends Controller
             'actor_role' => $cfg?->actor_role ?? 'both',
             'completion_behaviour' => $cfg?->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual && !$calendarEvent->is_recurring,
+            // AT-111 — the viewing pack linked to THIS appointment (if any), for the
+            // event panel's "Open pack" + download buttons. When none exists, the
+            // launch URL lets the panel start one from this event (reverse link).
+            'linked_viewing_pack' => (function () use ($calendarEvent) {
+                $vp = \App\Models\ViewingPack::where('calendar_event_id', $calendarEvent->id)
+                    ->withCount('viewingPackProperties')
+                    ->first();
+
+                return $vp ? [
+                    'id'              => $vp->id,
+                    'status'          => $vp->status,
+                    'is_ready'        => $vp->status === \App\Models\ViewingPack::STATUS_READY,
+                    'property_count'  => (int) $vp->viewing_pack_properties_count,
+                    'url'             => route('corex.viewing-packs.show', $vp),
+                    'buyer_pack_url'  => route('corex.viewing-packs.buyer-pack', $vp),
+                    'agent_sheet_url' => route('corex.viewing-packs.agent-sheet', $vp),
+                ] : null;
+            })(),
+            'viewing_pack_launch_url' => route('corex.viewing-packs.from-event', $calendarEvent),
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
                 'address' => $calendarEvent->property?->address ?? ('Property #' . $calendarEvent->property_id),
