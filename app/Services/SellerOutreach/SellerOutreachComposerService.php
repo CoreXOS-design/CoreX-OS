@@ -176,6 +176,19 @@ final class SellerOutreachComposerService
             $validationIssues['no_buyers'] = 'This template states you have active buyers matching this property, but there are currently 0 matching buyers for it. Choose an area-update template, or send once a buyer matches — an active-buyer claim cannot be sent when the true count is zero.';
         }
 
+        // AT-144 (Buyer Pillar / PPRA ethics) — a property-specific buyer claim may
+        // only go to OPEN stock. Never pitch "list it with us" for a property held
+        // under a SOLE or EXCLUSIVE mandate: that interferes with an existing
+        // exclusive mandate. Fires ONLY when the linked property carries real
+        // sole/exclusive mandate data (a genuine prospect has none). Same
+        // content-driven, isSendable-honoured mechanism as no_buyers.
+        if ($property !== null && str_contains($bodyTemplate, '{matching_buyer_count}')) {
+            $mandate = strtolower(trim((string) ($property->mandate_type ?? '')));
+            if ($mandate === 'sole' || str_contains($mandate, 'exclusive')) {
+                $validationIssues['mandate_conflict'] = 'This property is under a sole/exclusive mandate — a buyer-demand "list it with us" pitch may only be sent for open stock. Use a general consent template, or send once the property is open.';
+            }
+        }
+
         // AT-49 — block on the opt-out flag OR an identifier-level suppression
         // (the latter catches a re-imported contact with no flag set yet).
         $optOutBlocks = $contact->messaging_opt_out_at !== null
