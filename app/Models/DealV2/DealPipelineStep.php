@@ -39,6 +39,10 @@ class DealPipelineStep extends Model
         'requires_bm_approval',
         'escalation_config',
         'required_before',
+        // AT-229 — per-step work-order config (set in pipeline setup, no hard setting).
+        'sends_work_order',
+        'work_order_service_type',
+        'work_order_trigger_point',
     ];
 
     protected $casts = [

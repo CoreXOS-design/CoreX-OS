@@ -745,6 +745,9 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
     Route::get('/{deal}/distribute',  [\App\Http\Controllers\Dr2\DealDistributionController::class, 'compose'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.compose');
     Route::post('/{deal}/distribute', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'send'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.send');
+    // AT-229 — OPTIONAL pipeline-step work order: auto-filled auth form → PDF → supplier.
+    Route::get('/{dealV2}/steps/{dealStepInstance}/work-order/form', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'form'])->whereNumber(['dealV2', 'dealStepInstance'])->middleware('permission:deals_v2.distribute_documents')->name('work-order.form');
+    Route::post('/{dealV2}/steps/{dealStepInstance}/work-order/send', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'send'])->whereNumber(['dealV2', 'dealStepInstance'])->middleware('permission:deals_v2.distribute_documents')->name('work-order.send');
 });
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
