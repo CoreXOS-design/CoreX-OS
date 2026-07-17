@@ -55,6 +55,18 @@ class AuthenticatedSessionController extends Controller
     {
         $request->authenticate();
 
+        // AT-268 — belt-and-braces over the unusable invite password: an account that has been
+        // invited but not yet accepted can NEVER hold a session, whatever password was supplied. The
+        // real fix (User::pendingInvitePassword) already makes Auth::attempt fail for these; this
+        // guarantees it even if a pending account ever ended up with a guessable password again.
+        if (auth()->user()?->isPendingInvite()) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return back()->withErrors(['email' => 'Please accept your invitation first — use the setup link in your invite email.']);
+        }
+
         if (!auth()->user()?->is_active) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
