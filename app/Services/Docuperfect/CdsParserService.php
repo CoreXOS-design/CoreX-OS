@@ -1163,11 +1163,12 @@ class CdsParserService
             return ['label' => 'Amount in words', 'field_name' => 'property.price_in_words', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high'];
         }
 
+        // Email BEFORE address ("Email address" contains "address"); name LAST (most generic).
         $map = [
-            '/\b(physical|residential|postal)?\s*address\b/' => ['address', 'Physical Address', 'text', 'contact.address'],
-            '/\b(tel|telephone|phone|cell|mobile|contact\s*number|landline)\b/' => ['phone', 'Telephone', 'tel', 'contact.phone'],
             '/\be-?mail\b/'                                  => ['email', 'Email', 'email', 'contact.email'],
+            '/\b(tel|telephone|phone|cell|mobile|contact\s*number|landline)\b/' => ['phone', 'Telephone', 'tel', 'contact.phone'],
             '/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/' => ['id_number', 'ID Number', 'text', 'contact.id_number'],
+            '/\b(physical|residential|postal)?\s*address\b/' => ['address', 'Physical Address', 'text', 'contact.address'],
             '/\b(full\s*name|surname|first\s*name|name)\b/'  => ['name', 'Name', 'text', 'contact.full_names'],
         ];
 
