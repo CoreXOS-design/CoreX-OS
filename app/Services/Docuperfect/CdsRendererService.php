@@ -168,6 +168,29 @@ class CdsRendererService
                 continue;
             }
 
+            // AT-262 — a CUSTOM-NAMED insertable marker (~~~~Seller - Full name~~~~) is
+            // a bindable FIELD with a human label — that is the entire point of the
+            // named-marker syntax. Render it as a field chip so it appears on the
+            // canvas and can be bound, exactly like a @@@@ field_placeholder. Built-in
+            // insertable blocks (OTHER_CONDITIONS / INCLUDED_ITEMS / EXCLUDED_ITEMS)
+            // are agent-editable AREAS, not fields — their compile-time behaviour is
+            // left untouched (they are not rendered as a chip here).
+            if (($item['type'] ?? '') === 'insertable_block_placeholder') {
+                if (($item['purpose'] ?? '') === 'custom_named') {
+                    $label = $item['custom_label'] ?? $item['raw_token'] ?? 'FIELD';
+                    $fieldName = $item['block_id'] ?? '';
+                    $html .= '<span class="corex-field" '
+                        . 'data-field-name="' . e($fieldName) . '" '
+                        . 'data-field-type="text" '
+                        . 'data-field-label="' . e($label) . '" '
+                        . 'data-confidence="high" '
+                        . 'style="border-color:#22c55e;">'
+                        . '<span class="corex-field-label">' . e($label) . '</span>'
+                        . '</span>';
+                }
+                continue;
+            }
+
             if (($item['type'] ?? '') !== 'text') continue;
 
             $text = e($item['value'] ?? '');
