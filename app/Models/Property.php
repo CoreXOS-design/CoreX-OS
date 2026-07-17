@@ -87,6 +87,23 @@ class Property extends Model
     public const P24_ON_PORTAL_TERMINAL_STATUSES = ['sold', 'rented'];
 
     /**
+     * Statuses that CLAIM the portal is not carrying the listing. If P24 is in
+     * fact still showing one of these, it is a stranded public advert — the
+     * harmful direction of status drift, and the class that stranded #2142.
+     *
+     * This is the suspect set for p24:reconcile-portal-presence. It is deliberately
+     * WIDER than PORTAL_OFF_STATUS alone: 'error' and 'rejected' equally read as
+     * "not advertised" to a human looking at the panel, and they equally hide a
+     * listing that is publicly live. Sweeping only 'deactivated' left 189 rows
+     * (159 error + 30 rejected) that nothing ever checked.
+     *
+     * NOT included: 'submitted'/'pending'/'active' (the 15-min SyncProperty24Activations
+     * job owns those) and 'sold'/'rented' (terminal but legitimately still ON the
+     * portal — see P24_ON_PORTAL_TERMINAL_STATUSES).
+     */
+    public const P24_CLAIMS_OFF_PORTAL_STATUSES = [self::PORTAL_OFF_STATUS, 'error', 'rejected'];
+
+    /**
      * True when P24 may still be showing this listing. The ONLY safe basis for a
      * delist guard: we hold a portal reference and nothing has told us the
      * listing left the portal. Anything else — 'sold', 'rented', 'pending',
