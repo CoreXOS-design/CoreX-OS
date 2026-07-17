@@ -2,6 +2,27 @@
 
 _Two-minion tandem, 2026-07-17. QA1 `fb6c8daf`. Reverse direction of the AT-107 forward handoff._
 
+## ROUND 2 (Johan's verdict — what's built is kept; added his forward sync + fixed a live 422). QA1 `b7901938`.
+- **Live 422 (event 6777):** the "no buyer" case no longer dead-ends. Root cause: event
+  6777 is a bare time-slot — `contact_id` NULL + zero `calendar_event_links` (other
+  viewing events DO carry the buyer as `buyer_contact|Contact`, so the resolution shapes
+  were already right — 6777 just had none). Now: stash the event, redirect to the buyer
+  pipeline to pick one; the next pack built links back to that appointment (consumed once
+  in `store()`, agency-checked). `launchFromEvent` also carries `tour_at` now.
+- **Forward sync (his spec):** the pack **Save** (`update()`) links the pack to its
+  appointment — the one it's already linked to, or the single viewing event matching
+  buyer + viewing date — then pushes the ordered properties (`subject_property` + scalar
+  primary) and ensures the buyer is a **party** (non-destructive; never wipes the agent).
+  The event panel then shows properties, parties, and the pack download buttons. Both
+  directions now live side by side: his forward save + the reverse launch.
+- Shared `pushPackToEvent()` helper used by both `update()` (save) and `updateAppointment()`.
+- **Verified end-to-end on event 6777** (tinker, rolled back — 6777 untouched): no-buyer
+  launch → pipeline + session; pick buyer → store links to 6777; save → `subject_property
+  [p2,p1]` + `property_id=p2` + `buyer_contact` link + `event.contact_id`; payload count=2
+  (downloads show); date-match links a pipeline pack by buyer+date.
+
+The two "flags" below from round 1 are now **fixed** (property_id scalar; cross-branch buyer).
+
 ## Outcome (after reconciling both lanes on QA1)
 Both lanes independently built the reverse `launchFromEvent` + `updateAppointment`
 methods. The **other lane's pair is kept** — it is integrated with the AT-112
