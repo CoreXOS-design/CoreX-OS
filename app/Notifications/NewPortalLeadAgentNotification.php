@@ -68,17 +68,73 @@ class NewPortalLeadAgentNotification extends Notification
         ];
     }
 
+    /**
+     * AT-226 — per-recipient ownership attribution.
+     *
+     * The SAME lead notification goes to the listing agent(s) AND to a matched
+     * buyer's existing agent (PortalLead::agentIds()). Only the listing side owns
+     * the enquiry. The old copy said "one of YOUR listings" to everyone, so a
+     * matched buyer's agent — who may also be an admin — was told another agent's
+     * listing was theirs and to "reach out while hot", and could unknowingly work
+     * that agent's client. This resolves, for THIS notifiable, whether they are
+     * listing-side (owns the lead) or receiving it purely for OVERSIGHT.
+     */
+    private function attributionFor(object $notifiable): array
+    {
+        $this->lead->loadMissing([
+            'listing:id,title,address,suburb,agent_id,pp_second_agent_id',
+            'listing.agent:id,name',
+        ]);
+        $listing = $this->lead->listing;
+
+        $listingSideIds = array_filter([
+            (int) ($listing->agent_id ?? 0),
+            (int) ($listing->pp_second_agent_id ?? 0),
+        ]);
+        $isListingSide = $listing !== null
+            && in_array((int) $notifiable->getKey(), $listingSideIds, true);
+
+        return [
+            'is_oversight'       => ! $isListingSide,
+            'listing_agent_name' => $listing?->agent?->name ?: 'the listing agent',
+            'property_label'     => $listing?->title
+                ?: ($listing?->address
+                    ?: ($this->lead->listing_portal_ref ? "ref {$this->lead->listing_portal_ref}" : 'the listing')),
+        ];
+    }
+
     public function toMail(object $notifiable): MailMessage
     {
         $portal  = $this->lead->portalLabel();
         $name    = $this->lead->name ?: 'A buyer';
         $message = trim((string) $this->lead->message);
+        $attr    = $this->attributionFor($notifiable);
+        $ref     = $this->lead->listing_portal_ref ? " (ref {$this->lead->listing_portal_ref})" : '';
 
+        // OVERSIGHT — the enquirer is linked to this agent, but the listing is
+        // someone else's. Never imply ownership; never say "reach out while hot".
+        if ($attr['is_oversight']) {
+            $agent = $attr['listing_agent_name'];
+            $mail  = (new MailMessage)
+                ->subject("New {$portal} lead for {$agent} — {$name}")
+                ->greeting("Hi {$notifiable->name},")
+                ->line("**{$name}** enquired via {$portal} on **{$agent}'s listing** — {$attr['property_label']}{$ref}.")
+                ->line("**{$agent} has been notified** and will handle this enquiry. You're seeing it for **oversight** — {$name} is linked to you as their agent.");
+
+            if ($message !== '') {
+                $mail->line('> ' . $message);
+            }
+
+            return $mail
+                ->action('View lead (oversight)', $this->actionUrl())
+                ->line("No action needed from you — {$agent} is on it.");
+        }
+
+        // LISTING-SIDE — this agent owns the enquiry.
         $mail = (new MailMessage)
-            ->subject("New {$portal} lead — {$name}")
+            ->subject("New {$portal} lead on your listing — {$name}")
             ->greeting("Hi {$notifiable->name},")
-            ->line("**{$name}** enquired via {$portal} on one of your listings"
-                . ($this->lead->listing_portal_ref ? " (ref {$this->lead->listing_portal_ref})" : '') . '.');
+            ->line("**{$name}** enquired via {$portal} on **your listing** — {$attr['property_label']}{$ref}.");
 
         if ($message !== '') {
             $mail->line('> ' . $message);
@@ -113,18 +169,28 @@ class NewPortalLeadAgentNotification extends Notification
 
     public function toArray(object $notifiable): array
     {
+        $attr = $this->attributionFor($notifiable);
+        $name = $this->lead->name ?: 'A buyer';
+        $ref  = $this->lead->listing_portal_ref ? ' — ' . $this->lead->listing_portal_ref : '';
+
         return [
-            'type'           => 'portal_lead',
-            'title'          => 'New ' . $this->lead->portalLabel() . ' lead',
-            'body'           => trim(($this->lead->name ?: 'A buyer')
-                . ($this->lead->listing_portal_ref ? ' — ' . $this->lead->listing_portal_ref : '')),
+            'type'               => 'portal_lead',
+            'title'              => $attr['is_oversight']
+                ? 'New ' . $this->lead->portalLabel() . ' lead for ' . $attr['listing_agent_name']
+                : 'New ' . $this->lead->portalLabel() . ' lead',
+            'body'               => $attr['is_oversight']
+                ? "{$name} enquired on {$attr['listing_agent_name']}'s listing — you're linked to them as their agent (oversight)"
+                : trim($name . $ref),
             // Same destination as the email — the in-app bell must not disagree with the inbox.
-            'action_url'     => $this->actionUrl(),
-            'icon'           => 'inbox',
-            'portal_lead_id' => $this->lead->id,
-            'portal'         => $this->lead->portal,
-            'listing_id'     => $this->lead->listing_id,
-            'contact_id'     => $this->lead->contact_id,
+            'action_url'         => $this->actionUrl(),
+            'icon'               => $attr['is_oversight'] ? 'eye' : 'inbox',
+            // AT-226 — attribution the bell UI can badge; never blank for oversight.
+            'is_oversight'       => $attr['is_oversight'],
+            'listing_agent_name' => $attr['is_oversight'] ? $attr['listing_agent_name'] : null,
+            'portal_lead_id'     => $this->lead->id,
+            'portal'             => $this->lead->portal,
+            'listing_id'         => $this->lead->listing_id,
+            'contact_id'         => $this->lead->contact_id,
         ];
     }
 }
