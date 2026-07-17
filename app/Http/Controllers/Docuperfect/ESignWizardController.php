@@ -866,7 +866,17 @@ class ESignWizardController extends Controller
                 foreach ($data['partyOverrides'] as $fieldId => $party) {
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
-                            $field['assignedTo'] = $party;
+                            // AT multi-party — an override is now the FULL party set
+                            // (array). Preserve it as editable_by (multi, signing-time)
+                            // and derive the single prep-filler for assignedTo.
+                            $parties = is_array($party)
+                                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                                : (is_string($party) && $party !== '' ? [$party] : []);
+                            if (!empty($parties)) {
+                                $field['editableBy']  = $parties;
+                                $field['editable_by'] = $parties;
+                                $field['assignedTo']  = in_array('agent', $parties, true) ? 'agent' : $parties[0];
+                            }
                             break;
                         }
                     }
@@ -972,7 +982,17 @@ class ESignWizardController extends Controller
                 foreach ($data['partyOverrides'] as $fieldId => $party) {
                     foreach ($fields as &$field) {
                         if (($field['id'] ?? null) == $fieldId) {
-                            $field['assignedTo'] = $party;
+                            // AT multi-party — an override is now the FULL party set
+                            // (array). Preserve it as editable_by (multi, signing-time)
+                            // and derive the single prep-filler for assignedTo.
+                            $parties = is_array($party)
+                                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                                : (is_string($party) && $party !== '' ? [$party] : []);
+                            if (!empty($parties)) {
+                                $field['editableBy']  = $parties;
+                                $field['editable_by'] = $parties;
+                                $field['assignedTo']  = in_array('agent', $parties, true) ? 'agent' : $parties[0];
+                            }
                             break;
                         }
                     }
@@ -1526,9 +1546,22 @@ class ESignWizardController extends Controller
         // Apply party overrides from fill_review
         $partyOverrides = $stepData['fill_review']['partyOverrides'] ?? [];
         foreach ($partyOverrides as $fieldId => $party) {
+            // AT multi-party — the override is the FULL party set (array). Preserve
+            // it as editable_by (multi, what the signing view enforces) and derive
+            // the single prep-filler for assignedTo, so a seller+agent field stays
+            // editable by BOTH at signing.
+            $parties = is_array($party)
+                ? array_values(array_filter($party, fn ($r) => is_string($r) && $r !== ''))
+                : (is_string($party) && $party !== '' ? [$party] : []);
+            if (empty($parties)) {
+                continue;
+            }
+            $filler = in_array('agent', $parties, true) ? 'agent' : $parties[0];
             foreach ($fields as &$field) {
                 if (($field['id'] ?? null) == $fieldId) {
-                    $field['assignedTo'] = $party;
+                    $field['editableBy']  = $parties;
+                    $field['editable_by'] = $parties;
+                    $field['assignedTo']  = $filler;
                 }
             }
             unset($field);
@@ -1884,7 +1917,23 @@ class ESignWizardController extends Controller
             // Store field_mappings with editable_by so the signing view knows
             // which fields each party role can edit (CDS templates only)
             if (!empty($template->field_mappings)) {
-                $webTemplateData['field_mappings'] = $template->field_mappings;
+                $fm = $template->field_mappings;
+                // AT multi-party — overlay each field's per-send editable_by (the
+                // fill&review "who this field belongs to" checkboxes) onto the
+                // template's field_mappings, so the multi party set chosen for THIS
+                // send governs signing-time edit rights. Non-overridden fields carry
+                // the template's own editable_by unchanged (idempotent).
+                if (is_array($fm)) {
+                    foreach ($fields as $wf) {
+                        $tagId = $wf['id'] ?? null;
+                        $eb = $wf['editable_by'] ?? $wf['editableBy'] ?? null;
+                        if ($tagId !== null && isset($fm[$tagId]) && is_array($fm[$tagId])
+                            && is_array($eb) && !empty($eb)) {
+                            $fm[$tagId]['editable_by'] = array_values($eb);
+                        }
+                    }
+                }
+                $webTemplateData['field_mappings'] = $fm;
                 $webTemplateData['template_type'] = $template->template_type;
             }
         }
@@ -3657,7 +3706,10 @@ class ESignWizardController extends Controller
             if (empty($editableByArray)) {
                 $editableByArray = ['agent'];
             }
-            $editableBy = $editableByArray[0];
+            // AT multi-party — assignedTo is the single derived PREP-FILLER, not a
+            // silent "first tick". Agent fills when they are one of the parties,
+            // else the first party. The full multi set rides on `editableBy` below.
+            $editableBy = in_array('agent', $editableByArray, true) ? 'agent' : $editableByArray[0];
 
             // Label: derive from named field if this is a group member with no override
             $label = $m['label'] ?? $m['manualLabel'] ?? '';

@@ -741,13 +741,22 @@
                                               x-text="getRoleLabel(roleToken)"></span>
                                     </template>
                                 </label>
-                                <select @change="setFieldParty(f.id, $event.target.value)"
-                                        class="text-xs rounded-md px-1.5 py-0.5 ml-2"
-                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                                {{-- AT multi-party fill&review — a field can belong to SEVERAL parties
+                                     (signing-time editable_by is multi). One checkbox per party; a
+                                     seller+agent field shows BOTH ticked and can be toggled independently. --}}
+                                <div class="flex flex-wrap items-center gap-1.5 ml-2">
                                     <template x-for="opt in partyOptions" :key="opt.value">
-                                        <option :value="opt.value" x-text="opt.label" :selected="getFieldParty(f) === opt.value"></option>
+                                        <label class="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md cursor-pointer"
+                                               :style="isFieldParty(f, opt.value)
+                                                   ? 'background: color-mix(in srgb, var(--ds-blue,#3b82f6) 14%, transparent); border:1px solid var(--ds-blue,#3b82f6); color: var(--text-primary);'
+                                                   : 'background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);'">
+                                            <input type="checkbox" class="w-3 h-3"
+                                                   :checked="isFieldParty(f, opt.value)"
+                                                   @change="toggleFieldParty(f, opt.value)">
+                                            <span x-text="opt.label"></span>
+                                        </label>
                                     </template>
-                                </select>
+                                </div>
                             </div>
 
                             {{-- Text / placeholder --}}
@@ -2166,12 +2175,30 @@ function esignWizard() {
             this.refreshPreviewDebounced();
         },
 
-        getFieldParty(f) {
-            return this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'agent';
+        // AT multi-party fill&review — a field can belong to SEVERAL parties
+        // (signing-time editable_by is multi). The full set: an array override
+        // wins, else the field's editableBy array, else the legacy single value.
+        fieldParties(f) {
+            const ov = this.fieldPartyOverrides[f.id];
+            if (Array.isArray(ov)) return ov;
+            if (typeof ov === 'string' && ov) return [ov]; // legacy scalar override
+            if (Array.isArray(f.editableBy) && f.editableBy.length) return f.editableBy;
+            return [f.assignedTo || f.assigned_to || 'agent'];
         },
-
-        setFieldParty(fieldId, party) {
-            this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [fieldId]: party };
+        isFieldParty(f, role) {
+            return this.fieldParties(f).includes(role);
+        },
+        // Toggle one party on/off for a field, preserving the rest of the set.
+        toggleFieldParty(f, role) {
+            let cur = this.fieldParties(f).slice();
+            cur = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role];
+            if (cur.length === 0) cur = ['agent']; // a field must belong to >=1 party
+            this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [f.id]: cur };
+        },
+        // Derived single prep-filler (agent-if-present-else-first) — styling/legacy.
+        getFieldParty(f) {
+            const p = this.fieldParties(f);
+            return p.includes('agent') ? 'agent' : (p[0] || 'agent');
         },
 
         get partyOptions() {
@@ -2198,8 +2225,8 @@ function esignWizard() {
         },
 
         isCreatorField(f) {
-            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
-            return ['creator', 'user', 'agent'].includes(role);
+            // A field is a "creator" (agent-fill) field if the agent is one of its parties.
+            return this.fieldParties(f).some(r => ['creator', 'user', 'agent'].includes(r));
         },
 
         isCreatorRole(role) {
@@ -2207,20 +2234,14 @@ function esignWizard() {
         },
 
         fieldRoleLabel(f) {
-            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
-            return getRoleLabel(role);
+            return getRoleLabel(this.getFieldParty(f));
         },
 
-        // Fix A — returns ALL role tokens that may edit this field. When
-        // an override exists (agent narrowed the assignment via the SELECT),
-        // returns only the overridden role. Otherwise iterates the full
-        // editable_by array preserved by ESignWizardController.
+        // Returns ALL party role tokens that may edit this field (signing-time
+        // editable_by, multi) — the same set the checkbox control edits, so chips
+        // and control never disagree.
         fieldRoleTokens(f) {
-            const override = this.fieldPartyOverrides[f.id];
-            if (override) return [override];
-            if (Array.isArray(f.editableBy) && f.editableBy.length > 0) return f.editableBy;
-            const legacy = f.assignedTo || f.assigned_to || 'creator';
-            return [legacy];
+            return this.fieldParties(f);
         },
 
         highlightField(fieldId) {
