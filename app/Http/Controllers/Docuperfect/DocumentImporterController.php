@@ -244,6 +244,17 @@ class DocumentImporterController extends Controller
                 ->where('created_at', '<', now()->subHours(4))
                 ->forceDelete();
 
+            // AT-177 (Johan, 2026-07-17) — CONVERGENCE POINT for attribute binding. Whatever parser
+            // produced these fields — DocxParser+Claude (.docx), ClaudeVision (PDF), the regex
+            // fallback — they ALL meet here before the draft (and the builder's suggested bindings)
+            // are stored. A party marker the detector bound to the NAME is refined to the attribute
+            // its surrounding words name (Physical address → contact.address, Telephone → phone,
+            // Email → email, ID → id_number, "in words" → price_in_words). This is the ONE place the
+            // fix cannot be bypassed by a parser-specific path — the unit-vs-real divergence that
+            // failed the Stage-1 gate. It only ever refines a GENERIC binding; a specific one is
+            // never touched, and the party (Seller/Buyer) is resolved downstream.
+            $result['fields'] = $this->refineAttributeBindingsFromContext($result['fields']);
+
             // Store in database instead of session — survives session expiry
             $claudeOriginals = collect($result['fields'])->map(fn($f, $i) => [
                 'index' => $i,
@@ -1298,5 +1309,59 @@ class DocumentImporterController extends Controller
             $rows[] = '</ol>';
         }
         return implode("\n", $rows);
+    }
+
+    /**
+     * AT-177 — refine each imported field's binding to the ATTRIBUTE its surrounding context names.
+     *
+     * Runs at the import convergence point (every parser's fields meet here), so it is
+     * parser-agnostic. It ONLY refines a GENERIC binding — a blank the detector left as a party
+     * name, a custom slug, or unbound — whose context clearly names an attribute. An already-specific
+     * binding (contact.address, property.erf_number, …) is never touched, and the party (Seller/Buyer)
+     * is resolved downstream, so this fixes only the attribute half that defaulted to the name.
+     *
+     * @param  array<int,array<string,mixed>>  $fields
+     * @return array<int,array<string,mixed>>
+     */
+    private function refineAttributeBindingsFromContext(array $fields): array
+    {
+        foreach ($fields as &$field) {
+            $current = (string) ($field['suggested_key'] ?? $field['key'] ?? '');
+            $k = strtolower(trim($current));
+            $isGeneric = $k === ''
+                || in_array($k, ['contact.full_names', 'contact.full_name', 'contact.name', 'contact.names'], true)
+                || str_starts_with($k, 'custom.')
+                || str_starts_with($k, 'manual.');
+            if (! $isGeneric) {
+                continue;
+            }
+
+            $ctx = strtolower(trim(
+                ($field['context'] ?? '') . ' ' . ($field['context_before'] ?? '') . ' '
+                . ($field['suggested_label'] ?? '') . ' ' . ($field['context_after'] ?? '')
+            ));
+            if ($ctx === '') {
+                continue;
+            }
+
+            // Email BEFORE address ("Email address" contains "address"); "in words" → the words var.
+            $new = match (true) {
+                (bool) preg_match('/\bin\s*words\b/', $ctx)                                          => 'property.price_in_words',
+                (bool) preg_match('/\be-?mail\b/', $ctx)                                             => 'contact.email',
+                (bool) preg_match('/\b(tel|telephone|phone|cell|mobile|landline|contact\s*number)\b/', $ctx) => 'contact.phone',
+                (bool) preg_match('/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/', $ctx) => 'contact.id_number',
+                (bool) preg_match('/\b(physical|residential|postal)?\s*address\b/', $ctx)           => 'contact.address',
+                default                                                                             => null,
+            };
+
+            if ($new !== null && $new !== $current) {
+                $field['suggested_key'] = $new;
+                if (isset($field['key'])) {
+                    $field['key'] = $new;
+                }
+            }
+        }
+
+        return $fields;
     }
 }
