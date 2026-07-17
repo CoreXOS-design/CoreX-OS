@@ -59,7 +59,15 @@ final class ComposeSalesMandatePack extends Command
         // Resolve real, e-signable web templates by document_type. A mandate that is blocked
         // (isEsignBlocked — e.g. mis-typed as an OTP) is excluded so a candidate pack can never carry
         // an un-e-signable document.
-        $mandates    = $this->esignableByType($agencyId, 'mandate');
+        //
+        // The MANDATE slot also accepts a NAME fallback (the same pattern the classifier uses:
+        // "authority to sell" / "exclusive authority" / "mandate"). This is the belt for tonight:
+        // when an agent imports the EATS through the builder, the classifier normally stamps
+        // document_type=mandate — but if it lands null (an unusual name), the fallback still wires the
+        // real mandate rather than silently composing without it. It is SAFE because isEsignBlocked()
+        // still excludes every alienation document, so a sale can never enter via the name path. Any
+        // name-fallback match is reported, never silent.
+        $mandates    = $this->esignableByType($agencyId, 'mandate', '/\b(mandate|authority\s+to\s+sell|exclusive\s+authority)\b/i');
         $disclosures = $this->esignableByType($agencyId, 'disclosure');
         $ficas       = $this->esignableByType($agencyId, 'fica');
 
@@ -135,17 +143,42 @@ final class ComposeSalesMandatePack extends Command
         return self::SUCCESS;
     }
 
-    /** e-signable web templates of a document_type, agency-visible, excluding legally-blocked ones. */
-    private function esignableByType(int $agencyId, string $slug)
+    /**
+     * e-signable web templates of a document_type, agency-visible, excluding legally-blocked ones.
+     *
+     * @param  string|null  $nameFallback  optional regex — also include e-signable web templates whose
+     *                                      NAME matches, even if their document_type is unset/other.
+     *                                      Used only for the mandate slot; every match still passes
+     *                                      through the isEsignBlocked() exclusion below.
+     */
+    private function esignableByType(int $agencyId, string $slug, ?string $nameFallback = null)
     {
-        return Template::query()
+        $base = Template::query()
             ->where('render_type', 'web')
             ->where('is_esign', true)
-            ->whereNull('archived_at')
+            ->whereNull('archived_at');
+
+        $templates = (clone $base)
             ->whereHas('documentType', fn ($q) => $q->where('slug', $slug))
-            ->orderBy('name')
-            ->get()
+            ->get();
+
+        if ($nameFallback !== null) {
+            $byName = (clone $base)->get()
+                ->filter(fn (Template $t) => preg_match($nameFallback, (string) $t->name) === 1);
+
+            $typedIds = $templates->pluck('id')->all();
+            foreach ($byName as $t) {
+                if (! in_array($t->id, $typedIds, true)) {
+                    $this->line("  <fg=cyan>· name-fallback matched \"{$t->name}\" as a mandate (document_type not '{$slug}')</>");
+                    $templates->push($t);
+                }
+            }
+        }
+
+        return $templates
             ->reject(fn (Template $t) => $t->isEsignBlocked())
+            ->unique('id')
+            ->sortBy('name')
             ->values();
     }
 

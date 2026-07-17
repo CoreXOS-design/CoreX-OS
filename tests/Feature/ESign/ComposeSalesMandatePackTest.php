@@ -133,6 +133,45 @@ final class ComposeSalesMandatePackTest extends TestCase
         $this->assertCount(2, $packs->first()->items()->get(), 'Both mandate variants now present.');
     }
 
+    /**
+     * Tonight's belt: Johan imports the EATS and it lands with NO document_type (classifier missed the
+     * name). The name-fallback still wires it into the Mandate slot — the pack composes with his import.
+     */
+    public function test_a_mandate_with_no_document_type_is_wired_by_name_fallback(): void
+    {
+        // No document_type at all — just a real e-signable web template named like an EATS.
+        Template::create([
+            'name' => 'Exclusive Authority to Sell (13/13 charset)', 'template_type' => 'sales',
+            'render_type' => 'web', 'blade_view' => 'x.eats', 'is_esign' => true, 'fields_json' => [],
+            'document_type_id' => null,
+        ]);
+
+        $this->assertSame(0, $this->compose(['--apply' => true]));
+
+        $pack = WebPack::withoutGlobalScopes()->where('name', 'Sales Mandate Pack (CANDIDATE)')->with('items')->first();
+        $this->assertNotNull($pack, 'The pack composes off Johan\'s untyped EATS import via the name fallback.');
+        $this->assertTrue($pack->items->contains(fn ($i) => str_contains($i->template->name, 'Exclusive Authority to Sell')));
+    }
+
+    /** The name fallback must NOT drag in a mandatory DISCLOSURE (word-boundary: "mandatory" ≠ "mandate"). */
+    public function test_the_name_fallback_does_not_capture_a_disclosure_as_a_mandate(): void
+    {
+        Template::create([
+            'name' => 'Exclusive Authority to Sell', 'template_type' => 'sales', 'render_type' => 'web',
+            'blade_view' => 'x.eats', 'is_esign' => true, 'fields_json' => [], 'document_type_id' => null,
+        ]);
+        Template::create([
+            'name' => 'Sales Mandatory Disclosure', 'template_type' => 'sales', 'render_type' => 'web',
+            'blade_view' => 'x.disc', 'is_esign' => true, 'fields_json' => [], 'document_type_id' => null,
+        ]);
+
+        $this->compose(['--apply' => true]);
+
+        $pack = WebPack::withoutGlobalScopes()->where('name', 'Sales Mandate Pack (CANDIDATE)')->with('items')->first();
+        $mandateItems = $pack->items->where('slot_label', 'Mandate type');
+        $this->assertCount(1, $mandateItems, 'Only the EATS is a mandate; "Mandatory Disclosure" must not be pulled in by name.');
+    }
+
     /** A legally-blocked template (an OTP mis-typed as mandate) is never wired into a candidate pack. */
     public function test_an_esign_blocked_template_is_excluded(): void
     {
