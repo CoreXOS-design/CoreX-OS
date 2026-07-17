@@ -1144,6 +1144,42 @@ class CdsParserService
      * Identify a field from surrounding text context.
      * Returns label, field_name, field_type, source, and confidence.
      */
+    /**
+     * AT-177 — bind a field's ATTRIBUTE from the words around it (Johan's importer rule, 2026-07-17).
+     *
+     * Broader than the anchored patterns in identifyField: it matches the attribute KEYWORD anywhere
+     * in the surrounding text, so real-document wordings ("Seller 1 - Telephone number:", "Email
+     * address:", "Physical address:", "ID / Passport number:") all bind to the right column instead
+     * of collapsing to the party name. Order is most-specific-first so "physical address" cannot be
+     * mis-read as a name. Returns null when no attribute keyword is present (leave it to the label /
+     * manual fallback). source is 'contact' here; the PARTY (Seller/Buyer) is attached downstream.
+     */
+    private function attributeFieldFromContext(string $context): ?array
+    {
+        $c = strtolower($context);
+
+        // Price / amount IN WORDS — bind to the words variable, not the figure.
+        if (preg_match('/\b(amount|price|sum)\b.*\bin\s*words\b|\bin\s*words\b/', $c)) {
+            return ['label' => 'Amount in words', 'field_name' => 'property.price_in_words', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high'];
+        }
+
+        $map = [
+            '/\b(physical|residential|postal)?\s*address\b/' => ['address', 'Physical Address', 'text', 'contact.address'],
+            '/\b(tel|telephone|phone|cell|mobile|contact\s*number|landline)\b/' => ['phone', 'Telephone', 'tel', 'contact.phone'],
+            '/\be-?mail\b/'                                  => ['email', 'Email', 'email', 'contact.email'],
+            '/\b(id|identity)\s*(number|no)?\b|passport|registration\s*number/' => ['id_number', 'ID Number', 'text', 'contact.id_number'],
+            '/\b(full\s*name|surname|first\s*name|name)\b/'  => ['name', 'Name', 'text', 'contact.full_names'],
+        ];
+
+        foreach ($map as $rx => [$attr, $label, $ftype, $fieldName]) {
+            if (preg_match($rx, $c)) {
+                return ['label' => $label, 'field_name' => $fieldName, 'field_type' => $ftype, 'source' => 'contact', 'confidence' => 'medium'];
+            }
+        }
+
+        return null;
+    }
+
     private function identifyField(string $before, string $after, string $clause): array
     {
         $patterns = [
@@ -1291,6 +1327,17 @@ class CdsParserService
             if (preg_match($p['match'], $target)) {
                 return $p['result'];
             }
+        }
+
+        // AT-177 (Johan, 2026-07-17) — CONTEXT KEYWORD RESOLVER. The anchored patterns above are
+        // narrow (e.g. "Telephone number:" does not end in "tel:", so it slipped through and the
+        // marker fell to an unbound/name default). Johan's rule: the words AROUND the input guide the
+        // attribute. This reads the label/context — "Physical address", "Telephone number", "Email
+        // address", "ID number", "in words" — and binds the ATTRIBUTE. The PARTY (Seller/Buyer) is
+        // resolved separately, so this only fixes the attribute half that was defaulting to the name.
+        $ctxField = $this->attributeFieldFromContext($before . ' ' . $after);
+        if ($ctxField !== null) {
+            return $ctxField;
         }
 
         // Medium confidence — common label:field pattern
