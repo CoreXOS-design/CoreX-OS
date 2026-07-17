@@ -11,11 +11,13 @@
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture Opt-outs — Review</h1>
+                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Consent — Review</h1>
                 <p class="text-sm text-white/60 max-w-2xl">Agents who chose NOT to capture their WhatsApp with a matched contact, and why. This is a declaration for compliance — message content is never shown here. If you judge a chat to be business, flag it for the agent to reconsider; you cannot override their choice.</p>
             </div>
         </div>
     </div>
+
+    @include('communications.partials._consent-crosslinks', ['current' => 'review'])
 
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
