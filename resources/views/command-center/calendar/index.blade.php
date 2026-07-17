@@ -2151,13 +2151,27 @@
             </template>
         </div>
 
-        {{-- Linked property --}}
-        <template x-if="panelData.linked_property">
+        {{-- Linked propert(ies) — AT-111: the TOP block lists ALL linked properties
+             (viewing order), matching the bottom "Properties (N)" section. Falls back
+             to the scalar primary for events that only carry linked_property. --}}
+        <template x-if="(panelData.linked_properties && panelData.linked_properties.length > 0) || panelData.linked_property">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
-                <a :href="'/corex/properties/' + panelData.linked_property.id"
-                   class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
-                   x-text="panelData.linked_property.address"></a>
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);"
+                     x-text="(panelData.linked_properties && panelData.linked_properties.length > 1) ? ('Properties (' + panelData.linked_properties.length + ')') : 'Property'"></div>
+                <template x-if="panelData.linked_properties && panelData.linked_properties.length > 0">
+                    <div class="space-y-1">
+                        <template x-for="p in panelData.linked_properties" :key="p.id">
+                            <a :href="'/corex/properties/' + p.id"
+                               class="block text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                               x-text="p.address"></a>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="(!panelData.linked_properties || panelData.linked_properties.length === 0) && panelData.linked_property">
+                    <a :href="'/corex/properties/' + panelData.linked_property.id"
+                       class="block text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                       x-text="panelData.linked_property.address"></a>
+                </template>
             </div>
         </template>
 
