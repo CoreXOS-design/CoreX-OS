@@ -355,6 +355,16 @@ Route::middleware('auth')->group(function () {
             return response()->json(['token' => csrf_token()]);
         })->name('csrf-token');
 
+        // P24 importer gallery-completeness reconciliation — owner-only. The
+        // acceptance bar for the parallel importer is "zero galleries
+        // permanently short", and this is how the owner verifies it per agency
+        // without SSH: any nonzero `short`/`incomplete`/`failed` once the image
+        // lane has drained is a listing missing photos. Owner-only because the
+        // importer spans agencies (see admin/importer routes).
+        Route::get('/importer/gallery-reconciliation', [\App\Http\Controllers\Admin\ImporterController::class, 'galleryReconciliation'])
+            ->middleware('owner_only')
+            ->name('importer.gallery-reconciliation');
+
         // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
         // session (components/reminder-toast.blade.php). MUST live in this
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,

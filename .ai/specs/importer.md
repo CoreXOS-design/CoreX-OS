@@ -364,4 +364,82 @@ Sidebar entry gated by `@can('admin.importer')`. Route middleware `can:admin.imp
 
 ---
 
+---
+
+## 14. Parallel, lossless "Import All" *(2026-07-17)*
+
+### 14.1 Why
+The first ~4000-property go-live took ~1 hour driven by 8 hand-opened browser
+tabs, each confirming ~200 at a time — the operator manually parallelising work
+the server should do. Worse, that concurrency (8 tabs × a 10-wide image pool ≈
+**80 concurrent** requests at `images.prop24.com`) tripped P24's per-IP rate
+limiter and **silently lost ~11% of offered images** (2,549 of 23,124). The
+loss was invisible: `DownloadP24RowImagesJob` ran `tries=1`, collected failures
+into a log line, and wrote whatever it stored as "done", so `failed_jobs` was
+empty while galleries shipped short. Audit:
+`.ai/audits/p24-import-throughput-live-2026-07-17.md`.
+
+**Acceptance bar: zero photo loss.** Going faster must never drop an image.
+
+### 14.2 The two-lane model
+The property write and the image download are split onto two queues:
+
+| Lane | Queue | Width | Why |
+|------|-------|-------|-----|
+| Confirm (property write) | `p24import` | WIDE (8 workers) | A DB write, no CDN. Fan out hard — this is where the speed is. |
+| Gallery download | `p24images` | NARROW (4 workers) | 4 × 10-wide pool ≈ 40 concurrent to P24 — under the ~80 that caused loss. Trades latency for zero loss. |
+
+`ConfirmP24PropertyRowJob` no longer downloads inline (`dispatchSync` → async
+`dispatch`). A property is searchable in seconds; its gallery streams in behind
+and keeps going even if the operator closes the tab. **Speed comes from the wide
+property lane, never from hammering the CDN** — do not raise `p24images`
+concurrency to "go faster".
+
+### 14.3 The no-loss guarantee — `DownloadP24RowImagesJob` is self-healing
+- `tries=5` with escalating backoff.
+- Fetches **only ordinals not already on disk** — a retry is cheap and a
+  re-import refetches nothing.
+- Rebuilds `gallery_images_json` / `images_json` from **every ordinal on disk**,
+  so a recovered middle image closes the gap rather than leaving a hole.
+- If still short after a pass, `release()`s to retry; only when `tries` are
+  exhausted does it stop — and then it records `incomplete` with a **WARNING**
+  naming expected/stored/missing. **It can never report `complete` while short.**
+- `failed()` marks the property `failed` so a dead job never reads as "pending
+  forever".
+
+### 14.4 Completeness tracking (new columns on `properties`)
+`gallery_expected_count`, `gallery_stored_count`, `gallery_import_status`
+(`pending`/`complete`/`incomplete`/`failed`), `p24_source_image_signature`
+(md5 of the offered URL set — the **INBOUND** mirror of the outbound
+`p24_image_signature`; the two must never be conflated). A re-import whose URL
+set is unchanged AND whose gallery is already `complete` skips the download
+entirely. Note `users.email`-style contract: `properties` requires `branch_id`
+NOT NULL — the confirm job now sources it from the resolved agent's branch
+(fallback: the agency's first branch), since a queued job has no auth user for
+`BelongsToBranch` to fill from.
+
+### 14.5 One-click Import All + progress
+`confirmAllPending()` / `bulkConfirm()` POST **once** to `rows/confirm-all` /
+`rows/bulk/confirm`, which mark the rows processing and dispatch a **`Bus::batch`**
+of confirm jobs (no browser fan-out). The blade polls `onboarding/{token}/status`
+for two bars: **properties** (from the batch) and **galleries** (from the
+`gallery_import_status` columns, so it survives a page reload that loses the
+batch id). Owner reconciliation lives at `GET /api/v1/importer/gallery-reconciliation`
+(owner-only, cataloged) — the live proof of the acceptance bar: `short` /
+`incomplete` / `failed` must settle to 0 once `p24images` drains.
+
+### 14.6 Deploy — the workers are half the feature
+The existing workers drain only `default`; `p24import`/`p24images` jobs strand
+until a worker drains each. `docs/infra/supervisor/corex-worker-p24.conf`
+carries the two Supervisor blocks (import ×8, images ×4) + apply steps. **QA
+sites run no worker**, so this feature gets its first real QA on Staging, not
+qa1/qa2.
+
+**Deliberately forward-only:** no backfill/repair of the ~11% already lost —
+that is a separate remediation. This spec builds the correct path for future
+imports; a re-import of an affected agency heals its galleries via §14.3
+(fetch-only-missing) at no extra CDN cost for the images already stored.
+
+---
+
 *End of spec. Awaiting approval before code.*

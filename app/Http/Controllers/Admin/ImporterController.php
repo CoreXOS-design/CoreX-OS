@@ -11,6 +11,7 @@ use App\Models\P24ImportRow;
 use App\Models\P24ImportRun;
 use App\Models\P24OnboardingPortal;
 use App\Models\P24PortalEvent;
+use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\BranchScope;
 use App\Models\User;
@@ -593,6 +594,67 @@ class ImporterController extends Controller
         $ids = (array) $request->input('ids', []);
         P24ImportRow::whereIn('id', $ids)->update(['status' => 'excluded', 'excluded_at' => now()]);
         return response()->json(['ok' => true, 'count' => count($ids)]);
+    }
+
+    /**
+     * Owner-only gallery-completeness reconciliation across every P24-imported
+     * property, grouped by agency. This is the live proof of the parallel
+     * importer's acceptance bar: `short` (stored < expected), `incomplete`, and
+     * `failed` must all settle to 0 once the p24images lane drains. A nonzero
+     * figure after that is a listing sitting live with missing photos.
+     *
+     * Unscoped: the importer spans agencies and this runs for an owner who may
+     * have switched into one via the agency switcher — a scoped query would
+     * report a clean slate for every agency but their own. See
+     * [[project_agencyscope_owner_switcher_blindspot]].
+     */
+    public function galleryReconciliation(Request $request)
+    {
+        $rows = Property::withoutGlobalScopes()
+            ->whereIn('id', function ($q) {
+                $q->select('target_id')
+                    ->from('p24_import_rows')
+                    ->where('row_type', 'listing')
+                    ->where('status', 'confirmed')
+                    ->whereNotNull('target_id');
+            })
+            ->selectRaw("
+                agency_id,
+                COUNT(*)                                          as total,
+                SUM(gallery_import_status = 'complete')          as complete,
+                SUM(gallery_import_status = 'pending')           as pending,
+                SUM(gallery_import_status = 'incomplete')        as incomplete,
+                SUM(gallery_import_status = 'failed')            as failed,
+                SUM(gallery_stored_count < gallery_expected_count) as short,
+                COALESCE(SUM(gallery_expected_count), 0)         as images_expected,
+                COALESCE(SUM(gallery_stored_count), 0)           as images_stored
+            ")
+            ->groupBy('agency_id')
+            ->get();
+
+        $names = Agency::whereIn('id', $rows->pluck('agency_id')->filter())->pluck('name', 'id');
+
+        return response()->json([
+            'generated_at' => now()->toIso8601String(),
+            'agencies'     => $rows->map(fn ($r) => [
+                'agency_id'       => (int) $r->agency_id,
+                'agency'          => $names[$r->agency_id] ?? null,
+                'total'           => (int) $r->total,
+                'complete'        => (int) $r->complete,
+                'pending'         => (int) $r->pending,
+                'incomplete'      => (int) $r->incomplete,
+                'failed'          => (int) $r->failed,
+                'short'           => (int) $r->short,
+                'images_expected' => (int) $r->images_expected,
+                'images_stored'   => (int) $r->images_stored,
+            ])->values(),
+            'totals' => [
+                'short'      => (int) $rows->sum('short'),
+                'incomplete' => (int) $rows->sum('incomplete'),
+                'failed'     => (int) $rows->sum('failed'),
+                'pending'    => (int) $rows->sum('pending'),
+            ],
+        ]);
     }
 
     /**

@@ -30,17 +30,19 @@
         </div>
         <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
             <div class="flex items-center gap-2">
+                <button type="button" @click="confirmAllPending()"
+                        class="portal-cta rounded-md px-3 py-1.5 text-xs font-semibold"
+                        :disabled="progress.active" :class="progress.active ? 'opacity-50 cursor-not-allowed' : ''">
+                    Import all pending
+                </button>
                 <button type="button" @click="bulkConfirm()"
-                        class="portal-cta rounded-md px-3 py-1.5 text-xs font-semibold">
-                    Confirm selected
+                        class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle"
+                        :disabled="progress.active" :class="progress.active ? 'opacity-50 cursor-not-allowed' : ''">
+                    Import selected
                 </button>
                 <button type="button" @click="bulkExclude()"
                         class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle">
                     Exclude selected
-                </button>
-                <button type="button" @click="confirmAllPending()"
-                        class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle">
-                    Confirm all pending ({{ $rows->total() }})
                 </button>
                 <span class="text-xs text-muted" x-text="selected.length + ' selected'"></span>
             </div>
@@ -113,10 +115,10 @@
         </div>
     </div>
 
-    {{-- Progress bar --}}
+    {{-- Property-write progress (fast lane) --}}
     <div x-show="progress.active" x-cloak class="rounded-md bg-surface p-3 border border-subtle/30">
         <div class="flex items-center justify-between text-xs mb-2">
-            <span x-text="progress.label + ' — ' + progress.done + ' of ' + progress.total"></span>
+            <span x-text="progress.label + ' — ' + progress.done + ' of ' + progress.total + ' properties'"></span>
             <span x-text="progress.total ? Math.round((progress.done / progress.total) * 100) + '%' : '0%'"></span>
         </div>
         <div class="w-full bg-surface-2 rounded-md h-2 overflow-hidden">
@@ -126,6 +128,32 @@
         <div x-show="progress.errors > 0" class="mt-2 text-xs text-red-500 flex items-center gap-2">
             <span x-text="progress.errors + ' listing(s) failed'"></span>
             <button type="button" class="underline" @click="errorModal.open = true">view details</button>
+        </div>
+    </div>
+
+    {{-- Gallery-download progress (slow lane). Stays visible after the property
+         bar finishes — images stream in behind, server-side, and keep going even
+         if this tab is closed. --}}
+    <div x-show="galleries.active" x-cloak class="rounded-md bg-surface p-3 border border-subtle/30">
+        <div class="flex items-center justify-between text-xs mb-2">
+            <span>
+                Downloading photos —
+                <span x-text="galleries.complete"></span> of <span x-text="galleries.total"></span> galleries complete
+                <span class="text-muted" x-show="galleries.images_expected > 0"
+                      x-text="'(' + galleries.images_stored + ' / ' + galleries.images_expected + ' images)'"></span>
+            </span>
+            <span x-text="galleries.total ? Math.round((galleries.complete / galleries.total) * 100) + '%' : '0%'"></span>
+        </div>
+        <div class="w-full bg-surface-2 rounded-md h-2 overflow-hidden">
+            <div class="h-full transition-all duration-200"
+                 :style="'width: ' + (galleries.total ? (galleries.complete / galleries.total) * 100 : 0) + '%; background: var(--ds-green, #16a34a);'"></div>
+        </div>
+        <div class="mt-2 text-xs text-muted" x-show="galleries.pending > 0">
+            <span x-text="galleries.pending"></span> still downloading — safe to leave this page; they finish in the background.
+        </div>
+        <div class="mt-2 text-xs" style="color: var(--ds-amber, #d97706);"
+             x-show="galleries.incomplete > 0 || galleries.failed > 0">
+            <span x-text="(galleries.incomplete + galleries.failed)"></span> gallery(ies) could not fully download and will keep retrying. If this persists, re-run the import — it refetches only the missing photos.
         </div>
     </div>
 
@@ -285,7 +313,12 @@ function portalReview(token) {
         selected: [],
         rowState: {},
         counts: @json($counts),
+        // Property-write progress (the fast, wide lane — the Bus batch).
         progress: { active: false, total: 0, done: 0, errors: 0, label: '' },
+        // Gallery-download progress (the slow, narrow lane — streams in behind).
+        galleries: { active: false, total: 0, complete: 0, incomplete: 0, pending: 0, failed: 0, images_expected: 0, images_stored: 0 },
+        batchId: null,
+        polling: false,
         errorModal: { open: false, errors: [] },
         csrf: document.querySelector('meta[name=csrf-token]')?.content ?? '',
 
@@ -424,15 +457,69 @@ function portalReview(token) {
             const r = await this.post(`/onboarding/${token}/rows/${id}/reassign`, {user_id: parseInt(userId)});
             if (!r.ok) alert('Could not reassign agent.');
         },
-        async runBatch(ids, label) {
-            if (!ids.length) return;
-            this.progress = { active: true, total: ids.length, done: 0, errors: 0, label };
-            for (const id of ids) {
-                const r = await this.confirmSingle(id);
-                this.progress.done += 1;
-                if (!r.ok) this.progress.errors += 1;
+        // Start a server-side batch import from ONE click. The server marks the
+        // rows processing, dispatches a Bus batch of confirm jobs across the wide
+        // p24import lane, and returns a batch id. We then poll for progress — no
+        // browser fan-out, no held-open tabs. The property writes finish in
+        // minutes; galleries stream in behind on the narrow image lane, and keep
+        // going even if this tab is closed (they are queued server-side).
+        async startImport(url, body, label) {
+            let r;
+            try {
+                r = await this.post(url, body);
+            } catch (e) {
+                r = { ok: false, status: 0, data: null, error: e?.message ?? 'Network error' };
             }
-            this.finishBatch();
+            if (!r.ok) { alert('Could not start the import. ' + (r.data?.message ?? '')); return; }
+            if (!r.data?.count) { alert('Nothing to import — no pending listings.'); return; }
+
+            this.batchId = r.data.batch_id ?? null;
+            this.progress = { active: true, total: r.data.count, done: 0, errors: 0, label };
+            this.galleries.active = true;
+            this.selected = [];
+            this.pollBatch();
+        },
+        // Poll /status for property-batch + gallery progress until BOTH settle.
+        // Property progress comes from the batch; gallery progress from the DB
+        // columns, so it keeps advancing even across a reload that loses batchId.
+        async pollBatch() {
+            if (this.polling) return;
+            this.polling = true;
+            const tick = async () => {
+                let data = null;
+                try {
+                    const qs = this.batchId ? ('?batch_id=' + encodeURIComponent(this.batchId)) : '';
+                    const res = await fetch(`/onboarding/${token}/status${qs}`, { headers: { Accept: 'application/json' } });
+                    data = await res.json();
+                } catch (e) {}
+
+                if (data) {
+                    if (data.counts) this.counts = data.counts;
+                    if (data.batch) {
+                        this.progress.total  = data.batch.total;
+                        this.progress.done   = data.batch.processed;
+                        this.progress.errors = data.batch.failed;
+                    }
+                    if (data.galleries) {
+                        this.galleries = { ...this.galleries, active: true, ...data.galleries };
+                    }
+                }
+
+                const batchDone = !data?.batch || data.batch.finished;
+                const galleriesSettled = !data?.galleries || data.galleries.pending === 0;
+
+                // Property lane done → stop the property bar; the gallery lane can
+                // run much longer, so keep polling it but tell them it is safe to
+                // leave. Only fully stop once galleries have settled too.
+                if (batchDone) this.progress.active = false;
+
+                if (batchDone && galleriesSettled) {
+                    this.polling = false;
+                    return;
+                }
+                setTimeout(tick, 2500);
+            };
+            tick();
         },
         // Exclude many ids under one shared progress bar (no per-row dialog).
         async excludeBatch(ids, label) {
@@ -461,9 +548,9 @@ function portalReview(token) {
                 alert('Select at least one listing first.');
                 return;
             }
-            if (!confirm(`Confirm ${this.selected.length} listings?`)) return;
-            const ids = [...this.selected];
-            await this.runBatch(ids, 'Confirming selected');
+            if (this.progress.active) { alert('An import is already running.'); return; }
+            if (!confirm(`Import ${this.selected.length} selected listings?`)) return;
+            await this.startImport(`/onboarding/${token}/rows/bulk/confirm`, { ids: [...this.selected] }, 'Importing selected');
         },
         async bulkExclude() {
             if (!this.selected.length) {
@@ -473,13 +560,12 @@ function portalReview(token) {
             if (!confirm(`Exclude ${this.selected.length} listings?`)) return;
             await this.excludeBatch([...this.selected], 'Excluding selected');
         },
+        // Confirm EVERY pending listing in the portal (all pages), server-side,
+        // from one click — not just the current page.
         async confirmAllPending() {
-            const boxes = document.querySelectorAll('tbody input[type=checkbox]');
-            const ids = [];
-            boxes.forEach(b => { const v = parseInt(b.value); if (v) ids.push(v); });
-            if (!ids.length) { alert('No pending listings on this page.'); return; }
-            if (!confirm(`Confirm ${ids.length} pending listings on this page?`)) return;
-            await this.runBatch(ids, 'Confirming all pending');
+            if (this.progress.active) { alert('An import is already running.'); return; }
+            if (!confirm('Import all pending listings for this agency? This runs in the background — you can leave this page and the images keep downloading.')) return;
+            await this.startImport(`/onboarding/${token}/rows/confirm-all`, {}, 'Importing all pending');
         },
         async refreshCounts() {
             try {

@@ -12,56 +12,184 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
+/**
+ * Download a P24 listing's gallery — self-healing, idempotent, and incapable
+ * of silently reporting success while short.
+ *
+ * History (see .ai/audits/p24-import-throughput-live-2026-07-17.md): the first
+ * ~4000-property import lost ~11% of offered images because this job ran
+ * tries=1, collected CDN rate-limit failures into a log line, and wrote
+ * whatever it managed as "done". A gallery that stored 1 of 25 looked
+ * successful and failed_jobs stayed empty.
+ *
+ * The contract now:
+ *   - It fetches ONLY the ordinals not already on disk, so a retry is cheap and
+ *     a re-import of an unchanged agency refetches nothing.
+ *   - It rebuilds the gallery json from EVERY ordinal present on disk, so a
+ *     recovered middle image closes the gap instead of leaving a hole.
+ *   - If it is still short after this pass, it RELEASES itself to retry with
+ *     backoff. Only when tries are exhausted does it stop — and then it records
+ *     `incomplete` with a WARNING naming expected/stored/missing. It never
+ *     reports `complete` while stored < expected.
+ *
+ * Concurrency is bounded at the WORKER level (a narrow p24images queue, ~4
+ * procs × BATCH_SIZE ≈ 40 concurrent) precisely so this job does NOT re-create
+ * the ~80-concurrent storm that tripped P24's per-IP limiter last time. Do not
+ * widen BATCH_SIZE to buy speed — speed comes from the wide property lane.
+ */
 class DownloadP24RowImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 300;
-    public int $tries = 1;
+    public int $tries = 5;
+
+    /** Escalating waits between retries — give a rate-limited CDN room to cool off. */
+    public array $backoff = [30, 60, 180, 600];
 
     private const BATCH_SIZE = 10;
 
-    public function __construct(public int $propertyId, public array $urls) {}
+    /** Bytes under this are almost certainly a 1×1 placeholder or error page. */
+    private const MIN_IMAGE_BYTES = 500;
+
+    /**
+     * Its own narrow lane; a worker must drain `p24images` or these strand. Set
+     * via onQueue() (not a redeclared $queue property, which conflicts with the
+     * Queueable trait).
+     */
+    public function __construct(public int $propertyId, public array $urls)
+    {
+        $this->onQueue('p24images');
+    }
 
     public function handle(): void
     {
         $property = Property::withoutGlobalScopes()->find($this->propertyId);
-        if (!$property || empty($this->urls)) {
-            Log::warning('DownloadP24RowImagesJob: skipped', [
-                'property_id' => $this->propertyId,
-                'reason'      => !$property ? 'property not found' : 'no urls',
-                'url_count'   => count($this->urls ?? []),
-            ]);
+        if (!$property) {
+            Log::warning('DownloadP24RowImagesJob: property not found', ['property_id' => $this->propertyId]);
             return;
         }
 
         $urls = array_values(array_filter($this->urls));
-        Log::info('DownloadP24RowImagesJob: start', [
-            'property_id' => $property->id,
-            'url_count'   => count($urls),
-            'first_url'   => $urls[0] ?? null,
-        ]);
+        $expected = count($urls);
 
-        $stored = [];
+        // Genuine no-image listing — a real, terminal, complete state.
+        if ($expected === 0) {
+            $this->persist($property, 0, 0, 'complete');
+            return;
+        }
+
+        // Skip-if-unchanged: an unchanged P24 gallery that is already fully
+        // stored costs nothing on a re-import. Signature is the INBOUND set;
+        // status guards against skipping a gallery that was short last time.
+        if ($property->gallery_import_status === 'complete'
+            && $property->p24_source_image_signature === self::signatureFor($urls)) {
+            return;
+        }
+
+        $dir = "properties/{$property->id}";
+
+        // Which ordinals (1-based) already have a file on disk? Fetch only the rest.
+        $present = $this->presentOrdinals($dir);
+        $missing = [];
+        foreach ($urls as $idx => $url) {
+            $ordinal = $idx + 1;
+            if (!isset($present[$ordinal])) {
+                $missing[$ordinal] = $url;
+            }
+        }
+
         $failures = [];
+        if (!empty($missing)) {
+            $this->fetchInto($property->id, $dir, $missing, $failures);
+        }
 
-        foreach (array_chunk($urls, self::BATCH_SIZE, true) as $batch) {
-            $responses = Http::pool(function ($pool) use ($batch) {
+        // Rebuild the ordered gallery from whatever is now on disk — this is the
+        // source of truth, so a recovered ordinal 7 lands between 6 and 8 rather
+        // than being appended out of order.
+        $present = $this->presentOrdinals($dir);
+        $paths = [];
+        foreach (array_keys($present) as $ordinal) {
+            if ($ordinal >= 1 && $ordinal <= $expected) {
+                $paths[$ordinal] = Storage::disk('public')->url($present[$ordinal]);
+            }
+        }
+        ksort($paths);
+        $stored = count($paths);
+
+        if ($stored > 0) {
+            $property->refresh();
+            $ordered = array_values($paths);
+            // gallery_images_json drives the internal property UI; images_json is
+            // kept in step for legacy public agency pages that still read it.
+            $property->gallery_images_json = $ordered;
+            $property->images_json = $ordered;
+            $property->saveQuietly();
+        }
+
+        if ($stored >= $expected) {
+            $this->persist($property, $expected, $stored, 'complete');
+            return;
+        }
+
+        // Still short. Retry the stragglers if we have attempts left — this is
+        // the guarantee that a rate-limited burst heals rather than sticks.
+        if ($this->job !== null && $this->attempts() < $this->tries) {
+            $this->persist($property, $expected, $stored, 'pending');
+            $delay = $this->backoff[min($this->attempts() - 1, count($this->backoff) - 1)] ?? 60;
+            $this->release($delay);
+            return;
+        }
+
+        // Attempts exhausted (or invoked outside a queue). Fail LOUD, never silent.
+        $this->persist($property, $expected, $stored, 'incomplete');
+        Log::warning('DownloadP24RowImagesJob: gallery INCOMPLETE after retries', [
+            'property_id'   => $property->id,
+            'expected'      => $expected,
+            'stored'        => $stored,
+            'missing'       => $expected - $stored,
+            'attempts'      => $this->job !== null ? $this->attempts() : 'n/a (sync)',
+            'sample_fail'   => array_slice($failures, 0, 5),
+        ]);
+    }
+
+    /**
+     * Terminal failure (uncaught throw after retries). Record it on the property
+     * so the reconciliation query sees it — a dead job must not read as "pending
+     * forever".
+     */
+    public function failed(\Throwable $e): void
+    {
+        $property = Property::withoutGlobalScopes()->find($this->propertyId);
+        if ($property) {
+            $property->forceFill(['gallery_import_status' => 'failed'])->saveQuietly();
+        }
+        Log::error('DownloadP24RowImagesJob: terminally failed', [
+            'property_id' => $this->propertyId,
+            'error'       => $e->getMessage(),
+        ]);
+    }
+
+    /**
+     * Fetch the given ordinal=>url set 10-wide, writing each to
+     * properties/{id}/{ordinal}.{ext}. Rejects sub-500-byte placeholders and
+     * non-2xx. Failures are collected (not thrown) so the pass completes and
+     * the shortfall drives the retry decision upstream.
+     */
+    private function fetchInto(int $propertyId, string $dir, array $ordinalUrls, array &$failures): void
+    {
+        foreach (array_chunk($ordinalUrls, self::BATCH_SIZE, true) as $chunk) {
+            $responses = Http::pool(function ($pool) use ($chunk) {
                 $reqs = [];
-                foreach ($batch as $idx => $url) {
-                    $reqs[] = $pool->as((string) $idx)
+                foreach ($chunk as $ordinal => $url) {
+                    $reqs[] = $pool->as((string) $ordinal)
                         ->timeout(15)
-                        // Retry transient CDN throttling/timeouts. The original
-                        // bulk import ran with tries=1 and no retry, so a burst
-                        // of rate-limited responses from images.prop24.com
-                        // silently dropped most of each gallery (0-1 survived).
                         ->retry(3, 400, throw: false)
                         ->withHeaders([
                             'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                             'Accept'     => 'image/*,*/*;q=0.8',
-                            // P24's image CDN hotlink-checks; a portal Referer
-                            // keeps it serving full-size bytes rather than a
-                            // placeholder/redirect.
+                            // P24's CDN hotlink-checks; a portal Referer keeps it
+                            // serving full bytes rather than a placeholder.
                             'Referer'    => 'https://www.property24.com/',
                         ])
                         ->get($url);
@@ -69,15 +197,15 @@ class DownloadP24RowImagesJob implements ShouldQueue
                 return $reqs;
             });
 
-            foreach ($batch as $idx => $url) {
-                $resp = $responses[(string) $idx] ?? null;
+            foreach ($chunk as $ordinal => $url) {
+                $resp = $responses[(string) $ordinal] ?? null;
 
                 if ($resp instanceof \Throwable) {
-                    $failures[] = ['idx' => $idx, 'url' => $url, 'reason' => 'exception: ' . $resp->getMessage()];
+                    $failures[] = ['ordinal' => $ordinal, 'reason' => 'exception: ' . $resp->getMessage()];
                     continue;
                 }
                 if (!$resp) {
-                    $failures[] = ['idx' => $idx, 'url' => $url, 'reason' => 'no response'];
+                    $failures[] = ['ordinal' => $ordinal, 'reason' => 'no response'];
                     continue;
                 }
 
@@ -87,57 +215,65 @@ class DownloadP24RowImagesJob implements ShouldQueue
                 $ctype  = $resp->header('Content-Type');
 
                 if ($status < 200 || $status >= 300) {
-                    $failures[] = [
-                        'idx' => $idx, 'url' => $url,
-                        'reason' => "http_status={$status} len={$len} ctype={$ctype}",
-                    ];
+                    $failures[] = ['ordinal' => $ordinal, 'reason' => "http_status={$status} len={$len}"];
                     continue;
                 }
-                // Anything under 500 bytes is almost certainly a 1×1 placeholder or error page.
-                if ($len < 500) {
-                    $failures[] = [
-                        'idx' => $idx, 'url' => $url,
-                        'reason' => "body_too_small len={$len} ctype={$ctype}",
-                    ];
+                if ($len < self::MIN_IMAGE_BYTES) {
+                    $failures[] = ['ordinal' => $ordinal, 'reason' => "body_too_small len={$len} ctype={$ctype}"];
                     continue;
                 }
 
-                $ordinal = $idx + 1;
                 $ext = match (true) {
                     is_string($ctype) && str_contains($ctype, 'png')  => 'png',
                     is_string($ctype) && str_contains($ctype, 'webp') => 'webp',
                     default                                            => 'jpg',
                 };
-                $dest = "properties/{$property->id}/{$ordinal}.{$ext}";
                 try {
-                    Storage::disk('public')->put($dest, $body);
-                    // Store as a public URL (/storage/...) so the property UI
-                    // can render it directly via <img src>.
-                    $stored[$idx] = Storage::disk('public')->url($dest);
+                    Storage::disk('public')->put("{$dir}/{$ordinal}.{$ext}", $body);
                 } catch (\Throwable $e) {
-                    $failures[] = ['idx' => $idx, 'url' => $url, 'reason' => 'storage_put: ' . $e->getMessage()];
+                    $failures[] = ['ordinal' => $ordinal, 'reason' => 'storage_put: ' . $e->getMessage()];
                 }
             }
         }
+    }
 
-        if (!empty($stored)) {
-            ksort($stored);
-            $paths = array_values($stored);
-            $property->refresh();
-            // gallery_images_json is what the internal property UI renders from
-            // (show, index, match, contacts). images_json is kept populated for
-            // legacy public agency pages that still read it.
-            $property->gallery_images_json = $paths;
-            $property->images_json = $paths;
-            $property->saveQuietly();
+    /**
+     * Map of ordinal => relative path for every gallery file currently on disk.
+     * Filenames are `{ordinal}.{ext}`; the ordinal is the source of truth for
+     * position, so a re-download of one image never reshuffles the rest.
+     *
+     * @return array<int,string>
+     */
+    private function presentOrdinals(string $dir): array
+    {
+        $out = [];
+        foreach (Storage::disk('public')->files($dir) as $path) {
+            $name = pathinfo($path, PATHINFO_FILENAME);
+            if (ctype_digit($name)) {
+                $out[(int) $name] = $path;
+            }
         }
+        ksort($out);
+        return $out;
+    }
 
-        Log::info('DownloadP24RowImagesJob: done', [
-            'property_id'  => $property->id,
-            'url_count'    => count($urls),
-            'stored_count' => count($stored),
-            'failed_count' => count($failures),
-            'sample_failures' => array_slice($failures, 0, 5),
-        ]);
+    private function persist(Property $property, int $expected, int $stored, string $status): void
+    {
+        $property->forceFill([
+            'gallery_expected_count'     => $expected,
+            'gallery_stored_count'       => $stored,
+            'gallery_import_status'      => $status,
+            'p24_source_image_signature' => self::signatureFor(array_values(array_filter($this->urls))),
+        ])->saveQuietly();
+    }
+
+    /**
+     * The INBOUND gallery signature — md5 of the offered P24 URL set. Must be
+     * computed identically here and in ConfirmP24PropertyRowJob so the
+     * skip-if-unchanged check agrees across the two jobs.
+     */
+    public static function signatureFor(array $urls): string
+    {
+        return md5(json_encode(array_values(array_filter($urls))));
     }
 }

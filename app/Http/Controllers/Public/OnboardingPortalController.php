@@ -7,8 +7,10 @@ use App\Jobs\ConfirmP24PropertyRowJob;
 use App\Models\P24ImportRow;
 use App\Models\P24OnboardingPortal;
 use App\Models\P24PortalEvent;
+use App\Models\Property;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
 class OnboardingPortalController extends Controller
@@ -111,10 +113,73 @@ class OnboardingPortalController extends Controller
     public function status(Request $request)
     {
         $portal = $this->portal($request);
+
+        // Property-side progress comes from the Bus batch when the browser hands
+        // us its id; it is the clean denominator for "how many of THIS import's
+        // properties are written". Gallery progress is derived from the property
+        // columns, so it survives a page reload that loses the batch id.
+        $batchId = $request->query('batch_id');
+        $batch = $batchId ? Bus::findBatch($batchId) : null;
+
         return response()->json([
-            'counts' => $this->counts($portal),
+            'counts'    => $this->counts($portal),
             'is_active' => $portal->isActive(),
+            'batch'     => $batch ? [
+                'id'        => $batch->id,
+                'total'     => $batch->totalJobs,
+                'processed' => $batch->processedJobs(),
+                'failed'    => $batch->failedJobs,
+                'progress'  => $batch->progress(),
+                'finished'  => $batch->finished(),
+            ] : null,
+            'galleries' => $this->galleryProgress($portal),
         ]);
+    }
+
+    /**
+     * Gallery-completeness rollup for every property this portal has confirmed.
+     * Drives the second progress bar and is the live answer to the acceptance
+     * bar "are any galleries permanently short" — `incomplete` + `failed` should
+     * settle to 0 once the image lane drains.
+     */
+    private function galleryProgress(P24OnboardingPortal $portal): array
+    {
+        $targetIds = (clone $portal->rowsQuery())
+            ->where('status', 'confirmed')
+            ->whereNotNull('target_id')
+            ->pluck('target_id')
+            ->map(fn ($i) => (int) $i)
+            ->all();
+
+        if (empty($targetIds)) {
+            return [
+                'total' => 0, 'complete' => 0, 'incomplete' => 0, 'pending' => 0,
+                'failed' => 0, 'images_expected' => 0, 'images_stored' => 0,
+            ];
+        }
+
+        $agg = Property::withoutGlobalScopes()
+            ->whereIn('id', $targetIds)
+            ->selectRaw("
+                COUNT(*)                                              as total,
+                SUM(gallery_import_status = 'complete')              as complete,
+                SUM(gallery_import_status = 'incomplete')            as incomplete,
+                SUM(gallery_import_status = 'pending')               as pending,
+                SUM(gallery_import_status = 'failed')                as failed,
+                COALESCE(SUM(gallery_expected_count), 0)             as images_expected,
+                COALESCE(SUM(gallery_stored_count), 0)               as images_stored
+            ")
+            ->first();
+
+        return [
+            'total'           => (int) $agg->total,
+            'complete'        => (int) $agg->complete,
+            'incomplete'      => (int) $agg->incomplete,
+            'pending'         => (int) $agg->pending,
+            'failed'          => (int) $agg->failed,
+            'images_expected' => (int) $agg->images_expected,
+            'images_stored'   => (int) $agg->images_stored,
+        ];
     }
 
     public function confirmRow(Request $request, $token, $rowId)
@@ -212,20 +277,13 @@ class OnboardingPortalController extends Controller
             ->whereIn('status', ['pending', 'error'])
             ->get();
 
-        foreach ($rows as $row) {
-            $row->update([
-                'processing_at'          => now(),
-                'confirmed_via'          => 'portal',
-                'confirmed_by_portal_id' => $portal->id,
-            ]);
-            ConfirmP24PropertyRowJob::dispatch($row->id, null);
-        }
+        $batch = $this->dispatchConfirmBatch($portal, $rows);
 
         $this->logEvent($portal, $request, 'portal.bulk.confirmed', [
-            'meta_json' => ['count' => $rows->count()],
+            'meta_json' => ['count' => $rows->count(), 'scope' => 'selected', 'batch_id' => $batch?->id],
         ]);
 
-        return response()->json(['ok' => true, 'count' => $rows->count()]);
+        return response()->json(['ok' => true, 'count' => $rows->count(), 'batch_id' => $batch?->id]);
     }
 
     public function bulkExclude(Request $request)
@@ -256,21 +314,53 @@ class OnboardingPortalController extends Controller
         $portal = $this->portal($request);
         $this->guardActive($portal);
 
-        $rows = $portal->rowsQuery()->where('status', 'pending')->whereNull('processing_at')->get();
-        foreach ($rows as $row) {
-            $row->update([
-                'processing_at'          => now(),
-                'confirmed_via'          => 'portal',
-                'confirmed_by_portal_id' => $portal->id,
-            ]);
-            ConfirmP24PropertyRowJob::dispatch($row->id, null);
-        }
+        $rows = $portal->rowsQuery()
+            ->whereIn('status', ['pending', 'error'])
+            ->whereNull('processing_at')
+            ->get();
+
+        $batch = $this->dispatchConfirmBatch($portal, $rows);
 
         $this->logEvent($portal, $request, 'portal.bulk.confirmed', [
-            'meta_json' => ['count' => $rows->count(), 'scope' => 'all_pending'],
+            'meta_json' => ['count' => $rows->count(), 'scope' => 'all_pending', 'batch_id' => $batch?->id],
         ]);
 
-        return response()->json(['ok' => true, 'count' => $rows->count()]);
+        return response()->json(['ok' => true, 'count' => $rows->count(), 'batch_id' => $batch?->id]);
+    }
+
+    /**
+     * The server-side "8 tabs" — confirm every given row from ONE click.
+     *
+     * Marks the rows processing up front (so a double-click cannot enqueue them
+     * twice), then fans the confirm jobs out as a Bus batch on the wide
+     * p24import lane. The property writes race across all workers; images stream
+     * in behind on the narrow p24images lane. Returns the batch so the caller
+     * can hand its id to the browser for progress polling.
+     *
+     * Returns null when there is nothing to confirm — an empty batch is not an
+     * error, just a no-op the UI reports plainly.
+     */
+    private function dispatchConfirmBatch(P24OnboardingPortal $portal, $rows): ?\Illuminate\Bus\Batch
+    {
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        P24ImportRow::whereIn('id', $rows->pluck('id'))->update([
+            'processing_at'          => now(),
+            'confirmed_via'          => 'portal',
+            'confirmed_by_portal_id' => $portal->id,
+        ]);
+
+        return Bus::batch(
+            $rows->map(fn ($row) => new ConfirmP24PropertyRowJob($row->id, null))->all()
+        )
+            ->name("p24-import-portal-{$portal->id}")
+            ->onQueue('p24import')
+            // One rate-limited gallery must not fail the whole import — each row
+            // heals independently on its own retries.
+            ->allowFailures()
+            ->dispatch();
     }
 
     public function finish(Request $request)

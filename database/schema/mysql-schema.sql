@@ -9175,6 +9175,10 @@ CREATE TABLE `properties` (
   `pre_deal_offer_status` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Wave 2: the on-market status held before a deal flagged this property under-offer; restored on decline/lapse.',
   `status_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Optional sub-label banner on a base status (e.g. "Reduced Price", "Pending"). Two-tier P24/Propcon model — see AT-P24.',
   `images_json` json DEFAULT NULL,
+  `gallery_expected_count` int unsigned NOT NULL DEFAULT '0',
+  `gallery_stored_count` int unsigned NOT NULL DEFAULT '0',
+  `gallery_import_status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `p24_source_image_signature` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `dawn_images_json` json DEFAULT NULL,
   `noon_images_json` json DEFAULT NULL,
   `dusk_images_json` json DEFAULT NULL,
@@ -9264,6 +9268,7 @@ CREATE TABLE `properties` (
   KEY `properties_condition_level_idx` (`condition_level_id`),
   KEY `properties_title_type_idx` (`title_type`),
   KEY `properties_p24_stats_synced_at_idx` (`p24_stats_synced_at`),
+  KEY `properties_gallery_import_status_index` (`gallery_import_status`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
@@ -13512,3 +13517,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1003,'2026_08_03_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1004,'2026_08_03_000003_register_fica_referred_to_co_notification',188);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1005,'2026_08_03_000004_add_fica_referral_settings_to_agencies',188);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1006,'2026_08_05_000001_register_fica_referral_returned_notification',188);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1007,'2026_07_17_130000_add_p24_gallery_completeness_to_properties',189);
