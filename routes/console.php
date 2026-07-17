@@ -48,6 +48,9 @@ Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
+// AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
+Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
+
 // Expire outstanding signature requests — runs daily at 07:00
 Schedule::command('signatures:expire')->dailyAt('07:00');
 
