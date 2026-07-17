@@ -2185,13 +2185,33 @@ function esignWizard() {
             if (Array.isArray(f.editableBy) && f.editableBy.length) return f.editableBy;
             return [f.assignedTo || f.assigned_to || 'agent'];
         },
-        isFieldParty(f, role) {
-            return this.fieldParties(f).includes(role);
+        // Compare a stored editable_by token against a checkbox option, resolving
+        // generic tokens (owner_party) to concrete (seller) so they match. Options
+        // for a 2nd same-role recipient carry a _<n> suffix — strip it first.
+        _partyBase(v) { return String(v || '').replace(/_\d+$/, ''); },
+        _samePartyToken(a, b) {
+            const s = this.isSalesContext;
+            return resolvePartyRole(this._partyBase(a), s) === resolvePartyRole(this._partyBase(b), s);
+        },
+        // The editable_by token to STORE for a checkbox option — the generic form
+        // signing enforces (seller/landlord->owner_party, buyer/tenant->acquiring_party).
+        _editToken(optValue) {
+            const base = this._partyBase(optValue);
+            if (base === 'seller' || base === 'landlord') return 'owner_party';
+            if (base === 'buyer' || base === 'tenant') return 'acquiring_party';
+            return base;
+        },
+        isFieldParty(f, optValue) {
+            return this.fieldParties(f).some(r => this._samePartyToken(r, optValue));
         },
         // Toggle one party on/off for a field, preserving the rest of the set.
-        toggleFieldParty(f, role) {
+        toggleFieldParty(f, optValue) {
             let cur = this.fieldParties(f).slice();
-            cur = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role];
+            if (cur.some(r => this._samePartyToken(r, optValue))) {
+                cur = cur.filter(r => !this._samePartyToken(r, optValue));
+            } else {
+                cur = [...cur, this._editToken(optValue)];
+            }
             if (cur.length === 0) cur = ['agent']; // a field must belong to >=1 party
             this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [f.id]: cur };
         },
