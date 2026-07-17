@@ -4,7 +4,12 @@
  * Stores the presentation ID + title in chrome.storage.local for the popup.
  *
  * v1.2 — Handles "Capture All Pages" for multi-page P24 search results.
+ * v1.3 — Host matching moved to corex-hosts.js (see there): this file used to
+ *        recognise corex.hfcoastal.co.za only, which broke when that hostname
+ *        was retired to a redirect.
  */
+
+importScripts('corex-hosts.js');
 
 chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
     // Fire on URL change or page load complete (to capture final title)
@@ -13,8 +18,8 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
     var url = tab.url || changeInfo.url || '';
     if (!url) return;
 
-    // Match presentation pages: http(s)://127.0.0.1:8000/presentations/{id} or localhost
-    var match = url.match(/^https?:\/\/(?:127\.0\.0\.1|localhost):8000\/presentations\/(\d+)/) || url.match(/^https?:\/\/corex\.hfcoastal\.co\.za\/presentations\/(\d+)/);
+    // Match presentation pages on any CoreX host — see corex-hosts.js
+    var match = matchCorexPresentation(url);
     if (match) {
         chrome.storage.local.set({
             presentationId: match[1],
