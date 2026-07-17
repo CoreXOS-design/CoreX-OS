@@ -62,6 +62,7 @@
                     @if($agency->reg_no)Reg No: {{ $agency->reg_no }}@endif
                     @if($vat && $agency->vat_no) &nbsp;·&nbsp; VAT No: {{ $agency->vat_no }}@endif
                     @if($agency->ppra_number)<br>PPRA: {{ $agency->ppra_number }}@endif
+                    @if($agency->ncc_registration_number)<br>NCC No: {{ $agency->ncc_registration_number }}@endif
                 </span>
             </td>
             <td style="vertical-align: top; width: 40%; text-align: right;">

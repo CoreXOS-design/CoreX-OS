@@ -80,6 +80,7 @@ class CompanySettingsController extends Controller
             'vat_no'                => ['nullable', 'string', 'max:255'],
             'ffc_no'                => ['nullable', 'string', 'max:255'],
             'ppra_number'           => ['nullable', 'string', 'max:32'],
+            'ncc_registration_number' => ['nullable', 'string', 'max:255'],
             'public_contact'        => ['nullable', 'string', 'max:255'],
             'fic_no'                => ['nullable', 'string', 'max:255'],
             'email_disclaimer'      => ['nullable', 'string', 'max:2000'],
