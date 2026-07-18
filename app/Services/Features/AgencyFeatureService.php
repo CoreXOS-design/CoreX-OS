@@ -4,6 +4,7 @@ namespace App\Services\Features;
 
 use App\Models\Agency;
 use App\Models\AgencyFeature;
+use App\Models\PerformanceSetting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +36,24 @@ class AgencyFeatureService
     private array $cache = [];
 
     /**
+     * Switchboard-origin keys (spec §7.2): these SIX resolve through their
+     * EXISTING store, NOT agency_features — so the settings switchboard, the
+     * onboarding wizard, and this gate can never disagree about them, and the
+     * already-shipped canonical savers stay the single write path.
+     *   type 'perf'   → PerformanceSetting key (currently GLOBAL, not per-agency —
+     *                   preserving the shipped behaviour; noted quirk).
+     *   type 'agency' → a column on the agencies row (genuinely per-agency).
+     */
+    public const SWITCHBOARD_STORES = [
+        'marketing'       => ['type' => 'perf',   'key' => 'marketing_enabled',        'default' => true],
+        'syndication-p24' => ['type' => 'perf',   'key' => 'syndication_p24_enabled',  'default' => false],
+        'syndication-pp'  => ['type' => 'perf',   'key' => 'syndication_pp_enabled',   'default' => false],
+        'core-matches'    => ['type' => 'perf',   'key' => 'matches_enabled',          'default' => true],
+        'multi-branch'    => ['type' => 'agency', 'key' => 'split_branches_enabled',   'default' => false],
+        'public-website'  => ['type' => 'agency', 'key' => 'website_enabled',           'default' => false],
+    ];
+
+    /**
      * Is a feature enabled for the given agency (or the current effective agency)?
      */
     public function enabled(string $key, ?Agency $agency = null): bool
@@ -62,6 +81,79 @@ class AgencyFeatureService
         return $this->resolvedMap($agency);
     }
 
+    /** The raw registry catalogue. */
+    public function catalogue(): array
+    {
+        return $this->registry();
+    }
+
+    /** Is this a core (always-on, never toggleable) feature? */
+    public function isCore(string $key): bool
+    {
+        return !empty($this->registry()[$key]['core']);
+    }
+
+    /** Is this one of the six switchboard-origin keys (managed by its own store)? */
+    public function isSwitchboard(string $key): bool
+    {
+        return array_key_exists($key, self::SWITCHBOARD_STORES);
+    }
+
+    /**
+     * The MODULE feature keys — non-core AND non-switchboard. These are the ones
+     * the Settings → Features page toggles into agency_features (the six
+     * switchboard keys keep their existing settings homes; core is always on).
+     *
+     * @return list<string>
+     */
+    public function moduleFeatureKeys(): array
+    {
+        return array_values(array_filter(
+            array_keys($this->registry()),
+            fn (string $k) => !$this->isCore($k) && !$this->isSwitchboard($k)
+        ));
+    }
+
+    /**
+     * The full catalogue grouped by category for display, each entry annotated
+     * with its resolved state + kind (core/switchboard/module) + whether a
+     * depends_on parent is off (so the UI can disable a blocked child).
+     *
+     * @return array<string, list<array<string,mixed>>>  category => rows
+     */
+    public function groupedForDisplay(?Agency $agency = null): array
+    {
+        $map = $this->all($agency);
+        $registry = $this->registry();
+        $grouped = [];
+
+        foreach ($registry as $key => $def) {
+            $kind = $this->isCore($key) ? 'core' : ($this->isSwitchboard($key) ? 'switchboard' : 'module');
+
+            // A child is "blocked" when a depends_on parent resolves off.
+            $blockedBy = null;
+            foreach (($def['depends_on'] ?? []) as $parent) {
+                if (!($map[$parent] ?? false)) {
+                    $blockedBy = $parent;
+                    break;
+                }
+            }
+
+            $grouped[$def['category']][] = [
+                'key'        => $key,
+                'label'      => $def['label'],
+                'explain'    => $def['explain'] ?? '',
+                'affects'    => $def['affects'] ?? '',
+                'enabled'    => (bool) ($map[$key] ?? false),
+                'kind'       => $kind,
+                'blocked_by' => $blockedBy,
+                'depends_on' => $def['depends_on'] ?? [],
+            ];
+        }
+
+        return $grouped;
+    }
+
     /** Bust the request memo (called by the toggle saver / AgencyFeatureToggled). */
     public function forget(?int $agencyId = null): void
     {
@@ -84,13 +176,14 @@ class AgencyFeatureService
             return $this->cache[$cacheKey];
         }
 
-        $registry  = $this->registry();
-        $overrides = $this->overridesFor($agencyId);
+        $registry    = $this->registry();
+        $overrides   = $this->overridesFor($agencyId);
+        $switchboard = $this->switchboardStates($agencyId);
 
         // Pass 1 — each feature's SELF state (before dependency cascade).
         $self = [];
         foreach ($registry as $key => $def) {
-            $self[$key] = $this->selfEnabled($key, $def, $overrides);
+            $self[$key] = $this->selfEnabled($key, $def, $overrides, $switchboard);
         }
 
         // Pass 2 — apply the depends_on cascade (a child is off if any parent is
@@ -104,7 +197,7 @@ class AgencyFeatureService
     }
 
     /** A feature's own on/off, ignoring dependencies. */
-    private function selfEnabled(string $key, array $def, array $overrides): bool
+    private function selfEnabled(string $key, array $def, array $overrides, array $switchboard): bool
     {
         // 2. global env kill-switch (outer AND). Missing config key => treated as
         //    enabled, so a stale mapping never accidentally disables a feature.
@@ -118,12 +211,52 @@ class AgencyFeatureService
             return true;
         }
 
+        // 4. switchboard-origin keys read their EXISTING store (spec §7.2),
+        //    NOT agency_features — the store adapter is authoritative for them.
+        if (array_key_exists($key, $switchboard)) {
+            return $switchboard[$key];
+        }
+
         // 5/6. per-agency override, else registry default.
         if (array_key_exists($key, $overrides)) {
             return (bool) $overrides[$key];
         }
 
         return (bool) ($def['default'] ?? false);
+    }
+
+    /**
+     * Read the six switchboard-origin toggles from their existing stores.
+     * PerformanceSetting keys are (currently) global; agency columns are
+     * per-agency. Returns key => bool for exactly the switchboard keys.
+     *
+     * @return array<string,bool>
+     */
+    private function switchboardStates(?int $agencyId): array
+    {
+        $out = [];
+        $agency = null;
+
+        foreach (self::SWITCHBOARD_STORES as $key => $store) {
+            if ($store['type'] === 'perf') {
+                $out[$key] = (bool) PerformanceSetting::get($store['key'], $store['default'] ? 1 : 0);
+                continue;
+            }
+
+            // agency column
+            if ($agencyId) {
+                if ($agency === null) {
+                    $agency = Agency::find($agencyId) ?: false;
+                }
+                $out[$key] = $agency
+                    ? (bool) ($agency->{$store['key']} ?? $store['default'])
+                    : $store['default'];
+            } else {
+                $out[$key] = $store['default'];
+            }
+        }
+
+        return $out;
     }
 
     /**

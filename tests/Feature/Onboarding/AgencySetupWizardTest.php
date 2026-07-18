@@ -367,11 +367,13 @@ class AgencySetupWizardTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'notifications']))->assertOk();
 
+        // notifications (11) advances to the 'roles' explainer (12), then 'access' (13).
+        // (Stale assertion fix — 'roles' was inserted before 'access' pre-registry.)
         $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'notifications']), [
             'dashboard_settings_mode' => 'agency',
             'idle_alerts_enabled'     => '1',
             'notify_email'            => '1',
-        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'access']));
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'roles']));
 
         $agency->refresh();
         $this->assertSame('agency', $agency->dashboard_settings_mode);

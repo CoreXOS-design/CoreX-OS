@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AgencyApiKeyController;
 use App\Http\Controllers\Admin\CompanySettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
+use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -105,12 +106,18 @@ return [
                 . 'you can always come back and switch it on later. Set the shape of the product here first, and '
                 . 'the rest of this wizard tailors itself to the tools you chose.',
         ],
+        // The auto-derived MODULE toggles (spec: corex-feature-registry.md §7) render
+        // above these six capability toggles, and post their feature key to
+        // FeatureSettingsController@update (agency_features). The six below keep their
+        // own store field names + canonical savers.
+        'partial' => 'agency-setup.steps.capabilities-modules',
         'savers' => [
-            ['controller' => SettingsController::class,    'method' => 'updateMarketingEnabled'],
-            ['controller' => SettingsController::class,    'method' => 'updateSyndicationPortals'],
-            ['controller' => SettingsController::class,    'method' => 'updateMatchesEnabled'],
-            ['controller' => SettingsController::class,    'method' => 'updateSplitBranches'],
-            ['controller' => AgencyApiKeyController::class, 'method' => 'toggleWebsite', 'pass_agency' => true],
+            ['controller' => SettingsController::class,        'method' => 'updateMarketingEnabled'],
+            ['controller' => SettingsController::class,        'method' => 'updateSyndicationPortals'],
+            ['controller' => SettingsController::class,        'method' => 'updateMatchesEnabled'],
+            ['controller' => SettingsController::class,        'method' => 'updateSplitBranches'],
+            ['controller' => AgencyApiKeyController::class,     'method' => 'toggleWebsite', 'pass_agency' => true],
+            ['controller' => FeatureSettingsController::class,  'method' => 'update'],
         ],
         'controls' => [
             ['key' => 'marketing_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,

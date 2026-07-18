@@ -94,12 +94,18 @@ class AgencyOnboardingSetup extends Model
      */
     public static function stepGates(): array
     {
-        return [
-            // matches_enabled lives in the (global) PerformanceSetting store, read
-            // in the agency scope the wizard already runs under. Default ON so an
-            // agency that skips the switchboard still sees the Matches step.
-            'matches' => fn (?Agency $agency = null): bool => (bool) PerformanceSetting::get('matches_enabled', 1),
-        ];
+        // Generalised through the feature registry (spec: corex-feature-registry.md
+        // §7.3): a detail step is gated on its parent FEATURE. Adding a feature-step
+        // = adding one stepKey => featureKey entry. The service reads the same store
+        // (core-matches → matches_enabled) so behaviour is unchanged. Default ON so an
+        // agency that skips the switchboard still sees the Matches step.
+        $svc = app(\App\Services\Features\AgencyFeatureService::class);
+        $map = ['matches' => 'core-matches'];
+
+        return array_map(
+            fn (string $featureKey) => fn (?Agency $agency = null): bool => $svc->enabled($featureKey, $agency),
+            $map
+        );
     }
 
     /**

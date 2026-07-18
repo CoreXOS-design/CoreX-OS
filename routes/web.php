@@ -252,6 +252,7 @@ Route::middleware('auth')->group(function () {
 
     // Phase 7 — refresh request inbox + per-row actions.
     Route::prefix('corex/presentations/refresh-requests')
+        ->middleware('feature:presentations')
         ->name('corex.presentations.refresh-requests.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\Presentation\RefreshRequestController::class, 'index'])
@@ -678,7 +679,7 @@ Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group
 });
 
 // ===== DEPOSIT INTEREST CALCULATOR =====
-Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:access_deposit_calculator'])->group(function () {
+Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:access_deposit_calculator', 'feature:calculators'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'index'])->name('deposit-interest-calculator.index');
     Route::get('/calculate', fn () => redirect()->route('deposit-interest-calculator.index'));
     Route::post('/calculate', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'calculate'])->name('deposit-interest-calculator.calculate');
@@ -893,7 +894,7 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
 });
 
 // ===== DEPOSIT TRUST INTEREST =====
-Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:access_trust_interest'])->group(function () {
+Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:access_trust_interest', 'feature:trust-interest'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'index'])->name('admin.deposit-trust-interest.index');
     Route::post('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'store'])->name('admin.deposit-trust-interest.store');
     Route::put('/{record}', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'update'])->name('admin.deposit-trust-interest.update');
@@ -901,7 +902,7 @@ Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:a
 });
 
 // ===== KNOWLEDGE BASE =====
-Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base'])->group(function () {
+Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base', 'feature:knowledge-base'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\KnowledgeController::class, 'index'])->name('admin.knowledge.index');
     Route::get('/category/{id}', [\App\Http\Controllers\Admin\KnowledgeController::class, 'show'])->name('admin.knowledge.category');
     Route::post('/upload', [\App\Http\Controllers\Admin\KnowledgeController::class, 'upload'])->name('admin.knowledge.upload');
@@ -1037,7 +1038,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
-    Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
+    Route::middleware(['permission:access_pdf_suite', 'feature:pdf-suite'])->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
         Route::get('/',              [PdfSuiteController::class, 'hub'])->name('hub');
 
         Route::get('/compress',      [PdfSuiteController::class, 'compress'])->name('compress');
@@ -1066,7 +1067,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Image Converter — HEIC / JPG / PNG / WEBP / BMP / TIFF / GIF → PNG / JPG / WEBP
-    Route::middleware('permission:access_image_converter')->prefix('tools/image-converter')->name('tools.image_converter.')->group(function () {
+    Route::middleware(['permission:access_image_converter', 'feature:image-converter'])->prefix('tools/image-converter')->name('tools.image_converter.')->group(function () {
         Route::get('/',  [ImageConverterController::class, 'index'])->name('index');
         Route::post('/', [ImageConverterController::class, 'run'])->name('run');
     });
@@ -1372,7 +1373,7 @@ Route::post('/internal/ai-chat-proxy', [\App\Http\Controllers\Internal\AiChatPro
 Route::get('/ai-buddy', fn() => redirect()->route('ellie.index'))->middleware('auth')->name('ai.buddy');
 
 // ===== DOCUMENT FILING REGISTER =====
-Route::middleware(['auth', 'permission:access_filing_register'])->group(function () {
+Route::middleware(['auth', 'permission:access_filing_register', 'feature:filing-register'])->group(function () {
     Route::get('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'index'])->name('filing-register.index');
     Route::post('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'store'])->name('filing-register.store');
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
@@ -1676,7 +1677,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Viewing Packs (AT-XX) — buyer-facing pack CRUD. Tenancy via AgencyScope
     //    on the model; {viewingPack} 404s across agencies. Archive = soft delete. ──
     Route::prefix('viewing-packs')->name('corex.viewing-packs.')
-        ->middleware('permission:access_viewing_packs')->group(function () {
+        ->middleware(['permission:access_viewing_packs', 'feature:viewing-packs'])->group(function () {
         Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->middleware('permission:viewing_packs.view')->name('index');
         Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->middleware('permission:viewing_packs.create')->name('store');
         // AT-111 direction 2 — REVERSE link: launch/open a pack FROM an existing
@@ -1761,7 +1762,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.pdf');
 
     // ── My Leave (agent self-service) ──
-    Route::middleware(['permission:apply_for_leave', 'agency.required'])
+    Route::middleware(['permission:apply_for_leave', 'agency.required', 'feature:leave'])
         ->prefix('my-portal/leave')
         ->name('my-portal.leave.')
         ->group(function () {
@@ -1800,14 +1801,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── RMCP Compliance Dashboard ──
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])->prefix('compliance/rmcp-dashboard')->name('compliance.rmcp.dashboard.')->group(function () {
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])->prefix('compliance/rmcp-dashboard')->name('compliance.rmcp.dashboard.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'index'])->name('index');
         Route::post('/reminder', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'sendReminder'])->name('reminder');
         Route::get('/report.pdf', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'report'])->name('report');
     });
 
     // ── Employee Screening ──
-    Route::middleware(['permission:manage_employee_screenings', 'agency.required'])
+    Route::middleware(['permission:manage_employee_screenings', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/screenings')
         ->name('compliance.screenings.')
         ->group(function () {
@@ -1822,7 +1823,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{screening}/flag', [\App\Http\Controllers\Compliance\EmployeeScreeningController::class, 'flag'])->name('flag');
     });
 
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/screening-dashboard')
         ->name('compliance.screening.dashboard.')
         ->group(function () {
@@ -1864,7 +1865,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
 
     // ── Training Help (in-app training docs) ──
-    Route::prefix('training-help')->name('training-help.')->group(function () {
+    Route::prefix('training-help')->middleware('feature:training')->name('training-help.')->group(function () {
         Route::get('/',                              [\App\Http\Controllers\Training\TrainingHelpController::class, 'index'])->name('index');
         Route::get('/search',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'search'])->name('search');
         Route::get('/api/progress',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'progress'])->name('progress');
@@ -1877,7 +1878,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Agent Onboarding ──
-    Route::prefix('onboarding')->group(function () {
+    Route::prefix('onboarding')->middleware('feature:agent-onboarding')->group(function () {
         Route::get('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'index'])->name('onboarding.index');
         Route::get('/create', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'create'])->name('onboarding.create');
         Route::post('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'store'])->name('onboarding.store');
@@ -1940,7 +1941,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // Compliance-officer register (with policy selector via ?policy=)
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/policy-dashboard')
         ->name('compliance.policy.dashboard.')
         ->group(function () {
@@ -1982,7 +1983,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         return redirect('/corex/settings?tab=user');
     })->name('compliance.officer.index')->middleware('permission:manage_compliance_officer');
 
-    Route::middleware(['permission:access_compliance', 'agency.required'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+    Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
@@ -2007,7 +2008,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Whistleblower Compliance Reporting ──
-    Route::middleware(['agency.required'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
+    Route::middleware(['agency.required', 'feature:compliance'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'index'])->name('index')->middleware('permission:compliance.whistleblow.view');
         Route::post('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'store'])->name('store')->middleware('permission:compliance.whistleblow.create');
         Route::get('/new', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'create'])->name('create')->middleware('permission:compliance.whistleblow.create');
@@ -2041,7 +2042,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Communication Archive (AT-33) — email/WhatsApp evidence archive viewer.
     // Gated by the dedicated, role-grantable access_communication_archive
     // permission so each agency controls archive visibility per role/user.
-    Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
+    Route::middleware(['permission:access_communication_archive', 'agency.required', 'feature:communications'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'index'])->name('index');
         Route::get('/thread/{threadKey}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'thread'])->name('thread')->where('threadKey', '.*');
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
@@ -2057,7 +2058,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
     // credentials is admin/compliance-level, separate from viewing the archive.
-    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
+    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required', 'feature:communications'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'store'])->name('store');
@@ -2067,7 +2068,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── WhatsApp capture device registration (AT-34) — agent self-service. ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
         Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
@@ -2078,7 +2079,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── AT-156 — WhatsApp Capture Linking (My Portal → Tools). In-app QR
     //    pairing; server proxies WAHA, key stays server-side. ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-link')->name('communications.wa-link.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/wa-link')->name('communications.wa-link.')->group(function () {
         Route::get('/status', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'status'])->name('status');
         Route::get('/qr', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'qr'])->name('qr');
         Route::post('/link', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'link'])->name('link');
@@ -2088,7 +2089,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── AT-136 — per-agent WhatsApp capture consent (controls body INGESTION;
     //    SEPARATE from the AT-125 contact marketing opt-out). ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
         Route::get('/my', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'myCapture'])->name('my');
         Route::post('/decide', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'decide'])->name('decide');
         // Admin/CO review — capability-checked inside (communications.capture_review).
@@ -2097,14 +2098,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Communication Archive — pending triage (AT-36, staff-facing) ──
-    Route::middleware(['permission:triage_communications', 'agency.required'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
+    Route::middleware(['permission:triage_communications', 'agency.required', 'feature:communications'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'index'])->name('index');
         Route::post('/add-contact', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'addContact'])->name('add-contact');
         Route::post('/not-real-estate', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'notRealEstate'])->name('not-real-estate');
     });
 
     // ── Communication Archive — BM flag register (AT-36, audit; no message content) ──
-    Route::middleware(['permission:view_communication_flag_register', 'agency.required'])->prefix('compliance/communication-flags')->name('compliance.comm-flags.')->group(function () {
+    Route::middleware(['permission:view_communication_flag_register', 'agency.required', 'feature:communications'])->prefix('compliance/communication-flags')->name('compliance.comm-flags.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationFlagRegisterController::class, 'index'])->name('index');
     });
 
@@ -2123,7 +2124,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('settings.email-setup.reveal');
 
     // ── Document Verification Queue ──
-    Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
+    Route::middleware(['permission:verify_user_documents', 'agency.required', 'feature:compliance'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
         Route::get('/{userDocument}', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'show'])->name('show');
         Route::post('/{userDocument}/verify', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'verify'])->name('verify');
@@ -2162,7 +2163,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('admin.user.overrides.revoke');
 
     // ── Payroll ──
-    Route::middleware(['permission:manage_payroll', 'agency.required'])
+    Route::middleware(['permission:manage_payroll', 'agency.required', 'feature:payroll'])
         ->prefix('payroll')
         ->name('payroll.')
         ->group(function () {
@@ -2242,7 +2243,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // ── Leave Admin ──
-    Route::middleware(['auth', 'agency.required'])
+    Route::middleware(['auth', 'agency.required', 'feature:leave'])
         ->prefix('payroll/leave')
         ->name('payroll.leave.')
         ->group(function () {
@@ -2304,7 +2305,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // ── Staff Take-On Wizard ──
-    Route::middleware(['permission:manage_staff_take_on', 'agency.required'])
+    Route::middleware(['permission:manage_staff_take_on', 'agency.required', 'feature:staff-take-on'])
         ->prefix('staff-take-on')
         ->name('staff-take-on.')
         ->group(function () {
@@ -2344,6 +2345,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
+    // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
+    Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
     // Build 4 — agency default toggles for which report sections render.
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');
@@ -2972,7 +2975,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
-        ->middleware(['permission:access_portal_leads', 'agency.required'])
+        ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])
         ->name('corex.portal-leads.')
         ->group(function () {
             Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
@@ -2983,7 +2986,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // WhatsApp Outreach Summary board (agents × outreach states).
     // Spec: .ai/specs/whatsapp-outreach-summary.md (AT-91)
     Route::prefix('real-estate/outreach-summary')
-        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->middleware(['permission:outreach.summary.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-summary.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\WhatsappOutreachSummaryController::class, 'index'])->name('index');
@@ -2992,7 +2995,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 consent
     // funnel). Reuses the AT-91 permission (same audience; embeds the AT-91 board).
     Route::prefix('real-estate/outreach-canvassing')
-        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->middleware(['permission:outreach.summary.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-canvassing.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachCanvassingController::class, 'index'])->name('index');
@@ -3002,7 +3005,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // scoped outreach_queue.view capability (own/branch/all); dispatch + cancel are
     // additionally gated in-controller by their own capabilities + act-own.
     Route::prefix('real-estate/outreach-queue')
-        ->middleware(['permission:outreach_queue.view', 'agency.required'])
+        ->middleware(['permission:outreach_queue.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-queue.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'index'])->name('index');
@@ -3124,7 +3127,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
 
 // ===== COMMERCIAL EVALUATIONS =====
-Route::middleware(['auth', 'permission:access_commercial_evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
+Route::middleware(['auth', 'permission:access_commercial_evaluations', 'feature:commercial-evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
     Route::get('/',                                          [\App\Http\Controllers\CommercialEvaluationController::class, 'index'])            ->name('index');
     Route::get('/create',                                   [\App\Http\Controllers\CommercialEvaluationController::class, 'create'])           ->name('create');
     Route::post('/',                                        [\App\Http\Controllers\CommercialEvaluationController::class, 'store'])            ->name('store');
@@ -3162,7 +3165,7 @@ Route::middleware(['auth', 'permission:access_presentations'])->group(function (
 });
 
 // ===== PRESENTATIONS =====
-Route::middleware(['auth', 'permission:access_presentations'])->prefix('presentations')->name('presentations.')->group(function () {
+Route::middleware(['auth', 'permission:access_presentations', 'feature:presentations'])->prefix('presentations')->name('presentations.')->group(function () {
     Route::get('/',       [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])  ->name('index');
     Route::get('/create', [\App\Http\Controllers\Presentation\PresentationController::class, 'create']) ->name('create');
     Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
@@ -3388,7 +3391,7 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
 });
 
 // ===== E-SIGN COMPILE STUDIO (AT-177 WS4-S) — internal tool, esign.compiler.* gated =====
-Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view'])
+Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view', 'feature:docuperfect'])
     ->name('docuperfect.compiler.')->group(function () {
         $c = \App\Http\Controllers\Docuperfect\Compiler\CompileStudioController::class;
         Route::get('/', [$c, 'index'])->name('index');
@@ -3412,7 +3415,7 @@ Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permissi
     });
 
 // ===== DOCUPERFECT =====
-Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect'])->group(function () {
+Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect', 'feature:docuperfect'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'index'])->name('docuperfect.dashboard');
     Route::get('/create', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'create'])->name('docuperfect.create');
 
@@ -3720,7 +3723,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 });
 
 // ===== RENTAL DIVISION =====
-Route::prefix('rental')->middleware(['auth', 'permission:view_rentals'])->name('rental.')->group(function () {
+Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature:rentals'])->name('rental.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'dashboard'])->name('dashboard');
     Route::get('/signatures', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'signatures'])->name('signatures');
     Route::post('/signatures/{document}/assign-metadata', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'assignMetadata'])->name('signatures.assign-metadata');
@@ -3827,7 +3830,7 @@ Route::post('/documents/download/{token}/verify', [\App\Http\Controllers\Docuper
 Route::get('/documents/download/{token}/file', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadSignedFile'])->name('signatures.download.file');
 
 // ===== DOCUMENT LIBRARY =====
-Route::middleware(['auth', 'permission:access_document_library'])->prefix('documents')->name('documents.')->group(function () {
+Route::middleware(['auth', 'permission:access_document_library', 'feature:document-library'])->prefix('documents')->name('documents.')->group(function () {
     Route::get('/library', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'index'])
         ->name('library.index');
     Route::post('/library/upload', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'upload'])
@@ -3848,7 +3851,7 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
 
 // ===== SHARED DRIVE =====
 // Google-Drive-style team file store. Spec: .ai/specs/shared-drive.md
-Route::middleware(['auth', 'permission:access_shared_drive'])
+Route::middleware(['auth', 'permission:access_shared_drive', 'feature:shared-drive'])
     ->prefix('documents/shared-drive')
     ->name('documents.shared-drive.')
     ->group(function () {
@@ -3889,7 +3892,7 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
 // ===== TRACKED PROPERTIES (Prospecting sub-menu) =====
 // Universe of properties CoreX knows about, regardless of mandate status.
 // Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule), Build D.3.
-Route::middleware(['auth', 'permission:access_prospecting'])
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])
     ->prefix('corex/tracked-properties')
     ->name('corex.tracked-properties.')
     ->group(function () {
@@ -3938,7 +3941,7 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 // legacy POST routes unchanged).
 //
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
-Route::middleware(['auth', 'permission:access_prospecting'])
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])
     ->prefix('corex/market-intelligence')
     ->name('market-intelligence.')
     ->group(function () {
@@ -4068,7 +4071,7 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 // any external bookmarks working) but every handler now lives on
 // MarketIntelligenceController. The controller file ProspectingController
 // .php has been deleted.
-Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
     Route::get('/', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'work'])->name('index');
 
     Route::get('/snapshot.json', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'snapshotJson'])->name('snapshot');

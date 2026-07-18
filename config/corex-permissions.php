@@ -466,6 +466,7 @@ return [
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         // Agency Billing (AT-11) — what THIS agency pays CoreX. Read-only page; the
         // amounts themselves are set by CoreX on the owner-only developer page, which
         // deliberately has NO permission key. Spec: .ai/specs/agency-billing.md §9.

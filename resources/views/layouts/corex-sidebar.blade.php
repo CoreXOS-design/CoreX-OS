@@ -570,6 +570,7 @@
                 </button>
                 <div class="corex-nav-panel-title">Real Estate</div>
 
+                @feature('prospecting')
                 @permission('access_prospecting')
                 {{-- F.1: relabelled from "Prospecting" to "Market intelligence" + retargeted at the
                      new route. The active-state class also matches the legacy prospecting.* names so
@@ -611,6 +612,7 @@
                      route /corex/tracked-properties now 301-redirects to
                      /corex/market-intelligence/opportunities. --}}
                 @endpermission
+                @endfeature
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
@@ -629,6 +631,7 @@
                 @endpermission
 
                 {{-- Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 funnel). --}}
+                @feature('outreach')
                 @permission('outreach.summary.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-canvassing.index'))
                 <a href="{{ route('corex.outreach-canvassing.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-canvassing.*') ? 'active' : '' }}">Outreach &amp; Canvassing</a>
@@ -638,32 +641,42 @@
                 <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- AT-117 §6 / AT-120 — Outreach Queue (gated by the scoped view capability). --}}
+                @feature('outreach')
                 @permission('outreach_queue.view')
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-queue.index'))
                 <a href="{{ route('corex.outreach-queue.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-queue.*') ? 'active' : '' }}">Outreach Queue</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('core-matches')
                 @permission('access_core_matches')
                 @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
                 <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*') ? 'active' : '' }}">Core Matches</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
 
                 {{-- AT-XX — Viewing Packs (buyer-facing property packs). --}}
+                @feature('viewing-packs')
                 <a href="{{ route('corex.viewing-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.viewing-packs.*') ? 'active' : '' }}">Viewing Packs</a>
+                @endfeature
 
+                @feature('portal-leads')
                 @permission('access_portal_leads')
                 @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))
                 <a href="{{ route('corex.portal-leads.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.portal-leads.*') ? 'active' : '' }}">Portal Leads</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('presentations')
                 @permission('access_presentations')
                 @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
                 <a href="{{ route('presentations.index') }}" class="corex-nav-subitem {{ request()->routeIs('presentations.*') ? 'active' : '' }}">Presentations</a>
@@ -724,12 +737,15 @@
                     </a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('commercial-evaluations')
                 @permission('access_commercial_evaluations')
                 @if(\Illuminate\Support\Facades\Route::has('commercial-evaluations.index'))
                 <a href="{{ route('commercial-evaluations.index') }}" class="corex-nav-subitem {{ request()->routeIs('commercial-evaluations.*') ? 'active' : '' }}">Commercial Evaluations</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 {{-- Legacy "P24 Alerts" link removed: admin.p24.index is a 301 redirect into
                      Market Intelligence → Market Pulse (MIC redesign Phase D1/D6). Market Pulse
@@ -757,6 +773,7 @@
             );
         @endphp
         @if($canSeeCommunication)
+        @feature('communications')
         <div>
             <button type="button" @click="push('communication')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'communication' ? 'active' : '' }}">
@@ -847,6 +864,7 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- ═══════════════════════════════════════════
@@ -1075,6 +1093,7 @@
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
         @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents') || auth()->user()->hasPermission('access_shared_drive')))
+        @feature('docuperfect')
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
             <button type="button" @click="push('documents')"
@@ -1129,6 +1148,7 @@
             </div>
         </div>
         @endif
+        @endfeature
         @endif
 
 
@@ -1138,6 +1158,7 @@
 
         {{-- Compliance (expandable group) --}}
         @permission('access_compliance')
+        @feature('compliance')
         <div>
             <button type="button" @click="push('compliance')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'compliance' ? 'active' : '' }}">
@@ -1225,6 +1246,7 @@
                      cross-link was removed so the archive highlights in one place only. --}}
             </div>
         </div>
+        @endfeature
         @endpermission
 
         {{-- Training (LMS) — moved to agent section above as "Training" --}}
@@ -1240,6 +1262,7 @@
 
         {{-- Payroll (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @feature('payroll')
         <div>
             <button type="button" @click="push('payroll')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'payroll' ? 'active' : '' }}">
@@ -1268,10 +1291,12 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- Leave Management (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['manage_leave', 'approve_leave', 'view_leave_reports', 'manage_leave_types', 'adjust_leave_balances']))
+        @feature('leave')
         <div>
             <button type="button" @click="push('leave')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'leave' ? 'active' : '' }}">
@@ -1314,6 +1339,7 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
         @endpermission {{-- /sidebar.section.branch_manager --}}
 
@@ -1340,6 +1366,7 @@
                 }
             }
         @endphp
+        @feature('training')
         @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
         <a href="{{ route('training-help.index') }}" class="corex-nav-item {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1351,8 +1378,10 @@
             @endif
         </a>
         @endif
+        @endfeature
 
         {{-- Ellie AI --}}
+        @feature('ellie')
         @permission('access_ellie')
         @if(\Illuminate\Support\Facades\Route::has('ellie.index'))
         <a href="{{ route('ellie.index') }}" class="corex-nav-item {{ request()->routeIs('ellie.*') ? 'active' : '' }}">
@@ -1363,6 +1392,7 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Ad Manager --}}
         @permission('access_ad_manager')
@@ -1379,6 +1409,7 @@
 
         {{-- Trust Interest (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
+        @feature('trust-interest')
         <div>
             <button type="button" @click="push('trust-interest')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'trust-interest' ? 'active' : '' }}">
@@ -1426,10 +1457,12 @@
                 @endpermission
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- PDF Suite --}}
         @if(auth()->check() && (auth()->user()->hasPermission('access_pdf_suite') || auth()->user()->hasPermission('access_pdf_splitter')))
+        @feature('pdf-suite')
         @if(\Illuminate\Support\Facades\Route::has('tools.pdf_suite.hub'))
         <a href="{{ route('tools.pdf_suite.hub') }}" class="corex-nav-item {{ (request()->routeIs('tools.pdf_suite.*') || request()->routeIs('tools.pdf_splitter.*')) ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1442,9 +1475,11 @@
             <span>PDF Suite</span>
         </a>
         @endif
+        @endfeature
         @endif
 
         {{-- Image Converter --}}
+        @feature('image-converter')
         @permission('access_image_converter')
         @if(\Illuminate\Support\Facades\Route::has('tools.image_converter.index'))
         <a href="{{ route('tools.image_converter.index') }}" class="corex-nav-item {{ request()->routeIs('tools.image_converter.*') ? 'active' : '' }}">
@@ -1457,8 +1492,10 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Document Library --}}
+        @feature('document-library')
         @permission('access_document_library')
         @if(config('features.document_library_v1'))
         <a href="{{ route('documents.library.index') }}" class="corex-nav-item {{ request()->routeIs('documents.library.*') ? 'active' : '' }}">
@@ -1469,8 +1506,10 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Filing Register --}}
+        @feature('filing-register')
         @permission('access_filing_register')
         <a href="{{ route('filing-register.index') }}" class="corex-nav-item {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1479,6 +1518,7 @@
             <span>Filing Register</span>
         </a>
         @endpermission
+        @endfeature
 
         @endpermission {{-- /sidebar.section.tools --}}
 
@@ -1529,9 +1569,11 @@
                 <a href="{{ route('admin.soft-deletes.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.soft-deletes.*') ? 'active' : '' }}">Soft Deletes</a>
                 @endpermission
 
+                @feature('staff-take-on')
                 @permission('manage_staff_take_on')
                 <a href="{{ route('staff-take-on.index') }}" class="corex-nav-subitem {{ request()->routeIs('staff-take-on.*') ? 'active' : '' }}">Staff Take-On</a>
                 @endpermission
+                @endfeature
             </div>
         </div>
         @endif
@@ -1547,6 +1589,7 @@
         @endpermission
 
         {{-- Knowledge Base --}}
+        @feature('knowledge-base')
         @permission('access_knowledge_base')
         <a href="{{ route('admin.knowledge.index') }}" class="corex-nav-item {{ request()->routeIs('admin.knowledge.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1555,6 +1598,7 @@
             <span>Knowledge Base</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Marketing Suppressions (AT-49) --}}
         @permission('marketing_suppressions.view')
@@ -1580,6 +1624,7 @@
 
         {{-- Onboarding (admin/owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')
+        @feature('agent-onboarding')
         @php $onboardingCount = \App\Models\AgentApplication::pending()->count(); @endphp
         <a href="{{ route('onboarding.index') }}" class="corex-nav-item {{ request()->routeIs('onboarding.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1590,6 +1635,7 @@
             <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($onboardingCount) }}</span>
             @endif
         </a>
+        @endfeature
         @endif
 
         {{-- Finance Engine --}}
@@ -1991,6 +2037,7 @@
 
                 {{-- Rentals — nested drill-down --}}
                 @permission('view_rentals')
+                @feature('rentals')
                 <div>
                     <button type="button" @click="push('rentals')"
                             class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('rentals') ? 'active' : '' }}">
@@ -2017,6 +2064,7 @@
                         @endpermission
                     </div>
                 </div>
+                @endfeature
                 @endpermission
 
                 {{-- Evaluation — nested drill-down --}}

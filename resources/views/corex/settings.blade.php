@@ -94,7 +94,11 @@
             ],
             [
                 'label' => 'Modules',
-                'items' => [
+                'items' => array_values(array_filter([
+                    // Feature Registry — the on/off switchboard for every module.
+                    $can('agency_features.manage')
+                        ? ['key'=>'features', 'label'=>'Features (on/off)', 'type'=>'section', 'keywords'=>'feature registry modules enable disable turn on off capability toggle rentals payroll compliance']
+                        : null,
                     ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags'],
@@ -106,7 +110,7 @@
                     ['key'=>'doc-types',             'label'=>'Document Types',        'type'=>'link', 'href'=>route('admin.settings.document-types.index'), 'keywords'=>'splitter filing'],
                     ['key'=>'docuperfect-types',    'label'=>'DocuPerfect — Types',   'type'=>'link', 'href'=>route('docuperfect.settings.types'), 'keywords'=>'document templates'],
                     ['key'=>'docuperfect-fields',   'label'=>'DocuPerfect — Named Fields','type'=>'link', 'href'=>route('docuperfect.settings.namedFields'), 'keywords'=>'merge fields'],
-                ],
+                ])),
             ],
             [
                 'label' => 'Operations',
@@ -3473,6 +3477,16 @@
                 'notificationSnapshot' => $notificationSnapshot ?? null,
             ])
         </div>
+
+        {{-- ============================================================
+             FEATURES — per-agency feature registry (module on/off).
+             Spec: .ai/specs/corex-feature-registry.md §6.4.
+             ============================================================ --}}
+        @if ($can('agency_features.manage'))
+        <div x-show="activeSection === 'features'" x-cloak class="p-6">
+            @include('corex.settings._features')
+        </div>
+        @endif
 
         {{-- ============================================================
              SYSTEM SETTINGS TAB

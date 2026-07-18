@@ -237,6 +237,87 @@ class AgencyFeatureGateTest extends TestCase
         $this->assertTrue($svc->enabled('rentals', $agency), 'cache busted → fresh read sees the new row');
     }
 
+    // ── Phase 2: switchboard store adapter ───────────────────────────────────
+
+    public function test_switchboard_keys_read_their_existing_store_not_agency_features(): void
+    {
+        $agency = $this->agency();
+
+        // core-matches reads PerformanceSetting matches_enabled (default on).
+        $this->assertTrue($this->svc()->enabled('core-matches', $agency));
+        \App\Models\PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 0]);
+        $this->assertFalse($this->svc()->enabled('core-matches', $agency), 'core-matches follows matches_enabled');
+
+        // public-website reads the agencies column (genuinely per-agency).
+        $this->assertFalse($this->svc()->enabled('public-website', $agency)); // default off
+        $agency->forceFill(['website_enabled' => true])->save();
+        $this->assertTrue($this->svc()->enabled('public-website', $agency), 'public-website follows agencies.website_enabled');
+    }
+
+    public function test_agency_features_row_is_ignored_for_a_switchboard_key(): void
+    {
+        $agency = $this->agency();
+
+        // A stray agency_features row for a switchboard key must NOT win — the
+        // existing store is authoritative (spec §7.2). matches_enabled defaults on.
+        $this->override($agency, 'core-matches', false);
+        $this->assertTrue(
+            $this->svc()->enabled('core-matches', $agency),
+            'the store adapter, not agency_features, decides a switchboard key'
+        );
+    }
+
+    // ── Phase 5: FeatureSettingsController canonical saver ────────────────────
+
+    public function test_features_page_saver_writes_module_toggles_guarded(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        // Turn a default-off module ON and a default-on module OFF; omit others.
+        $this->actingAs($admin)
+            ->post(route('corex.settings.features.update'), [
+                'rentals' => '1',   // default off -> on
+                'payroll' => '0',   // present "0" -> off (explicit)
+                // (document-library omitted entirely -> left alone)
+            ])
+            ->assertRedirect();
+
+        $this->assertTrue($this->svc()->enabled('rentals', $agency->fresh()));
+        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'rentals', 'enabled' => true]);
+        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'payroll', 'enabled' => false]);
+        // Omitted key was never written (absent => leave alone, §6.1).
+        $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'document-library']);
+    }
+
+    public function test_features_page_saver_never_writes_switchboard_or_core_keys(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        // Even if a hostile POST includes switchboard/core keys, the saver ignores them.
+        $this->actingAs($admin)
+            ->post(route('corex.settings.features.update'), [
+                'core-matches' => '0',   // switchboard — must be ignored here
+                'properties'   => '0',   // core — must be ignored
+                'rentals'      => '1',   // module — written
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'core-matches']);
+        $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'properties']);
+        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'rentals', 'enabled' => true]);
+    }
+
+    public function test_features_page_saver_requires_permission(): void
+    {
+        $agency = $this->agency();
+        // A plain agent — in a fresh test DB PermissionService allow-alls, so to
+        // prove the gate we assert the ROUTE middleware carries it.
+        $route = app('router')->getRoutes()->getByName('corex.settings.features.update');
+        $this->assertContains('permission:agency_features.manage', $route->gatherMiddleware());
+    }
+
     // ── 12. Config validity + backfill ───────────────────────────────────────
 
     public function test_registry_config_validates(): void
