@@ -1442,6 +1442,20 @@ class ESignWizardController extends Controller
                     $stepData['recipients']['recipients'] ?? [],
                 );
                 if ($wizardRecipients->isNotEmpty()) {
+                    // AT-295 — stamp the data-role-block contract onto the raw
+                    // preview HTML BEFORE expansion. Imported blades carry no
+                    // contract (0/39 web-templates have data-role-block; it is
+                    // only stamped into merged_html at document generation), so
+                    // without this the preview enters expandWithLooping with
+                    // $hasContract=false and falls to the LEGACY clustering path
+                    // where AT-291 ⑥'s same-party dedup never runs — the seller
+                    // block renders TWICE on the agent pre-send screen. Running
+                    // the same normalizer the recipient path uses routes BOTH
+                    // surfaces through the one corrected contract renderer
+                    // (bug-class, not instance): a single seller renders once,
+                    // genuine multi-seller still expands N times.
+                    $previewHtml = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)
+                        ->normalize($previewHtml);
                     $previewHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
                         ->expandWithLooping(
                             $template,

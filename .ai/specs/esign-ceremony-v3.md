@@ -949,3 +949,17 @@ Fix = PREVENT + ABSORB (defence in depth), reusing the EXISTING `DEFERRED` / `AW
 
 Test: `tests/Feature/ESign/EmptyEmailDeferralTest.php` — empty-email→DEFERRED+AWAITING_DEFERRED (no
 throw, no mail, token preserved), with-email→PENDING+mail sent, resume-with-email→re-enters flow.
+
+## AT-295 — agent fill&sign pre-send duplicate seller (REOPENED ⑥, wrong surface) (2026-07-18)
+
+Johan's on-site test of deployed qa1 (ac580cb6) showed the AGENT fill&sign PRE-SEND screen STILL
+doubles the seller block. AT-291 ⑥ fixed the RECIPIENT ceremony but not this. Root cause: the wizard
+Step-5 preview (`ESignWizardController::templatePages`) feeds RAW blade HTML — which has NO
+`data-role-block` contract (0/39 web-templates carry it; it's stamped into `merged_html` only at
+document generation) — into `expandWithLooping`, so `$hasContract=false` and it takes the LEGACY
+clustering path where the ⑥ `hasSamePartyRoleBlockAncestor` dedup never runs. The recipient ceremony
+feeds contract-stamped HTML → contract path → deduped. Fix: run `RoleBlockNormalizer::normalize()` on
+the preview HTML BEFORE `expandWithLooping` (one renderer, both surfaces). Test:
+`SigningView/AgentPresendContractTest.php` (normalizer stamps the contract → preview enters the deduped
+path). **NEW RULE (Johan, on-site): DONE only when verified rendering correctly on the deployed qa1
+site — on-site verification recorded on the ticket post-deploy.**
