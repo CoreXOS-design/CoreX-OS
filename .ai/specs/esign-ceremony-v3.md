@@ -922,3 +922,30 @@ none-submitted hole. A future hardening could re-render the party's merged_html 
 
 Test: `SigningView/WebCompletionRequiredGateTest.php` — no-signature→422, editable-all-blank→422,
 signature+field→passes, consent-still-required.
+
+## AT-294 — empty-email recipient dead-end (2026-07-18, built; stacked on AT-293)
+
+Audit A1: a recipient with no email hit `Mail::to('')` in `SignatureService::sendSigningRequest()`,
+which threw and was **swallowed** by the surrounding try/catch — the ceremony parked as a
+healthy-looking `awaiting_*` (request `pending`, template `awaiting_<role>`) with no link delivered
+and no agent-visible error. The token is minted at request-creation (so a link always existed), and
+the controller reported unconditional "sent" success. The only email validation anywhere was on the
+explicit `sign_later` path.
+
+Fix = PREVENT + ABSORB (defence in depth), reusing the EXISTING `DEFERRED` / `AWAITING_DEFERRED` /
+`resumeDeferredSigning` machinery (the `sign_later` pattern) — no new state, no new UI:
+- **ABSORB (primitive guard, the core):** `sendSigningRequest()` — if `signer_email` is blank, park
+  the request `DEFERRED` + template `AWAITING_DEFERRED` + audit `send_skipped_missing_email`, and
+  return before the doomed send. The agent sees it in the visible deferred bucket, adds an email, and
+  resumes via `resumeDeferredSigning()`; the token survives, nothing is lost. Guards the primitive,
+  so every caller (including the agent-completion auto-advance, which has no controller round-trip)
+  is covered (BUILD_STANDARD §6).
+- **PREVENT (agent-facing, upfront):** `SignatureController::sendForSignature()` — both the initial
+  send and the awaiting-party resend reject email-less WAITING parties (excluding sign-later
+  DEFERRED and supervisor queue roles) with a clear per-recipient `withErrors` message ("These
+  recipients have no email address: … Add an email, or mark them 'sign later / in person'").
+- Reminder sends (`sendReminderEmail` / `sendManualReminderEmail`) skip an email-less party cleanly
+  (log + return) instead of swallowing a `Mail::to('')`.
+
+Test: `tests/Feature/ESign/EmptyEmailDeferralTest.php` — empty-email→DEFERRED+AWAITING_DEFERRED (no
+throw, no mail, token preserved), with-email→PENDING+mail sent, resume-with-email→re-enters flow.

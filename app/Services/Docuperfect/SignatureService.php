@@ -885,6 +885,32 @@ class SignatureService
      */
     public function sendSigningRequest(SignatureRequest $request): void
     {
+        // AT-294 — ABSORB an email-less recipient instead of firing a doomed
+        // Mail::to('') that throws and is swallowed (silently parking the
+        // ceremony as a healthy-looking awaiting_* with no link and no
+        // agent-visible error). Route it into the EXISTING deferred machinery:
+        // request → DEFERRED, template → AWAITING_DEFERRED — the same
+        // recoverable state as "sign later". The token was minted at creation,
+        // so nothing is lost; the agent adds an email and resumes via
+        // resumeDeferredSigning(). Defence-in-depth with the controller PREVENT
+        // guard. Guard the primitive, not one call site (BUILD_STANDARD §6).
+        if (trim((string) $request->signer_email) === '') {
+            $request->update(['status' => SignatureRequest::STATUS_DEFERRED]);
+            $template = $request->template;
+            if ($template) {
+                $template->update(['status' => SignatureTemplate::STATUS_AWAITING_DEFERRED]);
+                SignatureAuditLog::log(
+                    $template,
+                    'send_skipped_missing_email',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    requestId: $request->id,
+                    metadata: ['party_role' => $request->party_role],
+                );
+            }
+            return;
+        }
+
         $request->update([
             'status' => SignatureRequest::STATUS_PENDING,
             'sent_at' => now(),
@@ -2907,6 +2933,13 @@ class SignatureService
      */
     public function sendReminderEmail(SignatureRequest $request): void
     {
+        // AT-294 — a reminder to an email-less party would hit Mail::to('') and
+        // be swallowed; skip cleanly (the party is parked deferred until an
+        // email is added — nothing to remind yet).
+        if (trim((string) $request->signer_email) === '') {
+            Log::warning('Reminder skipped — recipient has no email', ['request_id' => $request->id]);
+            return;
+        }
         try {
             $request->loadMissing(['template.document', 'template.creator']);
             $template = $request->template;
@@ -2936,6 +2969,11 @@ class SignatureService
      */
     private function sendManualReminderEmail(SignatureRequest $request): void
     {
+        // AT-294 — see sendReminderEmail: skip an email-less party cleanly.
+        if (trim((string) $request->signer_email) === '') {
+            Log::warning('Manual reminder skipped — recipient has no email', ['request_id' => $request->id]);
+            return;
+        }
         try {
             $request->loadMissing(['template.document', 'template.creator']);
             $template = $request->template;

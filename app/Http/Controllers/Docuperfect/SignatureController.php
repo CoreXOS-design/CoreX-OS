@@ -1819,6 +1819,13 @@ class SignatureController extends Controller
                 : null;
 
             if ($partyRequest && $partyRequest->status === SignatureRequest::STATUS_WAITING) {
+                // AT-294 PREVENT — reject upfront rather than silently dead-end
+                // on a Mail::to('') that gets swallowed.
+                if (trim((string) $partyRequest->signer_email) === '') {
+                    return redirect()->back()->withErrors([
+                        'recipients' => ucfirst($currentRole) . ' has no email address. Add an email, or mark them "sign later / in person", then send again.',
+                    ]);
+                }
                 if ($request->filled('message')) {
                     $partyRequest->update(['message' => $request->input('message')]);
                 }
@@ -1859,6 +1866,26 @@ class SignatureController extends Controller
                     'markers' => $markerValidation['message'],
                 ]);
             }
+        }
+
+        // AT-294 PREVENT — reject upfront when a party that will receive a
+        // signing link has no email, naming them, rather than letting the send
+        // silently dead-end (Mail::to('') throws + is swallowed). Sign-later
+        // parties are already DEFERRED (excluded); supervisors are notified via
+        // the authorisation queue, not a personal link (excluded). Defence in
+        // depth with the sendSigningRequest ABSORB guard.
+        $emailless = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->whereNotIn('party_role', ['supervisor', 'supervisor_final'])
+            ->get()
+            ->filter(fn ($r) => trim((string) $r->signer_email) === '')
+            ->map(fn ($r) => $r->signer_name ?: ucfirst((string) $r->party_role))
+            ->values();
+        if ($emailless->isNotEmpty()) {
+            return redirect()->back()->withErrors([
+                'recipients' => 'These recipients have no email address: ' . $emailless->implode(', ')
+                    . '. Add an email, or mark them "sign later / in person", then send again.',
+            ]);
         }
 
         try {
