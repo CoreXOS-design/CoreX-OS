@@ -103,3 +103,32 @@ Re-ran the full proof against the **deployed** code (`/corex-qa1`, HEAD `ac580cb
 **Result: zero substantive divergences vs #70. D1 / D2 / D4 closed on the deployed qa1 host.**
 Ready for Johan's fresh-import test. (Browser-side consumption of the server binding is a direct
 pass-through — `cds-builder` `_mappingFromServerBinding` — and is the camera/e2e stage's confirm step.)
+
+---
+
+## On-site re-test defects R1 / R2 / R3 — PASSED (deployed qa1 `246011a9`, 2026-07-18)
+
+Johan's on-site verdict: **"the rest imported great actually"** + three residual import-strip defects.
+Rule adopted: DONE = verified on the deployed qa1 site (re-import, browser-visible render), not tests alone.
+
+- **R1 — double-header.** Source `company_header` rendered under CoreX's own. Fix:
+  `CdsRendererService::renderSection` returns `''` for `company_header`.
+- **R2 — commission % (was D5/AT-290).** `CdsParserService::detectCommissionField` tokenises the first
+  body % after a commission keyword → `document_commission_percentage` → binds
+  `property.commission_percent` `[owner_party, agent]`. Guarded (VAT/unrelated % untouched; first only).
+  **This closes the last remaining #70 divergence — input token count is now 14 = #70's 14 inputs.**
+- **R3 — double-signature.** Source end `signature_section` rendered above CoreX's own. Fix:
+  `CdsRendererService::renderSection` returns `''` for `signature_section` — source frame REPLACED, not appended.
+
+**Deployed proof (qa1 HEAD `246011a9`, code + #70 data):**
+```
+[PASS] R1 source letterhead stripped from body
+[PASS] R3 source THUS-DONE sig block stripped
+[PASS] R2 commission field linked in body
+[PASS] D4 3x Seller+Agent sig placeholders
+[PASS] body content preserved
+```
+Generated blade artifact: exactly **1** CoreX header include, **1** signature-block include, **3**
+Seller+Agent signature-lines, commission var present — single header, single sig block, commission
+linked. Tickets: **AT-300** (R1+R3), **AT-290** (R2). Tests: `tests/Unit/CdsImportStripTest.php` (5/5).
+Shipped QA1 `246011a9`, branch `at177-import-strips`, `[READY-FOR-QA1]`.
