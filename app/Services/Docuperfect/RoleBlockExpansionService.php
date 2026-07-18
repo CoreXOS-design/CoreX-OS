@@ -246,6 +246,45 @@ final class RoleBlockExpansionService
         };
     }
 
+    /**
+     * AT-291 ITEM 6 — collapse every vocabulary a party can be stamped under
+     * (raw wizard token OR canonical token) to ONE stable canonical party
+     * key, so `seller`/`lessor`/`landlord`/`owner_party` are recognised as
+     * the same party (and likewise the acquiring side). Used to detect
+     * same-party role-block nesting.
+     */
+    private function canonicalParty(string $role): string
+    {
+        return match ($role) {
+            'seller', 'lessor', 'landlord', 'owner_party'      => 'owner_party',
+            'buyer', 'lessee', 'tenant', 'acquiring_party'     => 'acquiring_party',
+            default                                            => $role,
+        };
+    }
+
+    /**
+     * AT-291 ITEM 6 — true when $block sits inside another `[data-role-block]`
+     * element that resolves to the SAME canonical party. Such a nested block
+     * is a mixed-vocabulary duplicate: its content is already emitted when the
+     * ancestor block is cloned per recipient, so expanding it independently
+     * would render the party a second time.
+     */
+    private function hasSamePartyRoleBlockAncestor(DOMElement $block, string $role): bool
+    {
+        $canonical = $this->canonicalParty($role);
+        $parent = $block->parentNode;
+        while ($parent instanceof DOMElement) {
+            if ($parent->hasAttribute('data-role-block')) {
+                $ancestorRole = strtolower($parent->getAttribute('data-role-block'));
+                if ($ancestorRole !== '' && $this->canonicalParty($ancestorRole) === $canonical) {
+                    return true;
+                }
+            }
+            $parent = $parent->parentNode;
+        }
+        return false;
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // B2.5 — DOM-based loop expansion
     // ─────────────────────────────────────────────────────────────────────
@@ -304,6 +343,20 @@ final class RoleBlockExpansionService
                 }
                 $role = strtolower($block->getAttribute('data-role-block'));
                 if ($role === '') {
+                    continue;
+                }
+                // AT-291 ITEM 6 — skip a role-block nested INSIDE another
+                // role-block of the SAME canonical party. Mixed-vocabulary
+                // stamping (a `seller` block nested in an `owner_party` block,
+                // or vice-versa — both map to the same party) otherwise clones
+                // the inner content once WITH its parent AND again on its own
+                // pass, so the seller renders twice. Same-party nesting is
+                // always a duplicate; different-party nesting is left intact.
+                if ($this->hasSamePartyRoleBlockAncestor($block, $role)) {
+                    $structuralLog[] = [
+                        'role' => $role,
+                        'case' => 'nested-same-party-duplicate-skipped',
+                    ];
                     continue;
                 }
                 $blocksByRole[$role] ??= [];

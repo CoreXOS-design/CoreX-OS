@@ -798,3 +798,65 @@ so the resolution is on the page, not just in the section it touched:
 + the March–May 2026 redesign in `esign-v3-complete-spec.md`); pairs with `esign-field-intelligence.md`
 (surface inventory) and `esign-document-compiler-spec.md` (CDS engine). No code, no tickets — doctrine
 capture for Johan's read.*
+
+---
+
+## AT-291 — signing-ceremony send-now fixes (2026-07-18, built)
+
+Six defects Johan hit in the live ceremony, fixed on branch `AT-291-esign-ceremony-send-now`
+(off QA1). Investigation: `.ai/audits/2026-07-17-esign-ceremony-wonk-audit.md` (seller-ID class)
++ the AT-291 mail/flag/chip investigations. **Authority:** Johan, "the esign bugs sent now fixed".
+
+**① Sender (From) address + ② Reply-To** — the amendment/initialing re-send sites
+(`SignatureService::handleAmendment` and `::requeueAllPartiesForInitialing`) sent
+`SigningRequestMail` **without `->fromAgent()`**, collapsing both From and Reply-To to the system
+default. Fixed by stamping `->fromAgent($template->creator)` at both, matching every other send
+site. The deliverability-safe rule is `BaseSignatureMail::getFromAddress()` and applies per user
+type: **company-domain agent** (`@hfcoastal.co.za` outward email) → From = agent's own address;
+**personal-email agent** → From = `system@hfcoastal.co.za` with display name "`<Name>` via Home
+Finders Coastal" (SPF/DKIM constraint, AT-79) **+ agent Reply-To**; **no resolvable agent** →
+system From, no Reply-To. Reply-To always carries the agent's outward email when an agent is present.
+
+**③ Green chips** — the emerald "`<party> (signed)`" attribution chip on OTHER parties' markers in
+the recipient signing view derived ownership from a fuzzy same-family role match
+(`isMyWebSigBlock`, `seller/owner_party/lessor/landlord/owner` treated as one), lighting a green
+chip for the **wrong** same-family party. **Ruling (Johan): hidden from the recipient view, kept on
+the agent view.** The recipient still sees their OWN "Signed/Done" indicator and the "not yours"
+lock on unsigned other-party fields; only the other-party *signed attribution* chip is hidden
+(both web + PDF overlays in `signatures/external/sign.blade.php`). The agent view
+(`SignatureController::sign`, separate blade) is unchanged.
+
+**④ Data-loss-on-flag** — the flag-clause modal called `location.reload()` on a successful flag
+POST, wiping every captured-but-unsubmitted signature / initial / field (forbidden per STANDARDS
+§E-Sign). Fixed: the modal now dispatches `clause-flagged-committed`; the signing component applies
+the flag **in place** (`_applyCommittedFlag` — pushes to `webClauseFlaggedItems`, repaints the
+clause) so all captured work survives. Mirrors the already-correct flag-**removal** path.
+
+**⑤ Flag freeze workflow** — the freeze was client-only. Now server-enforced:
+`completeWeb()` (and the marker `complete()` twin) reject a completion POST with **423** while any
+flag amendment is `STATUS_PENDING` (`templateHasPendingFlag`); a crafted / JS-failed POST can no
+longer sign a document that is about to change. The freeze **lifts automatically** the moment the
+agent resolves the flag — `show()` derives each persisted clause-flag's status from the live
+`DocumentAmendment` record (`hydrateClauseFlagStatuses`) instead of the frozen `clause_flags` JSON
+(which the resolution cascade never rewrites). Recipient UX: while frozen, the only action is a
+**Close** button on the freeze banner, which surfaces an "amendment sent — you may close this
+window" overlay; the document returns to the agent to fix + re-send, and the recipient completes
+via the email link after resolution. Deliberately **not** gated: raising/self-removing flags stays
+allowed while frozen (a recipient may flag more than one clause) — only *completion* is blocked.
+
+**⑥ Fill&sign duplicate seller render** — the Step 5 "Fill & Review" preview runs the recipient
+signing engine (`ESignWizardController` pipes it through `RoleBlockExpansionService::expandWithLooping`),
+so the double is a block-expansion defect, not a wizard-blade loop. Root cause: the normalizer stamps
+mixed vocabulary (`RoleBlockDetectionService` returns `owner_party` for generic-named fields and
+`seller` for a `data-contact-type="Seller"` block), and `groupRecipientsByRole` fans each recipient
+into both its literal and canonical-twin bucket — so a `seller` role-block nested inside an
+`owner_party` role-block (same party) is cloned once WITH its ancestor and again on its own pass →
+the seller renders twice. **Fix:** `RoleBlockExpansionService` now excludes a role-block nested inside
+another role-block of the **same canonical party** from independent expansion
+(`hasSamePartyRoleBlockAncestor` / `canonicalParty`); different-party nesting and non-nested sibling
+blocks are untouched, so a single seller renders once and genuine multi-seller still expands N times.
+
+Tests: `tests/Feature/Docuperfect/SigningView/FlagFreezeGateTest.php` (⑤ server gate + freeze
+derivation) and `.../NestedRoleBlockDuplicateTest.php` (⑥ nested same-party dedup + regression
+guards) — both in the pipeline-gated `SigningView/` dir covering the `SigningController` and
+`RoleBlockExpansionService` changes.

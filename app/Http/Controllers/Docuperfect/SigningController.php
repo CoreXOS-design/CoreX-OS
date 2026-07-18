@@ -420,7 +420,17 @@ class SigningController extends Controller
         // page refresh restores the visible flag UI (the legacy webData
         // path only persisted at signComplete; reading it back means a
         // mid-session flag survives reload).
-        $persistedClauseFlags = $webTemplateData['clause_flags'] ?? [];
+        // AT-291 ITEM 5 — derive each persisted clause-flag's status from the
+        // LIVE DocumentAmendment record rather than the frozen JSON snapshot.
+        // The agent resolution cascade never rewrites clause_flags JSON, so
+        // reading it raw would keep a recipient frozen forever after the agent
+        // resolves. Cross-referencing the amendment status lets the client
+        // freeze banner lift the moment the agent acts (amendment leaves
+        // STATUS_PENDING).
+        $persistedClauseFlags = $this->hydrateClauseFlagStatuses(
+            $webTemplateData['clause_flags'] ?? [],
+            $template
+        );
 
         // Phase 1B.6 (FIX 5) — flag whether this signing party has already
         // completed signing. The view uses this to render captured
@@ -1340,6 +1350,21 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
         }
 
+        // AT-291 ITEM 5 — server-side freeze gate. When a clause on this
+        // document has been flagged for agent review, signing is frozen for
+        // ALL parties until the agent resolves it and re-sends. The client
+        // hides the submit surface (freeze banner), but a crafted or
+        // JS-failed POST MUST be rejected server-side too — a party must
+        // never complete a document that is about to change. The gate lifts
+        // automatically the moment the agent resolves the flag (the
+        // amendment leaves STATUS_PENDING); no JSON rewrite required.
+        if ($this->templateHasPendingFlag($signingRequest->template)) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'This document is paused while the agent reviews a flagged clause. You\'ll get an email when it\'s resolved — return to your signing link then to complete.',
+            ], 423);
+        }
+
         // Validate consent
         if (!$request->input('consented')) {
             return response()->json(['message' => 'Consent is required to sign electronically.'], 422);
@@ -1627,6 +1652,16 @@ class SigningController extends Controller
         // Sequential signing gate — reject if not this signer's turn
         if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        // AT-291 ITEM 5 — freeze gate (marker-based path; mirrors completeWeb).
+        // A document with a flagged clause pending agent review cannot be
+        // completed until the agent resolves it and re-sends.
+        if ($this->templateHasPendingFlag($signingRequest->template)) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'This document is paused while the agent reviews a flagged clause. You\'ll get an email when it\'s resolved — return to your signing link then to complete.',
+            ], 423);
         }
 
         $template = $signingRequest->template;
@@ -3850,6 +3885,90 @@ CSS;
      * strikethroughs right now? Allowed when the request hasn't completed
      * and the template isn't terminal-state.
      */
+    /**
+     * AT-291 ITEM 5 — true when any party has flagged a clause on this
+     * document that the agent has NOT yet resolved. A pending flag freezes
+     * COMPLETION for the whole document (it may still change), matching the
+     * agent "fix + re-send" workflow. Source of truth is the
+     * DocumentAmendment record (STATUS_PENDING) — NOT the web_template_data
+     * JSON — so the freeze lifts automatically when the agent acts, with no
+     * JSON rewrite. Flagging / self-removing flags stays allowed while
+     * frozen (that is deliberately NOT gated here) so a recipient can flag
+     * more than one clause; only completion is blocked.
+     */
+    private function templateHasPendingFlag(?SignatureTemplate $template): bool
+    {
+        if (! $template) {
+            return false;
+        }
+
+        return DocumentAmendment::query()
+            ->where('signature_template_id', $template->id)
+            ->where('amendment_type', DocumentAmendment::TYPE_FLAG_RAISED)
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->exists();
+    }
+
+    /**
+     * AT-291 ITEM 5 — re-stamp each persisted clause-flag entry's `status`
+     * from its live DocumentAmendment. A flag whose amendment is no longer
+     * STATUS_PENDING is 'resolved' (the agent has acted); the client reads
+     * this to lift the freeze banner. Entries with no resolvable amendment
+     * keep their stored status (default pending_review). Pure read-side
+     * derivation — the stored JSON is never mutated here.
+     *
+     * @param  array<string, mixed>  $clauseFlags  party_role => [ flag, … ]
+     * @return array<string, mixed>
+     */
+    private function hydrateClauseFlagStatuses(array $clauseFlags, ?SignatureTemplate $template): array
+    {
+        if (empty($clauseFlags) || ! $template) {
+            return $clauseFlags;
+        }
+
+        $ids = [];
+        foreach ($clauseFlags as $entries) {
+            if (! is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                if (! empty($entry['amendment_id'])) {
+                    $ids[] = (int) $entry['amendment_id'];
+                }
+            }
+        }
+        if (empty($ids)) {
+            return $clauseFlags;
+        }
+
+        // id => status for every amendment that actually EXISTS. An
+        // amendment_id with no matching row (e.g. legacy / seed-only JSON)
+        // is left untouched — we only re-stamp what we can positively
+        // resolve, so we never fabricate a 'resolved' for an unknown id.
+        $statusById = DocumentAmendment::query()
+            ->whereIn('id', array_values(array_unique($ids)))
+            ->pluck('status', 'id');
+
+        foreach ($clauseFlags as &$entries) {
+            if (! is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as &$entry) {
+                $id = (int) ($entry['amendment_id'] ?? 0);
+                if ($id === 0 || ! $statusById->has($id)) {
+                    continue;
+                }
+                $entry['status'] = $statusById->get($id) === DocumentAmendment::STATUS_PENDING
+                    ? 'pending_review'
+                    : 'resolved';
+            }
+            unset($entry);
+        }
+        unset($entries);
+
+        return $clauseFlags;
+    }
+
     private function signerCanAct(SignatureRequest $req): bool
     {
         if (in_array($req->status, [

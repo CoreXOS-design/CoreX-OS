@@ -544,7 +544,7 @@
                                     {{-- Other party's marker --}}
                                     <template x-if="!marker.is_mine">
                                         <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
-                                            <template x-if="marker.signed">
+                                            <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                                 <div class="flex flex-col items-center">
                                                     <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -787,7 +787,7 @@
                                 {{-- Other party's marker --}}
                                 <template x-if="!marker.is_mine">
                                     <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
-                                        <template x-if="marker.signed">
+                                        <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                             <div class="flex flex-col items-center">
                                                 <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -841,6 +841,33 @@
                                 This document is not legally binding until the agent has resolved your amendments and you have completed signing.
                             </p>
                         </div>
+                    </div>
+                    {{-- AT-291 ITEM 5 — while frozen the only action is Close.
+                         The document has gone back to the agent to fix and
+                         re-send; the recipient returns via the email link. --}}
+                    <div class="flex justify-end">
+                        <button type="button" @click="closeAfterFlag()"
+                                class="rounded-lg px-5 py-2 text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            {{-- AT-291 ITEM 5 — post-Close confirmation overlay. Shown when the
+                 recipient closes out of a frozen (flagged) document. --}}
+            <template x-if="signingClosedAfterFlag">
+                <div class="fixed inset-0 z-[9998] flex items-center justify-center p-6" style="background:#f8fafc;">
+                    <div class="max-w-md text-center space-y-4">
+                        <svg class="w-12 h-12 text-amber-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M12 3v18M5 9l7-6 7 6"/>
+                        </svg>
+                        <h2 class="text-lg font-semibold text-slate-800">Your amendment request has been sent</h2>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            We've let the agent know about the clause you flagged. You can close this
+                            window now. When the agent has resolved it you'll receive an email with a
+                            link to return and complete signing.
+                        </p>
                     </div>
                 </div>
             </template>
@@ -1486,6 +1513,9 @@ function externalSign() {
                 status: f.status ?? 'pending_review',
             }));
         })(),
+        // AT-291 ITEM 5 — set true when the recipient clicks Close on the
+        // freeze banner; renders the "amendment sent, you may close" overlay.
+        signingClosedAfterFlag: false,
         otherConditionsText: '',
         totalDisclosureRows: 0,
         webIsDrawing: false,
@@ -2838,6 +2868,18 @@ function externalSign() {
             if (!container) return;
 
             const self = this;
+
+            // AT-291 ITEM 4 — bind once. When the flag-clause modal commits
+            // a flag it dispatches `clause-flagged-committed` instead of
+            // reloading the page; we apply the flag to the signing view in
+            // place so captured signatures / initials / fields survive.
+            if (!self._flagCommitListenerBound) {
+                self._flagCommitListenerBound = true;
+                window.addEventListener('clause-flagged-committed', (e) => {
+                    self._applyCommittedFlag(e.detail || {});
+                });
+            }
+
             const clauses = container.querySelectorAll('.corex-clause');
 
             // Build a quick lookup of clauses already flagged from
@@ -2883,21 +2925,70 @@ function externalSign() {
                 // requires the agent-initiated consent flow.
                 const partyHasCompleted = @json($partyAlreadySigned ?? false);
                 if (flaggedByNum.has(clauseNum) && !partyHasCompleted) {
-                    const removeBtn = document.createElement('button');
-                    removeBtn.type = 'button';
-                    removeBtn.className = 'clause-flag-remove';
-                    removeBtn.title = 'Remove this flag';
-                    removeBtn.textContent = '✕';
-                    removeBtn.style.cssText = 'margin-left:0.4rem; padding:0 0.4rem; '
-                        + 'background:transparent; border:1px solid #d97706; color:#92400e; '
-                        + 'border-radius:3px; cursor:pointer; font-size:0.7rem; line-height:1.4;';
-                    removeBtn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (!confirm('Remove this flag? You can re-flag the clause later if you change your mind.')) return;
-                        await self._removeOwnFlag(clauseNum, clause, removeBtn);
-                    });
-                    clause.appendChild(removeBtn);
+                    self._addFlagRemoveButton(clause, clauseNum);
+                }
+            });
+        },
+
+        /**
+         * AT-291 ITEM 4 — build + attach the "remove my flag" (✕) affordance
+         * on a flagged clause. Extracted so both the initial repaint pass
+         * (_initClauseFlagging) and the in-place apply after a fresh flag
+         * (_applyCommittedFlag) share one implementation.
+         */
+        _addFlagRemoveButton(clause, clauseNum) {
+            const self = this;
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'clause-flag-remove';
+            removeBtn.title = 'Remove this flag';
+            removeBtn.textContent = '✕';
+            removeBtn.style.cssText = 'margin-left:0.4rem; padding:0 0.4rem; '
+                + 'background:transparent; border:1px solid #d97706; color:#92400e; '
+                + 'border-radius:3px; cursor:pointer; font-size:0.7rem; line-height:1.4;';
+            removeBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (!confirm('Remove this flag? You can re-flag the clause later if you change your mind.')) return;
+                await self._removeOwnFlag(clauseNum, clause, removeBtn);
+            });
+            clause.appendChild(removeBtn);
+        },
+
+        /**
+         * AT-291 ITEM 4 — apply a freshly-committed flag to the signing view
+         * WITHOUT a page reload. Pushes the flag into webClauseFlaggedItems
+         * (drives the reactive freeze banner + canSubmitWeb lockout) and
+         * repaints the clause in place. Every captured signature, initial and
+         * field stays exactly where the recipient left it.
+         */
+        _applyCommittedFlag(detail) {
+            const clauseNum = String(detail.clauseRef || '');
+            if (!clauseNum) return;
+
+            const already = (this.webClauseFlaggedItems || [])
+                .some(f => String(f.clauseNum) === clauseNum);
+            if (!already) {
+                this.webClauseFlaggedItems.push({
+                    clauseNum:   clauseNum,
+                    clauseIndex: this.webClauseFlaggedItems.length,
+                    concern:     detail.concern || '',
+                    amendment_id: detail.amendmentId ?? null,
+                    status:      'pending_review',
+                });
+            }
+
+            const container = this.$refs.webDocContent || null;
+            if (!container) return;
+            const partyHasCompleted = @json($partyAlreadySigned ?? false);
+            container.querySelectorAll('.corex-clause').forEach(clause => {
+                const numEl = clause.querySelector('.corex-clause-number');
+                if (!numEl || numEl.textContent.trim() !== clauseNum) return;
+                clause.classList.add('clause-flagged');
+                const icon = clause.querySelector('.clause-flag-icon');
+                if (icon) icon.title = 'You flagged this clause for agent review';
+                if (!partyHasCompleted && !clause.querySelector('.clause-flag-remove')) {
+                    this._addFlagRemoveButton(clause, clauseNum);
                 }
             });
         },
@@ -2929,8 +3020,10 @@ function externalSign() {
         /**
          * Phase 1B.6 — open the flag-clause modal. Captures the full
          * clause text (sans the flag icon glyph itself) and dispatches
-         * the open-flag-clause-modal event. The modal handles the POST
-         * + reload; this side just gathers context.
+         * the open-flag-clause-modal event. The modal handles the POST and,
+         * on success, dispatches clause-flagged-committed which this
+         * component applies in place (AT-291 ITEM 4 — no reload); this side
+         * just gathers context.
          */
         _openClauseFlagModal(clauseEl, clauseNum, idx) {
             // Lift the original clause text — strip our own flag icon
@@ -2949,6 +3042,18 @@ function externalSign() {
         // toggle API; routes to the modal instead of inline input.
         _toggleClauseFlag(clauseEl, clauseNum, idx) {
             this._openClauseFlagModal(clauseEl, clauseNum, idx);
+        },
+
+        /**
+         * AT-291 ITEM 5 — the only action available while a flag freezes
+         * signing. The document has gone to the agent to fix + re-send, so
+         * there is nothing more for the recipient to do now. Try to close
+         * the tab (works when it was script-opened); otherwise the overlay
+         * driven by signingClosedAfterFlag tells them they may close it.
+         */
+        closeAfterFlag() {
+            this.signingClosedAfterFlag = true;
+            try { window.close(); } catch (e) { /* browser blocked — overlay covers it */ }
         },
 
         /**

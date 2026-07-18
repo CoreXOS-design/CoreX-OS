@@ -3330,14 +3330,19 @@ class SignatureService
                 // Send notification email
                 try {
                     $signingUrl = route('signatures.external.amendment-review', $resignToken);
+                    // AT-291 ITEMS 1+2 — stamp the acting agent so the
+                    // amendment re-send carries the agent From (subject to the
+                    // company-domain SPF/DKIM rule) and the agent Reply-To,
+                    // matching every other send site. Without ->fromAgent()
+                    // both headers collapse to the system default.
                     Mail::to($previousRequest->signer_email)->send(
-                        new SigningRequestMail(
+                        (new SigningRequestMail(
                             signerName: $previousRequest->signer_name,
                             documentName: $template->document->name ?? 'Document',
                             signingUrl: $signingUrl,
                             personalMessage: "{$amendingRequest->signer_name} has added conditions to this document. Please review and initial each amendment to continue.",
                             expiresAt: $previousRequest->token_expires_at,
-                        )
+                        ))->fromAgent($template->creator)
                     );
 
                     SignatureAuditLog::log(
@@ -3431,14 +3436,18 @@ class SignatureService
                 // view we render server-side from the same surface.
                 try {
                     $url = route('signatures.external.amendment-review', $initialingToken);
+                    // AT-291 ITEMS 1+2 — stamp the acting agent (From +
+                    // Reply-To) on the initialing re-send, matching every
+                    // other send site; without it both headers fall back to
+                    // the system default.
                     Mail::to($previousRequest->signer_email)->send(
-                        new SigningRequestMail(
+                        (new SigningRequestMail(
                             signerName:      $previousRequest->signer_name,
                             documentName:    $template->document->name ?? 'Document',
                             signingUrl:      $url,
                             personalMessage: 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.',
                             expiresAt:       $previousRequest->token_expires_at,
-                        )
+                        ))->fromAgent($template->creator)
                     );
                 } catch (\Throwable $e) {
                     Log::warning('Initialing cascade — mail send failed', [

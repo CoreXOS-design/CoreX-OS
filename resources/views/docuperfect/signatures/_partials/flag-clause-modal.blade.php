@@ -111,7 +111,23 @@ function flagClauseModalAlpine() {
                     }),
                 });
                 if (r.ok) {
-                    location.reload();
+                    // AT-291 ITEM 4 — do NOT reload. A full page reload
+                    // wipes every captured-but-unsubmitted signature,
+                    // initial and filled field held in the signing view's
+                    // Alpine state (forbidden per STANDARDS §E-Sign). Instead
+                    // hand the committed flag to the signing component in
+                    // place; its reactive freeze banner takes over and every
+                    // piece of captured work is preserved.
+                    const j = await r.json().catch(() => ({}));
+                    window.dispatchEvent(new CustomEvent('clause-flagged-committed', {
+                        detail: {
+                            clauseRef:   this.clauseRef,
+                            concern:     sugg,
+                            reason:      (this.reason || '').trim() || null,
+                            amendmentId: j.amendment_id ?? null,
+                        },
+                    }));
+                    this.close();
                 } else {
                     const j = await r.json().catch(() => ({}));
                     this.error = j.error || j.message || ('Submit failed (' + r.status + ')');
