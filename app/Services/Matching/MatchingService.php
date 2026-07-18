@@ -515,10 +515,25 @@ class MatchingService
 
     protected function suburbFitRatio(Property $property, ContactMatch $match): float
     {
+        return $this->suburbCompatible($property, $match) ? 1.0 : 0.0;
+    }
+
+    /**
+     * AT-289 — is this property's suburb compatible with the wishlist's declared
+     * area? Open (no suburb list) = compatible (buyer is open to anywhere);
+     * otherwise the property's p24_suburb_id must be one the buyer asked for.
+     * The single source of truth for the suburb rule — suburbFitRatio scores with
+     * it (soft, for the browse engine), and the per-property DEMAND-CLAIM count
+     * (PropertyMatchScoringService::activeCanonicalBuyersForProperty) GATES on it,
+     * so a buyer explicitly wanting a DIFFERENT suburb is never counted as "demand
+     * for properties like yours in {property_suburb}".
+     */
+    public function suburbCompatible(Property $property, ContactMatch $match): bool
+    {
         $ids = $match->p24SuburbIdList();
-        if (empty($ids)) return 1.0;
-        if (!$property->p24_suburb_id) return 0.0;
-        return in_array((int) $property->p24_suburb_id, $ids, true) ? 1.0 : 0.0;
+        if (empty($ids)) return true;                   // open to anywhere
+        if (!$property->p24_suburb_id) return false;    // buyer named suburbs; property has none
+        return in_array((int) $property->p24_suburb_id, $ids, true);
     }
 
     protected function propertyHasFeatures(Property $property, array $features): bool

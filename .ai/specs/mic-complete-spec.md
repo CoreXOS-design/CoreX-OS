@@ -136,6 +136,16 @@ query. AT-288 fixed exactly that class of bug (the Intelligence page had drifted
 unfiltered ad-hoc query that leaked off-market / wrong-type / out-of-band junk). New
 comparable surfaces call the shared selector; they do not write their own.
 
+**Same class, buyer side (AT-289): geographic honesty in per-property CLAIM figures.** The
+seller-outreach `{matching_buyer_count}` and the presentation buyer-demand figure both make a
+per-property, per-suburb claim ("N buyers looking for properties like yours in {suburb}"), so
+they are gated to buyers whose wishlist is **open (no suburb list) or includes the property's
+suburb** — `PropertyMatchScoringService::activeCanonicalBuyersForProperty()` gates on
+`MatchingService::suburbCompatible()`. A buyer explicitly targeting a DIFFERENT suburb is never
+counted as demand for this property, even if price+beds+type clear the score floor. The global
+browse engine (`matchesForProperty` direct callers — Core Matches, buyer pipeline) keeps its
+soft suburb score, because those surfaces show the match % and are not a hard claim.
+
 ---
 
 ## 3. Data Model

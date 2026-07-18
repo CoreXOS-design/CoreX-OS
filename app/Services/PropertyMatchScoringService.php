@@ -342,8 +342,16 @@ class PropertyMatchScoringService
      */
     private function activeCanonicalBuyersForProperty(Property $property): array
     {
-        $canonical = app(MatchingService::class)->matchesForProperty($property)
+        $matcher = app(MatchingService::class);
+        $canonical = $matcher->matchesForProperty($property)
             ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
+            // AT-289 — HARD suburb scope for the per-property DEMAND CLAIM. A buyer
+            // whose wishlist explicitly targets OTHER suburbs is not demand for THIS
+            // property's location, even if price+beds+type carry them over the score
+            // floor. Open (no suburb list) or includes-this-suburb only. The global
+            // browse engine (matchesForProperty direct callers) keeps its soft suburb
+            // score; only this per-property claim figure is gated. See AT-289.
+            ->filter(fn ($m) => $matcher->suburbCompatible($property, $m))
             ->groupBy('contact_id')
             ->map(fn ($g) => $g->sortByDesc('match_score')->first());
 
