@@ -892,3 +892,33 @@ No overlap with AT-291 (that touched `expandViaContract`'s block-collection; thi
 prefill/resolve — no ordering conflict). Test: `SigningView/SellerIdentityPreservationTest.php` —
 baked-ID survives, signer_id_number fallback, `seller_cell` resolves, blank→null unit, wizard
 fill-if-blank backfill.
+
+## AT-293 — completeWeb server-side mandatory FLOOR (2026-07-18, built; stacked on AT-292)
+
+Canon §4 / AT-291 audit G1: `SigningController::completeWeb()` validated only `consented` server-side
+before `STATUS_COMPLETED`; required fields / disclosures / signatures were enforced CLIENT-side only
+(`canSubmitWeb` / `webIncompleteCount`), so a crafted or JS-failed POST could complete with blank
+statutory items.
+
+Key constraint (verified): a web/CDS template carries **no structured per-field `required` flag** —
+required-ness lives only in the rendered HTML (a client DOM computation). The exact per-item count
+therefore **cannot be faithfully reproduced server-side** without re-rendering + re-parsing this
+party's merged_html. So the gate is a **strict FLOOR beneath the client contract**, not a
+reproduction of it:
+- (a) consent (already enforced);
+- (b) at least one **signature/initial** captured (`signatures{}`/`initials{}` non-empty);
+- (c) if this signer has **recipient-editable fields** (`getEditableFieldsFromMappings` for the
+  party_role), at least one **field value** filled.
+
+Because the client requires ALL such items, this floor can only ever reject the empty/crafted POST —
+**zero false-positives on a client-legitimate submission**. Returns **422** with a user-clear message.
+Inserted after the AT-292 freeze gate + consent check, before the consent audit-log write; the two
+gates (freeze vs required-floor) coexist.
+
+**Deliberately client-only (documented, not server-reproducible without re-rendering):** disclosure
+completeness (rows exist only in rendered HTML, disclosing-party-only) and exact required-signature/
+initial counts. These remain enforced by `webIncompleteCount`; the server floor covers the
+none-submitted hole. A future hardening could re-render the party's merged_html to count them.
+
+Test: `SigningView/WebCompletionRequiredGateTest.php` — no-signature→422, editable-all-blank→422,
+signature+field→passes, consent-still-required.

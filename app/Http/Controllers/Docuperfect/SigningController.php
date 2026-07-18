@@ -1377,6 +1377,43 @@ class SigningController extends Controller
             return response()->json(['message' => 'Document not found.'], 404);
         }
 
+        // AT-293 — server-side mandatory FLOOR. The client (canSubmitWeb /
+        // webIncompleteCount) is the full required-item enforcer, but it is
+        // DOM-derived and bypassable (a crafted POST, or the completion JS
+        // failing after consent). A web/CDS template carries NO structured
+        // per-field `required` flag — required-ness lives only in the rendered
+        // HTML — so the client's exact per-item count cannot be faithfully
+        // reproduced server-side. We enforce the FLOOR that closes the real
+        // hole (a completion that submits none of the statutory work): every
+        // signing party must (a) consent [checked above], (b) capture at least
+        // one signature/initial, and (c) if the party has recipient-editable
+        // fields, fill at least one. This floor sits BENEATH the client
+        // contract (which requires ALL such items), so it can only ever reject
+        // the empty/crafted POST — never a client-legitimate submission.
+        // Disclosure completeness + exact signature counts stay client-gated
+        // (not server-reproducible without re-rendering) — documented on AT-293.
+        $nonEmpty = static fn ($v): bool => is_array($v) ? $v !== [] : trim((string) $v) !== '';
+        $capturedAnyMark = collect((array) $request->input('signatures', []))->contains($nonEmpty)
+            || collect((array) $request->input('initials', []))->contains($nonEmpty);
+        if (!$capturedAnyMark) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please sign the document before submitting — no signature was captured.',
+            ], 422);
+        }
+
+        $docTemplate    = $document->template;
+        $fieldMappings  = is_array($docTemplate?->field_mappings ?? null) ? $docTemplate->field_mappings : [];
+        $editableFields = $this->getEditableFieldsFromMappings($fieldMappings, $signingRequest->party_role);
+        if (!empty($editableFields)
+            && !collect((array) $request->input('field_values', []))->contains($nonEmpty)
+        ) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Please complete the fields assigned to you before submitting.',
+            ], 422);
+        }
+
         // Log consent to audit log
         SignatureAuditLog::create([
             'signature_template_id' => $template->id,
