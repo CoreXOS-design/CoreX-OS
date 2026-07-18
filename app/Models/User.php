@@ -716,6 +716,15 @@ class User extends Authenticatable
         return PermissionService::userHasAnyPermission($this, $keys);
     }
 
+    // --- Feature-registry helper (delegate to AgencyFeatureService) ---
+    // Feature = "does this AGENCY use this module" — ORTHOGONAL to permission
+    // ("may this USER touch it"). Spec: .ai/specs/corex-feature-registry.md §3.1.
+
+    public function hasFeature(string $key): bool
+    {
+        return app(\App\Services\Features\AgencyFeatureService::class)->enabled($key);
+    }
+
     public function socialAccounts(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(AgentSocialAccount::class);

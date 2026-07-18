@@ -82,6 +82,12 @@ class AppServiceProvider extends ServiceProvider
         // ─────────────────────────────────────────────────────────────────────────────
         \Illuminate\Foundation\Support\Providers\EventServiceProvider::disableEventDiscovery();
 
+        // Feature registry gate: singleton so the per-request resolved feature
+        // map is computed once (one query) and shared across every enabled()
+        // call in a request (e.g. a Blade loop). Busted by AgencyFeatureToggled.
+        // Spec: .ai/specs/corex-feature-registry.md §3.5/§6.1.
+        $this->app->singleton(\App\Services\Features\AgencyFeatureService::class);
+
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarThresholdResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarNotificationDispatcher::class);
@@ -702,6 +708,24 @@ class AppServiceProvider extends ServiceProvider
         Blade::if('permission', function (string $permissionKey) {
             return auth()->check() && auth()->user()->hasPermission($permissionKey);
         });
+
+        // @feature('feature_key') ... @endfeature — the per-agency FEATURE gate,
+        // orthogonal to @permission (spec: .ai/specs/corex-feature-registry.md §6.2).
+        // Guests => false (fail-closed).
+        Blade::if('feature', function (string $featureKey) {
+            return auth()->check() && auth()->user()->hasFeature($featureKey);
+        });
+
+        // Bust the feature service's per-request memo when an agency toggles a
+        // feature. SYNC + scalar payload (memory [[event_listener_double_registration]]:
+        // discovery is OFF so this MUST be registered here; a queued listener on a
+        // domain event fatals on the readonly $eventId).
+        \Illuminate\Support\Facades\Event::listen(
+            \App\Events\AgencyFeatureToggled::class,
+            function (\App\Events\AgencyFeatureToggled $event) {
+                app(\App\Services\Features\AgencyFeatureService::class)->forget($event->agencyId);
+            }
+        );
 
         // ─────────────────────────────────────────────────────────────────
         // Agency Public API (website API). The `agency-api` guard resolves a
