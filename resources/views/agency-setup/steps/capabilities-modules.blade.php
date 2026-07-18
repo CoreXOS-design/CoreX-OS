@@ -49,7 +49,12 @@
                                 @endif
                             </div>
                             <label class="relative inline-flex items-center flex-shrink-0 mt-1 {{ $row['blocked_by'] ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' }}">
-                                <input type="hidden" name="{{ $row['key'] }}" value="0">
+                                {{-- Hidden "0" companion only when NOT blocked: a blocked child
+                                     must post NOTHING so $request->has() is false and its stored
+                                     preference is left untouched (not silently wiped to false). --}}
+                                @unless ($row['blocked_by'])
+                                    <input type="hidden" name="{{ $row['key'] }}" value="0">
+                                @endunless
                                 <input type="checkbox" name="{{ $row['key'] }}" value="1" class="sr-only peer"
                                        @checked($row['enabled']) @disabled((bool) $row['blocked_by'])>
                                 <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>

@@ -39,10 +39,13 @@ class MatchPropertyJob implements ShouldQueue
     {
         $property = Property::find($this->propertyId);
         if (!$property) return;
-        if (!(int) PerformanceSetting::get('matches_enabled', 1)) return;
         if (!$property->agency_id || !$property->price) return;
+        // Per-agency read (multi-tenancy #7): this runs on the queue with NO auth,
+        // so the agency must be passed explicitly — a bare get() would read the
+        // global default and honour the wrong agency's toggle.
+        if (!(int) PerformanceSetting::get('matches_enabled', 1, $property->agency_id)) return;
 
-        $minScore = (int) PerformanceSetting::get('matches_min_score_to_notify', 60);
+        $minScore = (int) PerformanceSetting::get('matches_min_score_to_notify', 60, $property->agency_id);
         $candidates = $matching->candidatesForProperty($property);
 
         foreach ($candidates as $match) {

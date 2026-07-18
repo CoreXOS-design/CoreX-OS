@@ -880,6 +880,7 @@
 
         {{-- AT-41 — Guided Tours: self-serve interactive walkthroughs. Visible to
              every authenticated user; the directory filters to their own tours. --}}
+        @feature('guided-tours')
         <a href="{{ route('corex.guided-tours.index') }}"
            class="corex-nav-item {{ request()->routeIs('corex.guided-tours.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -887,10 +888,12 @@
             </svg>
             <span>Guided Tours</span>
         </a>
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)
              ═══════════════════════════════════════════ --}}
+        @feature('agency-tracker')
         @permission('access_agency_tracker')
         <div>
             <button type="button" @click="push('agency-tracker')"
@@ -1015,9 +1018,11 @@
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
+                @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
+                @endfeature
                 @permission('view_daily_activity')
                 @if($effectiveBranchId)
                 <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
@@ -1066,17 +1071,21 @@
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
+                @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
+                @endfeature
                 @endpermission
 
                 {{-- Commission Management (admin/owner only) --}}
+                @feature('commission-management')
                 @if($isOwner || $effectiveRole === 'super_admin')
                 <div class="corex-nav-sublabel">Commission</div>
                 <a href="{{ route('commission.principal') }}" class="corex-nav-subitem {{ request()->routeIs('commission.principal') ? 'active' : '' }}">Commission Overview</a>
                 <a href="{{ route('commission.index') }}" class="corex-nav-subitem {{ request()->routeIs('commission.index') ? 'active' : '' }}">Commission Management</a>
                 @endif
+                @endfeature
 
                 {{-- Tools (all roles within AT) --}}
                 @permission('access_calculators')
@@ -1088,6 +1097,7 @@
             </div>
         </div>
         @endpermission
+        @endfeature{{-- agency-tracker --}}
 
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
@@ -1142,9 +1152,11 @@
                 @permission('view_agency_documents')
                 <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
                 @endpermission
+                @feature('shared-drive')
                 @permission('access_shared_drive')
                 <a href="{{ route('documents.shared-drive.index') }}" class="corex-nav-subitem {{ request()->routeIs('documents.shared-drive.*') ? 'active' : '' }}">Shared Drive</a>
                 @endpermission
+                @endfeature
             </div>
         </div>
         @endif
@@ -1395,6 +1407,7 @@
         @endfeature
 
         {{-- Ad Manager --}}
+        @feature('ad-manager')
         @permission('access_ad_manager')
         @if(\Illuminate\Support\Facades\Route::has('tools.ad-manager'))
         <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">
@@ -1406,6 +1419,7 @@
         </a>
         @endif
         @endpermission
+        @endfeature
 
         {{-- Trust Interest (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
@@ -1450,11 +1464,13 @@
                 @endif
                 @endpermission
 
+                @feature('calculators')
                 @permission('access_calculators')
                 @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
                 <a href="{{ route('calculators.index') }}" class="corex-nav-subitem {{ request()->routeIs('calculators.*') ? 'active' : '' }}">Calculators</a>
                 @endif
                 @endpermission
+                @endfeature
             </div>
         </div>
         @endfeature
@@ -1579,6 +1595,7 @@
         @endif
 
         {{-- Proforma Invoices settings (Accounting pillar) --}}
+        @feature('proforma-invoices')
         @permission('proforma.manage')
         <a href="{{ route('admin.proforma-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.proforma-settings*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1587,6 +1604,7 @@
             <span>Proforma Invoices</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Knowledge Base --}}
         @feature('knowledge-base')
@@ -1601,6 +1619,7 @@
         @endfeature
 
         {{-- Marketing Suppressions (AT-49) --}}
+        @feature('marketing-suppressions')
         @permission('marketing_suppressions.view')
         <a href="{{ route('admin.marketing-suppressions.index') }}" class="corex-nav-item {{ request()->routeIs('admin.marketing-suppressions.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1609,6 +1628,7 @@
             <span>Marketing Suppressions</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Misfiled Documents (AT-167) --}}
         @permission('access_misfiled_documents')

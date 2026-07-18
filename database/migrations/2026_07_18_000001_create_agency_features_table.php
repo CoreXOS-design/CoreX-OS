@@ -23,11 +23,16 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index('agency_id');
+            // One override row per (agency, feature). deleted_at is deliberately
+            // NOT part of the unique key: MySQL treats NULL as distinct, so including
+            // it would permit multiple LIVE rows for the same (agency, feature) and
+            // the gate would then resolve nondeterministically. These rows are config
+            // state that the app never soft-deletes (toggling flips `enabled`, it does
+            // not delete), so a real two-column unique is both correct and safe.
+            // (feature_key index kept for cross-agency "who has X on" queries; the
+            // composite unique already covers agency_id-leading lookups.)
             $table->index('feature_key');
-            // One LIVE override per feature per agency. deleted_at in the unique
-            // key lets a soft-deleted row be superseded by a fresh one.
-            $table->unique(['agency_id', 'feature_key', 'deleted_at']);
+            $table->unique(['agency_id', 'feature_key']);
         });
     }
 

@@ -121,8 +121,10 @@ class EllieController extends Controller
               (str_contains($msgLower, 'lending') && str_contains($msgLower, 'rate'));
 
           if ($looksLikeRateQuestion) {
-              $prime = DB::table('performance_settings')->where('key', 'sa_prime_rate')->value('value');
-              $primeUpdated = DB::table('performance_settings')->where('key', 'sa_prime_rate_updated_at')->value('value');
+              // Global national rate — read the NULL-agency row explicitly (raw query
+              // bypasses PerformanceSetting::get()'s agency resolution).
+              $prime = DB::table('performance_settings')->where('key', 'sa_prime_rate')->whereNull('agency_id')->value('value');
+              $primeUpdated = DB::table('performance_settings')->where('key', 'sa_prime_rate_updated_at')->whereNull('agency_id')->value('value');
               if (!empty($prime)) {
                   $reply = "SA Prime Lending Rate (from HF Coastal Performance Settings): {$prime}%"
                       . (!empty($primeUpdated) ? " (last updated {$primeUpdated})." : ".");

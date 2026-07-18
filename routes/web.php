@@ -313,10 +313,10 @@ Route::middleware('auth')->group(function () {
     // ── Admin: Marketing Suppression register (AT-49) ──
     // Identifier-level "suppressed everywhere" list; lifting a row is an opt-in.
     Route::get('/admin/marketing-suppressions', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'index'])
-        ->middleware('permission:marketing_suppressions.view')
+        ->middleware(['permission:marketing_suppressions.view', 'feature:marketing-suppressions'])
         ->name('admin.marketing-suppressions.index');
     Route::post('/admin/marketing-suppressions/{suppression}/lift', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'lift'])
-        ->middleware('permission:marketing_suppressions.manage')
+        ->middleware(['permission:marketing_suppressions.manage', 'feature:marketing-suppressions'])
         ->where('suppression', '[0-9]+')
         ->name('admin.marketing-suppressions.lift');
 
@@ -455,20 +455,20 @@ Route::middleware('auth')->group(function () {
 
     // Ellie (AI Assistant)
     Route::get('/ellie', [\App\Http\Controllers\EllieController::class, 'index'])
-        ->middleware('permission:access_ellie')->name('ellie.index');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.index');
 
     Route::post('/ellie/send', [\App\Http\Controllers\EllieController::class, 'send'])
-        ->middleware('permission:access_ellie')->name('ellie.send');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.send');
 
     // ELLIE_ROUTES_2026
     Route::post('/ellie/rename', [\App\Http\Controllers\EllieController::class, 'rename'])
-        ->middleware('permission:access_ellie')->name('ellie.rename');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.rename');
 
     Route::post('/ellie/archive', [\App\Http\Controllers\EllieController::class, 'archive'])
-        ->middleware('permission:access_ellie')->name('ellie.archive');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.archive');
 
     Route::post('/ellie/unarchive', [\App\Http\Controllers\EllieController::class, 'unarchive'])
-        ->middleware('permission:access_ellie')->name('ellie.unarchive');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.unarchive');
 
     // Calculators
     Route::get('/calculators', [\App\Http\Controllers\CalculatorController::class, 'index'])->middleware('permission:access_calculators')->name('calculators.index');
@@ -756,7 +756,7 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 
     // Proforma Invoices (Accounting pillar) — any agent may generate from Granted onward
     // (server-gated); the endpoint re-checks eligibility, never trusts the hidden button.
-    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware('permission:proforma.generate')->name('proforma.generate');
+    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware(['permission:proforma.generate', 'feature:proforma-invoices'])->name('proforma.generate');
 
     // AT-228 — party-first document distribution (compose-and-review → send). Matrix does the
     // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
@@ -765,7 +765,7 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 });
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
-Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function () {
+Route::prefix('proforma')->middleware(['auth', 'feature:proforma-invoices'])->name('proforma.')->group(function () {
     Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
     Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
     // Admin-only (permission re-checked in the controller too).
@@ -776,7 +776,7 @@ Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function
 });
 
 // Agency "Proforma Invoices" settings section (admin only).
-Route::middleware(['auth', 'permission:proforma.manage'])->group(function () {
+Route::middleware(['auth', 'permission:proforma.manage', 'feature:proforma-invoices'])->group(function () {
     Route::get('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'index'])->name('admin.proforma-settings');
     Route::put('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'update'])->name('admin.proforma-settings.update');
 });
@@ -964,8 +964,8 @@ Route::middleware(['auth','permission:import_listings'])->group(function () {
 });
 
 
-// ===== LISTING STOCK =====
-Route::middleware(['auth','permission:view_listings'])->group(function () {
+// ===== LISTING STOCK ===== (Agency Tracker surface)
+Route::middleware(['auth','permission:view_listings','feature:agency-tracker'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
         ->name('admin.listings.agents');
 
@@ -1014,9 +1014,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
-    Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
-    Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.previews');
-    Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.generate');
+    Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager');
+    Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.previews');
+    Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.generate');
 
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
@@ -1140,7 +1140,7 @@ Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::c
 Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware('permission:access_listing_stock')->name('bm.listings');
 
     // ===== TV MESSAGES (Admin + BM) =====
-    Route::middleware(['permission:manage_tv_messages'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
         Route::get('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminIndex'])->name('admin.tv-messages');
         Route::post('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminStore'])->name('admin.tv-messages.store');
         Route::post('/admin/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'adminUpdate'])->name('admin.tv-messages.update');
@@ -1176,7 +1176,7 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/agency/select/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectAndRedirect'])->name('agency.select.submit');
     });
 
-    Route::middleware(['permission:manage_tv_messages'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
         Route::get('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmIndex'])->name('bm.tv-messages');
         Route::post('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmStore'])->name('bm.tv-messages.store');
         Route::post('/bm/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'bmUpdate'])->name('bm.tv-messages.update');
@@ -1838,13 +1838,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
         ->name('commission.dashboard');
     Route::get('/commission', [\App\Http\Controllers\Commission\CommissionController::class, 'index'])
-        ->name('commission.index');
+        ->middleware('feature:commission-management')->name('commission.index');
     Route::get('/commission/principal', [\App\Http\Controllers\Commission\CommissionController::class, 'principalDashboard'])
-        ->name('commission.principal');
+        ->middleware('feature:commission-management')->name('commission.principal');
     Route::post('/commission/{entry}/confirm', [\App\Http\Controllers\Commission\CommissionController::class, 'confirm'])
-        ->name('commission.confirm');
+        ->middleware('feature:commission-management')->name('commission.confirm');
     Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
-        ->name('commission.pay');
+        ->middleware('feature:commission-management')->name('commission.pay');
     Route::get('/revenue-share/calculator', [\App\Http\Controllers\Commission\RevenueShareController::class, 'calculator'])
         ->name('revenue-share.calculator');
 
@@ -2323,7 +2323,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Guided Tours directory (AT-41) — agent self-serve training index. Any
     // authenticated user; the list itself is filtered to the tours they can access.
-    Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->name('corex.guided-tours.index');
+    Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->middleware('feature:guided-tours')->name('corex.guided-tours.index');
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');

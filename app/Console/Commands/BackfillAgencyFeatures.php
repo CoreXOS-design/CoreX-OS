@@ -72,30 +72,31 @@ class BackfillAgencyFeatures extends Command
 
         foreach ($agencies as $agency) {
             foreach ($keysToEnable as $key) {
-                $existing = AgencyFeature::query()
-                    ->where('agency_id', $agency->id)
-                    ->where('feature_key', $key)
-                    ->first();
-
-                // Never override an explicit choice already on record (idempotent
-                // + respects any hand-set OFF the agency later made).
-                if ($existing) {
-                    $skipped++;
-                    continue;
-                }
-
                 if ($dry) {
+                    $exists = AgencyFeature::query()
+                        ->where('agency_id', $agency->id)
+                        ->where('feature_key', $key)
+                        ->exists();
+                    if ($exists) {
+                        $skipped++;
+                        continue;
+                    }
                     $this->line("would enable [{$key}] for agency {$agency->id} ({$agency->name})");
                     $written++;
                     continue;
                 }
 
-                AgencyFeature::create([
-                    'agency_id'   => $agency->id,
-                    'feature_key' => $key,
-                    'enabled'     => true,
-                ]);
-                $written++;
+                // firstOrCreate is atomic-per-row against the (agency_id, feature_key)
+                // unique constraint, so two overlapping deploy runs cannot double-insert.
+                // Crucially it only writes `enabled = true` on CREATE — it NEVER touches
+                // an existing row, so a feature an agency later turned OFF by hand stays
+                // OFF (updateOrCreate would wrongly re-enable it).
+                $model = AgencyFeature::firstOrCreate(
+                    ['agency_id' => $agency->id, 'feature_key' => $key],
+                    ['enabled' => true]
+                );
+
+                $model->wasRecentlyCreated ? $written++ : $skipped++;
             }
         }
 

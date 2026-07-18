@@ -100,7 +100,16 @@ class AgencyOnboardingSetup extends Model
         // (core-matches → matches_enabled) so behaviour is unchanged. Default ON so an
         // agency that skips the switchboard still sees the Matches step.
         $svc = app(\App\Services\Features\AgencyFeatureService::class);
-        $map = ['matches' => 'core-matches'];
+        // Every wizard DETAIL step whose feature can be switched off is gated on
+        // that feature, so turning it off in the capabilities step skips its setup
+        // (the step's own copy promises exactly this). Only non-core features with a
+        // standalone detail step appear here; core steps (identity/branding/branches/
+        // commission/properties/contacts/notifications/roles/access) are never gated.
+        $map = [
+            'matches'       => 'core-matches',
+            'presentations' => 'presentations',
+            'compliance'    => 'compliance',
+        ];
 
         return array_map(
             fn (string $featureKey) => fn (?Agency $agency = null): bool => $svc->enabled($featureKey, $agency),

@@ -40,8 +40,9 @@ class AgencyFeatureService
      * EXISTING store, NOT agency_features — so the settings switchboard, the
      * onboarding wizard, and this gate can never disagree about them, and the
      * already-shipped canonical savers stay the single write path.
-     *   type 'perf'   → PerformanceSetting key (currently GLOBAL, not per-agency —
-     *                   preserving the shipped behaviour; noted quirk).
+     *   type 'perf'   → PerformanceSetting key, resolved PER-AGENCY (the setting
+     *                   store gained an agency_id; get()/set() are agency-scoped
+     *                   with a global fallback — multi-tenancy #7).
      *   type 'agency' → a column on the agencies row (genuinely per-agency).
      */
     public const SWITCHBOARD_STORES = [
@@ -226,9 +227,10 @@ class AgencyFeatureService
     }
 
     /**
-     * Read the six switchboard-origin toggles from their existing stores.
-     * PerformanceSetting keys are (currently) global; agency columns are
-     * per-agency. Returns key => bool for exactly the switchboard keys.
+     * Read the six switchboard-origin toggles from their existing stores, all
+     * resolved PER-AGENCY: PerformanceSetting keys via the agency-scoped get()
+     * (agency row → global fallback); agency columns straight off the row.
+     * Returns key => bool for exactly the switchboard keys.
      *
      * @return array<string,bool>
      */
@@ -239,7 +241,10 @@ class AgencyFeatureService
 
         foreach (self::SWITCHBOARD_STORES as $key => $store) {
             if ($store['type'] === 'perf') {
-                $out[$key] = (bool) PerformanceSetting::get($store['key'], $store['default'] ? 1 : 0);
+                // Per-agency read (pass the explicit agency: this runs inside the gate
+                // and may be resolving a DIFFERENT agency than the caller's, e.g. the
+                // owner tracking page or a queued job). Falls back to the global row.
+                $out[$key] = (bool) PerformanceSetting::get($store['key'], $store['default'] ? 1 : 0, $agencyId);
                 continue;
             }
 
@@ -316,7 +321,12 @@ class AgencyFeatureService
             return [];
         }
 
-        return AgencyFeature::query()
+        // Resolve by EXPLICIT agency id via the sanctioned cross-agency helper
+        // (multi-tenancy spec rule #5). Using the plain scoped query here is a trap:
+        // AgencyScope would AND-in the *caller's* agency, so enabled($key, $otherAgency)
+        // for a non-owner caller silently returned registry defaults. The explicit
+        // where('agency_id', $agencyId) below is the only tenancy filter that applies.
+        return AgencyFeature::queryWithoutAgencyScope()
             ->where('agency_id', $agencyId)
             ->pluck('enabled', 'feature_key')
             ->map(fn ($v) => (bool) $v)
