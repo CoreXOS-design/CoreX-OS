@@ -37,7 +37,7 @@ Click triggers `PresentationGeneratorService::generate(propertyId, agentUserId, 
 1. Resolves Property (or TrackedProperty via Universal Match-or-Create)
 2. Hydrates: address, suburb, type, beds, baths, erf, floor area, current listing price
 3. Looks up cached MA + SP runs for `(suburb, type, period_months=12)`. If stale or missing, runs fresh.
-4. Pulls active competitive stock from `imported_listings` filtered by suburb + type
+4. Pulls active competitive stock via the shared selector `CompetitorStockMatchService::findCompetitors($subject)` (source: `prospecting_listings`). **This is the ONE vetted comparable-stock selector** — its rules (on-market only, same title-family, price band, beds tolerance, normalised-suburb scope, comparability score, agency-configurable thresholds) are shared with the Property Intelligence "Comparable Listings" via `findComparableStock()` (source: own-agency `properties`, gated by `Property::scopeOnMarket()`). Both build from `ComparableStockCriteria`, so the CMA competitive-stock and the Intelligence comparables can never drift (AT-288). See `.ai/specs/mic-complete-spec.md` §2.5. *(Historical note: the pre-AT-77 path pulled from `imported_listings` filtered by suburb + type only.)*
 5. Pulls sold comps from agency-wide sold data (whatever tables hold sold comp records — to be confirmed in Phase 1 investigation)
 6. Calls `HoldingCostService` with property defaults (rates/levies from property pillar, bond=0 default)
 7. Generates AI summary via `PresentationAiSummaryService` (Anthropic call, grounded facts only)

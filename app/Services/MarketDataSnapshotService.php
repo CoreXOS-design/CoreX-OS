@@ -79,36 +79,25 @@ class MarketDataSnapshotService
     }
 
     /**
-     * Get comparable active listings in same area.
+     * Get comparable active listings in same area. AT-288 — routes through the
+     * one shared selector (CompetitorStockMatchService::findComparableStock) so
+     * frozen snapshots capture the SAME vetted, on-market, in-family, in-band set
+     * the Property Intelligence page and presentation competitive-stock use —
+     * not the ad-hoc junk query this used to run (bug-class fix, BUILD_STANDARD §6).
      */
     public function getComparableListings(int $propertyId): \Illuminate\Support\Collection
     {
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return collect();
 
-        return Property::withoutGlobalScopes()
-            ->where('id', '!=', $propertyId)
-            ->where('agency_id', $property->agency_id)
-            ->where('suburb', $property->suburb)
-            // Same-listing-type gate — a rental is never a comparable for a
-            // sale (mirrors PropertyIntelligenceService::getComparableListings).
-            // Legacy rows with a NULL listing_type default to sale.
-            ->where(function ($q) use ($property) {
-                $subjectType = $property->listing_type ?? 'sale';
-                $q->where('listing_type', $subjectType);
-                if ($subjectType === 'sale') {
-                    $q->orWhereNull('listing_type');
-                }
-            })
-            ->whereNull('deleted_at')
-            ->whereNotNull('published_at')
-            ->limit(10)
-            ->get(['id', 'title', 'price', 'suburb', 'published_at'])
+        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property)
             ->map(fn($p) => [
                 'id' => $p->id,
                 'address' => $p->title,
                 'price' => $p->price,
-                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
+                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
+                    ? (int) \App\Support\HumanDiff::daysBetween($dom) : null,
             ]);
     }
 
