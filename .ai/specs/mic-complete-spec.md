@@ -109,6 +109,33 @@ This isn't optional. Every meaningful action in MIC — claim, release, pitch, W
 
 Both are deferred to Phase 5 (after MIC ships). But the event scaffolding lands now, in this spec.
 
+### 2.5 Comparable-stock selection is ONE shared selector (AT-288)
+
+Every surface that shows "comparable properties" / "comparable listings" for a subject
+resolves them through a **single** vetted selector, so no surface can drift into showing
+junk stock. The rules live once in `App\Services\Presentations\ComparableStockCriteria`
+(extracted from `CompetitorStockMatchService::buildCriteria()`), and
+`CompetitorStockMatchService` exposes two source-specific entry points that apply them:
+
+| Entry point | Source | Used by |
+|---|---|---|
+| `findCompetitors(Property $subject)` | `prospecting_listings` (scraped on-market pool, incl. foreign brands) | Presentation / CMA competitive-stock panel (`AnalysisDataService::compileCompetitorStock`) |
+| `findComparableStock(Property $subject, ?int $limit)` | own-agency `properties`, gated to LIVE stock via `Property::scopeOnMarket()` | **Property Intelligence "Comparable Listings"** (`PropertyIntelligenceService::getComparableListings`), seller-link + seller-insights surfaces, and the legacy `MarketDataSnapshotService` snapshot |
+
+**The shared rules (both entry points):**
+- **On-market only** — `is_active` (pool) / `Property::scopeOnMarket()` (own stock). Sold, withdrawn, expired, transferred, draft, archived, let-out, unavailable NEVER appear.
+- **Same Level-1 title-family** (sectional vs freehold) — hard gate; commercial/industrial excluded.
+- **Price band** — ±`agencies.competitor_stock_default_price_tolerance_pct` (default 20).
+- **Beds tolerance** — ±`agencies.competitor_stock_default_beds_tolerance` (default 1), NULL-permissive; skipped for vacant land.
+- **Suburb scope** — normalised suburb token (`SuburbMatcher`), never a bare whole-agency fallback.
+- **Comparability score** (attribute proximity, AT-77 weights) with a `competitor_stock_min_score` floor (default 50); capped by `competitor_stock_default_display_count` (default 10).
+- All thresholds are **agency-configurable** on the `Agency` model — no hardcoded magic numbers.
+
+**Prohibited:** any surface re-implementing comparable selection with an ad-hoc `properties`
+query. AT-288 fixed exactly that class of bug (the Intelligence page had drifted to an
+unfiltered ad-hoc query that leaked off-market / wrong-type / out-of-band junk). New
+comparable surfaces call the shared selector; they do not write their own.
+
 ---
 
 ## 3. Data Model

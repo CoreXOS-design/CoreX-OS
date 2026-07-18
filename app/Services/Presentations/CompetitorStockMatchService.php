@@ -147,6 +147,22 @@ final class CompetitorStockMatchService
      */
     public function buildCriteria(Property $subject): ?array
     {
+        // AT-288 — the criteria are now built once by resolveCriteria() into the
+        // shared ComparableStockCriteria object; this returns the identical legacy
+        // array shape (loadCandidates / scoreComparability / manual picker unchanged).
+        return $this->resolveCriteria($subject)?->toArray();
+    }
+
+    /**
+     * AT-288 — the single, shared comparable-stock criteria builder. Both the
+     * competitive-pool selector (findCompetitors → prospecting_listings) and the
+     * own-agency stock selector (findComparableStock → properties) resolve their
+     * rules HERE, so the two surfaces can never drift. Null when the subject
+     * lacks the minimum to compare (no agency / price / suburb / resolvable
+     * residential family) — the caller emits an empty set, never a mismatch.
+     */
+    private function resolveCriteria(Property $subject): ?ComparableStockCriteria
+    {
         if (!$subject->agency_id || !$subject->price || !$subject->suburb) {
             return null;
         }
@@ -156,9 +172,11 @@ final class CompetitorStockMatchService
             return null;
         }
 
-        $agency   = Agency::find($subject->agency_id);
-        $bedsTol  = (int) ($agency?->competitor_stock_default_beds_tolerance      ?? 1);
-        $pricePct = (int) ($agency?->competitor_stock_default_price_tolerance_pct ?? 20);
+        $agency       = Agency::find($subject->agency_id);
+        $bedsTol      = (int) ($agency?->competitor_stock_default_beds_tolerance      ?? 1);
+        $pricePct     = (int) ($agency?->competitor_stock_default_price_tolerance_pct ?? 20);
+        $minScore     = (int) ($agency?->competitor_stock_min_score                   ?? 50);
+        $displayCount = (int) ($agency?->competitor_stock_default_display_count        ?? 10);
 
         $price    = (int) $subject->price;
         $priceMin = (int) round($price * (1 - $pricePct / 100));
@@ -171,24 +189,110 @@ final class CompetitorStockMatchService
             $bedsMax = (int) $subject->beds + $bedsTol;
         }
 
-        return [
-            'agency_id'     => (int) $subject->agency_id,
-            'subject'       => $subject,
-            'suburb'        => (string) $subject->suburb,
-            'suburb_core'   => SuburbMatcher::normaliseSuburbToken((string) $subject->suburb),
-            'property_type' => $subject->property_type ? (string) $subject->property_type : null,
-            'subject_kind'  => $this->normalizeTypeKind($subject->property_type),
-            'family'        => $family,
-            'family_types'  => $this->familyPropertyTypeStrings($subject, $family),
-            'beds'          => $subject->beds !== null ? (int) $subject->beds : null,
-            'beds_min'      => $bedsMin,
-            'beds_max'      => $bedsMax,
-            'price'         => $price,
-            'price_min'     => $priceMin,
-            'price_max'     => $priceMax,
-            'beds_tol'      => $bedsTol,
-            'price_pct'     => $pricePct,
-            'weights'       => $this->resolveWeights($agency, $family), // AT-77 comparability axis weights
+        return new ComparableStockCriteria(
+            agencyId:     (int) $subject->agency_id,
+            subject:      $subject,
+            suburb:       (string) $subject->suburb,
+            suburbCore:   SuburbMatcher::normaliseSuburbToken((string) $subject->suburb),
+            propertyType: $subject->property_type ? (string) $subject->property_type : null,
+            subjectKind:  $this->normalizeTypeKind($subject->property_type),
+            family:       $family,
+            familyTypes:  $this->familyPropertyTypeStrings($subject, $family),
+            beds:         $subject->beds !== null ? (int) $subject->beds : null,
+            bedsMin:      $bedsMin,
+            bedsMax:      $bedsMax,
+            price:        $price,
+            priceMin:     $priceMin,
+            priceMax:     $priceMax,
+            bedsTol:      $bedsTol,
+            pricePct:     $pricePct,
+            weights:      $this->resolveWeights($agency, $family), // AT-77 comparability axis weights
+            minScore:     $minScore,
+            displayCount: $displayCount,
+        );
+    }
+
+    /**
+     * AT-288 — OWN-AGENCY comparable stock for the Property Intelligence page,
+     * selected by the SAME vetted rules as the presentation competitive-stock
+     * (findCompetitors), but against the agency's own `properties` (so each comp
+     * links to a real CoreX property page) and gated to LIVE stock via
+     * Property::scopeOnMarket(). Fixes AT-288 (the ad-hoc query that leaked
+     * off-market / wrong-type / out-of-band junk).
+     *
+     * Returns Property models ordered by comparability score DESC, filtered to
+     * the min-score floor, capped by competitor_stock_default_display_count
+     * (an explicit $limit narrows further). Empty (never junk) when the subject
+     * can't be compared or nothing clears the floor.
+     *
+     * @return \Illuminate\Support\Collection<int, Property>
+     */
+    public function findComparableStock(Property $subject, ?int $limit = null): \Illuminate\Support\Collection
+    {
+        $criteria = $this->resolveCriteria($subject);
+        if ($criteria === null) {
+            return collect();
+        }
+
+        $criteriaArr = $criteria->toArray();
+        $subjectType = $subject->listing_type ?? 'sale';
+        $coreLike    = $criteria->suburbCore !== '' ? '%' . $criteria->suburbCore . '%' : '%';
+
+        $candidates = Property::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $criteria->agencyId)
+            ->where('id', '!=', $subject->id)          // never the subject itself
+            ->whereNull('deleted_at')
+            ->onMarket()                               // AT-288 — LIVE stock only (the missing gate)
+            // Same listing type as the subject — a rental is never a comp for a sale.
+            ->where(function ($q) use ($subjectType) {
+                $q->where('listing_type', $subjectType);
+                if ($subjectType === 'sale') {
+                    $q->orWhereNull('listing_type');
+                }
+            })
+            ->whereBetween('price', [$criteria->priceMin, $criteria->priceMax])
+            ->whereRaw("LOWER(COALESCE(suburb, '')) LIKE ?", [$coreLike])
+            // Residential subjects never match non-residential stock.
+            ->whereNotIn(DB::raw("LOWER(COALESCE(property_type, ''))"), ['commercial', 'industrial'])
+            // Beds clamp — NULL-permissive, skipped when the subject has no beds.
+            ->when($criteria->bedsMin !== null, fn ($q) => $q->where(
+                fn ($w) => $w->whereNull('beds')->orWhere('beds', '>=', $criteria->bedsMin)
+            ))
+            ->when($criteria->bedsMax !== null, fn ($q) => $q->where(
+                fn ($w) => $w->whereNull('beds')->orWhere('beds', '<=', $criteria->bedsMax)
+            ))
+            ->get();
+
+        $cap = $limit !== null ? min($limit, $criteria->displayCount) : $criteria->displayCount;
+
+        return $candidates
+            // LEVEL-1 family gate (PHP belt-and-braces, same classifier as the pool selector).
+            ->filter(fn (Property $p) => $this->candidateFamilyFor((object) ['property_type' => $p->property_type]) === $criteria->family)
+            // Comparability score (attribute proximity) via the SHARED scorer.
+            ->map(fn (Property $p) => ['p' => $p, 'score' => $this->scoreComparability($this->propertyAsComp($p), $criteriaArr)['score']])
+            ->filter(fn (array $r) => $r['score'] >= $criteria->minScore)
+            ->sortByDesc('score')
+            ->take(max(1, $cap))
+            ->map(fn (array $r) => $r['p'])
+            ->values();
+    }
+
+    /**
+     * Adapt a `properties` row to the loose object shape scoreComparability()
+     * expects (its comp fields come from prospecting_listings: bathrooms /
+     * property_size_m2). Keeps the ONE scorer authoritative.
+     */
+    private function propertyAsComp(Property $p): object
+    {
+        return (object) [
+            'price'            => $p->price,
+            'beds'             => $p->beds,
+            'bathrooms'        => $p->baths,
+            'garages'          => $p->garages,
+            'property_type'    => $p->property_type,
+            'property_size_m2' => $p->size_m2,
+            'erf_size_m2'      => $p->erf_size_m2,
         ];
     }
 

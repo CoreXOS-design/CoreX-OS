@@ -321,33 +321,22 @@ class PropertyIntelligenceService
     }
 
     /**
-     * Similar listings in the same area for comparison.
+     * Comparable on-market stock for the subject — the SAME vetted selection
+     * rules as the presentation competitive-stock (AT-288). Routes through the
+     * one shared selector (CompetitorStockMatchService::findComparableStock),
+     * which gates to LIVE stock (Property::scopeOnMarket), same title-family,
+     * price band, beds tolerance and normalised-suburb scope, scored by
+     * comparability and capped by competitor_stock_default_display_count. This
+     * replaced an ad-hoc query that leaked off-market / wrong-type / out-of-band
+     * junk. Empty (never junk) when the subject can't be compared.
      */
     public function getComparableListings(int $propertyId, int $limit = 5): Collection
     {
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return collect();
 
-        return Property::withoutGlobalScopes()
-            ->where('id', '!=', $propertyId)
-            ->where('agency_id', $property->agency_id)
-            ->whereNull('deleted_at')
-            // Comparables must be the SAME listing type as the subject — a
-            // rental (or commercial letting) is never a comparable for a sale
-            // and vice-versa. Without this a "Restaurant to let" surfaced as a
-            // comp for a residential sale (its monthly rent read as a price).
-            // Legacy rows with a NULL listing_type default to sale.
-            ->where(function ($q) use ($property) {
-                $subjectType = $property->listing_type ?? 'sale';
-                $q->where('listing_type', $subjectType);
-                if ($subjectType === 'sale') {
-                    $q->orWhereNull('listing_type');
-                }
-            })
-            ->when($property->suburb, fn($q) => $q->where('suburb', $property->suburb))
-            ->orderByDesc('published_at')
-            ->limit($limit)
-            ->get(['id', 'title', 'price', 'suburb', 'published_at'])
+        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property, $limit)
             ->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
