@@ -41,8 +41,15 @@ class CdsRendererService
             'paragraph' => $this->renderParagraph($section),
             'table' => $this->renderTable($section),
             'title' => $this->renderTitle($section),
-            'company_header' => $this->renderTable($section), // Render as table — no separate @include needed
-            'signature_section' => $this->renderSignatureSection($section),
+            // AT-177 (on-site 2026-07-18) — STRIP the source doc's own letterhead and end
+            // signature block. CoreX ALWAYS frames the generated template with its own
+            // company-header and signature-block components (TemplateController::generateCdsBladeView
+            // lines 953 / 980), so rendering the source's here produced a DOUBLE header and a
+            // DOUBLE signature block. The source structural frame is replaced, never appended to.
+            // (Mid-document inline_signature blocks and the D4 "__ / Signature" acknowledgement
+            // placeholders are a DIFFERENT type and still render — only the whole-doc frame is stripped.)
+            'company_header' => '',
+            'signature_section' => '',
             'inline_signature' => $this->renderInlineSignature($section),
             'page_initials' => $this->renderPageInitials($section),
             'label_value_group' => $this->renderLabelValueGroup($section),

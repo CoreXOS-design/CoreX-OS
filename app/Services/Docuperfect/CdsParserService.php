@@ -285,6 +285,71 @@ class CdsParserService
         // signature_section is extracted, so the document's final block is untouched.
         $sections = $this->detectUnderscoreSignatureLines($sections);
 
+        // AT-177 R2 (on-site 2026-07-18, was AT-290) — a professional-fee / commission
+        // percentage typed into the body ("a Professional Fee of 7.5% per centum") is a
+        // bindable input, not static text. Tokenise the FIRST such genuine commission
+        // percentage so it binds to property.commission_percent. Guarded to the commission
+        // keyword so ordinary percentages (VAT, interest) are never touched.
+        $sections = $this->detectCommissionField($sections);
+
+        return $sections;
+    }
+
+    /**
+     * AT-177 R2 — tokenise a commission / professional-fee percentage typed into the body.
+     *
+     * GUARD: the percentage must sit within ~40 chars AFTER a commission keyword
+     * ("professional fee" / "commission"), and be an explicit "<number> %". Only the FIRST
+     * match in the document is tokenised (a mandate states its fee once). The number is
+     * replaced by an insertable field bound downstream to property.commission_percent; the
+     * surrounding "% per centum, plus VAT…" wording is preserved verbatim.
+     */
+    private function detectCommissionField(array $sections): array
+    {
+        $done = false;
+        foreach ($sections as &$section) {
+            if ($done) {
+                break;
+            }
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+            $newContent = [];
+            foreach ($section['content'] as $item) {
+                if ($done || ($item['type'] ?? '') !== 'text') {
+                    $newContent[] = $item;
+                    continue;
+                }
+                $text = (string) ($item['value'] ?? '');
+                // commission keyword, then up to 40 non-% chars, then <number> %
+                if (preg_match('/\b(?:professional\s+fee|commission)\b[^%]{0,40}?(\d+(?:\.\d+)?)\s*%/i', $text, $m, PREG_OFFSET_CAPTURE)) {
+                    $numStr = $m[1][0];
+                    $numOffset = (int) $m[1][1];
+                    $before = substr($text, 0, $numOffset);
+                    $after = substr($text, $numOffset + strlen($numStr));
+                    if ($before !== '') {
+                        $newContent[] = ['type' => 'text', 'value' => $before];
+                    }
+                    $newContent[] = [
+                        'type' => 'insertable_block_placeholder',
+                        'marker' => 'insertable_block',
+                        'purpose' => 'custom_named',
+                        'block_id' => 'document_commission_percentage',
+                        'raw_token' => 'Document - Commission percentage',
+                        'custom_label' => 'Document - Commission percentage',
+                    ];
+                    if ($after !== '') {
+                        $newContent[] = ['type' => 'text', 'value' => $after];
+                    }
+                    $done = true;
+                } else {
+                    $newContent[] = $item;
+                }
+            }
+            $section['content'] = $newContent;
+        }
+        unset($section);
+
         return $sections;
     }
 
