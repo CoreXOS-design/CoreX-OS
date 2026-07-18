@@ -575,8 +575,30 @@ substring matcher only when a token is not confidently resolvable. Nothing overr
   section pair (GUARDED: pure underscore run ≥6 + next section exactly "signature") becomes a shared
   `[Seller, Agent]` sig_only placeholder; the renderer emits `data-sig-parties` / `data-sig-variant`
   and the builder JS pre-binds the sig tag. The end `signature_section` (Agent, sig_full) is untouched.
-- **D5 — commission % — NOT auto-derivable for this EATS** (the 7.5% is hardcoded literal, no token).
-  Ticketed separately as a generic commission-keyword resolver rule. Deliberately out of scope here.
+- **D5 → R2 (BUILT on-site 2026-07-18)** — commission % is now tokenised from body text. See R2 below.
+
+**ON-SITE RE-TEST DEFECTS (Johan, deployed `ac580cb6`, 2026-07-18): "the rest imported great actually" — 3 residual import-strip defects, all fixed.** Rule adopted: DONE = verified on the deployed qa1 site (re-import, browser-visible render), not tests alone.
+
+- **R1 — source letterhead double-header.** The imported doc's own `company_header` rendered UNDER
+  CoreX's auto-injected header. Fix: `CdsRendererService::renderSection` returns `''` for
+  `company_header` — CoreX always injects its own via `generateCdsBladeView` (line 953). Class-level
+  (all imported docs); body content untouched.
+- **R2 — commission % detection (was D5/AT-290).** `CdsParserService::detectCommissionField` tokenises
+  the FIRST body percentage sitting within ~40 chars after a commission keyword ("professional fee"/
+  "commission") → `insertable_block_placeholder block_id=document_commission_percentage`; the suggester
+  binds it to `property.commission_percent`, editable `[owner_party, agent]`. GUARDED: an ordinary
+  percentage (VAT 15%) with no commission keyword is never tokenised; only the first occurrence.
+- **R3 — source signature block double-sig.** The imported doc's end `signature_section` rendered ABOVE
+  CoreX's auto-injected `signature-block` (line 980). Fix: `CdsRendererService::renderSection` returns
+  `''` for `signature_section` — the source frame is REPLACED, not appended. Mid-document
+  `inline_signature` and the D4 `signature_placeholder` acknowledgement lines are a different type and
+  still render. Class-level.
+
+  **R1/R2/R3 proof (deployed qa1 vs #70):** source letterhead + `THUS DONE AND SIGNED` absent from
+  render; commission field injected into clause 2.4 ("Professional Fee of \[field\]% per centum"), binds
+  `property.commission_percent` `[owner_party, agent]`; input token count now **14 = #70's 14 inputs**
+  (commission was the last divergence → now ZERO). Tests: `tests/Unit/CdsImportStripTest.php`
+  (R1/R2/R3, DB-free) + commission-binding case in the Feature test.
 
 **Proof:** running the suggester against #70's real `cds_json` (qa1 DB) reproduces #70's input
 `field_mappings` target-for-target with matching `editable_by` sets — the ONLY difference is

@@ -43,6 +43,7 @@ class CdsImportBindingConvergenceTest extends TestCase
         NamedField::create(['name' => 'Price', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'price']);
         NamedField::create(['name' => 'Expiry Date', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'expiry_date']);
         NamedField::create(['name' => 'Price[words]', 'field_type' => 'text', 'source_type' => 'computed', 'source_column' => 'price_in_words']);
+        NamedField::create(['name' => 'Commission Percent', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'commission_percent']);
 
         $fg = FieldGroup::create([
             'agency_id' => 1,
@@ -117,6 +118,22 @@ class CdsImportBindingConvergenceTest extends TestCase
         $this->assertSame('property', NamedField::find($b[1]['namedFieldId'])->source_type); // expiry
         $this->assertSame('manual', $b[2]['mappingType']);            // other conditions
         $this->assertEqualsCanonicalizing(['agent', 'owner_party'], $b[2]['editable_by']);
+    }
+
+    public function test_commission_token_binds_to_commission_percent(): void
+    {
+        // AT-177 R2 — the tokenised professional-fee % binds to property.commission_percent.
+        $cds = ['sections' => [$this->para([
+            $this->ph('seller_physical_address', 'Seller - Physical address'),
+            $this->ph('document_commission_percentage', 'Document - Commission percentage'),
+        ])]];
+        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'][1];
+
+        $this->assertSame('named_field', $b['mappingType']);
+        $nf = NamedField::find($b['namedFieldId']);
+        $this->assertSame('property', $nf->source_type);
+        $this->assertSame('commission_percent', $nf->source_column);
+        $this->assertEqualsCanonicalizing(['owner_party', 'agent'], $b['editable_by']);
     }
 
     public function test_duplicate_column_disambiguates_to_the_matching_name(): void
