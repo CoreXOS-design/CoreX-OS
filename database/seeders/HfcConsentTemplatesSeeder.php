@@ -286,25 +286,30 @@ TXT,
                 // is stated ONLY when it is true and >= 1. The EXACT matched buyers
                 // (contact_ids + tier + engine + gate) are frozen into every send's
                 // facts_snapshot.matched_buyer_basis, so a seller challenge is
-                // answerable with facts. Ships DISABLED — Johan does a one-pass
-                // wording pick (subject option + body), then enables. Do NOT flip
-                // is_active here. Subject note: the count-forward subject below is
-                // truthful with a linked property (the gate guarantees >= 1); for
-                // address-only sends prefer a demand-neutral subject (see the READY
-                // report's option B).
+                // answerable with facts. Body wording is Johan's FINAL dictation
+                // (2026-07-18): "buyer(s) looking for properties like yours … list it
+                // with us and we can put it straight in front of our buyers" (his typo
+                // "properties likes yours" corrected to "like"). Footer per his version
+                // is {agency_name} · FFC {agency_ffc} · {agency_contact} — it DROPS the
+                // agent FFC and the branch/company tel, and the tail now renders the
+                // Company Settings "Public Contact (seller outreach)" field
+                // (agencies.public_contact, AT-46) via the {agency_contact} token.
+                // Ships DISABLED — the QA1 bench copy is enabled by a DB flip; the
+                // seeder stays is_active=false so a reseed/nightly-sync never
+                // auto-enables it elsewhere. Do NOT flip is_active here.
                 'name' => 'Active Buyer Match — Your Property (DISABLED)',
                 'is_active' => false,
                 'is_default_for_channel' => false,
-                'description' => 'Buyer-demand pitch (AT-144, Johan wording 2026-07-17) — "we have N buyers matching your property; list it with us and we can send it to them". States the REAL canonical count ({matching_buyer_count} token; blocked at zero by no_buyers; matched-buyer basis snapshotted per send for auditability). DISABLED — Johan enables after a one-glance confirm.',
+                'description' => 'Buyer-demand pitch (AT-144, Johan FINAL wording 2026-07-18) — "we have N buyers looking for properties like yours; list it with us and we can put it straight in front of our buyers". States the REAL canonical count ({matching_buyer_count} token; blocked at zero by no_buyers; matched-buyer basis snapshotted per send for auditability). Footer renders {agency_contact} (Company Settings public contact) and drops the agent FFC. DISABLED — bench copy enabled by DB flip.',
                 'email_subject' => 'Buyers looking for a home like yours in {property_suburb}',
                 'body' => <<<'TXT'
 Hi {seller_name}, I'm {agent_name} from {agency_name} — a registered estate agency on the KZN Coast.
-{?matching_buyer_count}We have {matching_buyer_count} buyer(s) matching your property in {property_suburb} right now — list it with us and we can put it straight in front of them. {/matching_buyer_count}I'd be glad to tell you what they're looking for and what your property could achieve in today's market.
+{?matching_buyer_count}We have {matching_buyer_count} buyer(s) looking for properties like yours in {property_suburb} right now — list it with us and we can put it straight in front of our buyers. {/matching_buyer_count}I'd be glad to tell you what they're looking for and what your property could achieve in today's market.
 May I share the details with you by WhatsApp, SMS or email?
 - Reply OPT IN and I'll send what these buyers are looking for
 - Reply OPT OUT and I won't contact you again
 Manage your preferences or opt out anytime: {opt_out_link}.
-{agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
+{agency_name} · FFC {agency_ffc} · {agency_contact}.
 TXT,
             ],
             [

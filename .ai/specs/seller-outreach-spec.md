@@ -575,6 +575,25 @@ AT-144 found `ProspectingIntelligenceService` and the real matching engine **div
   7. Area Updates — Market & Buyer Demand *(active)*
 - **Single-brace `{token}` convention.** Token set extends §S4 with `{seller_surname}` and `{agent_designation}`, plus the collapsing optional segment `{?token}…{/token}` used for the buyer-count claim so a template can safely omit the claim when the value is absent.
 
+## 11.3a AT-144 revisit — "Active Buyer Match — Your Property" pitch pair (id17 whatsapp / id18 email)
+The AT-144 revisit adds a **direct buyer-demand pitch** template pair to `HfcConsentTemplatesSeeder` (one body definition → both channels via the channel loop; email adds a demand-neutral subject). It is the "we have N buyers for YOUR property — list it with us" pitch, gated exactly like the consent templates.
+
+- **Seeder name:** `Active Buyer Match — Your Property (DISABLED)`. **Ships `is_active = false`** — the QA1 bench copy is enabled by a **DB flip on the rows**, never in the seeder, so a reseed / nightly-sync never auto-enables it elsewhere. Do NOT flip `is_active` in the seeder.
+- **Final body wording (Johan's dictation, 2026-07-18)** — canonical in the seeder; drift here is a violation:
+  > Hi `{seller_name}`, I'm `{agent_name}` from `{agency_name}` — a registered estate agency on the KZN Coast.
+  > `{?matching_buyer_count}`We have `{matching_buyer_count}` buyer(s) looking for properties like yours in `{property_suburb}` right now — list it with us and we can put it straight in front of our buyers. `{/matching_buyer_count}`I'd be glad to tell you what they're looking for and what your property could achieve in today's market.
+  > May I share the details with you by WhatsApp, SMS or email?
+  > - Reply OPT IN and I'll send what these buyers are looking for
+  > - Reply OPT OUT and I won't contact you again
+  > Manage your preferences or opt out anytime: `{opt_out_link}`.
+  > `{agency_name}` · FFC `{agency_ffc}` · `{agency_contact}`.
+  - (Johan's dictated typo "properties likes yours" is rendered "properties like yours".)
+- **Footer binding (AT-144 correction, 2026-07-18):** the tail is `{agency_name} · FFC {agency_ffc} · {agency_contact}`. It **drops** the agent FFC and the `{branch_or_company_tel}` that an earlier draft carried.
+  - `{agency_ffc}` → `agencies.ffc_no` (the **agency** Fidelity Fund Certificate; on HFC = `202615038880000`).
+  - `{agency_contact}` → the **Company Settings "Public Contact (seller outreach)"** field (`agencies.public_contact`, AT-46; on HFC = `039 315 0857`). `SellerOutreachComposerService::agencyContact()` returns `''` when the field is empty — **no fallback to `{branch_or_company_tel}` / `agencies.phone`** (the agency landline is Elize's cell `071 351 0291`, which must never leak into this tail). Empty → the tail renders nothing rather than someone's number.
+- **Gates (all still fire):** canonical `{matching_buyer_count}` from `PropertyMatchScoringService::countableActiveBuyerCountForProperty()` only; countable-gated; active-only; `no_buyers` blocks at 0 (segment collapses, no "0 buyer(s)" leak); `mandate_conflict` blocks a buyer-claim on a sole/exclusive-mandate property (AT-144 open-stock gate); opt-out hard block. Each send freezes `facts_snapshot.matched_buyer_basis` (count + matched contact_ids + tier + engine + gate) for auditability, and an immutable per-send `body_snapshot`.
+- **QA1 render proof (2026-07-18, corex_qa1, rolled back):** prop #6096 Uvongo Beach (10 buyers) → sendable; footer tail renders `Home Finders Coastal · FFC 202615038880000 · 039 315 0857`. prop #6098 Durban North (0 buyers) → `no_buyers` fires, not sendable, count sentence collapses. Opted-out seller → `optOutBlocks`, not sendable.
+
 ## 11.4 `restrict_consent_outreach_to_full_status` agency toggle
 Column on `agencies` (default `false`). When on, and a template uses `{agent_designation}` with a non-blank designation, `SellerOutreachComposerService::agencyRestrictsToFullStatus()` + `agentMayClaimFullStatus()` (delegating to the canonical `CandidatePractitionerService::isFullStatus() || isPrincipal()`) gate the send with `designation_not_full_status` — a candidate/intern practitioner cannot broadcast a full-status designation claim.
 
