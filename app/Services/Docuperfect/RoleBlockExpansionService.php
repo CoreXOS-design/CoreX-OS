@@ -1716,6 +1716,17 @@ final class RoleBlockExpansionService
             // Pre-fill from contact if mapping recognised.
             if ($contact !== null && $parsed['sub_name'] !== null) {
                 $value = $this->resolveContactValue($contact, $parsed['sub_name']);
+                // AT-292 — headline couple's-mandate fix. When the matched
+                // Contact has no id_number, fall back to the ID the signer
+                // typed in the wizard (persisted on the SignatureRequest) so
+                // the second seller still renders their ID even on historical
+                // data where the span was never baked with it.
+                if ($value === null
+                    && $recipient !== null
+                    && in_array($parsed['sub_name'], ['id', 'id_number'], true)
+                ) {
+                    $value = $this->blankToNull($recipient->signer_id_number);
+                }
                 if ($value !== null) {
                     $this->replaceTextContent($f, $value);
                 }
@@ -1870,37 +1881,57 @@ final class RoleBlockExpansionService
     private function resolveContactValue(Contact $contact, string $subName): ?string
     {
         $key = strtolower($subName);
+        // AT-292 — return null (NOT '') whenever the Contact column is empty so
+        // the caller's `if ($value !== null)` guard PRESERVES the value the
+        // wizard baked into merged_html instead of overwriting it with blank.
+        // A couple's second seller is commonly matched to an EXISTING Contact
+        // whose id_number is empty; the typed ID lives in the span and must
+        // survive. The pre-fix `(string)` casts turned an empty column into ''
+        // which passed the guard and wiped the ID (name/email/address/phone too).
         switch ($key) {
             case 'first_name':
-                return (string) $contact->first_name;
+                return $this->blankToNull($contact->first_name);
             case 'last_name':
             case 'surname':
-                return (string) $contact->last_name;
+                return $this->blankToNull($contact->last_name);
             case 'name':
             case 'full_name':
             // The composite full-name column the CDS generator really emits for a party's
             // name blank — without this the seller's name simply never prefills.
             case 'first_name+last_name':
-                return trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
+                return $this->blankToNull(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
             case 'name_surname_id':
                 $full = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
-                $id = (string) ($contact->id_number ?? '');
-                return $id !== '' ? ($full . ' (ID: ' . $id . ')') : $full;
+                $id = trim((string) ($contact->id_number ?? ''));
+                return $this->blankToNull($id !== '' ? ($full . ' (ID: ' . $id . ')') : $full);
             case 'id':
             case 'id_number':
-                return (string) $contact->id_number;
+                return $this->blankToNull($contact->id_number);
             case 'email':
-                return (string) $contact->email;
+                return $this->blankToNull($contact->email);
             case 'phone':
+            case 'cell':          // AT-292 — a `seller_cell` field was recognised by the normalizer but had no case here, so it never re-sourced (couples showed seller 1's number).
             case 'cell_phone':
             case 'mobile':
-                return (string) $contact->phone;
+                return $this->blankToNull($contact->phone);
             case 'address':
             case 'address_1':
             case 'address_line_1':
             case 'physical_address':
-                return (string) $contact->address;
+                return $this->blankToNull($contact->address);
         }
         return null;
+    }
+
+    /**
+     * AT-292 — normalise a Contact column to a non-empty trimmed string or
+     * null. Returning null (rather than '') is the choke point that lets the
+     * per-recipient prefill preserve the wizard-baked span for any identity
+     * field the Contact happens to be missing.
+     */
+    private function blankToNull(?string $value): ?string
+    {
+        $trimmed = trim((string) $value);
+        return $trimmed === '' ? null : $trimmed;
     }
 }

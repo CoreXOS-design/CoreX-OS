@@ -752,6 +752,11 @@ class ESignWizardController extends Controller
                     continue;
                 }
                 if (!empty($r['_contact_id'])) {
+                    // AT-292 — a pre-linked Contact still gets the typed ID
+                    // backfilled when its own id_number is blank (fill-if-blank),
+                    // so a couple's second seller renders their ID and FICA/deals
+                    // resolve it downstream.
+                    $this->backfillContactIdNumber((int) $r['_contact_id'], (string) ($r['id_number'] ?? ''));
                     continue;
                 }
 
@@ -779,6 +784,9 @@ class ESignWizardController extends Controller
 
                 if ($existing) {
                     $r['_contact_id'] = $existing->id;
+                    // AT-292 — matched an existing Contact by email/ID; persist the
+                    // typed id_number onto it when blank (fill-if-blank).
+                    $this->backfillContactIdNumber((int) $existing->id, $idNumber);
                 } else {
                     // Split name: first space separates first_name from last_name
                     $nameParts = explode(' ', $name, 2);
@@ -813,6 +821,9 @@ class ESignWizardController extends Controller
                         $contact = $dupExisting;
                         $match = $dupSvc->identifyMatch($dupData, $dupExisting, $dupAgencyId);
                         $dupSvc->logAttempt($dupAgencyId, $request->user()?->id ?? 0, 'auto_link', $match['field'], $match['value'], $dupExisting->id, $dupData, 'auto_linked');
+                        // AT-292 — auto-linked to a duplicate Contact; backfill the
+                        // typed id_number when blank (fill-if-blank).
+                        $this->backfillContactIdNumber((int) $dupExisting->id, $idNumber);
                     } else {
                         $contact = Contact::create([
                             'first_name' => $firstName,
@@ -941,6 +952,30 @@ class ESignWizardController extends Controller
             'next_step' => $nextStep,
             'redirect'  => route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => $nextStep]),
         ]);
+    }
+
+    /**
+     * AT-292 — durable data fix for the couple's-mandate seller ID-drop.
+     * When a wizard recipient is linked to a pre-existing / matched / auto-
+     * duplicate Contact whose id_number is empty, persist the ID the signer
+     * typed in the wizard onto that Contact. FILL-IF-BLANK ONLY — a non-empty
+     * Contact id_number is never overwritten. This closes the drop at the data
+     * source so the render, FICA and downstream deal uses all resolve the ID.
+     */
+    private function backfillContactIdNumber(?int $contactId, string $typedIdNumber): void
+    {
+        $typedIdNumber = trim($typedIdNumber);
+        if ($contactId === null || $contactId <= 0 || $typedIdNumber === '') {
+            return;
+        }
+        $contact = Contact::find($contactId);
+        if ($contact === null) {
+            return;
+        }
+        if (trim((string) $contact->id_number) === '') {
+            $contact->id_number = $typedIdNumber;
+            $contact->save();
+        }
     }
 
     /**

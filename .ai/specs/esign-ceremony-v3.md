@@ -860,3 +860,35 @@ Tests: `tests/Feature/Docuperfect/SigningView/FlagFreezeGateTest.php` (⑤ serve
 derivation) and `.../NestedRoleBlockDuplicateTest.php` (⑥ nested same-party dedup + regression
 guards) — both in the pipeline-gated `SigningView/` dir covering the `SigningController` and
 `RoleBlockExpansionService` changes.
+
+## AT-292 — couple's-mandate seller identity-drop (2026-07-18, built; stacked on AT-291)
+
+Johan: on a couple's mandate the second seller renders WITHOUT their ID number. Re-verified on the
+QA1 base — the root cause had MOVED from the AT-111-audit's legacy composite-span builder (now dead
+for live CDS docs) to the CONTRACT render path.
+
+Root cause: per-recipient prefill (`RoleBlockExpansionService::mutateCloneForInstance` /
+`stampInlineFieldForRecipient`) re-sources identity from the linked Contact via
+`resolveContactValue`, which `(string)`-cast an empty Contact column to `''`. `''` is not null, so the
+caller's `if ($value !== null)` guard fired and `replaceTextContent($f, '')` **wiped the ID the wizard
+had baked into merged_html**. A couple's second seller is typically matched to an EXISTING Contact
+whose `id_number` is blank (the wizard never wrote the typed ID back), so the ID (and name/email/
+address/phone — same class) blanked. Separately, `seller_cell` fields had no `case` in
+`resolveContactValue` so they never re-sourced (couples showed seller 1's number).
+
+Fixes (all fill-safe, non-destructive):
+- **A (choke point):** `resolveContactValue` returns **null, not `''`**, for any empty Contact column
+  (`blankToNull`) → the prefill guard PRESERVES the baked span for ID/name/email/address/phone on both
+  prefill paths.
+- **A′ (headline fallback):** `mutateCloneForInstance` falls back to `SignatureRequest.signer_id_number`
+  for the ID when the Contact is blank — fixes historical couples even if the span lacked the ID.
+- **B (durable data fix):** `ESignWizardController` reconciliation loop now backfills the typed
+  `id_number` onto pre-linked / matched-existing / auto-duplicate Contacts (`backfillContactIdNumber`,
+  **fill-if-blank — never overwrites** a non-empty value) so the drop is closed at the data source
+  (render + FICA + deals all resolve it going forward).
+- **C (phone key):** added `case 'cell'` to `resolveContactValue` alongside `phone`.
+
+No overlap with AT-291 (that touched `expandViaContract`'s block-collection; this is downstream in
+prefill/resolve — no ordering conflict). Test: `SigningView/SellerIdentityPreservationTest.php` —
+baked-ID survives, signer_id_number fallback, `seller_cell` resolves, blank→null unit, wizard
+fill-if-blank backfill.
