@@ -155,8 +155,14 @@ class CdsBindingSuggester
             return $this->namedFieldBinding($nf, '', 'auto', $editable);
         }
 
-        // ---- DOCUMENT token (price / words / expiry / other conditions) ---------------
+        // ---- DOCUMENT token (commission / price / words / expiry / other conditions) --
         if ($partyKind === 'document') {
+            // AT-177 R2 — commission / professional fee % → property.commission_percent,
+            // editable by the party (they agree the rate) and the agent.
+            if ($this->attrContains($attr, ['commission', 'professional_fee', 'centum'])) {
+                $nf = $this->findNamedField('property', 'commission_percent', null, $attr);
+                return $nf ? $this->namedFieldBinding($nf, '', 'auto', [$primaryParty, 'agent']) : null;
+            }
             if ($this->attrContains($attr, ['in_words', 'words'])) {
                 $nf = $this->findNamedField('computed', 'price_in_words', null);
                 return $nf ? $this->namedFieldBinding($nf, '', 'auto', []) : null;
