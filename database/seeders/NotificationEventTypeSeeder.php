@@ -121,6 +121,11 @@ class NotificationEventTypeSeeder extends Seeder
             // push (the alarm must not depend on FCM being configured on the environment it warns about).
             // The security log is the guaranteed record — this is the human-facing half.
             $this->row('security.permissions_unavailable', 'agent', 'Security', 'CoreX permissions are unavailable (all access denied)', 'none', null, null, null, 50, false, null, inApp: true, email: true, push: false),
+
+            // AT-299 — a recipient flagged a clause during signing (freezes the ceremony, AT-291 ⑤).
+            // Notify the sending agent to review + resolve, or a frozen seller sits behind an
+            // uninformed agent. In-app + email (ClauseFlaggedNotification has toArray + toMail). Default ON.
+            $this->row('esign.clause_flagged', 'agent', 'Documents', 'A recipient flagged a clause on a document you sent', 'none', null, null, null, 51, false, null, inApp: true, email: true, push: false),
         ];
     }
 

@@ -178,6 +178,45 @@
 
     @if(!($showOnlyAuthorisation ?? false))
     {{-- ===== NEEDS YOUR APPROVAL ===== --}}
+    {{-- AT-299 — a document frozen by a recipient's clause flag
+         (STATUS_AMENDMENT_REVIEW) was previously in NO group and fell out of the
+         list entirely — the agent could not see the frozen ceremony. Surface it
+         FIRST as "Flagged — Review Required". --}}
+    @if(($groups['flagged'] ?? collect())->isNotEmpty())
+    <div id="section-flagged" class="space-y-3 scroll-mt-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-crimson);">
+            <span class="inline-flex items-center justify-center w-5 h-5 text-white text-[0.6875rem] font-bold rounded-full" style="background: var(--ds-crimson);">{{ number_format($groups['flagged']->count()) }}</span>
+            Flagged &mdash; Review Required
+        </h3>
+        <div class="space-y-3">
+            @foreach($groups['flagged'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4" style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold" style="color: var(--text-primary);">
+                                {{ $doc->name ?? 'Untitled' }}
+                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FLAGGED</span>
+                            </div>
+                            <div class="text-xs mt-2" style="color: var(--ds-crimson);">
+                                A signing party flagged a clause &mdash; signing is paused until you review it and resolve or re-send the document.
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            @if($doc)
+                            <a href="{{ route('docuperfect.signatures.review', $doc) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Review Flag
+                            </a>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     @if($groups['pending_approval']->isNotEmpty())
     <div id="section-pending-approval" class="space-y-3 scroll-mt-4">
         <h3 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--ds-amber);">

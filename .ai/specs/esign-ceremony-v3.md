@@ -949,3 +949,69 @@ Fix = PREVENT + ABSORB (defence in depth), reusing the EXISTING `DEFERRED` / `AW
 
 Test: `tests/Feature/ESign/EmptyEmailDeferralTest.php` — empty-email→DEFERRED+AWAITING_DEFERRED (no
 throw, no mail, token preserved), with-email→PENDING+mail sent, resume-with-email→re-enters flow.
+
+## AT-295 — agent fill&sign pre-send duplicate seller (REOPENED ⑥, wrong surface) (2026-07-18)
+
+Johan's on-site test of deployed qa1 (ac580cb6) showed the AGENT fill&sign PRE-SEND screen STILL
+doubles the seller block. AT-291 ⑥ fixed the RECIPIENT ceremony but not this. Root cause: the wizard
+Step-5 preview (`ESignWizardController::templatePages`) feeds RAW blade HTML — which has NO
+`data-role-block` contract (0/39 web-templates carry it; it's stamped into `merged_html` only at
+document generation) — into `expandWithLooping`, so `$hasContract=false` and it takes the LEGACY
+clustering path where the ⑥ `hasSamePartyRoleBlockAncestor` dedup never runs. The recipient ceremony
+feeds contract-stamped HTML → contract path → deduped. Fix: run `RoleBlockNormalizer::normalize()` on
+the preview HTML BEFORE `expandWithLooping` (one renderer, both surfaces). Test:
+`SigningView/AgentPresendContractTest.php` (normalizer stamps the contract → preview enters the deduped
+path). **NEW RULE (Johan, on-site): DONE only when verified rendering correctly on the deployed qa1
+site — on-site verification recorded on the ticket post-deploy.**
+
+## AT-296 — mail footer showed admin@ inbox not the sender (2026-07-18, on-site)
+
+From is correct (AT-291 ①/②) but the mail body FOOTER showed "admin@hfcoastal.co.za". Not a missing-agent
+gap — `BaseSignatureMail::getAgentFooter()` fell back `website → $agency->email` (admin@) for a
+website-less agent, and the shared footer partial rendered that as a "website" while never showing the
+agent's own email. Fix: website fallback uses `$agency->website` (never the admin inbox); the footer
+partial `emails/signatures/partials/agent-footer.blade.php` now renders `agentFooter['email']`
+(= `$agent->outward_email`). Class-level (one method + one shared partial → every e-sign mail). Test:
+`ESign/MailFooterIdentityTest.php` (rendered mail: sender email present, admin@ absent). On-site: Mailpit
+(127.0.0.1:8025) post-deploy.
+
+## AT-297 — green field "chips" on the recipient view (REOPENED ③, wrong element) (2026-07-18, on-site)
+
+AT-291 ③ hid the marker-overlay "(signed)" chips, but Johan's green chips are `.corex-field` — the CDS
+field pills (`public/css/corex-document.css:183`): green tint bg + teal border + green uppercase label.
+The white-when-filled rule `.corex-field[data-filled=true]` never fires (nothing stamps `data-filled`),
+so every field shows green top-left. Fix: neutralise under the recipient wrapper
+(`.recipient-signing-context .corex-field` → transparent bg / neutral border; `.corex-field-label` →
+display:none), keeping the green builder/agent affordance (unscoped) intact. On-site: rendered recipient
+page has no green field chips post-deploy.
+
+## AT-298 — filled field truncates long content (2026-07-18, on-site)
+
+Seller physical address clipped: per-template `.field{white-space:nowrap}` + `.corex-a4-page{overflow:hidden}`.
+Fix (class-level, all fill fields): higher-specificity override
+`.docuperfect-document-body .field, .corex-signing-view .field { white-space:normal; overflow-wrap:anywhere;
+display:inline-block; }` — fields grow/wrap to fit, never clip. On-site: long address wraps post-deploy.
+
+## AT-299 — notify the agent when a recipient flags a clause (closes ⑤) (2026-07-18, on-site)
+
+AT-291 ⑤ freezes signing on a flag — but the AGENT was never told AND the frozen document
+(`STATUS_AMENDMENT_REVIEW`) was in NO `myDocuments` bucket, so it fell out of the list entirely
+(invisible frozen ceremony = dead deal). `flagClause` emailed only the recipient. Fix:
+- **Visibility:** `myDocuments` gains a `flagged` bucket (AMENDMENT_REVIEW) rendered FIRST as a crimson
+  "Flagged — Review Required" section with a **Review Flag** CTA (`docuperfect.signatures.review`).
+- **Notification:** `flagClause` dispatches `ClauseFlaggedNotification` to the sending agent
+  (`$template->creator`) through the AT-235 `NotificationDispatcher` gateway — in-app + email per the
+  agent's prefs, deep-linking to `docuperfect.amendments.review`. New event `esign.clause_flagged` in
+  `NotificationEventTypeSeeder` (`inApp:true, email:true, default_enabled:1`), carried by
+  `deploy:sync-reference-data`. Non-blocking (never blocks the flag/freeze).
+- Configurability: default ON and **per-user configurable** via the standard notifications settings
+  matrix (`/corex/settings` → notifications), the CoreX-canonical toggle mechanism.
+
+**Deliberately NOT in this commit (10a §3 — Johan's call, on the record):** an AGENCY-LEVEL master
+toggle on `agency_dashboard_settings` + Setup-Wizard surfacing. The per-event catalogue already gives
+default-ON + per-user control (the mechanism every other CoreX notification uses); an agency master
+switch is an additional layer that needs a migration + wizard saver (10a §2 subset-saver care).
+**Flagged to Johan for the toggle-scope decision** rather than rushed under tonight's deadline — build
+it as a follow-up if Johan wants the agency-level switch. Test:
+`SigningView/ClauseFlagNotifiesAgentTest.php` (flag → agent notified via gateway). On-site: after a flag
+on qa1, the agent's list shows the FLAGGED section + a notification row exists — recorded post-deploy.

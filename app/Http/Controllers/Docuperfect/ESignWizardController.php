@@ -1442,6 +1442,20 @@ class ESignWizardController extends Controller
                     $stepData['recipients']['recipients'] ?? [],
                 );
                 if ($wizardRecipients->isNotEmpty()) {
+                    // AT-295 — stamp the data-role-block contract onto the raw
+                    // preview HTML BEFORE expansion. Imported blades carry no
+                    // contract (0/39 web-templates have data-role-block; it is
+                    // only stamped into merged_html at document generation), so
+                    // without this the preview enters expandWithLooping with
+                    // $hasContract=false and falls to the LEGACY clustering path
+                    // where AT-291 ⑥'s same-party dedup never runs — the seller
+                    // block renders TWICE on the agent pre-send screen. Running
+                    // the same normalizer the recipient path uses routes BOTH
+                    // surfaces through the one corrected contract renderer
+                    // (bug-class, not instance): a single seller renders once,
+                    // genuine multi-seller still expands N times.
+                    $previewHtml = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)
+                        ->normalize($previewHtml);
                     $previewHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
                         ->expandWithLooping(
                             $template,
@@ -4914,6 +4928,11 @@ class ESignWizardController extends Controller
 
         // Group templates by status category
         $groups = [
+            // AT-299 — a document frozen by a recipient's clause flag
+            // (STATUS_AMENDMENT_REVIEW) was in NO bucket, so it fell out of the
+            // list entirely and the agent could not see the frozen ceremony.
+            // Surface it FIRST as "FLAGGED — review required".
+            'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
@@ -4940,6 +4959,7 @@ class ESignWizardController extends Controller
         $groups['needs_authorisation'] = $needsAuthorisation;
 
         $counts = [
+            'flagged'             => $groups['flagged']->count(), // AT-299
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),
             'draft'               => $groups['draft']->count(),
