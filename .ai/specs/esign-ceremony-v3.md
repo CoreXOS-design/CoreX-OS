@@ -991,3 +991,27 @@ Seller physical address clipped: per-template `.field{white-space:nowrap}` + `.c
 Fix (class-level, all fill fields): higher-specificity override
 `.docuperfect-document-body .field, .corex-signing-view .field { white-space:normal; overflow-wrap:anywhere;
 display:inline-block; }` — fields grow/wrap to fit, never clip. On-site: long address wraps post-deploy.
+
+## AT-299 — notify the agent when a recipient flags a clause (closes ⑤) (2026-07-18, on-site)
+
+AT-291 ⑤ freezes signing on a flag — but the AGENT was never told AND the frozen document
+(`STATUS_AMENDMENT_REVIEW`) was in NO `myDocuments` bucket, so it fell out of the list entirely
+(invisible frozen ceremony = dead deal). `flagClause` emailed only the recipient. Fix:
+- **Visibility:** `myDocuments` gains a `flagged` bucket (AMENDMENT_REVIEW) rendered FIRST as a crimson
+  "Flagged — Review Required" section with a **Review Flag** CTA (`docuperfect.signatures.review`).
+- **Notification:** `flagClause` dispatches `ClauseFlaggedNotification` to the sending agent
+  (`$template->creator`) through the AT-235 `NotificationDispatcher` gateway — in-app + email per the
+  agent's prefs, deep-linking to `docuperfect.amendments.review`. New event `esign.clause_flagged` in
+  `NotificationEventTypeSeeder` (`inApp:true, email:true, default_enabled:1`), carried by
+  `deploy:sync-reference-data`. Non-blocking (never blocks the flag/freeze).
+- Configurability: default ON and **per-user configurable** via the standard notifications settings
+  matrix (`/corex/settings` → notifications), the CoreX-canonical toggle mechanism.
+
+**Deliberately NOT in this commit (10a §3 — Johan's call, on the record):** an AGENCY-LEVEL master
+toggle on `agency_dashboard_settings` + Setup-Wizard surfacing. The per-event catalogue already gives
+default-ON + per-user control (the mechanism every other CoreX notification uses); an agency master
+switch is an additional layer that needs a migration + wizard saver (10a §2 subset-saver care).
+**Flagged to Johan for the toggle-scope decision** rather than rushed under tonight's deadline — build
+it as a follow-up if Johan wants the agency-level switch. Test:
+`SigningView/ClauseFlagNotifiesAgentTest.php` (flag → agent notified via gateway). On-site: after a flag
+on qa1, the agent's list shows the FLAGGED section + a notification row exists — recorded post-deploy.

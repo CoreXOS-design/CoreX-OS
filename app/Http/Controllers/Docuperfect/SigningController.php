@@ -3490,6 +3490,34 @@ CSS;
             ]);
         }
 
+        // AT-299 — notify the SENDING AGENT that a clause was flagged, so a
+        // frozen ceremony is never invisible (a frozen seller behind an
+        // uninformed agent = a dead deal). Rides the AT-235 gateway
+        // (NotificationDispatcher) so it is in-app + email per the agent's
+        // prefs; event 'esign.clause_flagged' is default-ON and per-user
+        // configurable on the notifications settings matrix. Never blocks the
+        // flag persistence (the amendment + freeze are already committed).
+        try {
+            $notifyAgent = $template->creator;
+            if ($notifyAgent) {
+                app(\App\Services\CommandCenter\NotificationDispatcher::class)->send(
+                    $notifyAgent,
+                    'esign.clause_flagged',
+                    $result,
+                    new \App\Notifications\ClauseFlaggedNotification($result, $signingRequest),
+                    [
+                        'threshold_hit_at' => now()->toIso8601String(),
+                        'amendment_id'     => $result->id,
+                    ],
+                );
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Clause-flagged agent notification failed (non-fatal)', [
+                'amendment_id' => $result->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
         return response()->json([
             'ok'           => true,
             'amendment_id' => $result->id,

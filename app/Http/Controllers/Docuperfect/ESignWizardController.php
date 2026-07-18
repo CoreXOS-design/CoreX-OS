@@ -4928,6 +4928,11 @@ class ESignWizardController extends Controller
 
         // Group templates by status category
         $groups = [
+            // AT-299 — a document frozen by a recipient's clause flag
+            // (STATUS_AMENDMENT_REVIEW) was in NO bucket, so it fell out of the
+            // list entirely and the agent could not see the frozen ceremony.
+            // Surface it FIRST as "FLAGGED — review required".
+            'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
@@ -4954,6 +4959,7 @@ class ESignWizardController extends Controller
         $groups['needs_authorisation'] = $needsAuthorisation;
 
         $counts = [
+            'flagged'             => $groups['flagged']->count(), // AT-299
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),
             'draft'               => $groups['draft']->count(),
