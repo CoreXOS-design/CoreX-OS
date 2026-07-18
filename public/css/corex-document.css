@@ -226,6 +226,19 @@
     display: none;
 }
 
+/* AT-298 — fill fields must GROW/WRAP to fit their content, never truncate.
+   Per-template blades set .field{white-space:nowrap} and the page box sets
+   .corex-a4-page{overflow:hidden}, so a long value (e.g. a full seller physical
+   address) overruns the fixed line and is clipped. Higher-specificity override
+   on the signing document body wraps instead of clipping — class-level for ALL
+   fill fields on ALL templates. min-width (blank-line affordance) is preserved. */
+.docuperfect-document-body .field,
+.corex-signing-view .field {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: inline-block;
+}
+
 .corex-field-empty {
     color: #94a3b8;
     font-style: italic;
