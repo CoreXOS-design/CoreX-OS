@@ -963,3 +963,31 @@ the preview HTML BEFORE `expandWithLooping` (one renderer, both surfaces). Test:
 `SigningView/AgentPresendContractTest.php` (normalizer stamps the contract → preview enters the deduped
 path). **NEW RULE (Johan, on-site): DONE only when verified rendering correctly on the deployed qa1
 site — on-site verification recorded on the ticket post-deploy.**
+
+## AT-296 — mail footer showed admin@ inbox not the sender (2026-07-18, on-site)
+
+From is correct (AT-291 ①/②) but the mail body FOOTER showed "admin@hfcoastal.co.za". Not a missing-agent
+gap — `BaseSignatureMail::getAgentFooter()` fell back `website → $agency->email` (admin@) for a
+website-less agent, and the shared footer partial rendered that as a "website" while never showing the
+agent's own email. Fix: website fallback uses `$agency->website` (never the admin inbox); the footer
+partial `emails/signatures/partials/agent-footer.blade.php` now renders `agentFooter['email']`
+(= `$agent->outward_email`). Class-level (one method + one shared partial → every e-sign mail). Test:
+`ESign/MailFooterIdentityTest.php` (rendered mail: sender email present, admin@ absent). On-site: Mailpit
+(127.0.0.1:8025) post-deploy.
+
+## AT-297 — green field "chips" on the recipient view (REOPENED ③, wrong element) (2026-07-18, on-site)
+
+AT-291 ③ hid the marker-overlay "(signed)" chips, but Johan's green chips are `.corex-field` — the CDS
+field pills (`public/css/corex-document.css:183`): green tint bg + teal border + green uppercase label.
+The white-when-filled rule `.corex-field[data-filled=true]` never fires (nothing stamps `data-filled`),
+so every field shows green top-left. Fix: neutralise under the recipient wrapper
+(`.recipient-signing-context .corex-field` → transparent bg / neutral border; `.corex-field-label` →
+display:none), keeping the green builder/agent affordance (unscoped) intact. On-site: rendered recipient
+page has no green field chips post-deploy.
+
+## AT-298 — filled field truncates long content (2026-07-18, on-site)
+
+Seller physical address clipped: per-template `.field{white-space:nowrap}` + `.corex-a4-page{overflow:hidden}`.
+Fix (class-level, all fill fields): higher-specificity override
+`.docuperfect-document-body .field, .corex-signing-view .field { white-space:normal; overflow-wrap:anywhere;
+display:inline-block; }` — fields grow/wrap to fit, never clip. On-site: long address wraps post-deploy.
