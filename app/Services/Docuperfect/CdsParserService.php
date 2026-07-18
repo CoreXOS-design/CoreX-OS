@@ -278,7 +278,98 @@ class CdsParserService
         // Structural detection — signature sections stay (strips raw sig text at end of doc)
         $sections = $this->detectSignatureSections($sections);
 
+        // AT-177 D4 — the per-page "______ / Signature" acknowledgement lines a mandate
+        // carries between clauses are literal underscore text, not markers, so nothing above
+        // captures them. Convert each genuine pair into a shared signature placeholder the
+        // party AND the agent sign (sig_only), matching Johan's hand-fix. Runs AFTER the end
+        // signature_section is extracted, so the document's final block is untouched.
+        $sections = $this->detectUnderscoreSignatureLines($sections);
+
         return $sections;
+    }
+
+    /**
+     * AT-177 D4 — detect literal "underscore run" + "Signature" section pairs and replace
+     * each with a shared signature placeholder (party + agent, sig_only).
+     *
+     * GUARD (deliberately tight so it never tokenises ordinary underscored blanks elsewhere):
+     *   - the section's plain text must be a PURE underscore run (>=6 underscores, nothing
+     *     but underscores / dashes / whitespace), AND
+     *   - the very next section's plain text must be EXACTLY the word "signature".
+     * An underscored blank inside a sentence keeps its surrounding words → not a pure run;
+     * an underscore line not labelled "Signature" is left alone.
+     */
+    private function detectUnderscoreSignatureLines(array $sections): array
+    {
+        $role = $this->inferPrimaryContactRoleFromSections($sections);
+        $role = $role !== '' ? $role : 'Seller';
+        $parties = [
+            ['role' => strtolower($role), 'label' => ucfirst(strtolower($role))],
+            ['role' => 'agent', 'label' => 'Agent'],
+        ];
+
+        $result = [];
+        $count = count($sections);
+        for ($i = 0; $i < $count; $i++) {
+            $text = trim($this->contentToPlainText($sections[$i]['content'] ?? []));
+
+            $isUnderscoreRun = $text !== ''
+                && substr_count($text, '_') >= 6
+                && (bool) preg_match('/^[_\-\x{2013}\x{2014}\s]+$/u', $text);
+
+            if ($isUnderscoreRun && $i + 1 < $count) {
+                $nextText = strtolower(trim($this->contentToPlainText($sections[$i + 1]['content'] ?? [])));
+                if ($nextText === 'signature') {
+                    $result[] = [
+                        'type' => 'paragraph',
+                        'content' => [[
+                            'type' => 'signature_placeholder',
+                            'marker' => 'signature',
+                            'suggested_parties' => $parties,
+                            'suggested_variant' => 'sig_only',
+                        ]],
+                    ];
+                    $i++; // consume the "Signature" label section
+                    continue;
+                }
+            }
+
+            $result[] = $sections[$i];
+        }
+
+        return $result;
+    }
+
+    /**
+     * The document's primary counterparty role, inferred from the "{Party} - {Attribute}"
+     * insertable tokens present (dominant contact prefix wins). Used to assign the party
+     * that signs the mid-document acknowledgement lines.
+     */
+    private function inferPrimaryContactRoleFromSections(array $sections): string
+    {
+        $prefixes = [
+            'seller_' => 'Seller', 'buyer_' => 'Buyer', 'purchaser_' => 'Buyer',
+            'lessor_' => 'Lessor', 'landlord_' => 'Lessor', 'lessee_' => 'Lessee', 'tenant_' => 'Lessee',
+        ];
+        $counts = [];
+        foreach ($sections as $s) {
+            foreach ($s['content'] ?? [] as $item) {
+                if (($item['type'] ?? '') !== 'insertable_block_placeholder') {
+                    continue;
+                }
+                $bid = strtolower((string) ($item['block_id'] ?? ''));
+                foreach ($prefixes as $pfx => $r) {
+                    if (str_starts_with($bid, $pfx)) {
+                        $counts[$r] = ($counts[$r] ?? 0) + 1;
+                    }
+                }
+            }
+        }
+        if (empty($counts)) {
+            return '';
+        }
+        arsort($counts);
+        return (string) array_key_first($counts);
     }
 
     /**

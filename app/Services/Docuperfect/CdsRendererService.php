@@ -150,8 +150,24 @@ class CdsRendererService
 
             // signature_placeholder from markers (%%%%)
             if (($item['type'] ?? '') === 'signature_placeholder') {
+                // AT-177 D4 — carry a server-suggested party roster / variant (from the
+                // "____ / Signature" acknowledgement detector) so the builder pre-binds the
+                // sig tag to Seller + Agent, sig_only, out of the box.
+                $sigExtra = '';
+                if (! empty($item['suggested_parties']) && is_array($item['suggested_parties'])) {
+                    $labels = collect($item['suggested_parties'])
+                        ->map(fn ($p) => $p['label'] ?? $p['role'] ?? '')
+                        ->filter()
+                        ->implode(',');
+                    if ($labels !== '') {
+                        $sigExtra .= ' data-sig-parties="' . e($labels) . '"';
+                    }
+                }
+                if (! empty($item['suggested_variant'])) {
+                    $sigExtra .= ' data-sig-variant="' . e($item['suggested_variant']) . '"';
+                }
                 $html .= '<span class="corex-field" '
-                    . 'data-marker-type="signature" '
+                    . 'data-marker-type="signature"' . $sigExtra . ' '
                     . 'style="background:#fffbeb;border-color:#f59e0b;">'
                     . '<span class="corex-field-label">SIGNATURE</span>'
                     . '</span>';

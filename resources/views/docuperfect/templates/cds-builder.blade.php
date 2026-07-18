@@ -1367,13 +1367,19 @@ function cdsEditor() {
 
                     // %%%% marker â†’ SIG tag
                     if (markerType === 'signature') {
+                        // AT-177 D4 — read any server-suggested roster/variant (from the
+                        // "____ / Signature" acknowledgement detector) BEFORE the element is
+                        // replaced, so the sig tag pre-binds to Seller + Agent, sig_only.
+                        const sigParties = (el.dataset.sigParties || '')
+                            .split(',').map(s => s.trim()).filter(Boolean);
+                        const sigVariant = el.dataset.sigVariant || 'sig_full';
                         const tag = this._createTagData('signature');
                         const span = this._createTagElement(tag);
                         el.replaceWith(span);
                         this.tags.push(tag);
                         this.mappings[tag.id] = {
-                            parties: [],
-                            variant: 'sig_full',
+                            parties: sigParties,
+                            variant: sigVariant,
                         };
                         return;
                     }
@@ -1405,6 +1411,18 @@ function cdsEditor() {
                     el.textContent = tag.label;
                     this._attachTagClickHandler(el, tag.id);
                     this.tags.push(tag);
+
+                    // AT-177 — DETERMINISTIC server binding wins. Johan's imports carry an
+                    // explicit "{Party} - {Attribute}" token convention, resolved server-side
+                    // by CdsBindingSuggester: identity token → field group (single I/We
+                    // clause), each attribute → its own column, editable_by populated. Only
+                    // when the server could not confidently resolve the token do we fall
+                    // through to the legacy substring best-match below.
+                    const serverBinding = (this.cdsFields[tag.parserIndex] || {}).binding;
+                    if (serverBinding) {
+                        this.mappings[tag.id] = this._mappingFromServerBinding(serverBinding, confidence);
+                        return;
+                    }
 
                     // Auto-suggest from context identification data attributes
                     if (fieldName) {
@@ -1746,6 +1764,25 @@ function cdsEditor() {
 
         _makeMapping(mappingType, overrides) {
             return Object.assign(this._emptyInputMapping(null), { mappingType }, overrides);
+        },
+
+        // AT-177 — build a builder mapping from a deterministic server binding suggestion
+        // (CdsBindingSuggester). Shapes are aligned; we normalise nulls and preserve the
+        // populated editable_by / field-group / party so the field shows bound out of the box.
+        _mappingFromServerBinding(b, confidence) {
+            return this._makeMapping(b.mappingType || 'named_field', {
+                typeKey: b.typeKey || '',
+                namedFieldId: b.namedFieldId ?? null,
+                fieldGroupId: b.fieldGroupId ?? null,
+                label: b.label || '',
+                manualLabel: b.manualLabel || '',
+                party: b.party || 'auto',
+                partyLocked: !!b.partyLocked,
+                sourceType: b.sourceType || '',
+                sourceContactType: b.sourceContactType || '',
+                editable_by: Array.isArray(b.editable_by) ? b.editable_by.slice() : [],
+                confidence: b.confidence || confidence || 'high',
+            });
         },
 
         // ===== Type dropdown handler =====

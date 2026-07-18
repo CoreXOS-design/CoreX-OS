@@ -408,6 +408,20 @@ class TemplateController extends Controller
         // Extract field summary from CDS for the right panel
         $fields = $this->extractFieldsFromCds($draft->cds_json);
 
+        // AT-177 — attach a DETERMINISTIC binding suggestion to each input field, in the
+        // same document order the builder assigns parserIndex. Johan's imports carry an
+        // explicit "{Party} - {Attribute}" token convention, so we can bind the identity
+        // token to its field group (single I/We clause), each attribute to its own column,
+        // and populate editable_by up front — the builder shows it bound out of the box and
+        // the vet confirms rather than repairs. Unresolvable tokens stay null → the builder
+        // falls back to its existing best-match logic.
+        $suggester = new \App\Services\Docuperfect\CdsBindingSuggester($user->effectiveAgencyId() ?: null);
+        $suggested = $suggester->suggest($draft->cds_json);
+        foreach ($fields as $i => &$f) {
+            $f['binding'] = $suggested['bindings'][$i] ?? null;
+        }
+        unset($f);
+
         // Load named fields grouped by source_type + contact_type
         $namedFields = NamedField::whereNull('deleted_at')
             ->orderBy('source_type')
