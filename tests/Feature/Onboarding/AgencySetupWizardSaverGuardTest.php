@@ -265,6 +265,70 @@ class AgencySetupWizardSaverGuardTest extends TestCase
         );
     }
 
+    // ── Feature-switchboard savers (switchboard spec §3.4) ───────────────────
+    // These four bare-boolean savers became multi-callers when the switchboard
+    // began fanning to them. Each must now: leave the value ALONE when its field
+    // is absent from the request, and still save false when the field arrives as
+    // a present "0" (the hidden-companion path). "Fix the class" — BUILD_STANDARD §6.
+
+    public function test_marketing_enabled_saver_ignores_absent_field_but_honours_present_zero(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        \App\Models\PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => 1]);
+
+        // Field absent → leave alone.
+        $this->actingAs($admin)->post(route('corex.settings.marketing-enabled'), [])->assertRedirect();
+        $this->assertSame(1, (int) \App\Models\PerformanceSetting::get('marketing_enabled'), 'absent field must not wipe the setting');
+
+        // Field present as "0" → save false.
+        $this->actingAs($admin)->post(route('corex.settings.marketing-enabled'), ['marketing_enabled' => '0'])->assertRedirect();
+        $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('marketing_enabled'), 'present "0" must turn it off');
+    }
+
+    public function test_syndication_portals_saver_ignores_absent_fields_but_honours_present_zero(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        \App\Models\PerformanceSetting::updateOrCreate(['key' => 'syndication_p24_enabled'], ['value' => 1]);
+        \App\Models\PerformanceSetting::updateOrCreate(['key' => 'syndication_pp_enabled'], ['value' => 1]);
+
+        // Only PP posted → P24 must be left alone, PP turned off.
+        $this->actingAs($admin)->post(route('corex.settings.syndication-portals'), ['syndication_pp_enabled' => '0'])->assertRedirect();
+        $this->assertSame(1, (int) \App\Models\PerformanceSetting::get('syndication_p24_enabled'), 'unposted P24 must survive');
+        $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('syndication_pp_enabled'), 'present "0" must turn PP off');
+    }
+
+    public function test_matches_enabled_saver_ignores_absent_field_but_honours_present_zero(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        \App\Models\PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 1]);
+
+        $this->actingAs($admin)->post(route('corex.settings.matches-enabled'), [])->assertRedirect();
+        $this->assertSame(1, (int) \App\Models\PerformanceSetting::get('matches_enabled'), 'absent field must not wipe Core Matches');
+
+        $this->actingAs($admin)->post(route('corex.settings.matches-enabled'), ['matches_enabled' => '0'])->assertRedirect();
+        $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('matches_enabled'), 'present "0" must turn Core Matches off');
+    }
+
+    public function test_split_branches_saver_ignores_absent_field_but_honours_present_zero(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        $agency->update(['split_branches_enabled' => true]);
+
+        $this->actingAs($admin)->put(route('corex.settings.split-branches'), [])->assertRedirect();
+        $this->assertTrue((bool) $agency->fresh()->split_branches_enabled, 'absent field must not wipe branch isolation');
+
+        $this->actingAs($admin)->put(route('corex.settings.split-branches'), ['split_branches_enabled' => '0'])->assertRedirect();
+        $this->assertFalse((bool) $agency->fresh()->split_branches_enabled, 'present "0" must turn branch isolation off');
+    }
+
     /** The commission form's full field set, with overrides. */
     private function commissionPayload(array $overrides = []): array
     {

@@ -32,17 +32,18 @@ class AgencyOnboardingSetup extends Model
      */
     public const STEPS = [
         'identity',       // 1  — Welcome / agency identity
-        'branding',       // 2  — Logo & agency colours (auto-detect + preview)
-        'branches',       // 3  — Branches / offices
-        'commission',     // 4  — Commission & revenue share
-        'properties',     // 5  — Properties & listings
-        'presentations',  // 6  — Presentations / CMA
-        'matches',        // 7  — Matches
-        'contacts',       // 8  — Contacts
-        'compliance',     // 9  — Compliance
-        'notifications',  // 10 — Notifications & dashboard
-        'roles',          // 11 — How roles & permissions work (explainer)
-        'access',         // 12 — Access & finish
+        'capabilities',   // 2  — Feature switchboard (turn features on/off)
+        'branding',       // 3  — Logo & agency colours (auto-detect + preview)
+        'branches',       // 4  — Branches / offices
+        'commission',     // 5  — Commission & revenue share
+        'properties',     // 6  — Properties & listings
+        'presentations',  // 7  — Presentations / CMA
+        'matches',        // 8  — Matches
+        'contacts',       // 9  — Contacts
+        'compliance',     // 10 — Compliance
+        'notifications',  // 11 — Notifications & dashboard
+        'roles',          // 12 — How roles & permissions work (explainer)
+        'access',         // 13 — Access & finish
     ];
 
     protected $fillable = [
@@ -74,6 +75,60 @@ class AgencyOnboardingSetup extends Model
     public static function totalSteps(): int
     {
         return count(self::STEPS);
+    }
+
+    /**
+     * Adaptive step-gating (switchboard spec §3.3/§4.3). A step listed here is
+     * ACTIVE only when its predicate returns true for the given agency; when
+     * false the step is skipped entirely — not rendered, not counted in
+     * progress, and show() redirects past it. Steps absent from this map are
+     * always active.
+     *
+     * Built generic on purpose (BUILD_STANDARD §6): a future feature-step gates
+     * itself by adding one entry. v1 gates only the `matches` detail step on the
+     * Core Matches master switch — the one capability today whose detail is a
+     * whole standalone step. Marketing / syndication / website have no standalone
+     * detail step, so nothing else gates a whole step in v1.
+     *
+     * @return array<string, callable(?Agency=): bool>
+     */
+    public static function stepGates(): array
+    {
+        return [
+            // matches_enabled lives in the (global) PerformanceSetting store, read
+            // in the agency scope the wizard already runs under. Default ON so an
+            // agency that skips the switchboard still sees the Matches step.
+            'matches' => fn (?Agency $agency = null): bool => (bool) PerformanceSetting::get('matches_enabled', 1),
+        ];
+    }
+
+    /**
+     * STEPS filtered to those active for this agency (switchboard spec §4.3).
+     * prev/next navigation and the progress denominator are computed over this
+     * list, not raw STEPS, so a gated-off step is invisible to the flow and
+     * 100% stays reachable without ever completing it.
+     *
+     * @return list<string>
+     */
+    public static function activeSteps(?Agency $agency = null): array
+    {
+        $gates = self::stepGates();
+
+        return array_values(array_filter(
+            self::STEPS,
+            static function (string $step) use ($gates, $agency): bool {
+                $gate = $gates[$step] ?? null;
+                return $gate === null ? true : (bool) $gate($agency);
+            }
+        ));
+    }
+
+    /**
+     * Is a given step key active (not gated off) for this agency?
+     */
+    public static function stepIsActive(string $step, ?Agency $agency = null): bool
+    {
+        return in_array($step, self::activeSteps($agency), true);
     }
 
     public static function generateToken(): string
@@ -150,11 +205,25 @@ class AgencyOnboardingSetup extends Model
         return 'Not started';
     }
 
-    public function progressPercent(): int
+    /**
+     * Progress as a percentage. The denominator is the ACTIVE-step count when an
+     * agency is supplied (switchboard spec §3.3/§4.3) — a gated-off step can never
+     * be completed, so 100% would otherwise be unreachable. Falls back to the full
+     * step count when no agency is given (owner tracking page / legacy callers),
+     * preserving existing behaviour. The numerator counts only completed steps that
+     * are still active, so re-disabling a feature whose detail step was already
+     * completed keeps the bar honest.
+     */
+    public function progressPercent(?Agency $agency = null): int
     {
-        $done = is_array($this->completed_steps) ? count($this->completed_steps) : 0;
-        $total = self::totalSteps();
+        $steps = $agency ? self::activeSteps($agency) : self::STEPS;
+        $total = count($steps);
         if ($total === 0) return 0;
+
+        $done = is_array($this->completed_steps)
+            ? count(array_intersect($this->completed_steps, $steps))
+            : 0;
+
         return (int) round(min($done, $total) / $total * 100);
     }
 

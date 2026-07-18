@@ -33,8 +33,15 @@ class AgencySetupWizardController extends Controller
     /** GET /corex/agency-setup — resume at the current step. */
     public function index()
     {
-        $setup = $this->resolveOrCreateSetup();
-        $stepKey = AgencyOnboardingSetup::STEPS[($setup->current_step ?? 1) - 1] ?? AgencyOnboardingSetup::STEPS[0];
+        $setup  = $this->resolveOrCreateSetup();
+        $agency = $this->agency();
+        $active = AgencyOnboardingSetup::activeSteps($agency);
+
+        // Resume pointer → the step at current_step, clamped to the nearest
+        // ACTIVE step (a gated-off step must never be the resume target).
+        $pointerKey = AgencyOnboardingSetup::STEPS[($setup->current_step ?? 1) - 1] ?? AgencyOnboardingSetup::STEPS[0];
+        $stepKey = $this->nearestActiveStep($pointerKey, $active);
+
         return redirect()->route('corex.agency-setup.step', ['step' => $stepKey]);
     }
 
@@ -44,6 +51,16 @@ class AgencySetupWizardController extends Controller
         $this->assertStep($step);
         $setup  = $this->resolveOrCreateSetup();
         $agency = $this->agency();
+
+        // A legitimately-gated step (e.g. `matches` with Core Matches switched
+        // off in the capabilities step) is not a 404 — it is skipped. Redirect
+        // forward to the nearest active step. assertStep still 404s truly-unknown
+        // keys above.
+        $active = AgencyOnboardingSetup::activeSteps($agency);
+        if (!in_array($step, $active, true)) {
+            return redirect()->route('corex.agency-setup.step', ['step' => $this->nearestActiveStep($step, $active)]);
+        }
+
         $config = config("agency-onboarding-copy.$step");
 
         return view('agency-setup.wizard', array_merge([
@@ -241,25 +258,64 @@ class AgencySetupWizardController extends Controller
 
     private function advance(AgencyOnboardingSetup $setup, string $step, ?string $flash, bool $skipped = false)
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // Advance over ACTIVE steps only — a gated-off step is stepped past
+        // (switchboard spec §7). The capabilities step may itself have just
+        // toggled a feature off, so recompute against the fresh state.
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
         $i = array_search($step, $steps, true);
-        $isLast = $i === (count($steps) - 1);
 
+        // The just-saved step is no longer active (edge: a step that gated
+        // itself off). Fall back to the first active step.
+        if ($i === false) {
+            return redirect()->route('corex.agency-setup.step', ['step' => $steps[0] ?? AgencyOnboardingSetup::STEPS[0]]);
+        }
+
+        $isLast = $i === (count($steps) - 1);
         if ($isLast) {
-            // Last step's Save routes straight to finish.
+            // Last active step's Save routes straight to finish.
             return $this->finish();
         }
 
-        if ($skipped && $step !== end($steps)) {
-            // Move the resume pointer forward past a skipped step without
-            // marking it complete.
-            $setup->current_step = max($setup->current_step, $i + 2);
+        $next = $steps[$i + 1];
+
+        if ($skipped) {
+            // Move the resume pointer forward past the skipped step, to the next
+            // active step's 1-based position in the FULL step list.
+            $globalPos = (int) array_search($next, AgencyOnboardingSetup::STEPS, true) + 1;
+            $setup->current_step = max($setup->current_step, $globalPos);
             $setup->save();
         }
 
-        $next = $steps[$i + 1];
         $redirect = redirect()->route('corex.agency-setup.step', ['step' => $next]);
         return $flash ? $redirect->with('success', $flash) : $redirect;
+    }
+
+    /**
+     * Resolve a step key to the nearest ACTIVE step: itself if active, else the
+     * first active step after it in the full list, else the last active before
+     * it, else the first active step. Never returns a gated-off key.
+     */
+    private function nearestActiveStep(string $step, array $active): string
+    {
+        if (in_array($step, $active, true)) {
+            return $step;
+        }
+        $all = AgencyOnboardingSetup::STEPS;
+        $i = array_search($step, $all, true);
+        if ($i === false) {
+            return $active[0] ?? $all[0];
+        }
+        for ($j = $i + 1; $j < count($all); $j++) {
+            if (in_array($all[$j], $active, true)) {
+                return $all[$j];
+            }
+        }
+        for ($j = $i - 1; $j >= 0; $j--) {
+            if (in_array($all[$j], $active, true)) {
+                return $all[$j];
+            }
+        }
+        return $active[0] ?? $all[0];
     }
 
     private function resolveOrCreateSetup(): AgencyOnboardingSetup
@@ -315,18 +371,26 @@ class AgencySetupWizardController extends Controller
 
     private function progress(AgencyOnboardingSetup $setup, string $step): array
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // "Step X of N" where N is the ACTIVE-step count for this agency
+        // (switchboard spec §8) — gated-off steps are neither shown nor counted.
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
+        $pos = array_search($step, $steps, true);
         return [
-            'current' => (int) (array_search($step, $steps, true) + 1),
+            'current' => $pos === false ? 1 : (int) ($pos + 1),
             'total'   => count($steps),
-            'percent' => $setup->progressPercent(),
+            'percent' => $setup->progressPercent($this->agency()),
         ];
     }
 
     private function nav(string $step): array
     {
-        $steps = AgencyOnboardingSetup::STEPS;
+        // prev/next computed over ACTIVE steps, so Back/Next step over a
+        // gated-off step invisibly (switchboard spec §7).
+        $steps = AgencyOnboardingSetup::activeSteps($this->agency());
         $i = array_search($step, $steps, true);
+        if ($i === false) {
+            return ['prev' => null, 'next' => null, 'isLast' => true, 'index' => 0];
+        }
         return [
             'prev'   => $i > 0 ? $steps[$i - 1] : null,
             'next'   => $i < count($steps) - 1 ? $steps[$i + 1] : null,

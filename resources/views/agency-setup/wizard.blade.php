@@ -64,6 +64,13 @@
                     $val = old($key, $values[$key] ?? ($control['default'] ?? null));
                     $type = $control['type'];
                 @endphp
+                {{-- Optional sub-heading to group related controls (e.g. the two
+                     property-portal toggles in the Capabilities step). --}}
+                @if (!empty($control['heading']))
+                    <div class="pt-1 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted,#94a3b8);">
+                        {{ $control['heading'] }}
+                    </div>
+                @endif
                 <div>
                     <div class="flex items-start justify-between gap-4">
                         <div class="min-w-0">

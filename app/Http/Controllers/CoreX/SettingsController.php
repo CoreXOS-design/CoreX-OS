@@ -424,15 +424,24 @@ class SettingsController extends Controller
 
     public function updateMarketingEnabled(Request $request)
     {
-        $enabled = $request->boolean('marketing_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1). This saver is now
+        // a multi-caller (settings page AND the onboarding switchboard). A form
+        // that owns the toggle posts a hidden "0" companion, so a rendered-but-
+        // unchecked box still arrives and still saves false; an ABSENT field
+        // means the caller never rendered the control — leave the value alone.
+        if ($request->has('marketing_enabled')) {
+            PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $request->boolean('marketing_enabled') ? 1 : 0]);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Marketing setting updated.');
     }
 
     public function updateSyndicationPortals(Request $request)
     {
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
         foreach (['syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
-            PerformanceSetting::updateOrCreate(['key' => $key], ['value' => $request->boolean($key) ? 1 : 0]);
+            if ($request->has($key)) {
+                PerformanceSetting::updateOrCreate(['key' => $key], ['value' => $request->boolean($key) ? 1 : 0]);
+            }
         }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
     }
@@ -582,8 +591,11 @@ class SettingsController extends Controller
 
     public function updateMatchesEnabled(Request $request)
     {
-        $enabled = $request->boolean('matches_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (settings page AND the onboarding switchboard). Absent ⇒ leave alone.
+        if ($request->has('matches_enabled')) {
+            PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => $request->boolean('matches_enabled') ? 1 : 0]);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Core Matches setting updated.');
     }
 
@@ -870,9 +882,14 @@ class SettingsController extends Controller
             return back()->with('error', 'No agency found.');
         }
 
-        $agency->update([
-            'split_branches_enabled' => $request->boolean('split_branches_enabled'),
-        ]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (company-settings page AND the onboarding switchboard). Absent means
+        // the caller never rendered the toggle — leave the column alone.
+        if ($request->has('split_branches_enabled')) {
+            $agency->update([
+                'split_branches_enabled' => $request->boolean('split_branches_enabled'),
+            ]);
+        }
 
         $state = $agency->split_branches_enabled ? 'ON' : 'OFF';
         return redirect()->route('corex.settings', ['tab' => 'agency'])

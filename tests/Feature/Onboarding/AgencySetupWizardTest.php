@@ -166,7 +166,9 @@ class AgencySetupWizardTest extends TestCase
             'ffc_no'       => 'FFC123456',
         ]);
 
-        $resp->assertRedirect(route('corex.agency-setup.step', ['step' => 'branding']));
+        // Step 2 is now the feature switchboard (capabilities), inserted between
+        // identity and branding (switchboard spec §5).
+        $resp->assertRedirect(route('corex.agency-setup.step', ['step' => 'capabilities']));
 
         $agency->refresh();
         $this->assertSame('Coastal Realty (Pty) Ltd', $agency->trading_name);
@@ -427,14 +429,20 @@ class AgencySetupWizardTest extends TestCase
         $this->setupFor($agency);
 
         $this->assertNotContains('team', \App\Models\AgencyOnboardingSetup::STEPS);
-        // 11 original steps + the 'roles' explainer inserted before 'access'.
-        $this->assertSame(12, \App\Models\AgencyOnboardingSetup::totalSteps());
+        // 11 original steps + the 'roles' explainer + the 'capabilities' feature
+        // switchboard inserted at position 2 (switchboard spec §5/§7).
+        $this->assertSame(13, \App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()
             ->assertDontSee('Your property lists')
             ->assertDontSee('Portal credentials')
-            ->assertDontSee('Advanced portal settings');
+            ->assertDontSee('Advanced portal settings')
+            // The master feature toggles moved to the switchboard — one home per
+            // switch (switchboard spec §3.2). They must be GONE from the
+            // properties detail step.
+            ->assertDontSee('Publish listings to Property24')
+            ->assertDontSee('Marketing tools');
 
         // The collections that backed those sections no longer resolve.
         $this->actingAs($admin)->post(route('corex.agency-setup.collection.add', ['collection' => 'property_type']), [
@@ -466,7 +474,8 @@ class AgencySetupWizardTest extends TestCase
     {
         $agency = $this->agency();
         $admin  = $this->admin($agency);
-        $this->setupFor($agency, ['current_step' => 3, 'completed_steps' => ['identity', 'branding']]);
+        // capabilities is now step 2, so branches is step 4 (switchboard spec §5).
+        $this->setupFor($agency, ['current_step' => 4, 'completed_steps' => ['identity', 'capabilities', 'branding']]);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.index'))
             ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branches']));
@@ -479,7 +488,7 @@ class AgencySetupWizardTest extends TestCase
         $setup  = $this->setupFor($agency);
 
         $this->actingAs($admin)->post(route('corex.agency-setup.step.skip', ['step' => 'identity']))
-            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'branding']));
+            ->assertRedirect(route('corex.agency-setup.step', ['step' => 'capabilities']));
 
         $setup->refresh();
         $this->assertNotContains('identity', (array) $setup->completed_steps);
