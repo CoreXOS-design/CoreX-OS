@@ -80,10 +80,14 @@ class ContactMatchController extends Controller
         $user = auth()->user();
 
         // Scope: whole agency, or just the viewer's branch when branch-split is on.
+        // Mirror the canonical BranchScope gate exactly — a `branches.view_all`
+        // holder (principal / agency admin) is NEVER branch-limited, even when
+        // acting-as-branch, so their agent-filter dropdown matches the data they
+        // can actually see. Omitting this check clamped their dropdown alone.
         $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
         $splitOn  = (bool) ($agency?->split_branches_enabled);
         $branchId = $user->effectiveBranchId();
-        $branchLimited = $splitOn && $branchId;
+        $branchLimited = $splitOn && $branchId && !$user->hasPermission('branches.view_all');
 
         // Agents available in the filter dropdown.
         $agentsQuery = User::agencyMembers()

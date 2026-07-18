@@ -295,7 +295,10 @@ class DealV2 extends Model
         }
 
         if ($scope === 'branch') {
-            return $query->where('branch_id', $user->branch_id);
+            // effectiveBranchId() honours an admin's view_as_branch_id override —
+            // the same "user's branch" the canonical BranchScope filters on. Reading
+            // raw branch_id here was a second, divergent interpretation.
+            return $query->where('branch_id', $user->effectiveBranchId());
         }
 
         return $query->where(function ($q) use ($user) {

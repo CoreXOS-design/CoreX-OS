@@ -13591,3 +13591,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1009,'2026_07_17_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1012,'2026_07_18_000001_create_agency_features_table',180);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1013,'2026_07_18_000002_backfill_agency_features',180);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1014,'2026_07_18_000003_add_agency_id_to_performance_settings',180);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1015,'2026_07_18_000004_backfill_legacy_deal_branches',181);
