@@ -94,6 +94,48 @@ class CanonicalDocumentRenderer
     }
 
     /**
+     * ESIGN-WETINK Phase 1b — resolve the canonical artifact for a display
+     * surface. Returns the stored `canonical_html` when present (the wet-ink
+     * happy path: composed once at send, served verbatim everywhere). When
+     * absent — a pre-1a document, or a send that pre-dated this build — it is
+     * composed on the fly AND back-filled to storage so the next surface reads
+     * it directly and every surface for the rest of this document's life sees
+     * the identical artifact.
+     *
+     * Returns '' when the template has no composable web body (caller falls
+     * back to its legacy path — canonical serve never regresses a template
+     * that cannot be composed, e.g. a pure page-image PDF template).
+     */
+    public function resolveOrCompose(SignatureTemplate $template): string
+    {
+        $document = $template->document;
+        if (! $document) {
+            return '';
+        }
+        $webData  = $document->web_template_data ?? [];
+        $existing = (string) ($webData['canonical_html'] ?? '');
+        if (trim($existing) !== '') {
+            return $existing;
+        }
+        // Back-fill: compose once, persist, return. Non-fatal on failure.
+        $html = $this->compose($template);
+        if ($html === '') {
+            return '';
+        }
+        try {
+            $webData['canonical_html'] = $html;
+            $webData['canonical_version'] ??= 0;
+            $document->update(['web_template_data' => $webData]);
+        } catch (\Throwable $e) {
+            Log::warning('CanonicalDocumentRenderer::resolveOrCompose back-fill store failed (non-fatal)', [
+                'template_id' => $template->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+        return $html;
+    }
+
+    /**
      * Compose and persist the canonical artifact (v0) onto the document as
      * web_template_data['canonical_html']. Non-fatal — never blocks the send.
      */

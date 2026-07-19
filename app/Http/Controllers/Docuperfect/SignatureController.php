@@ -912,7 +912,28 @@ class SignatureController extends Controller
                 $document->fields_json ?? []
             );
 
-            if (!empty($webTemplateData['merged_html'])) {
+            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE on the agent surface ═══
+            // Once the document has been sent, the canonical artifact exists and
+            // the agent surface serves it VERBATIM (with a per-viewer editability
+            // overlay for the agent's own fields) so the agent sees the IDENTICAL
+            // expanded document every recipient sees. BEFORE send there is no
+            // canonical — the agent works on the merged_html prep copy, which is
+            // exactly what canonical is composed FROM at send (doctrine I2:
+            // composed once, when the agent finalises and sends).
+            $canonicalHtml = (string) ($webTemplateData['canonical_html'] ?? '');
+            if (trim($canonicalHtml) !== '') {
+                $agentRequest = $template->requests()->where('party_role', 'agent')->first();
+                $fieldMappingsRaw = is_array($docTemplate->field_mappings ?? null)
+                    ? $docTemplate->field_mappings
+                    : [];
+                if ($agentRequest) {
+                    $webTemplateHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                        ->applyViewerEditabilityOverlay($canonicalHtml, $agentRequest, $fieldMappingsRaw);
+                } else {
+                    $webTemplateHtml = $canonicalHtml;
+                }
+                $pageCount = count($webTemplateData['template_ids'] ?? [1]);
+            } elseif (!empty($webTemplateData['merged_html'])) {
                 $webTemplateHtml = $webTemplateData['merged_html'];
                 $pageCount = count($webTemplateData['template_ids'] ?? [1]);
             } else {
@@ -942,8 +963,12 @@ class SignatureController extends Controller
             // Make inline-template signature blocks signable for the agent's
             // first-signer pass (same engine selector as the external signer);
             // additive + idempotent, never touches the template files (BL-5/6).
-            $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
-            $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+            // Skipped when canonical was served — it already carries normalised
+            // surfaces + the resolved letterhead (composed once, no re-render).
+            if (trim($canonicalHtml) === '') {
+                $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+            }
         } else {
             $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
             for ($n = 0; $n < $pageCount; $n++) {
