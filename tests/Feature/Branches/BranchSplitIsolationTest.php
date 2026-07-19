@@ -83,6 +83,19 @@ final class BranchSplitIsolationTest extends TestCase
      * shared-by-design, or listed as a known gap. A newly added model that forgets
      * `BelongsToBranch` lands in none of the three and fails here.
      */
+    /**
+     * Without this, the behavioural isolation tests are a no-op: with an unseeded test DB the
+     * default posture (allowAllWhenUnseeded → runningUnitTests() === true) treats EVERY agent as
+     * holding `branches.view_all`, so BranchScope is always bypassed and "Margate must not see
+     * Port Shepstone" can never be proven. Force the production posture so a plain agent genuinely
+     * lacks view_all and BranchScope actually isolates.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \App\Services\PermissionService::forceProductionPosture();
+    }
+
     public function test_every_branch_id_model_is_scoped_or_explicitly_classified(): void
     {
         $unclassified = [];
