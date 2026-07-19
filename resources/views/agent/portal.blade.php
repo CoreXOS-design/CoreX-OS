@@ -70,19 +70,26 @@
     <div style="border-bottom:1px solid var(--border);" data-tour="portal-home-tabs">
         <nav class="-mb-px flex gap-1 overflow-x-auto" aria-label="Tabs">
             @php
+                // AT-267 §10 — an assistant's own portal is stripped to identity + FICA only.
+                // Tools (agent marketing), Payslips and Leave are hidden outright; Compliance
+                // shows only when FICA is required of the assistant.
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
-                    'tools' => 'Tools',
-                    'documents' => 'Documents',
-                    'compliance' => 'Compliance',
-                    'training' => 'Training',
-                    'password' => 'Password',
                 ];
-                if (auth()->user()->hasPermission('view_own_payslips')) {
+                if (!($isAssistant ?? false)) {
+                    $portalTabs['tools'] = 'Tools';
+                }
+                $portalTabs['documents'] = 'Documents';
+                if (!($isAssistant ?? false) || $user->fica_required) {
+                    $portalTabs['compliance'] = 'Compliance';
+                }
+                $portalTabs['training'] = 'Training';
+                $portalTabs['password'] = 'Password';
+                if (!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips')) {
                     $portalTabs['payslips'] = 'Payslips';
                 }
-                if (auth()->user()->hasPermission('apply_for_leave')) {
+                if (!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave')) {
                     $portalTabs['leave'] = 'Leave';
                 }
             @endphp
@@ -128,7 +135,8 @@
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'overview'" x-cloak>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {{-- Earnings snapshot --}}
+            {{-- Earnings snapshot — AT-267 §10: hidden for assistants (no commission of their own) --}}
+            @unless($isAssistant ?? false)
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-earnings">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">My Earnings</h3>
                 <div class="grid grid-cols-2 gap-3 mb-4">
@@ -152,6 +160,7 @@
                 </div>
                 <a href="{{ route('commission.dashboard') }}" class="text-xs font-medium no-underline" style="color:var(--brand-icon);">View Full Earnings &rarr;</a>
             </div>
+            @endunless
 
             {{-- Quick compliance card --}}
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-compliance">
@@ -180,7 +189,8 @@
             </div>
         </div>
 
-        {{-- Phase 9a G2 — Presentations widget (light agent stats) --}}
+        {{-- Phase 9a G2 — Presentations widget (light agent stats). AT-267 §10: hidden for assistants. --}}
+        @unless($isAssistant ?? false)
         @if(isset($presentationStats))
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
             <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
@@ -215,6 +225,7 @@
             </div>
         </div>
         @endif
+        @endunless
 
         {{-- Recent activity --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
@@ -404,6 +415,8 @@
                         @error('id_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
+                    {{-- FFC Number / Expiry — AT-267 §10: assistants are not PPRA practitioners --}}
+                    @unless($isAssistant ?? false)
                     {{-- FFC Number --}}
                     <div>
                         <label for="ffc_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">FFC Number</label>
@@ -421,11 +434,13 @@
                                onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
                         @error('ffc_expiry_date') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
+                    @endunless
                 </div>
 
                 {{-- Public website profile — About me + personal social links.
                      Shown on the agent's public website page (distinct from the
-                     ad/OAuth accounts under the Tools tab). --}}
+                     ad/OAuth accounts under the Tools tab). AT-267 §10: assistants have no public page. --}}
+                @unless($isAssistant ?? false)
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-1">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
@@ -452,6 +467,7 @@
                         </div>
                     </div>
                 </div>
+                @endunless
 
                 {{-- Read-only admin fields --}}
                 <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
@@ -476,6 +492,7 @@
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Agency</div>
                             <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->agency?->name ?? 'Not assigned' }}</div>
                         </div>
+                        @unless($isAssistant ?? false)
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">PPRA Status</div>
                             <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">
@@ -489,6 +506,7 @@
                                 @endif
                             </div>
                         </div>
+                        @endunless
                     </div>
                 </div>
 
@@ -963,6 +981,17 @@
                  'icon' => '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:20px;height:20px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>'],
             ];
 
+            // AT-267 §10 — an assistant's Documents tab shows only identity docs (ID Copy +
+            // Profile Photo), never practitioner docs (FFC / PI / Tax Clearance). NOTE: the
+            // Proof-of-Residence card is still to be built (needs its upload endpoint wired —
+            // UserDocument::DOCUMENT_TYPE_PROOF_OF_ADDRESS exists); do that on the render lane.
+            if ($isAssistant ?? false) {
+                $docTypeConfig = array_values(array_filter(
+                    $docTypeConfig,
+                    fn ($c) => in_array($c['type'], ['id_copy', 'photo'], true)
+                ));
+            }
+
             $docTypeToKey = ['ffc_certificate' => 'ffc_certificate', 'id_copy' => 'id_copy', 'pi_insurance' => 'pi_insurance', 'tax_clearance' => 'tax_clearance', 'photo' => 'profile_photo'];
             $statusPills = [
                 'pending' => ['class' => 'ds-badge-warning', 'text' => 'Pending'],
@@ -1335,7 +1364,8 @@
             </form>
         </div>
 
-        {{-- Delete Account --}}
+        {{-- Delete Account — AT-267 §10: deleting an assistant is an admin action, not self-service --}}
+        @unless($isAssistant ?? false)
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;" x-data="{ confirmDelete: false }">
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
@@ -1358,10 +1388,11 @@
                 </form>
             </div>
         </div>
+        @endunless
     </div>
 
     {{-- ══ Payslips tab ══ --}}
-    @if(auth()->user()->hasPermission('view_own_payslips'))
+    @if(!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips'))
     <div x-show="tab === 'payslips'" x-cloak>
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
@@ -1394,8 +1425,8 @@
     </div>
     @endif
 
-    {{-- ══ Leave tab ══ --}}
-    @if(auth()->user()->hasPermission('apply_for_leave'))
+    {{-- ══ Leave tab ══ · AT-267 §10: hidden for assistants (v1) --}}
+    @if(!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave'))
     <div x-show="tab === 'leave'" x-cloak>
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>

@@ -131,11 +131,15 @@ class AgentPortalController extends Controller
         }
 
         // ── Recent activity ──
-        $recentActivity = CommissionLedger::forUser($user->id)
-            ->orderByDesc('deal_date')
-            ->orderByDesc('created_at')
-            ->limit(5)
-            ->get();
+        // AT-267 §10 — an assistant has no commission of their own; the Recent Activity feed
+        // (which shows commission R amounts) collapses to its empty state for them.
+        $recentActivity = $user->isAssistant()
+            ? collect()
+            : CommissionLedger::forUser($user->id)
+                ->orderByDesc('deal_date')
+                ->orderByDesc('created_at')
+                ->limit(5)
+                ->get();
 
         // ── Social accounts ──
         $socialAccounts = AgentSocialAccount::where('user_id', $user->id)->active()->get();
@@ -218,8 +222,15 @@ class AgentPortalController extends Controller
             $defaultManagedBranchId = $defaultManagedBranchId !== null ? (int) $defaultManagedBranchId : null;
         }
 
+        // AT-267 §10 — a single flag drives every "hide for assistants" gate in the view
+        // (no forked Blade, which would drift). An assistant's own portal shows only profile
+        // photo / identity / ID / proof-of-residence / FICA(if required); commission, PPRA/FFC,
+        // bank, payroll, leave, tools and agent-marketing surfaces are all suppressed.
+        $isAssistant = $user->isAssistant();
+
         return view('agent.portal', compact(
             'user',
+            'isAssistant',
             'documents',
             'articles',
             'outstandingPolicies',

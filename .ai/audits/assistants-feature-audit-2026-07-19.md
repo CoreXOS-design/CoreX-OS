@@ -163,11 +163,19 @@ null.
 **✅ Finding 4b — drift command (DONE).** `assistants:sync-matrix` (calls `syncDrift()` over
 active assignments) scheduled nightly at 04:15. Registered + schedule verified.
 
-**⏳ Finding 4a — full profile stripping (NOT done — needs a render lane).** Spec §10: ~15
-section-by-section `@unless($isAssistant)` gates across the 1,415-line `agent/portal.blade.php`,
-a NEW Proof-of-Residence document card, and `computeComplianceStatus()` changes. Low breakage
-risk but a missed section leaks bank/commission/FFC data — must be verified by rendering the
-page, which this lane cannot do. Deferred rather than shipped un-rendered.
+**◑ Finding 4a — profile stripping (data-exposure hides DONE + compile-verified; residual needs a render lane).**
+`AgentPortalController` passes a single `$isAssistant` flag. Done (all `@unless($isAssistant)`,
+inert for normal agents; Blade compiles, directives balanced 6/6):
+- Tabs: Tools, Payslips, Leave hidden; Compliance only when `fica_required`.
+- Overview: My Earnings + My Presentations hidden; Recent Activity collapsed to empty (no
+  commission R-amounts — nulled in the controller to avoid touching the nested Training tile).
+- Profile: FFC Number/Expiry, Public Website Profile, PPRA Status hidden.
+- Documents: practitioner cards (FFC / PI / Tax) filtered out — ID Copy + Profile Photo only.
+- Password: Delete Account danger zone hidden.
+STILL TO DO on a render/test lane (each carries real risk untested): the NEW Proof-of-Residence
+upload card (needs its endpoint wired), `computeComplianceStatus()` item reduction (can't drop
+array keys without also gating the fixed-key blade rows), the "Assistant to: <Agent>" label, the
+Tools-tab DOM (tab hidden but content still x-show-hidden in source), and full render verification.
 
 **⏳ Finding 3 — record-ownership routing (NOT done — money-sensitive).** Wiring
 `ownershipUserId()` into create paths changes where commission/pipeline land; it is per-surface
