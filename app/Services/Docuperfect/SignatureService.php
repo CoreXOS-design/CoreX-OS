@@ -952,6 +952,15 @@ class SignatureService
             // on, a signature after this date is void (§11-A), independent of the 14-day link TTL.
             $this->stampLegalDeadline($template);
 
+            // ESIGN-WETINK Phase 1a — compose the CANONICAL document artifact
+            // ONCE at send (v0), fully-expanded + viewer-agnostic, and store it
+            // as web_template_data['canonical_html']. This is the single-render
+            // spine the surfaces will serve verbatim (Phase 1b) and party ink
+            // will bake into by data-recipient-identity (Phase 1c). Stored
+            // alongside merged_html and served by nothing yet, so NO behaviour
+            // change today (zero regression risk to live signing).
+            app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($template);
+
             // Find or create the agent's request and send it
             $agentRequest = $template->requests()
                 ->where('party_role', 'agent')
