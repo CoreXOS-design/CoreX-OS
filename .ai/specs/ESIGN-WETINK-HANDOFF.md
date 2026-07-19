@@ -23,8 +23,43 @@ fatal. We rip out per-screen rendering and serve the one stored artifact.
 
 **This is re-plumbing, not invention.** Every business rule (editable_by scoping,
 letterhead, role-block looping, field gates) already exists and stays. The only
-genuinely NEW piece is **identity-scoping** so two sellers' ink stays distinct
+genuinely NEW piece is **identity-scoping** so every party's ink stays distinct
 (`data-recipient-identity`).
+
+### ⚠️ N-PARTY — no 1/2 assumptions ANYWHERE (Johan scope correction)
+
+A document carries **as many sellers AND buyers as needed**, plus witnesses and
+the practitioner — **unbounded collections**, not seller_1/seller_2. Every layer
+of the identity model must be fully **N-party**:
+- `data-recipient-identity` keying: `{role}_{index}` where index runs 1..N per
+  role, for **every** role (seller, buyer, witness, practitioner), no ceiling.
+- Expansion (`expandWithLooping`) already loops per recipient — feed it the full
+  recipient collection; never assume 2.
+- Ink composition (`CanonicalInkComposer`, §2 Phase 1c) resolves the signer's
+  nodes by their identity key out of an N-length set — no `seller_1`/`seller_2`
+  branches, no hard-coded pair.
+- Version chain (1e) snapshots after **each** hop across the full ordered party
+  list, however long.
+- Editability overlay (§2 Phase 1b): each of the N same-role recipients edits
+  ONLY their own identity-keyed instance.
+
+**Grep-test before you commit:** no literal `seller_1`/`seller_2`/`buyer_1` in new
+logic except as *runtime-built* keys or *test data*. Any hard-coded pair is a bug.
+
+**OTP is the stress case:** the Offer to Purchase carries multiple sellers +
+multiple buyers + witnesses + practitioner on ONE document. If the N-party model
+renders and flows the OTP correctly, it holds for everything.
+
+### OTP context note (do NOT build OTP-specific e-sign routing)
+
+In live practice the **OTP itself is WET-INK-ONLY**: the agent renders it, parties
+sign on **paper**, and the signed OTP is later **scanned + attached** to the deal.
+That scan-attach flow is a **SEPARATE, later build (post-e-sign)** — not in scope
+here. Tomorrow's **OTP import is the e-sign ACCEPTANCE-TEST document only**: its
+N-party structure is exactly what the canonical artifact must render and flow
+correctly. Use it to prove N-party rendering/ink/version — but **do NOT bake any
+OTP-specific routing, party-shape, or ceremony assumptions** into the e-sign
+engine. The engine stays document-agnostic; the OTP is just the hardest fixture.
 
 ---
 
@@ -111,8 +146,11 @@ identity, so it accumulates and every later party sees all prior ink.
 - **New class** `app/Services/Docuperfect/CanonicalInkComposer.php`:
   `bakeInk(canonical_html, SignatureRequest $signer, array $signatures,
   $initials, $ceremonyValues): string`. Locate the signer's fields by
-  **`data-recipient-identity="{role}_{index}"`** (seller_1 vs seller_2 stay
-  distinct — THE new piece) and write the ink into those nodes only.
+  **`data-recipient-identity="{role}_{index}"`** — index runs 1..N per role
+  (every seller, every buyer, every witness, the practitioner) so **all N parties'
+  ink stays distinct** (THE new piece) — and write the ink into those nodes only.
+  Resolve the signer's identity key from the SignatureRequest at runtime; no
+  hard-coded pair, no assumption of two.
 - **Rewire** `completeWeb` (`SigningController.php:1513-1533`): today it normalizes
   `merged_html` and embeds this signer's ink then writes back to `merged_html`.
   Change it to call `CanonicalInkComposer::bakeInk` on `canonical_html`, bump
@@ -122,9 +160,11 @@ identity, so it accumulates and every later party sees all prior ink.
 - **Ink identity:** the marker/`signature_data` per-viewer overlay approach
   (is_mine) is superseded — ink is now IN the artifact, visible to all. See §4.
 
-**1c verification:** seller_1 signs → seller_2 opens → seller_2 sees seller_1's
-signature/initials already present in the identical document; seller_2 signs →
-agent/next hop sees BOTH. Prove on deployed qa1 with two real recipients.
+**1c verification:** party 1 signs → party 2 opens → sees party 1's ink already
+present in the identical document; party 2 signs → party 3 sees BOTH; and so on
+down the full ordered party list. Prove on deployed qa1 with a **≥3-party**
+ceremony (ideally the multi-seller + multi-buyer OTP fixture), not just a pair —
+the N-party accumulation is the thing under test.
 
 ---
 
@@ -167,18 +207,22 @@ Regenerate it, then run the compose check:
 
 ```php
 // scratchpad/dump-424.php  (run: php artisan tinker scratchpad/dump-424.php)
-$doc = \App\Models\Docuperfect\SignatureDocument::find(424); // or the current qa1 2-seller ceremony doc
+$doc = \App\Models\Docuperfect\SignatureDocument::find(424); // or any multi-party ceremony doc
 file_put_contents('scratchpad/merged-424.html', $doc->web_template_data['merged_html'] ?? '');
 echo strlen($doc->web_template_data['merged_html'] ?? ''), " bytes\n";
 ```
-> If doc 424 is gone on a fresh qa1 DB, find any live 2-seller ceremony:
-> `SignatureTemplate::whereHas('requests', fn($q)=>$q->where('party_role','seller'))->get()`
-> pick one with ≥2 seller requests; use its document.
+> If doc 424 is gone on a fresh qa1 DB, find a multi-party ceremony — ideally one
+> with multiple sellers AND buyers (the OTP fixture is the stress case):
+> `SignatureTemplate::withCount('requests')->having('requests_count','>=',3)->get()`
+> or filter for ≥2 seller + ≥2 buyer requests; use its document.
 
 Then compose-verify (CORRECT escaping — use `"` not `\"` in single quotes, or
-double-quote the needle). Expect: I/We clause ONCE, both names, address×2 phone×2,
-identity-stamped seller_1≥1 seller_2≥1. Script pattern is in the prior scratchpad
-`verify-compose2.php` if it survives; else rebuild from §1 "Verified" line.
+double-quote the needle). Expect for an N-party doc: each collective clause ONCE
+with all party names; per-party detail loops = N (one per same-role recipient);
+identity-stamped for EVERY `{role}_{index}` present (seller_1..N, buyer_1..N).
+Script pattern is in the prior scratchpad `verify-compose2.php` if it survives;
+else rebuild from §1 "Verified" line — but generalise the needles to loop over
+the full recipient set, not a hard-coded seller_1/seller_2 pair.
 
 **For 1b/1c the real proof is the DEPLOYED qa1 page**, not tinker — curl the
 signing token URL, diff served markup, open as each party in a browser.
@@ -206,5 +250,6 @@ signing token URL, diff served markup, open as each party in a browser.
 > `canonical_html` + apply editability as a display overlay (reuse
 > `getEditableFieldsFromMappings`; keep the `:1112` persist gate); then **1c** —
 > `CanonicalInkComposer::bakeInk` keyed on `data-recipient-identity`, rewire
-> `completeWeb`. Verify each on the deployed qa1 ceremony with two real sellers.
+> `completeWeb`. Verify each on the deployed qa1 ceremony with an N-party set
+> (≥3, multi-seller + multi-buyer OTP fixture) — no seller_1/2 assumptions.
 > Then §4 AT-300 reconciliation. Target: 1a+1b+1c on the bench by morning.
