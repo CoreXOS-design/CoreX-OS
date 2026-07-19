@@ -47,6 +47,10 @@ class DealPipelineStepController extends Controller
                 'trigger_step_id',
                 'status_trigger', 'negative_status_trigger', 'negative_outcome_label',
                 'requires_bm_approval', 'document_type_id',
+                // AT-229 — work-order config is per-step convenience, not structure;
+                // stays editable on a locked step (e.g. the locked "Electrical COC" step
+                // is exactly where an agency turns work orders on).
+                'sends_work_order', 'work_order_service_type', 'work_order_trigger_point',
             ]));
         }
 
@@ -134,6 +138,12 @@ class DealPipelineStepController extends Controller
             // for document_upload / document_signed steps; drives config-driven
             // auto-completion when a matching document is filed against the deal.
             'document_type_id' => ['nullable', 'integer', 'exists:document_types,id'],
+            // AT-229 — per-step work-order config (Q1: set in pipeline setup, no hard
+            // setting). A ticked step surfaces the OPTIONAL "Send work order" action at
+            // its trigger point; the supplier is picked at send (Q2 — no supplier column).
+            'sends_work_order' => ['boolean'],
+            'work_order_service_type' => ['nullable', 'string', 'max:40'],
+            'work_order_trigger_point' => ['nullable', 'in:activated,completed'],
         ]);
     }
 
@@ -188,6 +198,10 @@ class DealPipelineStepController extends Controller
             'negative_outcome_label' => $step->negative_outcome_label,
             'requires_bm_approval' => $step->requires_bm_approval,
             'expected_document_type_id' => data_get($step->completion_config, 'document_type_id'),
+            // AT-229 — per-step work-order config (round-trips into the builder editForm).
+            'sends_work_order' => (bool) $step->sends_work_order,
+            'work_order_service_type' => $step->work_order_service_type,
+            'work_order_trigger_point' => $step->work_order_trigger_point ?: 'activated',
         ];
     }
 }

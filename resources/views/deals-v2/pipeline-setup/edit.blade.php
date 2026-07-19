@@ -266,6 +266,39 @@
                             </div>
                         </div>
 
+                        {{-- AT-229 — per-step work order. Ticking it surfaces an OPTIONAL "Send work
+                             order" action on this step in the deal; the supplier is picked at send. --}}
+                        <div class="rounded-md p-3 mb-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer font-medium" style="color: var(--text-secondary);">
+                                <input type="checkbox" x-model="editForm.sends_work_order" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                                Send a supplier work order on this step
+                            </label>
+                            <div x-show="editForm.sends_work_order" class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                                <div>
+                                    <label class="block text-xs mb-1" style="color: var(--text-muted);">Service type (on the authorisation)</label>
+                                    <select x-model="editForm.work_order_service_type" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">— select —</option>
+                                        <option value="COC">Electrical COC</option>
+                                        <option value="Beetle">Beetle / Entomologist</option>
+                                        <option value="Gas">Gas Certificate</option>
+                                        <option value="Electric Fence">Electric Fence COC</option>
+                                        <option value="Plumbing">Plumbing</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs mb-1" style="color: var(--text-muted);">Offer the work order when the step is</label>
+                                    <select x-model="editForm.work_order_trigger_point" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="activated">Activated (as soon as the step opens)</option>
+                                        <option value="completed">Completed</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <p x-show="editForm.sends_work_order" class="text-xs mt-2" style="color: var(--text-muted);">The agent stays in control — sending is optional and the supplier is chosen (or captured) at send time.</p>
+                        </div>
+
                         {{-- Deal Status --}}
                         <div class="rounded-md p-3 mb-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Deal Status</div>

@@ -138,6 +138,10 @@ class DealPipelineSetupController extends Controller
                 'negative_outcome_label' => $s->negative_outcome_label,
                 'requires_bm_approval' => $s->requires_bm_approval,
                 'expected_document_type_id' => data_get($s->completion_config, 'document_type_id'), // WS3 (D4)
+                // AT-229 — per-step work-order config.
+                'sends_work_order' => (bool) $s->sends_work_order,
+                'work_order_service_type' => $s->work_order_service_type,
+                'work_order_trigger_point' => $s->work_order_trigger_point ?: 'activated',
             ];
         })->values();
 
