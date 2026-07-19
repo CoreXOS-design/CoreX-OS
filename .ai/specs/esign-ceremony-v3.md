@@ -1015,3 +1015,25 @@ switch is an additional layer that needs a migration + wizard saver (10a §2 sub
 it as a follow-up if Johan wants the agency-level switch. Test:
 `SigningView/ClauseFlagNotifiesAgentTest.php` (flag → agent notified via gateway). On-site: after a flag
 on qa1, the agent's list shows the FLAGGED section + a notification row exists — recorded post-deploy.
+
+## AT-300 — on-site refix after Johan's deployed retest (2026-07-19)
+
+Johan retested on deployed qa1 (bcbb2849); AT-295/297/298 had targeted the wrong surfaces (verified by
+fetching the composed page + expanding his ACTUAL merged_html for doc 424):
+- **Dup (fill&sign + recipient ceremony — one fix):** his CDS mandate binds a COLLECTIVE `seller_full`
+  field ("I / We Anine … and Andre …") but marks the clause `data-role-block="seller"`, so
+  `expandViaContract` looped it per recipient → the I/We clause duplicated. Fix `roleUsesCollectiveField()`:
+  a role whose doc carries a `<role>_full` field renders its blocks ONCE, no per-recipient header.
+  Loop-templates (indexed fields, no `_full`) unaffected. `show()` re-runs `expandWithLooping` on
+  `merged_html` at load → reaches EXISTING unsigned docs. Verified doc 424: I/We 2→1, headers 4→0.
+- **Dead Review-Flag button:** CTA pointed at `signatures.review`, which REJECTS `AMENDMENT_REVIEW`
+  (redirects "not pending approval"). Rewired to `docuperfect.amendments.review` with the pending flag
+  amendment attached in `myDocuments`.
+- **Green pills + truncation (C+D, same element):** CDS field is `.corex-field` (not `.field`); the
+  signing doc-body container is `.corex-signing-view` (JS-added), not `.recipient-signing-context`. My
+  AT-297/298 selectors matched neither. Corrected to `.corex-signing-view .corex-field` (neutralise green
+  + min-width:0/max-width:100%/white-space:normal/overflow-wrap:anywhere) + `.corex-field-label{display:none}`.
+- **Mail footer (AT-296):** unchanged, holds (re-verified: agent → own email, no admin@).
+
+Tests: `SigningView/CollectiveRoleRenderTest.php`; `NestedRoleBlockDuplicateTest` still green. Standard:
+fetch the composed page + expand the real merged_html, never the served asset alone.

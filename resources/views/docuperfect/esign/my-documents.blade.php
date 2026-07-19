@@ -203,7 +203,15 @@
                             </div>
                         </div>
                         <div class="flex flex-col gap-2">
-                            @if($doc)
+                            {{-- AT-300 — link to the FLAG-RESOLVE view (AmendmentController::review);
+                                 the doc-level signatures.review rejects AMENDMENT_REVIEW status and
+                                 bounced the button. Falls back to the doc review only if no amendment id. --}}
+                            @if(!empty($tpl->flag_amendment_id))
+                            <a href="{{ route('docuperfect.amendments.review', $tpl->flag_amendment_id) }}"
+                               class="corex-btn-primary whitespace-nowrap text-center">
+                                Review Flag
+                            </a>
+                            @elseif($doc)
                             <a href="{{ route('docuperfect.signatures.review', $doc) }}"
                                class="corex-btn-primary whitespace-nowrap text-center">
                                 Review Flag

@@ -211,19 +211,25 @@
     display: none;
 }
 
-/* AT-297 — hide the green field "chips" from the RECIPIENT signing view.
-   .corex-field renders a teal-green pill + green uppercase mini-label; the
-   white-when-filled rule above never fires because nothing stamps
-   data-filled, so every field shows green (the "chips top-left" Johan hit).
-   Neutralise for recipients only — the recipient doc body is wrapped
-   .recipient-signing-context (shared/_document-body.blade.php). The green
-   builder/agent affordance (unscoped) is left intact. */
-.recipient-signing-context .corex-field {
+/* AT-300 (supersedes AT-297/298 scope) — the CDS field pill (.corex-field) is
+   the green "chip/blank" Johan sees AND the element that truncates a long value
+   (e.g. the seller physical address). The signing-view doc body is injected via
+   Alpine x-html into $refs.webDocContent, which JS tags with .corex-signing-view
+   (sign.blade.php:1647) — THAT is the reliable container, not the earlier
+   .recipient-signing-context (which does not wrap the injected body) nor .field
+   (CDS uses .corex-field). Scope on .corex-signing-view + target .corex-field:
+   (C) neutralise the green, (D) let long content grow/wrap instead of clipping. */
+.corex-signing-view .corex-field {
     background: transparent;
-    border-color: #cbd5e1;
+    border-color: #cbd5e1;          /* neutral, not green */
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
-.recipient-signing-context .corex-field-label {
-    display: none;
+.corex-signing-view .corex-field-label {
+    display: none;                  /* hide the green uppercase mini-label */
 }
 
 /* AT-298 — fill fields must GROW/WRAP to fit their content, never truncate.
