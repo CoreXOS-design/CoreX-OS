@@ -177,6 +177,10 @@ upload card (needs its endpoint wired), `computeComplianceStatus()` item reducti
 array keys without also gating the fixed-key blade rows), the "Assistant to: <Agent>" label, the
 Tools-tab DOM (tab hidden but content still x-show-hidden in source), and full render verification.
 
-**⏳ Finding 3 — record-ownership routing (NOT done — money-sensitive).** Wiring
-`ownershipUserId()` into create paths changes where commission/pipeline land; it is per-surface
-and hard to reverse. Deferred rather than shipped untested.
+**⏳ Finding 3 — record-ownership routing (NOT done — money-sensitive; scoped for pickup).** Wiring
+`ownershipUserId()` into create paths changes where commission/pipeline land; per-surface and hard
+to reverse, so not shipped untested. **Ready-to-execute ticket written:**
+`.ai/audits/assistants-finding3-ownership-remediation.md` — exact surfaces (DealV2 the money one:
+`listing_agent_id` defaults to `auth()->id()` at `DealV2Controller.php:325`), owner-vs-actor
+columns, the guardrail (assistant can't assign ownership elsewhere), and the test plan. Note:
+routing owner→agent also fixes the read asymmetry for free (no `dataIdentityIds()` change needed).
