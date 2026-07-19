@@ -273,7 +273,19 @@ class CdsParserService
 
         // Marker-based field detection (NEW — @@@@ / %%%% / ####)
         $sections = $this->detectMarkers($sections);
+
+        // AT-304 OTP-1 — DOTTED-LEADER tokenizer. Real agency docs (the OTP) use dotted
+        // fill blanks ("Stand No: ......... in the Township of.........") instead of typed
+        // markers. Detect genuine leaders as fields — multiple per line — WITHOUT hand-markup,
+        // guarded so ordinary ellipses ("...", "….") are never tokenised. Runs before the
+        // context labeller so each detected blank gets a label from its surrounding words.
+        $sections = $this->detectDottedLeaderFields($sections);
+
         $sections = $this->identifyFieldsFromContext($sections);
+
+        // AT-304 OTP-4 — link amount-pairs (R<numeric> (<in-words>)) and name the 5.6
+        // agency-split fields (listing/selling agency name · share % · FFC).
+        $sections = $this->refineAmountPairsAndAgencySplit($sections);
 
         // Structural detection — signature sections stay (strips raw sig text at end of doc)
         $sections = $this->detectSignatureSections($sections);
@@ -1527,6 +1539,154 @@ class CdsParserService
      * Post-process: detect underscore runs as field placeholders.
      * Lines of underscores (3+) become interactive field_placeholder items.
      */
+    /**
+     * AT-304 OTP-4 — amount-pair linkage + agency-split field naming.
+     *
+     * (a) AMOUNT PAIRS: an OTP states each amount as "R<numeric> (<amount in words>)". The two
+     *     blanks are ONE fact — link them: the bracketed field becomes the in-words counterpart
+     *     of the R-amount (field_name property.price_in_words for the purchase price, else
+     *     deal.amount_words) with `linked_to` pointing at the numeric field's field_name.
+     * (b) AGENCY SPLIT (clause 5.6): a line naming the listing AND selling agency with share %
+     *     and FFC — label its blanks in order: agency name · share % · FFC, per side.
+     */
+    private function refineAmountPairsAndAgencySplit(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            $content = $section['content'] ?? null;
+            if (! is_array($content) || $content === []) {
+                continue;
+            }
+            $clause = strtolower($this->contentToPlainText($content));
+
+            // ── (b) agency split — relabel the run of blanks in order ──────────────
+            if (str_contains($clause, 'agency') && (str_contains($clause, 'ffc') || str_contains($clause, 'share'))
+                && str_contains($clause, 'listing') && str_contains($clause, 'selling')) {
+                $seq = ['listing' => ['Listing Agency', 'agency.listing_name'], 'share1' => ['Listing Share %', 'agency.listing_share'], 'ffc1' => ['Listing FFC', 'agency.listing_ffc'],
+                        'selling' => ['Selling Agency', 'agency.selling_name'], 'share2' => ['Selling Share %', 'agency.selling_share'], 'ffc2' => ['Selling FFC', 'agency.selling_ffc']];
+                $seq = array_values($seq);
+                $n = 0;
+                foreach ($content as &$it) {
+                    if (($it['type'] ?? '') === 'field_placeholder' && isset($seq[$n])) {
+                        [$lbl, $name] = $seq[$n];
+                        $it['label'] = $lbl;
+                        $it['field_name'] = $name;
+                        $it['field_type'] = str_contains($name, 'share') ? 'number' : 'text';
+                        $it['source'] = 'agency';
+                        $it['confidence'] = 'medium';
+                        $n++;
+                    }
+                }
+                unset($it);
+                $section['content'] = $content;
+                continue;
+            }
+
+            // ── (a) amount pairs — link R<numeric> ( <in-words> ) ──────────────────
+            $isPrice = str_contains($clause, 'purchase price') || preg_match('/\bprice\b/', $clause);
+            for ($i = 0; $i < count($content); $i++) {
+                if (($content[$i]['type'] ?? '') !== 'field_placeholder') {
+                    continue;
+                }
+                // Is this the R-amount? the nearest preceding text ends with "R".
+                $before = '';
+                for ($j = $i - 1; $j >= 0; $j--) {
+                    if (($content[$j]['type'] ?? '') === 'text') { $before = rtrim((string) $content[$j]['value']); break; }
+                }
+                if (! preg_match('/R\s*$/', $before)) {
+                    continue;
+                }
+                // The next field_placeholder whose preceding text opens a "(" is the in-words half.
+                for ($k = $i + 1; $k < count($content); $k++) {
+                    if (($content[$k]['type'] ?? '') !== 'field_placeholder') {
+                        continue;
+                    }
+                    $mid = '';
+                    for ($j = $k - 1; $j > $i; $j--) {
+                        if (($content[$j]['type'] ?? '') === 'text') { $mid .= (string) $content[$j]['value']; }
+                    }
+                    if (str_contains($mid, '(')) {
+                        $amtName = $isPrice ? 'property.price' : ($content[$i]['field_name'] ?? 'deal.amount');
+                        $content[$i]['label'] = $isPrice ? 'Purchase Price (R)' : ($content[$i]['label'] ?? 'Amount (R)');
+                        $content[$i]['field_name'] = $amtName;
+                        $content[$i]['field_type'] = 'currency';
+                        $content[$k]['label'] = 'Amount in words';
+                        $content[$k]['field_name'] = $isPrice ? 'property.price_in_words' : 'deal.amount_words';
+                        $content[$k]['field_type'] = 'text';
+                        $content[$k]['linked_to'] = $amtName;
+                        $content[$k]['source'] = $isPrice ? 'computed' : 'deal';
+                    }
+                    break;
+                }
+            }
+            $section['content'] = $content;
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * AT-304 OTP-1 — tokenise DOTTED-LEADER fill blanks into fields.
+     *
+     * A genuine fill leader is a run of >=5 dots (or >=2 unicode ellipses) — long enough that
+     * it can never be sentence punctuation ("..." = 3, "…." = ellipsis+stop). Splitting the
+     * text run yields MULTIPLE fields per line, each labelled downstream from its surrounding
+     * words by identifyFieldsFromContext.
+     *
+     * GUARD: signature-area sections (their text names signature/witness/signed) are left for
+     * the signature detectors — those dotted lines are sign-here surfaces, not input fields.
+     */
+    private function detectDottedLeaderFields(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            if (empty($section['content']) || ! is_array($section['content'])) {
+                continue;
+            }
+            $plain = strtolower($this->contentToPlainText($section['content']));
+            if (preg_match('/\b(signature|witness|signed\s+at|as\s+witnesses|thus\s+done)\b/', $plain)) {
+                continue; // handled by the signature detectors
+            }
+
+            $newContent = [];
+            $changed = false;
+            foreach ($section['content'] as $item) {
+                if (($item['type'] ?? '') !== 'text') {
+                    $newContent[] = $item;
+                    continue;
+                }
+                $val = (string) ($item['value'] ?? '');
+                $parts = preg_split('/(\.{5,}|\x{2026}{2,})/u', $val, -1, PREG_SPLIT_DELIM_CAPTURE);
+                if ($parts === false || count($parts) <= 1) {
+                    $newContent[] = $item;
+                    continue;
+                }
+                foreach ($parts as $part) {
+                    if ($part === '') {
+                        continue;
+                    }
+                    if (preg_match('/^(\.{5,}|\x{2026}{2,})$/u', $part)) {
+                        $newContent[] = ['type' => 'field_placeholder', 'length' => mb_strlen($part), 'source_marker' => 'dotted_leader'];
+                        $changed = true;
+                    } else {
+                        $t = ['type' => 'text', 'value' => $part];
+                        foreach (['bold', 'italic', 'underline'] as $f) {
+                            if (! empty($item[$f])) {
+                                $t[$f] = true;
+                            }
+                        }
+                        $newContent[] = $t;
+                    }
+                }
+            }
+            if ($changed) {
+                $section['content'] = $newContent;
+            }
+        }
+        unset($section);
+
+        return $sections;
+    }
+
     private function detectFieldPlaceholders(array $sections): array
     {
         foreach ($sections as &$section) {
@@ -1821,6 +1981,7 @@ class CdsParserService
     private function extractPartyRoles(array $sections): array
     {
         $roles = [];
+        // Order matters — 'practitioner'/'co-sign' before the generic 'agent'.
         $roleKeywords = [
             'owner' => 'landlord',
             'landlord' => 'landlord',
@@ -1829,6 +1990,11 @@ class CdsParserService
             'seller' => 'seller',
             'purchaser' => 'buyer',
             'buyer' => 'buyer',
+            // AT-304 OTP-3 — an OTP sig page names the practitioner + a co-signatory + witnesses.
+            'property practitioner' => 'agent',
+            'practitioner' => 'agent',
+            'co-signatory' => 'co_signatory',
+            'co-sign' => 'co_signatory',
             'agent' => 'agent',
             'witness' => 'witness',
         ];
@@ -1842,18 +2008,23 @@ class CdsParserService
                     || (($c['type'] === 'text') && trim($c['value'] ?? '') === ''));
             if ($hasOnlyFields) continue;
 
+            // AT-304 OTP-3 — the "short label" length gate must ignore the dotted/underscore
+            // FILL leaders on the line ("As Witnesses: 1. ......... 2. .........") — otherwise
+            // the leaders inflate the length past 30 and the witness/practitioner roles are missed.
+            $label = strtolower(trim(preg_replace(['/[_.\x{2026}]{3,}/u', '/\s+/u'], ' ', $text)));
+
             // Check for role words in short label-like paragraphs
             foreach ($roleKeywords as $keyword => $role) {
-                if (str_contains($text, $keyword)
-                    && !str_contains($text, 'print name')
-                    && !str_contains($text, 'the ')
-                    && strlen($text) < 30) {
+                if (str_contains($label, $keyword)
+                    && !str_contains($label, 'print name')
+                    && !str_contains($label, 'the ')
+                    && strlen($label) < 34) {
                     // Count occurrences to handle "Owner Owner Agent"
-                    $count = substr_count($text, $keyword);
+                    $count = substr_count($label, $keyword);
                     for ($i = 0; $i < $count; $i++) {
                         $roles[] = [
                             'role' => $role,
-                            'label' => ucfirst($role),
+                            'label' => ucfirst(str_replace('_', ' ', $role)),
                         ];
                     }
                 }
