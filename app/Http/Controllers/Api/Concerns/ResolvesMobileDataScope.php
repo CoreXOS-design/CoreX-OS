@@ -65,7 +65,10 @@ trait ResolvesMobileDataScope
             $branchId = $user->effectiveBranchId();
             $query->where('branch_id', $branchId ?: -1);
         } elseif ($scope !== 'all') {
-            $query->where('id', $user->id);
+            // AT-267 — for an ASSISTANT this is their Assigned Agent (dataIdentityIds()), so the
+            // agent picker on mobile offers the agent whose book they actually work. For everyone
+            // else it is exactly [$user->id] and nothing changes.
+            $query->whereIn('id', $user->dataIdentityIds());
         }
 
         return $query->get(['id', 'name', 'email']);
@@ -89,13 +92,18 @@ trait ResolvesMobileDataScope
     {
         $scope = PermissionService::getDataScope($user, $module) ?? 'own';
 
+        // AT-267 — the records an assistant works are OWNED by their Assigned Agent
+        // (User::ownershipUserId()), so an own-scope filter has to resolve to the AGENT's id.
+        // Filtering to the assistant's own id would return an empty list on mobile — the
+        // assistant owns nothing, by design. For every other user ownershipUserId() is their
+        // own id and this is a no-op.
         if (! in_array($scope, ['branch', 'all'], true)) {
-            return $user->id; // own-only — never wider than self
+            return $user->ownershipUserId(); // own-only — never wider than the agent's book
         }
 
         // Param not sent at all → default to the user's own records.
         if ($param === null) {
-            return $user->id;
+            return $user->ownershipUserId();
         }
 
         // Explicit "all in scope".

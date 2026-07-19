@@ -294,6 +294,8 @@ CREATE TABLE `agencies` (
   `whatsapp_default_template` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `dashboard_settings_mode` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'user' COMMENT 'user = individual settings, agency = shared agency settings',
   `split_branches_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `assistants_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `assistant_fica_required_default` tinyint(1) NOT NULL DEFAULT '1',
   `properties_sort_mode` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'created',
   `properties_status_priority` json DEFAULT NULL,
   `default_branch_id` bigint unsigned DEFAULT NULL,
@@ -1366,6 +1368,64 @@ CREATE TABLE `article_pool` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `article_pool_url_hash_unique` (`url_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `assistant_assignment_permissions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `assistant_assignment_permissions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `assistant_assignment_id` bigint unsigned NOT NULL,
+  `permission_key` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `granted` tinyint(1) NOT NULL DEFAULT '0',
+  `scope` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_locked` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `aap_assignment_key_unique` (`assistant_assignment_id`,`permission_key`),
+  KEY `assistant_assignment_permissions_agency_id_foreign` (`agency_id`),
+  KEY `assistant_assignment_permissions_permission_key_index` (`permission_key`),
+  CONSTRAINT `aap_assignment_fk` FOREIGN KEY (`assistant_assignment_id`) REFERENCES `assistant_assignments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `assistant_assignment_permissions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `assistant_assignments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `assistant_assignments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `assistant_user_id` bigint unsigned NOT NULL,
+  `agent_user_id` bigint unsigned NOT NULL,
+  `status` enum('active','suspended','revoked') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `suspend_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `snapshot_taken_at` timestamp NULL DEFAULT NULL,
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `revoked_by_user_id` bigint unsigned DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `revoke_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_assistant_user_id` bigint unsigned GENERATED ALWAYS AS (if(((`status` = _utf8mb4'active') and (`deleted_at` is null)),`assistant_user_id`,NULL)) STORED,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `assistant_one_active_agent` (`active_assistant_user_id`),
+  KEY `assistant_assignments_branch_id_foreign` (`branch_id`),
+  KEY `aa_created_by_fk` (`created_by_user_id`),
+  KEY `aa_revoked_by_fk` (`revoked_by_user_id`),
+  KEY `assistant_assignments_agency_id_status_index` (`agency_id`,`status`),
+  KEY `assistant_assignments_agent_user_id_status_index` (`agent_user_id`,`status`),
+  KEY `assistant_assignments_assistant_user_id_status_index` (`assistant_user_id`,`status`),
+  CONSTRAINT `aa_agent_fk` FOREIGN KEY (`agent_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `aa_assistant_fk` FOREIGN KEY (`assistant_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `aa_created_by_fk` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `aa_revoked_by_fk` FOREIGN KEY (`revoked_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `assistant_assignments_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `assistant_assignments_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `automation_log`;
@@ -12170,6 +12230,8 @@ CREATE TABLE `users` (
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `display_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'agent',
+  `is_assistant` tinyint(1) NOT NULL DEFAULT '0',
+  `fica_required` tinyint(1) NOT NULL DEFAULT '1',
   `risk_tier` enum('high','medium','low') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
   `screening_status` enum('never_screened','pre_employment_pending','clear','concerns_flagged','overdue','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'never_screened',
   `screening_due_on` date DEFAULT NULL,
@@ -12266,6 +12328,7 @@ CREATE TABLE `users` (
   KEY `users_source_reference_index` (`source_reference`),
   KEY `users_qr_reroute_user_id_index` (`qr_reroute_user_id`),
   KEY `users_show_on_website_index` (`show_on_website`),
+  KEY `users_is_assistant_index` (`is_assistant`),
   CONSTRAINT `users_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_sponsored_by_user_id_foreign` FOREIGN KEY (`sponsored_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -13639,3 +13702,8 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1017,'2026_07_19_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1018,'2026_07_19_000003_add_branch_id_to_buyer_match_models',183);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1019,'2026_07_19_000004_backfill_branch_id_for_per_user_activity_models',183);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1020,'2026_07_19_000005_backfill_branch_id_for_commission_ledger',184);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1021,'2026_07_14_200001_add_assistant_fields_to_users_table',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1022,'2026_07_14_200002_create_assistant_assignments_table',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1023,'2026_07_14_200003_create_assistant_assignment_permissions_table',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1024,'2026_07_14_200004_add_assistants_settings_to_agencies_table',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1025,'2026_07_14_200005_seed_assistant_role',185);

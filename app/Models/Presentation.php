@@ -184,7 +184,8 @@ class Presentation extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('created_by_user_id', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        if ($scope === 'own') return $query->whereIn('created_by_user_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }

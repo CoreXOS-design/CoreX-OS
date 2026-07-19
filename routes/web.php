@@ -512,6 +512,40 @@ Route::middleware('auth')->group(function () {
         ->name('admin.branch-settings.update');
 
 
+    /*
+     | AT-267 — Assistants (admin surface).
+     |
+     | An admin creates the assistant and hands them to an agent. From there the AGENT owns
+     | what they may do (see agent.assistants.* below) and the admin owns whether they exist.
+     |
+     | Full CRUD is the floor (BUILD_STANDARD §1): list, view, create, reassign, revoke,
+     | restore. Revoke is a soft delete — no hard deletes, ever.
+     */
+    Route::prefix('admin/assistants')->name('admin.assistants.')->middleware('agency.required')->group(function () {
+        Route::get('/',                             [\App\Http\Controllers\Admin\AssistantController::class, 'index'])->name('index');
+        Route::get('/create',                       [\App\Http\Controllers\Admin\AssistantController::class, 'create'])->name('create');
+        Route::post('/',                            [\App\Http\Controllers\Admin\AssistantController::class, 'store'])->name('store');
+        Route::get('/{assignment}',                 [\App\Http\Controllers\Admin\AssistantController::class, 'show'])->name('show');
+        Route::post('/{assignment}/reassign',       [\App\Http\Controllers\Admin\AssistantController::class, 'reassign'])->name('reassign');
+        Route::post('/{assignment}/revoke',         [\App\Http\Controllers\Admin\AssistantController::class, 'revoke'])->name('revoke');
+        Route::post('/{assignment}/restore',        [\App\Http\Controllers\Admin\AssistantController::class, 'restore'])->name('restore')->withTrashed();
+        Route::post('/{assignment}/resend-invite',  [\App\Http\Controllers\Admin\AssistantController::class, 'resendInvite'])->name('resend-invite');
+    });
+
+    /*
+     | AT-267 — the agent's own Assistants page.
+     |
+     | Gated by OWNERSHIP inside the controller (agent_user_id === auth id), not by a permission
+     | key: the right to configure your own assistant derives from being their agent, the same
+     | way editing your own profile derives from being that user. A grantable key would allow an
+     | agent to have an assistant they cannot configure.
+     */
+    Route::prefix('my-portal/assistants')->name('agent.assistants.')->middleware('agency.required')->group(function () {
+        Route::get('/',                     [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'index'])->name('index');
+        Route::get('/{assignment}/matrix',  [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'edit'])->name('matrix');
+        Route::post('/{assignment}/matrix', [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'save'])->name('matrix.save');
+    });
+
     Route::get('/admin/users', [App\Http\Controllers\Admin\UserManagementController::class, 'index'])
         ->middleware('permission:manage_users')->name('admin.users');
     Route::get('/admin/users/create', [App\Http\Controllers\Admin\UserManagementController::class, 'create'])
@@ -2497,6 +2531,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Split Branches toggle (Agency Settings tab)
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
+
+    // AT-267 — Assistants toggle (Agency Settings tab). This is the control the Assistants
+    // admin page points at when the feature is off, and the one the Setup Wizard writes.
+    Route::put('/settings/agency/assistants', [CoreXSettingsController::class, 'updateAssistants'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.assistants');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 
@@ -2724,7 +2763,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // Properties — listing sync to website
-    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required'])->name('corex.properties.')->group(function () {
+    // AT-267 — `deny_assistant_property_write` guards the WHOLE group, not a hand-picked list
+    // of routes. An assistant may never create or import a listing, and several creation paths
+    // in here carry no permission key at all (the classic store, every wizard mutation, the
+    // sold-CSV and p24-fix uploads). Gating the group means a property-write route added later
+    // is covered by DEFAULT: it fails closed until someone deliberately adds it to the
+    // middleware's ASSISTANT_MAY allow list. Reads and the allow-listed edits pass straight
+    // through — an assistant is supposed to work the agent's listings, just not create them.
+    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
 

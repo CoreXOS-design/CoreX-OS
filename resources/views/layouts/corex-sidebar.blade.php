@@ -551,6 +551,34 @@
         @endpermission
 
         {{-- ═══════════════════════════════════════════
+             MY ASSISTANTS (AT-267)
+
+             Conditional on a DATA fact, not a permission: this appears only for an agent who
+             actually has an assistant. It is not something you can be granted — you either have
+             an assistant to manage or you don't, so a permission key would be meaningless.
+             Cached per agent (busted on create / reassign / revoke / restore).
+             ═══════════════════════════════════════════ --}}
+        @php
+            $_hasAssistants = false;
+            if ($user && \Illuminate\Support\Facades\Route::has('agent.assistants.index') && ($_userAgency?->assistants_enabled)) {
+                $_hasAssistants = cache()->remember(
+                    'assistants.agent.' . $user->id,
+                    60,
+                    fn () => \App\Models\AssistantAssignment::where('agent_user_id', $user->id)->active()->exists()
+                );
+            }
+        @endphp
+        @if($_hasAssistants)
+        <a href="{{ route('agent.assistants.index') }}"
+           class="corex-nav-item {{ request()->routeIs('agent.assistants.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>My Assistants</span>
+        </a>
+        @endif
+
+        {{-- ═══════════════════════════════════════════
              REAL ESTATE (expandable group)
              ═══════════════════════════════════════════ --}}
         <div>
@@ -1542,15 +1570,16 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
         {{-- Company (slide-panel group) — agency-level configuration and people admin --}}
-        {{-- `billing.view` is in this gate because the Company GROUP is only rendered when the user
-             holds at least one of its children's permissions — without it, a role granted only
-             billing.view would have the whole group hidden and could never reach Billing. --}}
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
+        {{-- `billing.view` and `assistants.view` are in this gate because the Company GROUP is only
+             rendered when the user holds at least one of its children's permissions — without them, a
+             role granted only billing.view (or only assistants.view) would have the whole group hidden
+             and could never reach Billing / Assistants. --}}
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_role_manager', 'assistants.view', 'access_soft_deletes', 'manage_staff_take_on', 'billing.view']))
         <div>
             <button type="button" @click="push('company')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'company' ? 'active' : '' }}">
@@ -1579,6 +1608,15 @@
 
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
+                @endpermission
+
+                {{-- AT-267 — Assistants. Sits beside Role Manager because it is the same kind of
+                     decision: who may do what. The difference is that an assistant's permissions
+                     are chosen by their agent, not by a role. --}}
+                @permission('assistants.view')
+                @if(\Illuminate\Support\Facades\Route::has('admin.assistants.index'))
+                <a href="{{ route('admin.assistants.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.assistants.*') ? 'active' : '' }}">Assistants</a>
+                @endif
                 @endpermission
 
                 @permission('access_soft_deletes')

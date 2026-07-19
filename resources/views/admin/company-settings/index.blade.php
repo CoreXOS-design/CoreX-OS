@@ -892,6 +892,73 @@
                     </div>
                 </form>
             </div>
+
+            {{-- AT-267 — Assistants. Sits beside Data Isolation because it is the same kind of
+                 agency-wide switch: it changes who can see and do what, it ships OFF, and it can
+                 be flipped freely with no data loss. This is the control the Assistants admin page
+                 sends people to when the feature is off. --}}
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="ds-section-header">Assistants</h3>
+                <form method="POST" action="{{ route('corex.settings.assistants') }}"
+                      class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf
+                    @method('PUT')
+
+                    <div class="flex items-start gap-4">
+                        <div class="flex-1">
+                            <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Allow agents to have assistants</div>
+                            <div class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                An assistant is a person who works for one of your agents. They get their own login and
+                                start with a copy of that agent's permissions, which the agent then switches off item by
+                                item from their own <strong>My Assistants</strong> page. An assistant can never do more than
+                                the agent they work for, everything they do is recorded as being on that agent's behalf, and
+                                <strong>they can never create or import a listing</strong>. Flip freely — no data loss.
+                            </div>
+                        </div>
+
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                            <input type="hidden" name="assistants_enabled" value="0">
+                            <input type="checkbox" name="assistants_enabled" value="1"
+                                   {{ $agency->assistants_enabled ? 'checked' : '' }}
+                                   class="sr-only peer">
+                            <div class="w-11 h-6 rounded-full transition-colors duration-300"
+                                 style="background:var(--border);"></div>
+                        </label>
+                    </div>
+
+                    <div class="flex items-start gap-4 mt-4 pt-4" style="border-top:1px solid var(--border);">
+                        <div class="flex-1">
+                            <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">New assistants must complete FICA verification</div>
+                            <div class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                Whether a newly-created assistant is asked for their identity documents — an ID copy and
+                                proof of residence — as part of their onboarding. This only sets the default; it can be
+                                changed per assistant when you create them.
+                            </div>
+                        </div>
+
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                            <input type="hidden" name="assistant_fica_required_default" value="0">
+                            <input type="checkbox" name="assistant_fica_required_default" value="1"
+                                   {{ $agency->assistant_fica_required_default ? 'checked' : '' }}
+                                   class="sr-only peer">
+                            <div class="w-11 h-6 rounded-full transition-colors duration-300"
+                                 style="background:var(--border);"></div>
+                        </label>
+                    </div>
+
+                    <div class="mt-4 flex items-center justify-between gap-3">
+                        <div class="text-xs" style="color:var(--text-muted);">
+                            Currently: <strong style="color:{{ $agency->assistants_enabled ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-secondary)' }};">
+                                {{ $agency->assistants_enabled ? 'ON' : 'OFF' }}
+                            </strong>
+                            — {{ $agency->assistants_enabled
+                                ? 'Agents with an assistant can manage what that assistant may do.'
+                                : 'Assistants have no access at all (default).' }}
+                        </div>
+                        <button type="submit" class="corex-btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
             @endif
         </div>
 

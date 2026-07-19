@@ -1055,7 +1055,10 @@ class Property extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('agent_id', $user->id);
+        // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their
+        // Assigned Agent's book, not their own (dataIdentityIds()); for everyone else this
+        // is exactly [$user->id] and behaviour is unchanged.
+        if ($scope === 'own') return $query->whereIn('agent_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }
