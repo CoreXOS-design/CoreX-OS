@@ -70,6 +70,11 @@ Schedule::command('communications:purge-embargoed-bodies')->dailyAt('03:30')->wi
 // Spec: .ai/specs/agency-billing.md §7.4
 Schedule::command('corex:billing-reconcile')->dailyAt('03:00')->withoutOverlapping();
 
+// AT-267 §14 E4 — nightly assistant-matrix drift sync. Adds any permission an Assigned Agent
+// has GAINED since setup to their assistant's matrix, switched OFF (a new capability is handed
+// over consciously). Idempotent; 04:15 keeps it clear of the 03:00/03:30 windows.
+Schedule::command('assistants:sync-matrix')->dailyAt('04:15')->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.

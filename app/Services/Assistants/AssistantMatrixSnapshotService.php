@@ -132,21 +132,32 @@ class AssistantMatrixSnapshotService
             return 0;
         }
 
+        // Admin-access keys default OFF on a fresh snapshot (Johan 2026-07-19). Only relevant
+        // when grantedByDefault is true — a drift top-up already arrives OFF, so the set is
+        // empty there and the lookup is skipped.
+        $adminOff = $grantedByDefault ? $this->adminDefaultOffKeys() : [];
+
         $now  = now();
         $rows = [];
 
         foreach ($missing as $key) {
             $locked = AssistantPermissionResolver::isLocked($key);
 
+            // A locked key is NEVER granted, whatever the default is (the model's saving() hook
+            // enforces this too). An admin-access key defaults OFF but stays editable — the
+            // agent can consciously turn it on, exactly like a drift row.
+            $granted = $locked
+                ? false
+                : (isset($adminOff[$key]) ? false : $grantedByDefault);
+
             $rows[] = [
                 'agency_id'               => $assignment->agency_id,
                 'assistant_assignment_id' => $assignment->id,
                 'permission_key'          => $key,
-                // A locked key is NEVER granted, whatever the default is. The model's saving()
-                // hook enforces this too — belt and braces, because this is the one rule that
-                // may never bend.
-                'granted'                 => $locked ? false : $grantedByDefault,
-                'scope'                   => $locked ? null : $this->scopeFor($agent, $key, $grantedByDefault),
+                'granted'                 => $granted,
+                // Scope only carries meaning on a granted .view row; an off row (locked or
+                // admin-default-off) stores null so the matrix editor opens showing the truth.
+                'scope'                   => $granted ? $this->scopeFor($agent, $key, true) : null,
                 'is_locked'               => $locked,
                 'created_at'              => $now,
                 'updated_at'              => $now,
@@ -182,5 +193,28 @@ class AssistantMatrixSnapshotService
         $module = substr($key, 0, -strlen('.view'));
 
         return PermissionService::getDataScope($agent, $module);
+    }
+
+    /**
+     * The permission keys that default OFF on a fresh snapshot — admin-access features an
+     * assistant must never inherit silently just because their agent is an admin (Johan
+     * 2026-07-19). Derived from the catalogue's `section` so it tracks new admin permissions
+     * automatically. Returned key => true for an O(1) membership test in seed().
+     *
+     * @return array<string, true>
+     */
+    private function adminDefaultOffKeys(): array
+    {
+        $sections = (array) config('assistants.admin_default_off_sections', []);
+
+        if ($sections === []) {
+            return [];
+        }
+
+        return CoreXPermission::query()
+            ->whereIn('section', $sections)
+            ->pluck('key')
+            ->mapWithKeys(fn (string $key) => [$key => true])
+            ->all();
     }
 }

@@ -62,4 +62,40 @@ return [
         'listings.edit',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin-access permissions default OFF (Johan's rule, 2026-07-19)
+    |--------------------------------------------------------------------------
+    |
+    | UNLIKE the hard lock above, this is a soft DEFAULT, not a ban. When an
+    | assistant is created for an agent who holds admin-access permissions (most
+    | acutely, an admin), those permissions land in the fresh matrix switched
+    | OFF (granted = false, is_locked = false). The agent/admin can still turn any
+    | of them on deliberately — but a brand-new assistant never starts able to
+    | reach the soft-delete register, backups, payroll, agency settings, the role
+    | manager, the finance engine or trust-interest just because their agent can.
+    |
+    | Everything else the agent holds still defaults ON (the "immediately useful"
+    | copy). Only these management/money/owner sections invert to opt-in.
+    |
+    | Driven by the permission catalogue's `section` (nexus_permissions.section),
+    | so the set auto-tracks new permissions added to these areas instead of a
+    | hand-list that rots. Adjust the section list here — never hardcode keys.
+    |
+    | Consumed by AssistantMatrixSnapshotService::seed() on a FRESH snapshot only
+    | (drift rows already arrive OFF).
+    */
+    'admin_default_off_sections' => [
+        'admin',           // soft-delete register, backups, server health, API keys, testimonials
+        'role-manager',    // viewing/editing roles + permissions
+        'settings',        // agency settings
+        'agencies',        // agency management
+        'franchise-admin', // cross-agency / franchise administration
+        'finance-engine',  // the commission/revenue engine
+        'trust-interest',  // trust account interest — money + compliance
+        'payroll',         // payroll run + reports
+        'remote-access',   // remote/developer access
+        'supervision',     // BM/admin oversight surfaces
+    ],
+
 ];

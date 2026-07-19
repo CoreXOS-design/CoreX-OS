@@ -98,6 +98,8 @@ class PropertyAuditService
         \Illuminate\Support\Facades\DB::table('marketing_share_log')->insert([
             'property_id' => $property->id,
             'user_id' => $user?->id ?? auth()->id(),
+            // AT-267 §11 — raw insert (bypasses the model), so stamp on-behalf-of here.
+            'on_behalf_of_user_id' => \App\Support\ActingFor::onBehalfOfUserId(),
             'agency_id' => $property->agency_id,   // AT-253 Rule 17
 
             'channel' => $channel,

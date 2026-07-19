@@ -1898,13 +1898,16 @@ CREATE TABLE `calendar_event_audit_log` (
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `calendar_event_audit_log_performed_by_user_id_foreign` (`performed_by_user_id`),
   KEY `cea_event_time_idx` (`calendar_event_id`,`performed_at`),
   KEY `calendar_event_audit_log_agency_id_idx` (`agency_id`),
+  KEY `ceal_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `calendar_event_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `calendar_event_audit_log_calendar_event_id_foreign` FOREIGN KEY (`calendar_event_id`) REFERENCES `calendar_events` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `calendar_event_audit_log_performed_by_user_id_foreign` FOREIGN KEY (`performed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `calendar_event_audit_log_performed_by_user_id_foreign` FOREIGN KEY (`performed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ceal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `calendar_event_class_settings`;
@@ -2698,6 +2701,7 @@ CREATE TABLE `comms_access_audit_log` (
   `communication_id` bigint unsigned DEFAULT NULL,
   `detail` json DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `comms_audit_actor_fk` (`actor_user_id`),
   KEY `comms_audit_subject_fk` (`subject_user_id`),
@@ -2705,6 +2709,8 @@ CREATE TABLE `comms_access_audit_log` (
   KEY `comms_audit_agency_created_idx` (`agency_id`,`created_at`),
   KEY `comms_audit_contact_idx` (`contact_id`),
   KEY `comms_audit_event_idx` (`event_type`),
+  KEY `caal_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `caal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `comms_access_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `comms_audit_actor_fk` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `comms_audit_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE SET NULL,
@@ -3166,12 +3172,15 @@ CREATE TABLE `contact_access_log` (
   `user_agent` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `request_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `contact_access_log_user_id_foreign` (`user_id`),
   KEY `contact_access_log_contact_id_accessed_at_index` (`contact_id`,`accessed_at`),
   KEY `contact_access_log_agency_id_accessed_at_index` (`agency_id`,`accessed_at`),
   KEY `cal_impersonator_fk` (`impersonator_id`),
+  KEY `cal_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `cal_impersonator_fk` FOREIGN KEY (`impersonator_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `cal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_access_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_access_log_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_access_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -3905,6 +3914,7 @@ CREATE TABLE `deal_activity_log` (
   `metadata` json DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `branch_id` bigint unsigned DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `deal_activity_log_user_id_foreign` (`user_id`),
   KEY `deal_activity_log_deal_step_instance_id_foreign` (`deal_step_instance_id`),
@@ -3912,6 +3922,8 @@ CREATE TABLE `deal_activity_log` (
   KEY `deal_activity_log_agency_id_idx` (`agency_id`),
   KEY `deal_activity_log_dr1_deal_id_foreign` (`dr1_deal_id`),
   KEY `deal_activity_log_branch_id_foreign` (`branch_id`),
+  KEY `dal_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `dal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deal_activity_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `deal_activity_log_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `deal_activity_log_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE CASCADE,
@@ -4062,12 +4074,15 @@ CREATE TABLE `deal_logs` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `deal_logs_deal_id_created_at_index` (`deal_id`,`created_at`),
   KEY `deal_logs_actor_user_id_created_at_index` (`actor_user_id`,`created_at`),
   KEY `deal_logs_event_type_created_at_index` (`event_type`,`created_at`),
   KEY `deal_logs_agency_id_idx` (`agency_id`),
-  CONSTRAINT `deal_logs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+  KEY `dl_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `deal_logs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `dl_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `deal_money_lines`;
@@ -5582,6 +5597,7 @@ CREATE TABLE `domain_event_log` (
   `context` json DEFAULT NULL,
   `occurred_at` datetime(6) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `dom_evt_event_id_unique` (`event_id`),
   KEY `dom_evt_trace_idx` (`trace_id`),
@@ -5589,7 +5605,9 @@ CREATE TABLE `domain_event_log` (
   KEY `dom_evt_agency_idx` (`agency_id`),
   KEY `dom_evt_actor_idx` (`actor_user_id`),
   KEY `dom_evt_subject_idx` (`subject_type`,`subject_id`),
-  KEY `dom_evt_occurred_idx` (`occurred_at`)
+  KEY `dom_evt_occurred_idx` (`occurred_at`),
+  KEY `del_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `del_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `employee_screening_checks`;
@@ -6733,9 +6751,12 @@ CREATE TABLE `legal_block_audit_log` (
   `matched_pattern` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `request_context` json DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `legal_block_audit_log_agency_id_created_at_index` (`agency_id`,`created_at`),
-  KEY `legal_block_audit_log_template_id_index` (`template_id`)
+  KEY `legal_block_audit_log_template_id_index` (`template_id`),
+  KEY `lbal_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `lbal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `listing_import_rows`;
@@ -7156,13 +7177,16 @@ CREATE TABLE `marketing_share_log` (
   `recipient_context` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `metadata` json DEFAULT NULL,
   `created_at` timestamp NOT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `marketing_share_log_property_id_foreign` (`property_id`),
   KEY `marketing_share_log_user_id_foreign` (`user_id`),
   KEY `marketing_share_log_agency_id_foreign` (`agency_id`),
+  KEY `msl_obo_fk` (`on_behalf_of_user_id`),
   CONSTRAINT `marketing_share_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `marketing_share_log_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
-  CONSTRAINT `marketing_share_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+  CONSTRAINT `marketing_share_log_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `msl_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `marketing_suppressions`;
@@ -9472,12 +9496,15 @@ CREATE TABLE `property_audit_log` (
   `metadata` json DEFAULT NULL,
   `human_summary` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `property_audit_log_user_id_foreign` (`user_id`),
   KEY `property_audit_log_branch_id_foreign` (`branch_id`),
   KEY `property_audit_log_property_id_created_at_index` (`property_id`,`created_at`),
   KEY `property_audit_log_property_id_event_category_index` (`property_id`,`event_category`),
   KEY `property_audit_log_agency_id_created_at_index` (`agency_id`,`created_at`),
+  KEY `pal_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `pal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_audit_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
   CONSTRAINT `property_audit_log_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`),
   CONSTRAINT `property_audit_log_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
@@ -11210,10 +11237,13 @@ CREATE TABLE `signature_audit_log` (
   `document_hash` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NOT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `signature_audit_log_signature_request_id_foreign` (`signature_request_id`),
   KEY `signature_audit_log_signature_template_id_created_at_index` (`signature_template_id`,`created_at`),
   KEY `signature_audit_log_action_index` (`action`),
+  KEY `sal_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `sal_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_audit_log_signature_request_id_foreign` FOREIGN KEY (`signature_request_id`) REFERENCES `signature_requests` (`id`) ON DELETE SET NULL,
   CONSTRAINT `signature_audit_log_signature_template_id_foreign` FOREIGN KEY (`signature_template_id`) REFERENCES `signature_templates` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -13707,3 +13737,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1022,'2026_07_14_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1023,'2026_07_14_200003_create_assistant_assignment_permissions_table',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1024,'2026_07_14_200004_add_assistants_settings_to_agencies_table',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1025,'2026_07_14_200005_seed_assistant_role',185);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1026,'2026_07_19_000006_add_on_behalf_of_user_id_to_audit_tables',186);
