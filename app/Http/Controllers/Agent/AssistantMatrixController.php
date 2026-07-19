@@ -129,6 +129,20 @@ class AssistantMatrixController extends Controller
             }
         });
 
+        // AT-267 V2 — the behaviour panel toggles (ownership is always the agent; these only
+        // control edit/delete, attribution and notifications). Guarded per BUILD_STANDARD §6.1:
+        // only write when the panel was actually posted, so a permissions-only save can never
+        // silently wipe a setting the request never rendered. The panel posts a hidden "0"
+        // companion for every toggle, so an unchecked box arrives as '0', not absent.
+        if ($request->has('settings')) {
+            $settings = (array) $request->input('settings', []);
+            $assignment->forceFill([
+                'can_manage_my_records' => (string) ($settings['can_manage_my_records'] ?? '0') === '1',
+                'show_attribution'      => (string) ($settings['show_attribution'] ?? '0') === '1',
+                'notify_on_action'      => (string) ($settings['notify_on_action'] ?? '0') === '1',
+            ])->save();
+        }
+
         // The assistant's effective permissions are recomputed from scratch on their next
         // request — nothing to invalidate but the request-local cache.
         PermissionService::clearCache();

@@ -49,6 +49,60 @@
     <form method="POST" action="{{ route('agent.assistants.matrix.save', $assignment) }}" x-ref="form">
         @csrf
 
+        {{-- AT-267 V2 — behaviour panel. Plain toggles, styled like the feature switchboard, that
+             control HOW the assistant works for you. Ownership is not here: an assistant's work is
+             ALWAYS filed as yours (the info row states it), never a toggle. --}}
+        @php
+            $behaviourToggles = [
+                ['key' => 'can_manage_my_records', 'label' => $assistant?->name . ' can edit & delete my records, not just add them',
+                 'desc' => 'When off, ' . $assistant?->name . ' can add to and view your book, but cannot change or remove records you already have.'],
+                ['key' => 'show_attribution', 'label' => 'Show "added by ' . $assistant?->name . '" on things they do',
+                 'desc' => 'A small tag on your calendar and records so you can see at a glance what ' . $assistant?->name . ' handled.'],
+                ['key' => 'notify_on_action', 'label' => 'Notify me when ' . $assistant?->name . ' adds or changes something',
+                 'desc' => 'An in-app notification each time ' . $assistant?->name . ' acts on your behalf. Off by default to keep things quiet.'],
+            ];
+        @endphp
+        <div class="rounded-md mb-4 overflow-hidden"
+             style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
+            <div class="px-4 py-3 text-xs font-bold uppercase tracking-wide"
+                 style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">
+                How {{ $assistant?->name }} works for you
+            </div>
+
+            {{-- Always-on: an assistant's work is filed as the agent's. Stated, never toggleable. --}}
+            <div class="px-4 py-3 flex items-start gap-3"
+                 style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+                     style="width:18px; height:18px; margin-top:1px; color:var(--ds-green, #16a34a);">
+                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clip-rule="evenodd" />
+                </svg>
+                <div>
+                    <div class="text-sm font-semibold">Everything {{ $assistant?->name }} does is filed as yours</div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary, #6b7280);">
+                        Calendar entries, daily activity, contacts and deals {{ $assistant?->name }} adds appear on
+                        your book as your own work. {{ $assistant?->name }} is recorded as the one who did it.
+                    </div>
+                </div>
+            </div>
+
+            @foreach($behaviourToggles as $t)
+                <div class="px-4 py-3 flex items-center justify-between gap-4"
+                     style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold">{{ $t['label'] }}</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary, #6b7280);">{{ $t['desc'] }}</div>
+                    </div>
+                    <div class="shrink-0">
+                        <input type="hidden" name="settings[{{ $t['key'] }}]" :value="settings['{{ $t['key'] }}'] ? '1' : '0'">
+                        <input type="checkbox"
+                               x-model="settings['{{ $t['key'] }}']"
+                               @change="dirty = true; scheduleSave()"
+                               class="h-5 w-5 rounded-md">
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
         @foreach($sections as $section => $rows)
             <div class="rounded-md mb-4 overflow-hidden"
                  style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
@@ -134,6 +188,11 @@
 function assistantMatrix() {
     return {
         matrix: @json(collect($sections)->flatten(1)->mapWithKeys(fn ($r) => [$r['key'] => $r['granted'] && !$r['is_locked']])),
+        settings: @json([
+            'can_manage_my_records' => (bool) $assignment->can_manage_my_records,
+            'show_attribution'      => (bool) $assignment->show_attribution,
+            'notify_on_action'      => (bool) $assignment->notify_on_action,
+        ]),
         dirty: false,
         saved: false,
         timer: null,

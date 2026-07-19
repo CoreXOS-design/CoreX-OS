@@ -1402,6 +1402,9 @@ CREATE TABLE `assistant_assignments` (
   `assistant_user_id` bigint unsigned NOT NULL,
   `agent_user_id` bigint unsigned NOT NULL,
   `status` enum('active','suspended','revoked') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `can_manage_my_records` tinyint(1) NOT NULL DEFAULT '1',
+  `show_attribution` tinyint(1) NOT NULL DEFAULT '1',
+  `notify_on_action` tinyint(1) NOT NULL DEFAULT '0',
   `suspend_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `snapshot_taken_at` timestamp NULL DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -3846,6 +3849,7 @@ CREATE TABLE `daily_activity_entries` (
   `updated_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `on_behalf_of_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `dae_def_user_date_event_unique` (`activity_definition_id`,`user_id`,`activity_date`,`calendar_event_id`),
   KEY `daily_activity_entries_user_id_foreign` (`user_id`),
@@ -3860,6 +3864,8 @@ CREATE TABLE `daily_activity_entries` (
   KEY `dae_source_idx` (`source`),
   KEY `dae_calendar_event_idx` (`calendar_event_id`),
   KEY `dae_subject_idx` (`subject_type`,`subject_id`),
+  KEY `dae_obo_fk` (`on_behalf_of_user_id`),
+  CONSTRAINT `dae_obo_fk` FOREIGN KEY (`on_behalf_of_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `daily_activity_entries_activity_definition_id_foreign` FOREIGN KEY (`activity_definition_id`) REFERENCES `activity_definitions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `daily_activity_entries_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `daily_activity_entries_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
@@ -13738,3 +13744,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1023,'2026_07_14_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1024,'2026_07_14_200004_add_assistants_settings_to_agencies_table',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1025,'2026_07_14_200005_seed_assistant_role',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1026,'2026_07_19_000006_add_on_behalf_of_user_id_to_audit_tables',186);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1027,'2026_07_19_000007_add_assistant_control_settings',187);

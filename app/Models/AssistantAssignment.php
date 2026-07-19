@@ -38,6 +38,10 @@ class AssistantAssignment extends Model
         'assistant_user_id',
         'agent_user_id',
         'status',
+        // AT-267 V2 — behaviour settings the agent controls on the assistant control page.
+        'can_manage_my_records',
+        'show_attribution',
+        'notify_on_action',
         'suspend_reason',
         'snapshot_taken_at',
         'created_by_user_id',
@@ -47,8 +51,21 @@ class AssistantAssignment extends Model
     ];
 
     protected $casts = [
-        'snapshot_taken_at' => 'datetime',
-        'revoked_at'        => 'datetime',
+        'snapshot_taken_at'     => 'datetime',
+        'revoked_at'            => 'datetime',
+        'can_manage_my_records' => 'boolean',
+        'show_attribution'      => 'boolean',
+        'notify_on_action'      => 'boolean',
+    ];
+
+    /**
+     * In-memory defaults for the V2 behaviour settings so a freshly-created assignment reads the
+     * same values the DB default would give, without a refresh() — the DB columns default the same.
+     */
+    protected $attributes = [
+        'can_manage_my_records' => true,
+        'show_attribution'      => true,
+        'notify_on_action'      => false,
     ];
 
     /**
