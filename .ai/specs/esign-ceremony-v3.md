@@ -1037,3 +1037,20 @@ fetching the composed page + expanding his ACTUAL merged_html for doc 424):
 
 Tests: `SigningView/CollectiveRoleRenderTest.php`; `NestedRoleBlockDuplicateTest` still green. Standard:
 fetch the composed page + expand the real merged_html, never the served asset alone.
+
+## AT-300b — Johan's second on-site verdict corrections (2026-07-19)
+
+- **Seller 2 vanished (over-correction):** AT-300 collapsed the WHOLE seller role. Collectivity is
+  PER-BLOCK: only the block containing the joined `<role>_full` field (the I/We clause) is collective →
+  render ONCE untouched (keeps both names); the per-seller DETAIL blocks (address/tel/email) still loop
+  per recipient. `roleUsesCollectiveField` → `blockHasCollectiveField` (block-scoped, leaves collective
+  blocks in place, no clone/prefill/header). Verified doc 424: I/We once with BOTH names,
+  seller_address/seller_phone loop 2×.
+- **Green boxes = other-party MARKER OVERLAY (not the field pills):** doc 424's agent signature marker
+  `{assigned_party:agent, is_mine:false, signed:true}` at x=0,y=0 (top-left) renders an emerald box;
+  AT-291 ③ hid only its inner content → empty green shell. Fix: hide the whole `!marker.is_mine`
+  container in the recipient view (both web + PDF overlays in `signatures/external/sign.blade.php`).
+  Recipients only see their OWN markers.
+- Field autosize / green-pill CSS (AT-300 `.corex-signing-view .corex-field`) retained.
+
+Amendment Review V2 → AT-301 (separate ticket + spec update).

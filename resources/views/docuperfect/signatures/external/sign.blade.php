@@ -542,7 +542,7 @@
                                     </template>
 
                                     {{-- Other party's marker --}}
-                                    <template x-if="!marker.is_mine">
+                                    <template x-if="false /* AT-300 — remove the OTHER-party marker overlay from the recipient view entirely. AT-291 ③ hid only its inner (signed) content, leaving an empty emerald-outlined box above the letterhead (Johan's 'green boxes'). Recipients only need their OWN markers (marker.is_mine, rendered above); other parties' markers are not their concern. */">
                                         <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
                                             <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                                 <div class="flex flex-col items-center">
@@ -785,7 +785,7 @@
                                 </template>
 
                                 {{-- Other party's marker --}}
-                                <template x-if="!marker.is_mine">
+                                <template x-if="false /* AT-300 — remove other-party marker overlay from recipient view (PDF path); see web-path note above. */">
                                     <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
                                         <template x-if="false /* AT-291 ITEM 3 — the green '<party> (signed)' attribution chip for OTHER parties is hidden from the recipient signing view: it surfaced other parties' signing progress the recipient doesn't need, and was exactly where the same-family role mis-match lit a green chip for the WRONG party. The recipient still sees their own 'Signed/Done' indicator and the 'not yours' lock on unsigned other-party fields. Retained on the agent view (SignatureController::sign — separate blade). */">
                                             <div class="flex flex-col items-center">

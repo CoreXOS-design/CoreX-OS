@@ -263,18 +263,20 @@ final class RoleBlockExpansionService
     }
 
     /**
-     * AT-300 — true when the document binds a COLLECTIVE "<role>_full" field
-     * for this role: a single field the CDS generator fills with EVERY
-     * recipient joined ("Anine … and Andre …"). Such a role must NOT be looped
-     * per recipient (that duplicates the shared clause). Keyed on the field
-     * name, so loop-templates (indexed / per-attribute fields, no "_full") are
-     * never affected. Checks both the raw role token and its canonical party.
+     * AT-300b — true when THIS block contains a COLLECTIVE "<role>_full" field:
+     * a single field the CDS generator fills with EVERY recipient joined
+     * ("Anine ... and Andre ..."). Such a block is a shared clause (e.g. the
+     * "I / We ..." mandate clause) and must render ONCE, untouched — NOT looped
+     * per recipient. Scoped to the block (not the whole role) so per-seller
+     * DETAIL blocks (address/tel/email — no "_full") still loop. Loop-templates
+     * (indexed / per-attribute fields, no "_full") are never affected.
      */
-    private function roleUsesCollectiveField(DOMDocument $dom, string $role): bool
+    private function blockHasCollectiveField(DOMElement $block, string $role): bool
     {
-        $xpath = new DOMXPath($dom);
-        foreach (array_unique([$role . '_full', $this->canonicalParty($role) . '_full']) as $fieldName) {
-            $q = $xpath->query('//*[@data-field="' . $fieldName . '"]');
+        $xpath = new DOMXPath($block->ownerDocument);
+        $names = array_unique([$role . '_full', $this->canonicalParty($role) . '_full']);
+        foreach ($names as $fieldName) {
+            $q = $xpath->query('.//*[@data-field="' . $fieldName . '"] | self::*[@data-field="' . $fieldName . '"]', $block);
             if ($q !== false && $q->length > 0) {
                 return true;
             }
@@ -479,47 +481,59 @@ final class RoleBlockExpansionService
             // per-recipient name header (the joined field already names
             // everyone). Loop-templates (indexed / per-attribute fields, no
             // "_full") are unaffected.
-            $collective = $this->roleUsesCollectiveField($dom, $role);
-            $recipientsForRender = $collective ? $recipients->take(1)->values() : $recipients;
-            $renderN = $collective ? 1 : $n;
+            // AT-300b — collectivity is PER-BLOCK, not per-role. The CDS
+            // generator binds a single joined "<role>_full" field already
+            // containing EVERY recipient ("I / We Anine ... and Andre ..."). ONLY
+            // the block containing that field is a collective clause: render it
+            // ONCE, untouched — no clone, no per-recipient prefill (which would
+            // overwrite the joined value with one seller's name), no header. The
+            // OTHER seller blocks (per-seller DETAIL: address/tel/email under
+            // Domicilium) still loop per recipient. Leaving collective blocks in
+            // place preserves their baked both-names content.
+            $loopable = [];
+            foreach ($blocks as $b) {
+                if ($this->blockHasCollectiveField($b, $role)) {
+                    $structuralLog[] = ['role' => $role, 'case' => 'collective-clause-left-once'];
+                    continue; // leave in place — renders once with both names
+                }
+                $loopable[] = $b;
+            }
+            if (empty($loopable)) {
+                continue;
+            }
 
             // Group adjacent same-parent blocks so segment headers share
             // a single "Seller - Name" per recipient at the top.
-            $groups = $this->groupAdjacentRoleBlocks($blocks);
+            $groups = $this->groupAdjacentRoleBlocks($loopable);
 
             foreach (array_reverse($groups) as $group) {
                 if (count($group) === 1) {
-                    // Single-block group — clone-per-recipient with a
-                    // header on each clone (mutateCloneForInstance with
-                    // prependHeader=true by default). Collective → once, no header.
                     $this->duplicateBlockForRecipients(
                         $dom,
                         $group[0],
                         $role,
-                        $recipientsForRender,
+                        $recipients,
                         $isSales,
-                        $renderN,
-                        prependHeader: !$collective,
+                        $n,
                     );
                 } else {
-                    // Multi-block group — segments share one header.
                     $this->duplicateUnitGroupForRecipients(
                         $dom,
                         $group,
                         $role,
-                        $recipientsForRender,
+                        $recipients,
                         $isSales,
-                        $renderN,
-                        suppressHeader: $collective,
+                        $n,
                     );
                 }
             }
             $structuralLog[] = [
                 'role'      => $role,
-                'case'      => $collective ? 'contract-collective' : 'contract',
+                'case'      => 'contract',
                 'blocks'    => count($blocks),
+                'loopable'  => count($loopable),
                 'groups'    => count($groups),
-                'recipients'=> $renderN,
+                'recipients'=> $n,
             ];
         }
     }
