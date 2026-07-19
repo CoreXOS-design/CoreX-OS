@@ -4149,3 +4149,16 @@ Route::middleware(['auth.wa_capture'])->get('/communications/wa/backfill-targets
 Route::middleware(['waha.webhook'])->post('/communications/wa/webhook', [\App\Http\Controllers\Communications\WaSessionWebhookController::class, 'handle'])
     ->name('communications.wa.webhook');
 
+
+// AT-284 — P24 minion setup page (the control surface). Gated by access_settings.
+Route::middleware(['auth', 'permission:access_settings'])
+    ->prefix('admin/settings/minion')
+    ->name('admin.minion.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'index'])->name('setup');
+        Route::get('/tree/towns', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'treeTowns'])->name('tree.towns');
+        Route::get('/tree/suburbs', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'treeSuburbs'])->name('tree.suburbs');
+        Route::post('/areas/toggle', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'toggleArea'])->name('areas.toggle');
+        Route::post('/settings', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'saveSettings'])->name('settings.save');
+        Route::post('/run-now', [\App\Http\Controllers\Admin\MinionCaptureController::class, 'runNow'])->name('run-now');
+    });
