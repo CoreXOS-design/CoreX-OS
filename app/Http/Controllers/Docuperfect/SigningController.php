@@ -251,13 +251,62 @@ class SigningController extends Controller
             // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
 
-            // AT-177/WS6 — COMPILED SERVING PATH. If this template has been cut over
+            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE (primary path) ═══
+            // The wet-ink doctrine: ONE document artifact is composed ONCE at
+            // send (CanonicalDocumentRenderer, v0) and DISPLAYED verbatim by
+            // every surface. Here we read that stored canonical_html (back-
+            // filling it on-the-fly for docs sent before this build) and serve
+            // it as-is — NO display-time re-expansion, letterhead, insertable
+            // or normalise (those ran once at compose; re-running them per
+            // surface is the render-divergence defect class this replaces).
+            // Editability is applied as a per-viewer DISPLAY OVERLAY on top of
+            // the viewer-agnostic artifact (reusing the SAME scoping logic the
+            // expansion path used); the server-side persist gate below stays
+            // the security ceiling. Templates that cannot compose a canonical
+            // body (pure page-image PDFs, un-composable web bodies) fall
+            // through to the compiled/legacy paths unchanged — canonical serve
+            // never regresses them.
+            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->resolveOrCompose($template);
+            $compiledServing = null;
+            if (trim($canonicalHtml) !== '') {
+                $fieldMappingsRaw = is_array($docTemplate->field_mappings ?? null)
+                    ? $docTemplate->field_mappings
+                    : [];
+                $webTemplateHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                    ->applyViewerEditabilityOverlay(
+                        $canonicalHtml,
+                        $signingRequest,
+                        $fieldMappingsRaw,
+                    );
+
+                // Editable field-name list — the signing view still consumes
+                // this array (client input-affordance gating). Prefer CDS
+                // field_mappings with editable_by; fall back to the static map.
+                $fieldMappingsFromData = $webTemplateData['field_mappings'] ?? $fieldMappingsRaw;
+                if (!empty($fieldMappingsFromData)) {
+                    $editableFields = $this->getEditableFieldsFromMappings(
+                        $fieldMappingsFromData,
+                        $signingRequest->party_role
+                    );
+                } else {
+                    $editableFields = WebTemplateFieldPartyMap::getEditableFields($signingRequest->party_role);
+                }
+            }
+
+            // AT-177/WS6 — COMPILED SERVING PATH (fallback). If this template has been cut over
             // (compiled_serving + a published compiled_templates family), serve the document
             // from its canonical compiled CDS via the render-only runtime, bypassing the ENTIRE
             // legacy merged_html + compensator chain below (§9 retirement). Dual-path: templates
-            // not cut over fall through to the untouched legacy `else` branch.
-            $compiledServing = app(\App\Services\Docuperfect\Compiler\Serving\CompiledServingResolver::class)
-                ->resolve($docTemplate);
+            // not cut over fall through to the untouched legacy `else` branch. Reached only when
+            // the canonical serve above produced no body (un-composable template).
+            if (trim($webTemplateHtml) !== '') {
+                // Canonical served — nothing more to do in this branch.
+                $compiledServing = null;
+            } else {
+                $compiledServing = app(\App\Services\Docuperfect\Compiler\Serving\CompiledServingResolver::class)
+                    ->resolve($docTemplate);
+            }
             if ($compiledServing !== null) {
                 $recipientPartyRoles = SignatureRequest::where('signature_template_id', $template->id)
                     ->pluck('party_role')
@@ -265,8 +314,8 @@ class SigningController extends Controller
                     ->all();
                 [$webTemplateHtml, $editableFields] = app(\App\Services\Docuperfect\Compiler\Serving\CompiledSigningRenderer::class)
                     ->renderForSigning($compiledServing, (string) $signingRequest->party_role, $recipientPartyRoles);
-            } else {
-            // ── LEGACY SERVING PATH (unchanged; runs only for non-cutover templates) ──
+            } elseif (trim($webTemplateHtml) === '') {
+            // ── LEGACY SERVING PATH (runs ONLY when neither canonical nor compiled produced a body) ──
             // E-sign reset Q3 Layer B — re-render merged_html when the
             // template has been edited since the snapshot was captured.
             // Closes the "served a stale snapshot" path identified in
@@ -681,7 +730,9 @@ class SigningController extends Controller
         $documentHash = '';
         if ($document) {
             $webData = $document->web_template_data ?? [];
-            $htmlContent = $webData['merged_html'] ?? json_encode($webData);
+            // Hash the artifact the party actually sees (canonical), not the
+            // agent-prep merged_html — so the consent hash binds to THE document.
+            $htmlContent = $this->canonicalOrMerged($webData) ?: json_encode($webData);
             $documentHash = hash('sha256', $htmlContent);
         }
 
@@ -1510,7 +1561,54 @@ class SigningController extends Controller
         // by splitMergedHtml()/the PDF generator — never re-paginated.
         $paginatedHtml = (string) $request->input('paginated_html', '');
 
-        // Embed this signer's signatures, initials, and ceremony values into merged_html
+        // ═══ ESIGN-WETINK Phase 1c — bake THIS signer's ink INTO canonical_html ═══
+        // The canonical artifact is the wet-ink source of truth. Ink is composed
+        // INTO it, scoped to the signer's data-recipient-identity, so N same-party
+        // recipients' ink stays distinct and every later party loads the exact
+        // accumulated document (doctrine I3). This supersedes the party-aliased
+        // merged_html embed (kept below for backward-compat / pre-canonical docs),
+        // which structurally cannot represent >1 same-party signer (gap audit (b)).
+        $canonicalHtml = (string) ($webData['canonical_html'] ?? '');
+        if (trim($canonicalHtml) === '') {
+            // Back-fill for a document sent before this build so the first
+            // post-deploy signer still accumulates into a canonical artifact.
+            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->resolveOrCompose($template);
+        }
+        // The frontend folds page-break initials INTO the signatures array under
+        // "-init-" keys (see $initials assembly above), so the true signature
+        // captures are the non-"-init-" entries. Split them cleanly: signature
+        // markers must never receive an initial image, and vice-versa.
+        $signaturesOnly = [];
+        foreach ($signatures as $sigKey => $sigVal) {
+            if (! str_contains((string) $sigKey, '-init-')) {
+                $signaturesOnly[$sigKey] = $sigVal;
+            }
+        }
+        if (trim($canonicalHtml) !== '' && (!empty($signaturesOnly) || !empty($initials) || !empty($ceremonyValues))) {
+            // Bleed-safe party fallback is permitted only when this signer is the
+            // SOLE recipient of their role (agent, single seller/buyer) — see
+            // CanonicalInkComposer::markerBelongsToSigner.
+            $soleOfRole = $template->requests()
+                ->where('party_role', $signingRequest->party_role)
+                ->count() === 1;
+            $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->bakeInk(
+                    $canonicalHtml,
+                    $signingRequest,
+                    $signaturesOnly,
+                    $initials,          // combined: block-level (-init-) + page-break initials
+                    $ceremonyValues,
+                    $soleOfRole,
+                );
+            // Immutable-per-hop version bump (I4 — the sealed chain lands in 1e).
+            $webData['canonical_version'] = (int) ($webData['canonical_version'] ?? 0) + 1;
+        }
+
+        // Embed this signer's signatures, initials, and ceremony values into
+        // merged_html — RETAINED for backward compatibility (pre-canonical docs,
+        // any legacy consumer still reading merged_html). Party-aliased; canonical
+        // above is the identity-scoped source of truth for all new surfaces.
         if (!empty($webData['merged_html']) && (!empty($signatures) || !empty($pageBreakInitials) || !empty($ceremonyValues))) {
             $sigController = app(SignatureController::class);
             // Stamp the engine's signature convention onto inline templates so
@@ -1627,6 +1725,23 @@ class SigningController extends Controller
             'fully_complete' => $fullyComplete,
             'redirect' => route('signatures.external.completed', $token),
         ]);
+    }
+
+    /**
+     * ESIGN-WETINK Phase 1b/1c — the canonical read for print/PDF/hash surfaces.
+     * Prefers the stored `canonical_html` (the ONE artifact; post-1c it carries
+     * every party's baked ink) and falls back to `merged_html` only for
+     * documents that never got a canonical (pre-1a in-flight docs). This is the
+     * read every "what did the parties actually see/sign" surface uses so no
+     * surface derives the document from a different input.
+     */
+    private function canonicalOrMerged(array $webData): string
+    {
+        $canonical = (string) ($webData['canonical_html'] ?? '');
+        if (trim($canonical) !== '') {
+            return $canonical;
+        }
+        return (string) ($webData['merged_html'] ?? '');
     }
 
     /**
@@ -1967,9 +2082,10 @@ class SigningController extends Controller
         $document = $signatureTemplate->document;
         $docTemplate = $document->template ?? null;
 
-        // Web template with merged_html: redirect to print view (no dompdf — it hangs)
+        // Web template: redirect to print view (no dompdf — it hangs). Prefer
+        // the canonical artifact; fall back to merged_html for pre-canonical docs.
         $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+        $mergedHtml = $this->canonicalOrMerged($webTemplateData);
 
         if (!empty($mergedHtml) && $docTemplate && $docTemplate->render_type === 'web') {
             return redirect()->route('signatures.external.print', $token);
@@ -2134,7 +2250,9 @@ class SigningController extends Controller
         $document = $signatureTemplate->document;
         $docTemplate = $document->template ?? null;
         $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+        // ESIGN-WETINK — print the canonical artifact (all baked ink), not the
+        // agent-prep merged_html. Fall back to merged_html for pre-canonical docs.
+        $mergedHtml = $this->canonicalOrMerged($webTemplateData);
 
         if (empty($mergedHtml)) {
             // Fallback to dompdf download for PDF templates

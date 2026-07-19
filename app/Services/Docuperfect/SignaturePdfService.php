@@ -29,10 +29,27 @@ class SignaturePdfService
             // paginated DOM the signer saw (per-document .corex-a4-page +
             // per-page initials). Fall back to canonical merged_html for
             // legacy / never-web-signed documents. No server re-pagination.
-            $signedPaginated = $document->signed_paginated_html;
-            $renderHtml = (is_string($signedPaginated) && trim($signedPaginated) !== '')
-                ? $signedPaginated
-                : ($webTemplateData['merged_html'] ?? '');
+            // ESIGN-WETINK — read precedence for the final signed render:
+            //   1. canonical_html WHEN it carries baked ink (canonical_version
+            //      >= 1) — this is vN, the ONE artifact bearing every party's
+            //      identity-scoped ink (doctrine: "the signed PDF is generated
+            //      from vN"). Un-paginated; Chromium paginates via CSS.
+            //   2. signed_paginated_html — the exact paginated DOM the last
+            //      signer saw (pre-1c documents that never baked into canonical).
+            //   3. canonical_html at v0 (structure only) if that is all we have.
+            //   4. merged_html — legacy / pre-canonical documents only.
+            $canonicalHtml    = (string) ($webTemplateData['canonical_html'] ?? '');
+            $canonicalVersion = (int) ($webTemplateData['canonical_version'] ?? 0);
+            $signedPaginated  = $document->signed_paginated_html;
+            if ($canonicalVersion >= 1 && trim($canonicalHtml) !== '') {
+                $renderHtml = $canonicalHtml;
+            } elseif (is_string($signedPaginated) && trim($signedPaginated) !== '') {
+                $renderHtml = $signedPaginated;
+            } elseif (trim($canonicalHtml) !== '') {
+                $renderHtml = $canonicalHtml;
+            } else {
+                $renderHtml = $webTemplateData['merged_html'] ?? '';
+            }
             $hasMergedHtml = trim((string) $renderHtml) !== '';
             $hasDocPages = !empty($webTemplateData['flattened_page_count']);
             $isWebTemplate = $docTemplate && ($docTemplate->render_type ?? 'pdf') === 'web';

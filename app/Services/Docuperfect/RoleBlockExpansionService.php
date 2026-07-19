@@ -440,6 +440,50 @@ final class RoleBlockExpansionService
     }
 
     /**
+     * ESIGN-WETINK Phase 1b — viewer-editability DISPLAY overlay.
+     *
+     * The canonical artifact (CanonicalDocumentRenderer::compose) is
+     * VIEWER-AGNOSTIC: it carries NO `data-viewer-editable` stamp, so served
+     * as-is NO field is editable by anyone. This method applies editability
+     * as a per-viewer overlay ON TOP of the stored canonical HTML at
+     * display time — it does NOT re-run expansion, letterhead, insertable or
+     * normalisation. The document body is untouched; only `data-viewer-editable`
+     * attributes are stamped, exactly as `expandWithLooping` would have when
+     * given a `$currentViewer`.
+     *
+     * Reuses the SAME scoping logic (`stampViewerEditability`) the expansion
+     * path uses — so per-recipient identity scoping (seller_1 edits only
+     * seller_1's instance, respecting `data-recipient-identity`) is honoured
+     * with zero duplicated rules. The server-side persist gate remains the
+     * security ceiling; this overlay is a display affordance only.
+     *
+     * Returns the input HTML unchanged when it cannot be parsed (fail-safe:
+     * a document that renders read-only is safer than a 500).
+     */
+    public function applyViewerEditabilityOverlay(
+        string $html,
+        SignatureRequest $viewer,
+        array $fieldMappings = [],
+    ): string {
+        if (trim($html) === '') {
+            return $html;
+        }
+        $dom = $this->detector->loadFragment($html);
+        if ($dom === null) {
+            Log::warning('RoleBlockExpansionService: overlay DOM parse failure — serving read-only', [
+                'viewer_request_id' => $viewer->id ?? null,
+            ]);
+            return $html;
+        }
+        $this->stampViewerEditability(
+            $dom,
+            $viewer,
+            $this->buildFieldMappingsLookup($fieldMappings),
+        );
+        return $this->detector->serializeFragment($dom);
+    }
+
+    /**
      * Contract-driven expansion.
      *
      * For each role, group its `[data-role-block]` elements by adjacency
@@ -1725,6 +1769,34 @@ final class RoleBlockExpansionService
             'class',
             trim($existingClass . ' recipient-instance recipient-instance--' . $role)
         );
+
+        // ESIGN-WETINK Phase 1c — stamp identity onto this instance's INK
+        // MARKERS (signature / initial / ceremony surfaces), not only its
+        // data-field nodes. Historically only data-field elements were
+        // identity-stamped, so a cloned seller_2 block kept its signature
+        // markers carrying ONLY data-marker-party="seller" — indistinguishable
+        // from seller_1's. That is exactly why one signer's ink bled onto every
+        // same-party surface (ESIGN-WETINK gap audit finding (b)). Stamping
+        // data-recipient-identity on every marker inside the clone makes each
+        // recipient's ink positions distinctly addressable, so
+        // CanonicalInkComposer::bakeInk writes party N's ink into ONLY party N's
+        // markers. N-party safe: `$identity` is the runtime-built
+        // "{role}_{instanceIndex}", never a hard-coded pair. Done BEFORE the
+        // data-field query's early-return so marker-only blocks are covered too.
+        $markers = $xpath->query(
+            'descendant-or-self::*[@data-marker-party] | descendant-or-self::*[@data-marker-type]',
+            $clone,
+        );
+        if ($markers !== false) {
+            foreach ($markers as $m) {
+                if ($m instanceof DOMElement) {
+                    $m->setAttribute('data-recipient-identity', $identity);
+                    if ($m->getAttribute('data-role-token') === '') {
+                        $m->setAttribute('data-role-token', $role);
+                    }
+                }
+            }
+        }
 
         // Label rewrite — rewrite indexed role labels from the source
         // instance to the target instance. This closes B2.5's known
