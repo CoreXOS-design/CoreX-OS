@@ -66,7 +66,25 @@ engine. The engine stays document-agnostic; the OTP is just the hardest fixture.
 ## 1. Current state (git)
 
 - **Branch:** `AT-300-onsite-refix` (off `origin/QA1` `bcbb2849`)
-- **Tip:** `b955e2c4` — **Phase 1a LANDED** (compose+store canonical artifact).
+- **Tip:** `ba2792a9` — **Phase 1a + 1b + 1c LANDED + pushed (READY-FOR-QA1)**.
+  - `b955e2c4` — 1a (compose+store canonical artifact).
+  - `ba2792a9` — 1b (every surface serves canonical_html + editability overlay)
+    **and** 1c (ink baked by data-recipient-identity; markers now identity-stamped
+    in the expansion; `CanonicalInkComposer::bakeInk`; `completeWeb` bakes into
+    canonical + version bump; PDF/print/hash read canonical). Landed as ONE slice
+    because 1b-serve without 1c-bake would leave a transitional gap where party 2
+    can't see party 1's ink — Johan's acceptance test is the N-party accumulation
+    journey, so both had to ship together.
+  - **NOTE (git sync):** branch is 8 commits behind `origin/QA1` (AT-229 etc.).
+    NOT rebased — the conductor pinned the base at `2c617b16` and a mid-flight
+    rebase of 8 QA1 commits into the exact e-sign files under rewrite risked
+    conflicts on a legally-critical build. Flagged for the conductor to sequence
+    the QA1 catch-up rebase deliberately.
+- **Proven (local):** CanonicalInkIdentityScopingTest 5/5 (multi-seller no-bleed,
+  2-hop accumulation, sole-of-role fallback, blank-when-ambiguous, scoped
+  editability); CollectiveRoleRenderTest 3/3 (no regression); real-data
+  doc-140/tmpl-31 compose→bake end-to-end. **NEXT GATE = deployed-qa1 ≥3-party
+  OTP journey** (multi-seller + multi-buyer) per §5 — the DONE bar is Johan's screen.
 - Deploy target: **qa1 host only** (`/corex-qa1`, qatesting1.corexos.co.za).
   NEVER Staging/live — m2 is the deploy hand, Johan is the gate.
 - Tag commits `READY-FOR-QA1` in the subject; cc1 auto-deploys on a 15-min watch.
