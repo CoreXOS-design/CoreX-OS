@@ -1,8 +1,15 @@
 # DR2 Wave 3 — Pipeline-step supplier work-orders (AT-229)
 
-> Spec. Johan's design + his 2026-07-17 rulings. **BUILD WAITS for Monday** — Johan
-> supplies the example work-order form; CoreX builds the template from it, then we build.
-> Status: SPECCED, build-blocked on the Monday form.
+> Spec. Johan's design + his 2026-07-17 rulings.
+> **Status: BUILT on QA1.** Generator + form + send + return-file landed `e39606f2` (2026-07-17);
+> the **config surface** (pipeline-builder tickbox: send-work-order + service type + trigger point)
+> and the **runtime "Send work order" action** (deal pipeline step, Non-neg #2 entry point) landed
+> 2026-07-19. See §12.
+>
+> **§10a Setup Wizard — deliberately NOT in the onboarding wizard (Johan's call to confirm):** the
+> work-order toggle is *per-pipeline-step* config, set in the DR2 pipeline builder (per step, per
+> agency), not an agency-wide switch the onboarding wizard walks. It is configured exactly where the
+> rest of a step's behaviour is. Recorded here as a deliberate exclusion per §10a step 3.
 
 ## 1. What & why (business requirement)
 An agent, working a DR2 deal's pipeline, reaches a step that needs an outside tradesman
@@ -104,3 +111,24 @@ chosen supplier's **primary contact** rather than the firm email; the pipeline-s
 ## 11. Dependency / sequencing
 **BLOCKED on Johan's Monday example work-order form** → CoreX builds the `work_authorisation`
 template from it → then build. Coordinate G1 (step-config link) + the trigger with m1 (AT-216 pipeline).
+
+## 12. Build record (2026-07-17 → 2026-07-19)
+**`e39606f2` (2026-07-17):** `WorkAuthorisationGenerator` (auto-fills 17 fields from the deal, renders
+the HFC work-authorisation form to PDF, files it as the catalogued `work_authorisation` doc-type);
+`documents/work-authorisation.blade.php`; migration (doc-type + per-step columns
+`sends_work_order` · `work_order_service_type` · `work_order_trigger_point`); `WorkOrderController`
+(`form`/`send`) + routes; returns reuse `DealDocumentService` + AT-105 `save_to_*`.
+
+**2026-07-19 (this session) — the two surfaces that made it usable + configurable:**
+- **Config (pipeline builder):** `deals-v2/pipeline-setup/edit.blade.php` gains a "Send a supplier work
+  order on this step" tickbox + service-type + trigger-point selects; `DealPipelineStepController`
+  (`validateStep`/`formatStep` + locked-allow) and `DealPipelineSetupController::edit` round-trip the
+  three columns. Gated on `deals_v2.manage_pipeline`.
+- **Runtime (deal pipeline, Non-neg #2 entry point):** `deals-v2/show.blade.php` active/at-trigger step
+  gains an OPTIONAL "Send work order" action → modal that loads the auto-filled fields + supplier list
+  (`work-order.form`), lets the agent edit fields, pick or ad-hoc-create the supplier, choose its
+  primary contact, and send (`work-order.send`). Shown only when the step's config `sends_work_order`
+  is on and the step is at its `work_order_trigger_point`. Gated on `deals_v2.distribute_documents`.
+- **Tests:** `tests/Feature/DealV2/DealPipelineWorkOrderConfigTest.php` (config round-trip + validation).
+- **Permissions:** reused `deals_v2.manage_pipeline` (config) + `deals_v2.distribute_documents` (send) —
+  no new keys (§6).
