@@ -167,6 +167,92 @@
                         @permission('view_deals')
                         <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
                         @endpermission
+
+                        {{-- AT-229 — OPTIONAL "Send work order" (Non-neg #2 entry point). Shows only
+                             when this step's config sends a work order and it is at its trigger point. --}}
+                        @php($wo = $s->pipelineStep)
+                        @php($woTrig = $wo?->work_order_trigger_point ?: 'activated')
+                        @php($showWo = ! $locked && $wo?->sends_work_order && (($s->status === 'active' && $woTrig === 'activated') || ($s->status === 'completed' && $woTrig === 'completed')) && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
+                        @if($showWo)
+                        <span x-data="{
+                                open:false, loading:false, sending:false, err:'', ok:'',
+                                fields:{}, suppliers:[], supplierId:'', contactId:'',
+                                newSupplier:{ name:'', company:'', email:'', phone:'' },
+                                fieldKeys:['date','service_label','property_address','seller_name','seller_email','seller_tel','purchaser_name','purchaser_tel','attorneys','rep_name','rep_email','rep_tel','keys_name','keys_tel','payer','notes'],
+                                labels:{date:'Date',service_label:'Service',property_address:'Property',seller_name:'Seller',seller_email:'Seller email',seller_tel:'Seller tel',purchaser_name:'Purchaser',purchaser_tel:'Purchaser tel',attorneys:'Attorneys',rep_name:'Representative',rep_email:'Rep email',rep_tel:'Rep tel',keys_name:'Keys held by',keys_tel:'Keys tel',payer:'Invoice payer',notes:'Notes'},
+                                wide:['property_address','attorneys','notes'],
+                                get chosen(){ return this.suppliers.find(s => String(s.id) === String(this.supplierId)); },
+                                get contacts(){ return this.chosen?.service_contacts || []; },
+                                async load(){
+                                    this.open=true; this.loading=true; this.err=''; this.ok='';
+                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.work-order.form', [$deal, $s]) }}', { headers:{'Accept':'application/json'}, credentials:'same-origin' }); const j = await r.json(); this.fields = j.fields || {}; this.suppliers = j.suppliers || []; }
+                                    catch(e){ this.err='Could not load the work order form.'; }
+                                    this.loading=false;
+                                },
+                                async send(){
+                                    this.sending=true; this.err='';
+                                    const body = { ...this.fields };
+                                    if (this.supplierId === '__new__'){ Object.assign(body, { supplier_name:this.newSupplier.name, supplier_company:this.newSupplier.company, supplier_email:this.newSupplier.email, supplier_phone:this.newSupplier.phone }); }
+                                    else { body.service_provider_id = this.supplierId; body.service_provider_contact_id = this.contactId || null; }
+                                    try {
+                                        const r = await fetch('{{ route('deals-dr2.pipeline.step.work-order.send', [$deal, $s]) }}', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify(body) });
+                                        const j = await r.json();
+                                        if (r.ok && j.ok){ this.ok = j.message || 'Work order sent.'; setTimeout(()=>{ this.open=false; window.location.reload(); }, 1400); }
+                                        else { this.err = j.message || 'Send failed.'; }
+                                    } catch(e){ this.err='Send failed.'; }
+                                    this.sending=false;
+                                }
+                             }" style="display:inline;">
+                            <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#0f766e;border-color:#0f766e;" @click="load()">Send work order{{ $wo->work_order_service_type ? ' — '.$wo->work_order_service_type : '' }}</button>
+
+                            <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
+                                <div class="corex-card" style="width:100%;max-width:640px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
+                                    <div style="padding:.75rem 1rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                                        <strong style="font-size:.9rem;">Send work order — {{ $s->name }}</strong>
+                                        <button type="button" @click="open=false" style="font-size:1.2rem;line-height:1;color:#6b7280;">&times;</button>
+                                    </div>
+                                    <div style="padding:1rem;overflow-y:auto;flex:1;">
+                                        <div x-show="loading" style="color:#6b7280;font-size:.85rem;">Loading…</div>
+                                        <div x-show="!loading">
+                                            <label style="display:block;font-size:.72rem;color:#6b7280;margin-bottom:.2rem;">Supplier (chosen at send — never pre-selected)</label>
+                                            <select x-model="supplierId" class="corex-input" style="width:100%;font-size:.82rem;margin-bottom:.5rem;">
+                                                <option value="">— pick a supplier —</option>
+                                                <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name + (s.specialty ? ' ('+s.specialty+')' : '')"></option></template>
+                                                <option value="__new__">+ Capture a new supplier</option>
+                                            </select>
+                                            <div x-show="supplierId === '__new__'" style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-bottom:.5rem;">
+                                                <input x-model="newSupplier.name" placeholder="Supplier name" class="corex-input" style="font-size:.82rem;">
+                                                <input x-model="newSupplier.company" placeholder="Company (optional)" class="corex-input" style="font-size:.82rem;">
+                                                <input x-model="newSupplier.email" type="email" placeholder="Email" class="corex-input" style="font-size:.82rem;">
+                                                <input x-model="newSupplier.phone" placeholder="Phone (optional)" class="corex-input" style="font-size:.82rem;">
+                                            </div>
+                                            <div x-show="supplierId && supplierId !== '__new__' && contacts.length" style="margin-bottom:.5rem;">
+                                                <label style="display:block;font-size:.72rem;color:#6b7280;margin-bottom:.2rem;">Send to contact (primary by default)</label>
+                                                <select x-model="contactId" class="corex-input" style="width:100%;font-size:.82rem;">
+                                                    <option value="">Firm email</option>
+                                                    <template x-for="c in contacts" :key="c.id"><option :value="c.id" x-text="((c.contact_person||c.attorney_name||'Contact')) + (c.email ? ' — '+c.email : '')"></option></template>
+                                                </select>
+                                            </div>
+                                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;border-top:1px solid #e5e7eb;padding-top:.5rem;">
+                                                <template x-for="key in fieldKeys" :key="key">
+                                                    <div :style="wide.includes(key) ? 'grid-column:1 / -1;' : ''">
+                                                        <label style="display:block;font-size:.72rem;color:#6b7280;margin:.25rem 0 .15rem;" x-text="labels[key]"></label>
+                                                        <input x-model="fields[key]" class="corex-input" style="width:100%;font-size:.82rem;">
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
+                                            <div x-show="ok" x-text="ok" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
+                                        </div>
+                                    </div>
+                                    <div style="padding:.75rem 1rem;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:.5rem;">
+                                        <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;">Cancel</button>
+                                        <button type="button" @click="send()" :disabled="sending || !supplierId" class="corex-btn-secondary" style="font-size:.8rem;" x-text="sending ? 'Sending…' : 'Send work order'"></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </span>
+                        @endif
                     </div>
 
                     {{-- N/A reason form --}}

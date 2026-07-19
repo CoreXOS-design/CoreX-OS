@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\DealV2;
 
 use App\Http\Controllers\Controller;
+use App\Models\Deal;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\AgencyServiceProviderContact;
 use App\Models\DealV2\DealDocumentDistribution;
@@ -10,6 +11,7 @@ use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\DealV2;
 use App\Services\DealV2\AgencyServiceProviderService;
 use App\Services\DealV2\DealDistributionService;
+use App\Services\DealV2\Dr2DistributionSendService;
 use App\Services\DealV2\WorkAuthorisationGenerator;
 use Illuminate\Http\Request;
 
@@ -74,33 +76,7 @@ class WorkOrderController extends Controller
         $agencyId    = (int) ($dealV2->agency_id ?: 0);
         $serviceType = $dealStepInstance->pipelineStep?->work_order_service_type ?? ($data['service_type'] ?? null);
 
-        // Resolve the supplier — existing directory row, else ad-hoc create (Q2).
-        if (! empty($data['service_provider_id'])) {
-            $provider = AgencyServiceProvider::findOrFail($data['service_provider_id']);
-        } else {
-            abort_if(empty($data['supplier_name']), 422, 'Pick a supplier or capture a new one to send the work order.');
-            $provider = $providers->findOrCreate($agencyId, [
-                'name'      => $data['supplier_name'],
-                'company'   => $data['supplier_company'] ?? null,
-                'email'     => $data['supplier_email'] ?? null,
-                'phone'     => $data['supplier_phone'] ?? null,
-                'specialty' => $serviceType ?: 'other',
-            ], $actor->id);
-        }
-
-        // Address the supplier's PRIMARY contact (selectable — Q5), else the firm email.
-        $toEmail = null;
-        $toName  = $provider->name;
-        if (! empty($data['service_provider_contact_id'])) {
-            $contact = AgencyServiceProviderContact::where('service_provider_id', $provider->id)
-                ->find($data['service_provider_contact_id']);
-            if ($contact) {
-                $toEmail = $contact->email;
-                $toName  = $contact->contact_person ?: $contact->attorney_name ?: $provider->name;
-            }
-        }
-        $toEmail = $toEmail ?: $provider->email;
-        abort_if(! $toEmail, 422, 'The chosen supplier has no email address to send the work order to.');
+        [$provider, $toEmail, $toName] = $this->resolveProviderAndRecipient($data, $agencyId, $serviceType, $actor, $providers);
 
         // Link the supplier to the deal (idempotent) + build the auth PDF from the
         // auto-filled fields overlaid with the agent's edits.
@@ -129,5 +105,141 @@ class WorkOrderController extends Controller
         }
 
         return back()->with('success', $msg);
+    }
+
+    // =========================================================================
+    // DR1-native surface (the LIVE pipeline — dr2/pipeline.blade.php). The live
+    // deal register runs on the DR1 `Deal`; its pipeline steps carry dr1_deal_id,
+    // not deal_id (DealV2 is soft-retired, AT-219). Same optional work-order flow,
+    // generalised to the DR1 deal + the AT-228 DR1 distribution path.
+    // =========================================================================
+
+    public function dr1Form(Deal $deal, DealStepInstance $step, WorkAuthorisationGenerator $generator)
+    {
+        abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
+
+        $serviceType = $step->pipelineStep?->work_order_service_type;
+
+        return response()->json([
+            'service_type' => $serviceType,
+            'fields'       => $generator->defaultFields($deal, $serviceType),
+            'suppliers'    => $this->supplierPayload(),
+        ]);
+    }
+
+    public function dr1Send(
+        Request $request,
+        Deal $deal,
+        DealStepInstance $step,
+        WorkAuthorisationGenerator $generator,
+        AgencyServiceProviderService $providers,
+        Dr2DistributionSendService $sender
+    ) {
+        abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
+
+        $data = $this->validateSupplier($request);
+        $actor       = $request->user();
+        $agencyId    = (int) ($deal->agency_id ?: 0);
+        $serviceType = $step->pipelineStep?->work_order_service_type ?? ($data['service_type'] ?? null);
+
+        [$provider, $toEmail, $toName] = $this->resolveProviderAndRecipient($data, $agencyId, $serviceType, $actor, $providers);
+
+        // Build the auth PDF from the auto-filled fields overlaid with the agent's edits,
+        // and file it to the DR1 deal + its pipeline step (so it appears in the corpus the
+        // AT-228 send draws from, and lands on the step).
+        $fields = array_merge(
+            $generator->defaultFields($deal, $serviceType),
+            array_filter($request->only(self::FIELD_KEYS), fn ($v) => $v !== null)
+        );
+        $document = $generator->generate($deal, $fields, $provider, $actor, $step->id);
+
+        // Send via the shipped DR1 distribution path (AT-228): mints the twin on demand,
+        // attaches the PDF, audits deal_document_distributions (recipient_provider_id).
+        try {
+            $sender->sendToParty(
+                $deal,
+                'service_provider',
+                ['type' => 'provider', 'id' => $provider->id, 'email' => $toEmail, 'name' => $toName],
+                [$document->id],
+                DealDocumentDistribution::MODE_DIRECT_ATTACHMENT,
+                DealDocumentDistribution::CHANNEL_EMAIL,
+                $data['notes'] ?? null,
+                $actor
+            );
+        } catch (\DomainException $e) {
+            abort(422, $e->getMessage());
+        }
+
+        $msg = "Work order sent to {$toName} ({$toEmail}). The returned certificate/invoice will auto-file when you upload it against this step.";
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'message' => $msg, 'document_id' => $document->id]);
+        }
+
+        return back()->with('success', $msg);
+    }
+
+    // ── shared helpers ───────────────────────────────────────────────────────
+
+    private function validateSupplier(Request $request): array
+    {
+        return $request->validate([
+            'service_provider_id'         => ['nullable', 'integer'],
+            'service_provider_contact_id' => ['nullable', 'integer'],
+            'supplier_name'               => ['nullable', 'string', 'max:255'],
+            'supplier_company'            => ['nullable', 'string', 'max:255'],
+            'supplier_email'              => ['nullable', 'email', 'max:255'],
+            'supplier_phone'              => ['nullable', 'string', 'max:60'],
+            'service_type'                => ['nullable', 'string', 'max:40'],
+            'notes'                       => ['nullable', 'string'],
+            'payer'                       => ['nullable', 'string'],
+        ]);
+    }
+
+    /** The active-supplier picker payload (with each firm's active contacts). */
+    private function supplierPayload()
+    {
+        return AgencyServiceProvider::query()
+            ->where('is_active', true)
+            ->with(['serviceContacts' => fn ($q) => $q->where('is_active', true)])
+            ->orderByDesc('is_preferred')->orderBy('name')
+            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred']);
+    }
+
+    /**
+     * Resolve the supplier (existing directory row or ad-hoc create — never preselected,
+     * Q2) and its addressee: the selectable primary contact (Q5), else the firm email.
+     *
+     * @return array{0:AgencyServiceProvider,1:string,2:string} [provider, toEmail, toName]
+     */
+    private function resolveProviderAndRecipient(array $data, int $agencyId, ?string $serviceType, $actor, AgencyServiceProviderService $providers): array
+    {
+        if (! empty($data['service_provider_id'])) {
+            $provider = AgencyServiceProvider::findOrFail($data['service_provider_id']);
+        } else {
+            abort_if(empty($data['supplier_name']), 422, 'Pick a supplier or capture a new one to send the work order.');
+            $provider = $providers->findOrCreate($agencyId, [
+                'name'      => $data['supplier_name'],
+                'company'   => $data['supplier_company'] ?? null,
+                'email'     => $data['supplier_email'] ?? null,
+                'phone'     => $data['supplier_phone'] ?? null,
+                'specialty' => $serviceType ?: 'other',
+            ], $actor->id);
+        }
+
+        $toEmail = null;
+        $toName  = $provider->name;
+        if (! empty($data['service_provider_contact_id'])) {
+            $contact = AgencyServiceProviderContact::where('service_provider_id', $provider->id)
+                ->find($data['service_provider_contact_id']);
+            if ($contact) {
+                $toEmail = $contact->email;
+                $toName  = $contact->contact_person ?: $contact->attorney_name ?: $provider->name;
+            }
+        }
+        $toEmail = $toEmail ?: $provider->email;
+        abort_if(! $toEmail, 422, 'The chosen supplier has no email address to send the work order to.');
+
+        return [$provider, $toEmail, $toName];
     }
 }
