@@ -733,6 +733,11 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
     Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
 
+    // AT-229 — OPTIONAL supplier work order off a live (DR1) pipeline step: auto-filled
+    // authorisation PDF → picked/ad-hoc supplier → sent via the AT-228 DR1 distribution.
+    Route::get('/{deal}/pipeline/steps/{step}/work-order/form',  [\App\Http\Controllers\DealV2\WorkOrderController::class, 'dr1Form'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.work-order.form');
+    Route::post('/{deal}/pipeline/steps/{step}/work-order/send', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'dr1Send'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.work-order.send');
+
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware('permission:view_deals')->name('documents.download');
