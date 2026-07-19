@@ -48,6 +48,29 @@ final class CollectiveRoleRenderTest extends TestCase
         $this->assertSame(0, substr_count($out, 'recipient-block-header'), 'no per-recipient headers for a collective role');
     }
 
+    public function test_collective_clause_renders_once_while_detail_blocks_loop(): void
+    {
+        // The real shape: a collective I/We clause (seller_full — both names)
+        // PLUS a per-seller detail block (seller_address). The clause must render
+        // ONCE (both names kept); the detail block must loop per seller.
+        $html = '<div data-role-block="seller" class="corex-clause">'
+              . '<p>I / We <span data-field="seller_full">Anine and Andre</span> the undersigned...</p>'
+              . '</div>'
+              . '<p>spacer</p>'
+              . '<div data-role-block="seller" class="corex-clause">'
+              . '<p>Domicilium: <span data-field="seller_address">addr</span></p>'
+              . '</div>';
+
+        $out = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $html, $this->sellers([[1, 'Anine'], [2, 'Andre']]),
+        );
+
+        $this->assertSame(1, substr_count($out, 'I / We'), 'collective clause once');
+        $this->assertSame(2, substr_count($out, 'data-field="seller_address'), 'per-seller detail block loops per recipient');
+        $this->assertStringContainsString('data-recipient-identity="seller_1"', $out);
+        $this->assertStringContainsString('data-recipient-identity="seller_2"', $out, 'seller 2 detail must NOT vanish');
+    }
+
     public function test_non_collective_indexed_role_still_loops(): void
     {
         // No "_full" field → per-recipient loop preserved.
