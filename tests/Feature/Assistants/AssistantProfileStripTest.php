@@ -119,6 +119,37 @@ final class AssistantProfileStripTest extends TestCase
         $response->assertSee('FFC Number');
     }
 
+    /**
+     * The agent-personal MY EARNINGS surface — the sidebar nav gap. Defense in depth: the route
+     * is deny_assistant-guarded AND the nav is @unless-hidden, so what an assistant is shown and
+     * what they can reach agree (no gap).
+     */
+    public function test_an_assistant_is_blocked_from_the_commission_and_revenue_surfaces(): void
+    {
+        // Both ungated finance routes (no feature dependency) — deny_assistant redirects the
+        // assistant regardless of matrix. (commission.index/principal add deny_assistant behind
+        // their feature: gate too — same middleware, proven here.)
+        foreach (['commission.dashboard', 'revenue-share.calculator'] as $routeName) {
+            $this->actingAs($this->assistant)
+                ->get(route($routeName))
+                ->assertRedirect(route('agent.portal'));
+        }
+
+        // A normal agent is NOT blocked by the middleware (it only fires for is_assistant).
+        $agentResponse = $this->actingAs($this->agent)->get(route('commission.dashboard'));
+        $this->assertFalse(
+            $agentResponse->isRedirect(route('agent.portal')),
+            'a normal agent must still reach their own My Earnings'
+        );
+    }
+
+    public function test_the_sidebar_hides_the_my_earnings_link_from_an_assistant(): void
+    {
+        $this->actingAs($this->assistant)
+            ->get(route('agent.portal'))
+            ->assertDontSee(route('commission.dashboard'));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function makeUser(string $name, string $role, bool $isAssistant = false): User

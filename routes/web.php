@@ -1870,17 +1870,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Commission Engine ──
     Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
+        ->middleware('deny_assistant') // AT-267 §10 — assistants have no commission; personal surface
         ->name('commission.dashboard');
+    // AT-267 §10 — the whole commission/revenue engine is off-limits to assistants (they have no
+    // commission of their own and must never see agency finance). deny_assistant on every route,
+    // not just the nav, so direct-URL access is closed too (feature: gates are per-agency, not
+    // per-user, so they do not keep an assistant out on their own).
     Route::get('/commission', [\App\Http\Controllers\Commission\CommissionController::class, 'index'])
-        ->middleware('feature:commission-management')->name('commission.index');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.index');
     Route::get('/commission/principal', [\App\Http\Controllers\Commission\CommissionController::class, 'principalDashboard'])
-        ->middleware('feature:commission-management')->name('commission.principal');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.principal');
     Route::post('/commission/{entry}/confirm', [\App\Http\Controllers\Commission\CommissionController::class, 'confirm'])
-        ->middleware('feature:commission-management')->name('commission.confirm');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.confirm');
     Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
-        ->middleware('feature:commission-management')->name('commission.pay');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.pay');
     Route::get('/revenue-share/calculator', [\App\Http\Controllers\Commission\RevenueShareController::class, 'calculator'])
-        ->name('revenue-share.calculator');
+        ->middleware('deny_assistant')->name('revenue-share.calculator');
 
     // ── Training (LMS) ──
     Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');

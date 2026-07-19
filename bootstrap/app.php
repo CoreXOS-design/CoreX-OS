@@ -90,6 +90,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 // property-upload lock: covers the creation paths that carry NO permission
                 // key at all, which a slug-based lock cannot reach.
                 'deny_assistant_property_write' => \App\Http\Middleware\DenyAssistantPropertyWrite::class,
+                // AT-267 — hard block on agent-personal surfaces (e.g. /my-earnings) an assistant
+                // must never see, regardless of matrix. The route-level half of the nav @unless.
+                'deny_assistant' => \App\Http\Middleware\DenyAssistant::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,

@@ -896,8 +896,10 @@
         @endif
 
         {{-- ═══════════════════════════════════════════
-             MY EARNINGS
+             MY EARNINGS — AT-267 §10: an assistant has no commission of their own; hidden for them
+             (the /my-earnings route is also deny_assistant-guarded, so nav and route agree).
              ═══════════════════════════════════════════ --}}
+        @unless(auth()->user()?->is_assistant)
         <a href="{{ route('commission.dashboard') }}"
            class="corex-nav-item {{ request()->routeIs('commission.dashboard') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -905,6 +907,7 @@
             </svg>
             <span>My Earnings</span>
         </a>
+        @endunless
 
         {{-- AT-41 — Guided Tours: self-serve interactive walkthroughs. Visible to
              every authenticated user; the directory filters to their own tours. --}}
