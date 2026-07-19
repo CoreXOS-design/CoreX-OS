@@ -384,3 +384,12 @@ Schedule::command('mandates:expire')->dailyAt('01:00')->onOneServer()->withoutOv
 Schedule::call(function () {
     \App\Models\FaultReport::where('last_seen_at', '<', now()->subDays(3))->delete();
 })->dailyAt('02:30')->name('fault-reports.prune')->onOneServer()->withoutOverlapping();
+
+// AT-284 — Chrome minion nightly P24 capture. DISABLED by default: the ->when() gate only
+// fires when at least one agency has flipped its master switch (minion_capture_settings.enabled)
+// on the setup page. Enabling that switch is Johan's explicit call. Per-agency cadence is a setting.
+Schedule::command('minion:capture --cycle --by=schedule')
+    ->dailyAt(config('minion_capture.run_at', '02:30'))
+    ->when(fn () => \App\Models\MinionCaptureSettings::where('enabled', true)->exists())
+    ->withoutOverlapping()
+    ->onOneServer();
