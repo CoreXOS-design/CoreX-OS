@@ -49,6 +49,11 @@ class CommunicationFilingSuspense extends Model
         return $this->belongsTo(Deal::class, 'suggested_deal_id');
     }
 
+    public function resolvedDeal(): BelongsTo
+    {
+        return $this->belongsTo(Deal::class, 'resolved_deal_id');
+    }
+
     public function resolvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'resolved_by_user_id');

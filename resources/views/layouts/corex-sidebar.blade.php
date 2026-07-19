@@ -745,6 +745,7 @@
                 || $u->hasPermission('view_communication_flag_register')
                 || $u->hasPermission('manage_communication_mailboxes')
                 || $u->hasPermission('communications.capture_review')
+                || $u->hasPermission('deal_comms_suspense.view')
             );
         @endphp
         @if($canSeeCommunication)
@@ -809,6 +810,12 @@
                 {{-- AT-118 — Communications Access Gate: approver inbox (owning agents + grant_access holders) --}}
                 @permission('communications.view')
                 <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Archive Access Requests</a>
+                @endpermission
+                {{-- AT-231 P2b — inbound attorney-email review queue (same screen as Deals → Comms Suspense) --}}
+                @permission('deal_comms_suspense.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
+                <a href="{{ route('corex.comms-suspense.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}">To File (attorney emails)</a>
+                @endif
                 @endpermission
 
                 {{-- ── WhatsApp ── --}}
@@ -922,6 +929,29 @@
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                @endif
+                @endpermission
+
+                {{-- AT-231 P2b — inbound attorney-email review queue --}}
+                @permission('deal_comms_suspense.view')
+                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
+                    @php
+                        $commsSuspenseCount = 0;
+                        try {
+                            $csAgencyId = auth()->user()?->effectiveAgencyId();
+                            if ($csAgencyId) {
+                                $commsSuspenseCount = \App\Models\Communications\CommunicationFilingSuspense::where('agency_id', $csAgencyId)->where('status', 'pending')->count();
+                            }
+                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
+                    @endphp
+                    <a href="{{ route('corex.comms-suspense.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}"
+                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                        <span>Comms Suspense</span>
+                        @if($commsSuspenseCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $commsSuspenseCount > 99 ? '99+' : $commsSuspenseCount }}</span>
+                        @endif
+                    </a>
                 @endif
                 @endpermission
 

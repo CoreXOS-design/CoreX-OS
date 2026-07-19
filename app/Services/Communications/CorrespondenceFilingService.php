@@ -197,6 +197,35 @@ class CorrespondenceFilingService
         });
     }
 
+    /**
+     * Reject (§3.7): the parked correspondence is not filable to any deal (spam,
+     * mis-sent, not deal-related). Withdraw the provisional deal/property links
+     * (soft, no orphan; the attorney provenance link stays) and close the suspense
+     * as dismissed. No filing, no learn. Idempotent.
+     */
+    public function dismiss(CommunicationFilingSuspense $suspense, User $actor, ?string $reason = null): void
+    {
+        if ($suspense->status === CommunicationFilingSuspense::STATUS_DISMISSED) {
+            return; // idempotent
+        }
+        $comm = Communication::withoutGlobalScopes()->findOrFail($suspense->communication_id);
+
+        DB::transaction(function () use ($suspense, $comm, $actor, $reason) {
+            // Soft-withdraw any provisional deal/property/document links (keeps the
+            // attorney firm/person provenance — the email is still theirs).
+            $this->withdrawFiling($comm);
+
+            $suspense->update([
+                'status'              => CommunicationFilingSuspense::STATUS_DISMISSED,
+                'resolved_by_user_id' => $actor->id,
+                'resolved_at'         => now(),
+                'note'                => $reason !== null && $reason !== '' ? Str::limit($reason, 250, '') : $suspense->note,
+            ]);
+
+            $this->audit('dismissed', $comm, null, ['by' => $actor->id, 'reason' => $reason]);
+        });
+    }
+
     // ── internals ───────────────────────────────────────────────────────────
 
     /** Create the Documents (3-pillar via DealDocumentService) + comm↔deal/doc links. */

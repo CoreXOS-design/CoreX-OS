@@ -410,6 +410,7 @@ Route::middleware('auth')->group(function () {
             Route::post('/{commsAccessRequest}/revoke',   [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'revoke'])->name('revoke');
         });
 
+
         // ── Command Center: Task Notes (threaded) + Checklist ──
         Route::prefix('command-center/tasks/{task}')->name('command-center.tasks.')->group(function () {
             Route::get('/notes',           [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'index'])->name('notes.index');
@@ -2994,6 +2995,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/comms-access/inbox', [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'inbox'])
         ->middleware(['permission:communications.view', 'agency.required'])
         ->name('corex.comms-access.inbox');
+
+    // ── AT-231 P2b — Inbound attorney-correspondence REVIEW SCREEN (suspense queue) ──
+    // A PAGE + its resolve actions, reachable from BOTH the Deals nav ("Comms Suspense")
+    // and the Comms nav ("To File"). See .ai/specs/at231-inbound-attorney-comms-filing.md §3.7.
+    Route::prefix('comms-suspense')->middleware('agency.required')->name('corex.comms-suspense.')->group(function () {
+        Route::get('/',                        [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'index'])->middleware('permission:deal_comms_suspense.view')->name('index');
+        Route::get('/deal-search',             [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'dealSearch'])->middleware('permission:deal_comms_suspense.resolve')->name('deal-search');
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'attachment'])->middleware('permission:deal_comms_suspense.view')->name('attachment');
+        Route::post('/{suspense}/verify',      [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'verify'])->middleware('permission:deal_comms_suspense.resolve')->name('verify');
+        Route::post('/{suspense}/reassign',    [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'reassign'])->middleware('permission:deal_comms_suspense.resolve')->name('reassign');
+        Route::post('/{suspense}/dismiss',     [\App\Http\Controllers\Communications\CommsSuspenseController::class, 'dismiss'])->middleware('permission:deal_comms_suspense.resolve')->name('dismiss');
+    });
 
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {

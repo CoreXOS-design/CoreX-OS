@@ -1,6 +1,6 @@
 # AT-231 — DR2 W3 · Inbound Attorney Comms Filing (Match-or-Create for Correspondence)
 
-> **Status:** SIGNED OFF (Johan, 2026-07-17) — building phase-by-phase. P1 (outbound ref) LANDED on QA1. P2a (correspondence engine: park→match→suspense→verify+file+learn→silent-auto→reassign) LANDED on QA1 with tests. NEXT: P2b (suspense queue UI in both homes + controller + nav + permissions + reassign UI), then P4 (WhatsApp).
+> **Status:** SIGNED OFF (Johan, 2026-07-17) — building phase-by-phase. P1 (outbound ref) LANDED on QA1. P2a (correspondence engine) LANDED on QA1 with tests. **P2b (review screen: suspense queue in both Deals+Comms nav, controller, permissions, confirm/reassign/reject + deal picker) LANDED on QA1 (2026-07-19) with tests.** NEXT: P4 (WhatsApp). §3.7 contextual strips on contact/property screens deferred as a small follow-up (the global review screen — Johan's ask — is built).
 > **Ticket:** AT-231 (To Do). Pairs with AT-228 (outbound, Production). Part of AT-215 (DR2).
 > **Author:** m5 (investigation + draft), 2026-07-17. Anchored to Johan's two-route design (spec answers, 2026-07-17).
 > **Pillars:** Deal (primary), Property, Contact, Agent. Reads inbound comms; writes enriched filing back to Deal + Property + Contacts.

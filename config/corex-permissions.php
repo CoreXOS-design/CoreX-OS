@@ -450,6 +450,10 @@ return [
         // admin only (managers monitor the whole book; agents keep the register).
         ['key' => 'deals_v2.view_overview',      'label' => 'View Pipeline Overview',      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 19],
 
+        // ── Deal Comms Suspense (AT-231) — inbound attorney-email review queue ──
+        ['key' => 'deal_comms_suspense.view',    'label' => 'View Comms Suspense (attorney email filing queue)', 'section' => 'deals-v2', 'type' => 'access', 'module' => 'deal_comms_suspense', 'sort_order' => 20],
+        ['key' => 'deal_comms_suspense.resolve', 'label' => 'Resolve Comms Suspense (confirm / reassign / reject)', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deal_comms_suspense', 'sort_order' => 21],
+
         // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
         // Routes now gated by `owner_only` middleware. No permission keys needed.
 
@@ -725,6 +729,7 @@ return [
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
                 'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
                 'deals_v2.view_overview',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',
@@ -813,6 +818,7 @@ return [
                 // 'deals_v2.capture_own' via Role Manager to let agents capture the
                 // deals they are on (own-membership enforced server-side).
                 'deals_v2.view', 'deals_v2.edit',
+                'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 'access_rmcp',
                 'access_policy',
                 'view_own_screening',
