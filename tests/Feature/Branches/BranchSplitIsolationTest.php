@@ -46,6 +46,9 @@ final class BranchSplitIsolationTest extends TestCase
         \App\Models\ActivityDefinition::class,            // agency activity catalogue (branch_id = per-branch override)
         \App\Models\CommandCenter\AutomationRule::class,  // agency automation rules
         \App\Models\DealV2\DealPipelineTemplate::class,   // pipeline templates are agency-wide
+        // 2026-07-19 (Johan's ruling): both agency-wide, not branch data.
+        \App\Models\Compliance\WhistleblowComplaint::class,      // confidential — officer-scoped, agency-wide by design
+        \App\Models\Compliance\AgencyComplianceProvision::class, // agency-level compliance config
     ];
 
     /**
@@ -61,20 +64,16 @@ final class BranchSplitIsolationTest extends TestCase
      * needs the EARNING agent's branch, set explicitly at write time.
      */
     private const PENDING_DECISION = [
-        \App\Models\CommissionLedger::class,                     // MONEY — needs earning-agent branch, not acting-user branch
-        \App\Models\Target::class,
-        \App\Models\ActivityTarget::class,
-        \App\Models\MonthlyTargetGoal::class,
-        \App\Models\DailyActivity::class,
-        \App\Models\DailyActivityEntry::class,
-        \App\Models\AgentApplication::class,
-        \App\Models\Compliance\WhistleblowComplaint::class,      // confidential — may be officer-only by design
-        \App\Models\Compliance\AgencyComplianceProvision::class,
-        \App\Models\ToolHistoryEntry::class,
-        \App\Models\TvAccessCode::class,
-        \App\Models\TvMessage::class,
-        \App\Models\ListingImportRun::class,
-        \App\Models\ListingSnapshot::class,
+        // 2026-07-19: CommissionLedger + the Target/DailyActivity families were scoped
+        // this pass (BelongsToBranch + InheritsBranchFromParent(User)); Whistleblow +
+        // AgencyComplianceProvision moved to SHARED_BY_DESIGN. What remains has a real
+        // open write-context / classification question and stays a tracked gap:
+        \App\Models\AgentApplication::class,   // public-portal write (no auth) — branch not resolvable at create yet
+        \App\Models\ToolHistoryEntry::class,   // per-user tool history — branch vs shared undecided
+        \App\Models\TvAccessCode::class,       // TV display code — no agency_id column; structural question
+        \App\Models\TvMessage::class,          // TV display message — no agency_id column
+        \App\Models\ListingImportRun::class,   // import operation — agency-wide vs importer-branch undecided
+        \App\Models\ListingSnapshot::class,    // child of an import run — follows the run's decision
     ];
 
     /**
@@ -116,10 +115,11 @@ final class BranchSplitIsolationTest extends TestCase
     public function test_known_gap_list_is_not_growing(): void
     {
         $this->assertLessThanOrEqual(
-            14,
+            6,
             count(self::PENDING_DECISION),
             'The branch-isolation known-gap list grew. It must only ever shrink — see '
-            . '.ai/audits/branch-split-verification-2026-07-11.md §4.'
+            . '.ai/audits/branch-split-verification-2026-07-11.md §4 and the 2026-07-19 pass '
+            . 'that took it from 14 to 6.'
         );
     }
 

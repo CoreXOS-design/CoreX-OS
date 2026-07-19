@@ -3,6 +3,8 @@
 namespace App\Models\DealV2;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +15,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class DealStepEscalation extends Model
 {
-    use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    /** A child's branch is its parent deal's (spec §7a) — never the acting user's. */
+    protected function branchParent(): array
+    {
+        return [DealV2::class, 'deal_id'];
+    }
 
     protected $fillable = [
         'agency_id', 'deal_id', 'deal_step_instance_id',

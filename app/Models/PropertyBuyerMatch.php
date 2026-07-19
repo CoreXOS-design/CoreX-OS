@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -16,7 +18,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PropertyBuyerMatch extends Model
 {
-    use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    /** The match's branch is the property's (the listing it hangs off). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
+    }
 
     protected $table = 'property_buyer_matches';
 

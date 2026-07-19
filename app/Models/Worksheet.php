@@ -7,9 +7,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class Worksheet extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /** A worksheet's branch is its owning agent's — never the acting user's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
+    }
 
     protected $fillable = [
         'agency_id',

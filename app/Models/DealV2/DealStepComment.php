@@ -3,6 +3,8 @@
 namespace App\Models\DealV2;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +16,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class DealStepComment extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /** Branch follows the parent step instance (→ its deal); spec §7a. */
+    protected function branchParent(): array
+    {
+        return [DealStepInstance::class, 'deal_step_instance_id'];
+    }
 
     protected $fillable = [
         'agency_id',

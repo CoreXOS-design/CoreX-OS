@@ -7,9 +7,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class DealStepDocument extends Model
 {
-    use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+
+    /** Branch follows the parent step instance (→ its deal); spec §7a. */
+    protected function branchParent(): array
+    {
+        return [DealStepInstance::class, 'deal_step_instance_id'];
+    }
 
     public $timestamps = false;
 

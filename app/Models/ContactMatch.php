@@ -5,6 +5,8 @@ namespace App\Models;
 // TODO(matcher-unification): see backlog ticket — MatchingService and PropertyMatchScoringService still run as two engines.
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Observers\ContactMatchObserver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +18,13 @@ use Illuminate\Support\Str;
 
 class ContactMatch extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, SoftDeletes, BelongsToAgency;
+
+    /** A buyer requirement's branch is its contact's. */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Contact::class, 'contact_id'];
+    }
 
     public const STATUS_ACTIVE    = 'active';
     public const STATUS_PAUSED    = 'paused';
