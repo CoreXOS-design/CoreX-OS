@@ -50,6 +50,30 @@
                     {{ $amendment->flag_reason ?? $amendment->new_text }}
                 </p>
             </div>
+
+            {{-- AT-302 Phase 1 — render THE DOCUMENT with the flagged clause
+                 highlighted in place + the recipient's note attached. The bare
+                 concern + buttons "means nothing without the document" (Johan). --}}
+            @if(!empty($flaggedDocumentHtml))
+                <style>
+                    .amendment-doc { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 18px; max-height: 70vh; overflow: auto; background: #fff; }
+                    .amendment-doc .amendment-flagged { background: color-mix(in srgb, #d97706 14%, transparent); outline: 2px solid #d97706; outline-offset: 2px; border-radius: 4px; scroll-margin-top: 16px; }
+                    .amendment-doc .amendment-note { margin: 8px 0 14px; padding: 10px 12px; border-left: 3px solid #d97706; background: color-mix(in srgb, #d97706 8%, transparent); border-radius: 4px; font-size: 12.5px; color: #4b5563; }
+                    .amendment-doc .amendment-note strong { color: #92400e; display: block; margin-bottom: 3px; }
+                    .amendment-doc .corex-field { background: transparent; border-color: #cbd5e1; }
+                    .amendment-doc .corex-field-label { display: none; }
+                </style>
+                <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted, #6b7280);">The document &mdash; flagged clause highlighted</div>
+                <div class="amendment-doc mb-4">
+                    {!! $flaggedDocumentHtml !!}
+                </div>
+                <script>
+                    document.addEventListener('DOMContentLoaded', function () {
+                        const el = document.querySelector('.amendment-doc .amendment-flagged');
+                        if (el) el.scrollIntoView({ block: 'center' });
+                    });
+                </script>
+            @endif
         @endif
 
         @if(!$amendment->isFlag() && $conditions->isEmpty() && $strikethroughs->isEmpty())
