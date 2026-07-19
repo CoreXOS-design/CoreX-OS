@@ -450,7 +450,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', fn () => redirect('/my-portal#profile', 301))->name('profile.edit');
     Route::patch('/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])->name('profile.update');
     Route::put('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    // AT-267 §10 — deleting an assistant's account is an admin action, never self-service.
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->middleware('deny_assistant')->name('profile.destroy');
     Route::get('/corex/extension/download', [ProfileController::class, 'downloadExtension'])->name('corex.extension.download');
 
     // Ellie (AI Assistant)
