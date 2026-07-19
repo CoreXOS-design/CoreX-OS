@@ -263,6 +263,26 @@ final class RoleBlockExpansionService
     }
 
     /**
+     * AT-300 — true when the document binds a COLLECTIVE "<role>_full" field
+     * for this role: a single field the CDS generator fills with EVERY
+     * recipient joined ("Anine … and Andre …"). Such a role must NOT be looped
+     * per recipient (that duplicates the shared clause). Keyed on the field
+     * name, so loop-templates (indexed / per-attribute fields, no "_full") are
+     * never affected. Checks both the raw role token and its canonical party.
+     */
+    private function roleUsesCollectiveField(DOMDocument $dom, string $role): bool
+    {
+        $xpath = new DOMXPath($dom);
+        foreach (array_unique([$role . '_full', $this->canonicalParty($role) . '_full']) as $fieldName) {
+            $q = $xpath->query('//*[@data-field="' . $fieldName . '"]');
+            if ($q !== false && $q->length > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * AT-291 ITEM 6 — true when $block sits inside another `[data-role-block]`
      * element that resolves to the SAME canonical party. Such a nested block
      * is a mixed-vocabulary duplicate: its content is already emitted when the
@@ -449,6 +469,20 @@ final class RoleBlockExpansionService
             }
             $n = $recipients->count();
 
+            // AT-300 — COLLECTIVE templates. The CDS generator can bind a single
+            // joined "<role>_full" field that already contains EVERY recipient
+            // (e.g. "Anine … and Andre …"), yet still mark the clause
+            // data-role-block. Looping such a role per recipient renders the
+            // shared I/We clause (and address/phone) ONCE PER seller — the
+            // reported duplicate. When the document carries a collective
+            // "<role>_full" field, render this role's blocks ONCE, with no
+            // per-recipient name header (the joined field already names
+            // everyone). Loop-templates (indexed / per-attribute fields, no
+            // "_full") are unaffected.
+            $collective = $this->roleUsesCollectiveField($dom, $role);
+            $recipientsForRender = $collective ? $recipients->take(1)->values() : $recipients;
+            $renderN = $collective ? 1 : $n;
+
             // Group adjacent same-parent blocks so segment headers share
             // a single "Seller - Name" per recipient at the top.
             $groups = $this->groupAdjacentRoleBlocks($blocks);
@@ -457,14 +491,15 @@ final class RoleBlockExpansionService
                 if (count($group) === 1) {
                     // Single-block group — clone-per-recipient with a
                     // header on each clone (mutateCloneForInstance with
-                    // prependHeader=true by default).
+                    // prependHeader=true by default). Collective → once, no header.
                     $this->duplicateBlockForRecipients(
                         $dom,
                         $group[0],
                         $role,
-                        $recipients,
+                        $recipientsForRender,
                         $isSales,
-                        $n,
+                        $renderN,
+                        prependHeader: !$collective,
                     );
                 } else {
                     // Multi-block group — segments share one header.
@@ -472,18 +507,19 @@ final class RoleBlockExpansionService
                         $dom,
                         $group,
                         $role,
-                        $recipients,
+                        $recipientsForRender,
                         $isSales,
-                        $n,
+                        $renderN,
+                        suppressHeader: $collective,
                     );
                 }
             }
             $structuralLog[] = [
                 'role'      => $role,
-                'case'      => 'contract',
+                'case'      => $collective ? 'contract-collective' : 'contract',
                 'blocks'    => count($blocks),
                 'groups'    => count($groups),
-                'recipients'=> $n,
+                'recipients'=> $renderN,
             ];
         }
     }
@@ -1277,6 +1313,7 @@ final class RoleBlockExpansionService
         Collection $recipients,
         bool $isSales,
         int $totalInstances,
+        bool $prependHeader = true, // AT-300 — false for collective ("_full") roles
     ): void {
         $parent = $blockNode->parentNode;
         if (!$parent instanceof DOMNode) {
@@ -1300,6 +1337,7 @@ final class RoleBlockExpansionService
                 $isSales,
                 strippingForeignIndices: false,
                 sourceInstanceIndex: 1,
+                prependHeader: $prependHeader,
             );
             $clones[] = $clone;
         }
@@ -1340,6 +1378,7 @@ final class RoleBlockExpansionService
         Collection $recipients,
         bool $isSales,
         int $totalInstances,
+        bool $suppressHeader = false, // AT-300 — true for collective ("_full") roles
     ): void {
         if (empty($groupUnits)) {
             return;
@@ -1376,7 +1415,7 @@ final class RoleBlockExpansionService
                     $isSales,
                     strippingForeignIndices: false,
                     sourceInstanceIndex: 1,
-                    prependHeader: ($unitIdx === 0),
+                    prependHeader: (!$suppressHeader && $unitIdx === 0),
                 );
                 $allClones[] = $clone;
             }

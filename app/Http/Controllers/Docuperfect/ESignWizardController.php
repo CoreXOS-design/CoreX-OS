@@ -4932,7 +4932,20 @@ class ESignWizardController extends Controller
             // (STATUS_AMENDMENT_REVIEW) was in NO bucket, so it fell out of the
             // list entirely and the agent could not see the frozen ceremony.
             // Surface it FIRST as "FLAGGED — review required".
-            'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)->values(),
+            'flagged'          => $allTemplates->where('status', SignatureTemplate::STATUS_AMENDMENT_REVIEW)
+                ->each(function ($tpl) {
+                    // AT-300 — attach the pending flag amendment so the list CTA
+                    // deep-links to the FLAG-RESOLVE view (AmendmentController::review).
+                    // The doc-level signatures.review REJECTS an AMENDMENT_REVIEW
+                    // status (redirects "not pending approval") — that is why the
+                    // Review Flag button did nothing.
+                    $tpl->flag_amendment_id = \App\Models\Docuperfect\DocumentAmendment::query()
+                        ->where('signature_template_id', $tpl->id)
+                        ->where('amendment_type', \App\Models\Docuperfect\DocumentAmendment::TYPE_FLAG_RAISED)
+                        ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
+                        ->latest('id')->value('id');
+                })
+                ->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
