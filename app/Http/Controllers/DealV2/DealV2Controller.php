@@ -319,10 +319,14 @@ class DealV2Controller extends Controller
             $data['agents'] = $this->buildAgentsFromForm($request);
         }
 
-        // Set listing_agent_id from first listing agent if not explicitly set
+        // Set listing_agent_id from first listing agent if not explicitly set.
+        // AT-267 — for an assistant the deal is the AGENT's (ownershipUserId), never the
+        // assistant's; commission and the deal register file it under the agent. created_by_id
+        // (below) still records the assistant as the capturer. A normal user's ownershipUserId
+        // is themselves, so behaviour is unchanged.
         if (empty($data['listing_agent_id'])) {
             $firstListing = collect($data['agents'] ?? [])->firstWhere('side', 'listing');
-            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->id();
+            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->user()->ownershipUserId();
         }
 
         // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may

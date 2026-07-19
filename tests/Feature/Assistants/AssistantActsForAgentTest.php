@@ -111,6 +111,24 @@ final class AssistantActsForAgentTest extends TestCase
             'the daily activity lands on the AGENT, not the assistant — it counts as the agent\'s work');
     }
 
+    public function test_a_contact_an_assistant_captures_belongs_to_the_agent(): void
+    {
+        $this->actingAs($this->assistant);
+
+        $contact = \App\Models\Contact::create([
+            'agency_id'          => $this->agency->id,
+            'branch_id'          => $this->branch->id,
+            'first_name'         => 'Buyer',
+            'last_name'          => 'Lead',
+            'created_by_user_id' => $this->assistant->id,
+        ]);
+
+        $this->assertSame((int) $this->agent->id, (int) $contact->agent_id,
+            'the contact lands on the AGENT\'s book, not the assistant\'s');
+        $this->assertSame((int) $this->assistant->id, (int) $contact->created_by_user_id,
+            'the assistant is recorded as the capturer');
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function makeUser(string $name, string $role, bool $isAssistant = false): User

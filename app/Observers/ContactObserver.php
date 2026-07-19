@@ -47,7 +47,17 @@ class ContactObserver
         // unless one was set explicitly — mirrors the back-catalogue backfill in
         // 2026_06_17_120000_add_agent_assignment_to_contacts_table.
         if (empty($contact->agent_id) && !empty($contact->created_by_user_id)) {
-            $contact->agent_id = $contact->created_by_user_id;
+            // AT-267 — a contact an assistant captures belongs to the AGENT (it lands on the
+            // agent's book), not the assistant. ownershipUserId() maps the capturer to their agent
+            // for an assistant, and to themselves for everyone else; created_by_user_id still
+            // records who actually captured it. Non-auth ingress (imports) has no assistant, so it
+            // falls through to the capturer id unchanged.
+            $capturer = Auth::user();
+            $contact->agent_id = ($capturer
+                && (int) $capturer->id === (int) $contact->created_by_user_id
+                && method_exists($capturer, 'ownershipUserId'))
+                    ? $capturer->ownershipUserId()
+                    : $contact->created_by_user_id;
         }
 
         if (!empty($contact->branch_id)) {
