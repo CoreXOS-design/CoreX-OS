@@ -976,8 +976,25 @@ BLADE;
             $displayParties = ['Lessor', 'Lessee', 'Agent'];
         }
 
+        // AT-304 OTP-3 — an OTP-style sig page detected by the parser carries a richer roster
+        // (witnesses per party, a co-signatory). Read the source signature_section roles: if it
+        // has witnesses, render witness columns; if it has a co-signatory, add that sign cell.
+        $sigRoles = [];
+        foreach (($cds['sections'] ?? []) as $sec) {
+            if (($sec['type'] ?? '') === 'signature_section') {
+                foreach (($sec['parties'] ?? []) as $p) {
+                    $sigRoles[] = strtolower((string) ($p['role'] ?? ''));
+                }
+            }
+        }
+        $showWitness = in_array('witness', $sigRoles, true);
+        if (in_array('co_signatory', $sigRoles, true) && ! in_array('Co-Signatory', $displayParties, true)) {
+            $displayParties[] = 'Co-Signatory';
+        }
+
         $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
-        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . '])' . "\n\n";
+        $witnessPhp = $showWitness ? ', "show_witness" => true' : '';
+        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
