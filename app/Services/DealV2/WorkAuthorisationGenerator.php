@@ -3,6 +3,7 @@
 namespace App\Services\DealV2;
 
 use App\Models\Agency;
+use App\Models\Deal;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\DealV2;
 use App\Models\Document;
@@ -56,18 +57,15 @@ class WorkAuthorisationGenerator
      * Auto-fill every form field from the deal. All values are editable by the
      * agent before send (the caller merges any edits over these defaults).
      */
-    public function defaultFields(DealV2 $deal, ?string $serviceType = null): array
+    public function defaultFields(Deal|DealV2 $deal, ?string $serviceType = null): array
     {
-        $deal->loadMissing(['property', 'contacts', 'listingAgent', 'providerParties']);
+        $deal->loadMissing(['property', 'contacts']);
         $property = $deal->property;
 
         $seller = $deal->sellers()->first();
         $buyer  = $deal->buyers()->first();
-        $agent  = $deal->listingAgent;
-
-        // Attorney = the deal's transfer/bond attorney provider party (firm).
-        $attorney = $deal->providerParties
-            ->first(fn ($p) => in_array($p->pivot->role ?? '', ['transfer_attorney', 'conveyancer', 'bond_attorney', 'attorney'], true));
+        $agent  = $this->agentFor($deal);
+        $attorney = $this->attorneyFor($deal);
 
         return [
             'date'             => now()->format('d F Y'),
@@ -97,7 +95,7 @@ class WorkAuthorisationGenerator
      * Render + file the work-authorisation Document from the (auto-filled, then
      * agent-edited) $fields. $provider (optional) is the addressed supplier.
      */
-    public function generate(DealV2 $deal, array $fields, ?AgencyServiceProvider $provider, User $actor): Document
+    public function generate(Deal|DealV2 $deal, array $fields, ?AgencyServiceProvider $provider, User $actor, ?int $pipelineStepId = null): Document
     {
         $deal->loadMissing('property');
         $property   = $deal->property;
@@ -124,9 +122,8 @@ class WorkAuthorisationGenerator
 
         $typeId = DocumentType::where('slug', 'work_authorisation')->value('id');
 
-        $originalName = $serviceLbl . ' — Work Order — ' . ($property->address ?? $deal->reference) . '.pdf';
-
-        return $this->dealDocumentService->createDealDocument($deal, [
+        $originalName = $serviceLbl . ' — Work Order — ' . ($property->address ?? $this->referenceFor($deal)) . '.pdf';
+        $attrs = [
             'original_name'    => Str::limit($originalName, 250, ''),
             'storage_path'     => $path,
             'disk'             => $disk,
@@ -134,7 +131,49 @@ class WorkAuthorisationGenerator
             'size'             => strlen($pdfBytes),
             'document_type_id' => $typeId,
             'source_type'      => 'work_authorisation',
-        ], $actor);
+        ];
+
+        // DR1-native filing (the live pipeline surface, AT-229 2026-07-19): file from the
+        // DR1 deal so the doc lands on the deal (twin anchor) + property + property-contacts,
+        // and — with the step id — on the pipeline step itself. The DealV2 path stays for the
+        // (retired) DealV2 surface.
+        if ($deal instanceof Deal) {
+            if ($pipelineStepId) {
+                $attrs['pipeline_step_id'] = $pipelineStepId;
+            }
+            return $this->dealDocumentService->fileDealDocumentFromDeal($deal, $attrs, $actor);
+        }
+
+        return $this->dealDocumentService->createDealDocument($deal, $attrs, $actor);
+    }
+
+    /** The listing agent, whichever deal model this is (DealV2 singular vs DR1 plural). */
+    private function agentFor(Deal|DealV2 $deal): ?User
+    {
+        if ($deal instanceof DealV2) {
+            return $deal->listingAgent;
+        }
+        return $deal->listingAgents()->first() ?: $deal->agents()->first();
+    }
+
+    /** The transfer/bond attorney firm (DealV2 provider party); DR1 has none → editable blank. */
+    private function attorneyFor(Deal|DealV2 $deal)
+    {
+        if ($deal instanceof DealV2) {
+            $deal->loadMissing('providerParties');
+            return $deal->providerParties
+                ->first(fn ($p) => in_array($p->pivot->role ?? '', ['transfer_attorney', 'conveyancer', 'bond_attorney', 'attorney'], true));
+        }
+        return null;
+    }
+
+    /** The human deal reference (DealV2 `reference` vs DR1 `deal_no`/id). */
+    private function referenceFor(Deal|DealV2 $deal): string
+    {
+        if ($deal instanceof DealV2) {
+            return (string) ($deal->reference ?? ('#' . $deal->id));
+        }
+        return (string) ($deal->deal_no ?: ('#' . $deal->id));
     }
 
     private function propertyAddress($property): ?string

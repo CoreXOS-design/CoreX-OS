@@ -132,3 +132,34 @@ the HFC work-authorisation form to PDF, files it as the catalogued `work_authori
 - **Tests:** `tests/Feature/DealV2/DealPipelineWorkOrderConfigTest.php` (config round-trip + validation).
 - **Permissions:** reused `deals_v2.manage_pipeline` (config) + `deals_v2.distribute_documents` (send) —
   no new keys (§6).
+
+## 13. Runtime surface correction (2026-07-19) — LIVE = DR1 pipeline
+
+Investigation during the runtime build found `DealV2Controller::show()` is **soft-retired (AT-219)**:
+the only live deal-pipeline surface is **`dr2/pipeline.blade.php`** (`Dr2\PipelineController::show(Deal $deal)`,
+route `deals-dr2.pipeline`), which runs on the **DR1 `Deal`** model — all live `DealStepInstance`s carry
+`dr1_deal_id`, `deal_id` (DealV2) is null. So the runtime action was wired there (Johan's ruling:
+target dr2/pipeline, generalise to DR1, audit on the twin like every other distribution; editing m1's
+view is fine — CoreX owns files).
+
+- **Runtime action** lives on `dr2/pipeline.blade.php`'s per-step action bar (Non-neg #2), gated on
+  `$s->pipelineStep?->sends_work_order` + trigger point + `deals_v2.distribute_documents`. Modal loads
+  `deals-dr2.pipeline.step.work-order.form`, agent edits fields + picks/ad-hoc-creates the supplier +
+  chooses its primary contact, posts to `…work-order.send`.
+- **`WorkAuthorisationGenerator` generalised** to accept a DR1 `Deal|DealV2` (maps
+  sellers/buyers/property/listing agent/reference); DR1 files via
+  `DealDocumentService::fileDealDocumentFromDeal` (deal-twin + property + property-contacts + the step).
+- **Send reuses the shipped AT-228 DR1 path** `Dr2DistributionSendService::sendToParty` — mints the
+  on-demand DealV2 twin (as every DR1 distribution does), attaches the PDF, audits
+  `deal_document_distributions` via `deal_v2_id` with `recipient_provider_id`. No new audit schema.
+- `WorkOrderController::dr1Form`/`dr1Send` + routes `deals-dr2.pipeline.step.work-order.{form,send}`.
+- The earlier `deals-v2/show` button + DealV2 `WorkOrderController::form/send` remain but are **inert**
+  (retired view) — superseded by the DR1 action; left in place for the DealV2 model if ever un-retired.
+
+**Cross-lane note (per Johan's ruling):** this edits `dr2/pipeline.blade.php` (m1/AT-216) and reuses
+`Dr2DistributionSendService` (AT-228). Flagged on the ticket; git resolves any merge clash.
+
+**On-site proof (deployed qa1, real DR1 deal #155 / active step #13):** button gate true + action in the
+live view; `dr1Form` → 17 auto-filled fields + supplier list; `dr1Send` → `work_authorisation` PDF filed
+to the deal+step, emailed to the picked supplier (Mailpit), audited in `deal_document_distributions`
+(recipient_provider_id, twin `deal_v2_id`). Self-cleaning proof; step config restored.
