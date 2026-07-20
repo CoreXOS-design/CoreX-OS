@@ -2086,6 +2086,18 @@ function externalSign() {
                 const allFields = container.querySelectorAll('[data-field]');
                 const anyStamped = container.querySelector('[data-viewer-editable]') !== null;
                 allFields.forEach(span => {
+                    // ESIGN-WETINK — IDEMPOTENCY GUARD (fixes "refresh wipes prefilled
+                    // fields"). initWebTemplateFields runs from multiple init/watch
+                    // sites. A converted field is an <input> that carries data-field.
+                    // On a second run this loop would find that input, read
+                    // span.textContent — which is '' for an <input> (its value is a
+                    // property, not text) — and rebuild it as an EMPTY input, wiping
+                    // the agent's prefilled value. Read-only spans are untouched, so
+                    // only the CURRENT signer's editable fields went blank on reload.
+                    // Skip anything already converted so the conversion is safe to
+                    // re-run and the served (complete) document always stays complete.
+                    if (span.tagName === 'INPUT' || span.tagName === 'TEXTAREA') return;
+                    if (span.classList && span.classList.contains('field-editable')) return;
                     const fieldName = span.getAttribute('data-field');
                     const originalName = span.getAttribute('data-recipient-identity') !== null
                         ? (span.getAttribute('data-original-field') || fieldName)
