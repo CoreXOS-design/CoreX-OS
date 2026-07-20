@@ -228,6 +228,42 @@ The codebase has four separate mechanisms that produce signature elements:
 - Markers placed before the 210mm width fix may be slightly mispositioned
 - New markers placed after the fix are consistent across all views
 
+### Identity-Scoped Marker Interactivity + Never-Clobber-Signed (ESIGN-WETINK, AT-300)
+
+E-sign replicates a real hard-copy pack: what recipient 1 SUBMITS after signing is
+EXACTLY what recipient 2 opens and works on — recipient 1's marks present and
+**locked**. The canonical artifact already accumulates every signer's ink
+(`CanonicalInkComposer::bakeInk` writes each signer's captures back into
+`canonical_html` by `data-name` / `data-recipient-identity`). The recipient signing
+view (`resources/views/docuperfect/signatures/external/sign.blade.php`) must render
+that canonical faithfully. Two rules govern the client-side marker/initial
+interactivity (`_makeWebElementsInteractive`, `_makeWebInitialsInteractive`):
+
+1. **Ownership is decided by signer IDENTITY, never by bare party role.** A marker
+   is "mine" iff — in this priority — `data-name === signer_name`, else
+   `data-recipient-identity === currentRoleIdentity`, else (only for un-stamped
+   single-block templates) the party-role alias fallback (`isMyWebSigBlock`). This
+   is the exact JS mirror of `CanonicalInkComposer::markerBelongsToSigner`
+   (see `_isMyMarker`). Deciding by bare party role let recipient 2 (seller_2)
+   claim recipient 1's (seller_1) same-role positions — offering them as
+   "Click to sign" AND mislabelling recipient 2's own suffixed block as
+   "Awaiting seller 2". For an N-same-role pack (2 sellers), `data-name` is the
+   reliable per-person key — the markers are name-bound, not identity-stamped.
+
+2. **Never clobber a signed marker.** Before making any marker interactive, a
+   marker already carrying baked ink — `data-signed="true"` OR an embedded
+   `img.web-sig-signed-img` / `img.corex-ink` (see `_isMarkerSigned`) — is left
+   EXACTLY as the canonical composed it: no innerHTML overwrite, no dimming, not
+   counted as outstanding. This holds for a prior recipient's ink AND the current
+   signer's own already-signed blocks (e.g. after refresh). Only the current
+   signer's UNSIGNED markers get the "Click to sign / Click to initial" prompt.
+
+Result: recipient 2 opens the pack and sees every completed mark from recipient 1
+and the agent baked and locked inline, with ONLY their own outstanding markers
+actionable. (Ceremony "Thus done and signed" fields were identity-scoped earlier in
+fd9cf176 by the same rule; these two render paths were the remaining bare-role
+holdouts — AT-300 closed them.)
+
 ---
 
 ## 7. PDF Generation

@@ -1619,7 +1619,21 @@ function externalSign() {
                     if (partyCounters[baseRole] === undefined) partyCounters[baseRole] = 0;
                     const sigKey = baseRole + '-sig-' + partyCounters[baseRole];
                     partyCounters[baseRole]++;
-                    const isMine = self.isMyWebSigBlock(rawParty);
+
+                    // ESIGN-WETINK — NEVER clobber baked ink. A marker that already
+                    // carries a locked signature (data-signed / embedded img) is left
+                    // EXACTLY as the canonical composed it, whether it is a prior
+                    // recipient's or the current signer's own already-signed block.
+                    // Only UNSIGNED markers are processed below.
+                    if (self._isMarkerSigned(el)) {
+                        el.classList.add('web-sig-other-signed');
+                        return;
+                    }
+
+                    // ESIGN-WETINK — decide "mine" by the signer's IDENTITY
+                    // (data-name / data-recipient-identity), not bare party role, so
+                    // recipient 2 is never offered recipient 1's same-role positions.
+                    const isMine = self._isMyMarker(el);
 
                     if (isMine) {
                         myCount++;
@@ -1634,17 +1648,11 @@ function externalSign() {
                             self.$nextTick(() => self.initWebSigCanvas());
                         });
                     } else {
-                        // Other party — check if already signed (img embedded in HTML)
-                        const existingImg = el.querySelector('img.web-sig-signed-img, img[alt="Signature"]');
-                        if (existingImg) {
-                            el.classList.add('web-sig-other-signed');
-                            // Already has a signature image embedded — leave as is
-                        } else {
-                            el.classList.add('web-sig-other-party');
-                            const partyLabel = rawParty.replace(/_/g, ' ');
-                            if (!el.querySelector('.sig-cell-label')) {
-                                el.innerHTML = '<div style="font-size:9px;color:#94a3b8;text-align:center;padding:4px;">Awaiting ' + partyLabel + '</div>';
-                            }
+                        // Other party, not yet signed — greyed placeholder.
+                        el.classList.add('web-sig-other-party');
+                        const partyLabel = rawParty.replace(/_/g, ' ');
+                        if (!el.querySelector('.sig-cell-label')) {
+                            el.innerHTML = '<div style="font-size:9px;color:#94a3b8;text-align:center;padding:4px;">Awaiting ' + partyLabel + '</div>';
                         }
                     }
                 });
@@ -1776,11 +1784,22 @@ function externalSign() {
 
             initialElements.forEach((el) => {
                 const rawParty = (el.dataset.markerParty || '').toLowerCase();
-                const isMine = self.isMyWebSigBlock(rawParty);
                 if (initPartyCounters[rawParty] === undefined) initPartyCounters[rawParty] = 0;
                 const initKey = rawParty + '-init-' + initPartyCounters[rawParty];
                 initPartyCounters[rawParty]++;
 
+                // ESIGN-WETINK — NEVER clobber a baked initial. A locked initial
+                // (a prior recipient's OR the current signer's own) renders exactly
+                // as the canonical composed it: no dimming, no prompt, and it is not
+                // counted as an outstanding item.
+                if (self._isMarkerSigned(el)) {
+                    self.webInitialElements.push({ el, rawParty, index: initPartyCounters[rawParty] - 1, initKey, isMine: false, signed: true, sigData: null });
+                    return;
+                }
+
+                // ESIGN-WETINK — decide "mine" by the signer's IDENTITY, not bare
+                // party role, so recipient 2 is never offered recipient 1's initials.
+                const isMine = self._isMyMarker(el);
                 const entry = { el, rawParty, index: initPartyCounters[rawParty] - 1, initKey, isMine, signed: false, sigData: null };
                 self.webInitialElements.push(entry);
 
@@ -2892,6 +2911,57 @@ function externalSign() {
             if (acquiringTerms.includes(myRoleBase) && acquiringTerms.includes(roleBase)) return true;
             if (agentTerms.includes(myRoleBase) && agentTerms.includes(roleBase)) return true;
             return false;
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 case-insensitive, whitespace-collapsed name key.
+         * Mirrors CanonicalInkComposer::normalizeName so the browser's
+         * data-name matching agrees exactly with the server-side bake.
+         */
+        _normalizeInkName(name) {
+            return (name || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 does this signature/initial marker belong to the CURRENT
+         * signer? Identity-scoped ownership for the render/interactivity path \u2014 the
+         * exact JS mirror of CanonicalInkComposer::markerBelongsToSigner (the
+         * server-side ink bake). Match priority (most specific \u2192 least):
+         *   1. data-name === signer_name \u2014 per-person, N-party-safe; this is the
+         *      real doc-431/EATS shape where same-role recipients (2 sellers) are
+         *      distinguished only by the name bound to each marker.
+         *   2. data-recipient-identity === currentRoleIdentity \u2014 markers stamped
+         *      inside cloned role-blocks ({role}_{index}).
+         *   3. Party-role alias fallback \u2014 only for un-stamped single-block
+         *      templates that carry neither key.
+         * Deciding by BARE party role (the old isMyWebSigBlock-only path) let
+         * recipient 2 claim recipient 1's same-role positions and clobber their
+         * baked ink; keying on identity closes that N-party bleed.
+         */
+        _isMyMarker(el) {
+            const markerName = this._normalizeInkName(el.getAttribute('data-name'));
+            const myName = this._normalizeInkName(this.signerName);
+            if (markerName !== '' && myName !== '') {
+                return markerName === myName;
+            }
+            const markerIdentity = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
+            if (markerIdentity !== '') {
+                const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+                return myIdentity !== '' && markerIdentity === myIdentity;
+            }
+            return this.isMyWebSigBlock((el.dataset.markerParty || '').toLowerCase());
+        },
+
+        /**
+         * ESIGN-WETINK \u2014 is this marker already inked/locked? A baked marker
+         * carries data-signed="true" and an embedded ink image (see
+         * CanonicalInkComposer::paintImage). Never clobber it \u2014 a prior
+         * recipient's OR the current signer's own already-signed block stays
+         * exactly as the canonical composed it.
+         */
+        _isMarkerSigned(el) {
+            return el.getAttribute('data-signed') === 'true'
+                || !!el.querySelector('img.web-sig-signed-img, img.corex-ink, img[alt="Signature"], img[alt="Initial"]');
         },
 
         // \u00A719 Part A \u2014 shared disclosure logic (single source; agent +
