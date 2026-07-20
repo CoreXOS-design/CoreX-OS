@@ -250,22 +250,28 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        if ($request->has('agent_id')) {
-            $filterAgentId = (string) $request->query('agent_id', '');
-        } elseif ($canPickAgent) {
-            $filterAgentId = (string) $user->id;
-        } else {
-            $filterAgentId = '';
-        }
+        // AT-273 — the Street & Complex (property) search ALWAYS runs at the
+        // caller's FULL contact-visibility breadth: 'all' = the whole agency book,
+        // 'branch' = the caller's branch, 'own' = their own contacts. Visibility is
+        // governed purely by the agency's data-scope config (ContactScope enforces
+        // it globally; the branch clause below supplements it exactly as the list's
+        // "All Contacts" browse does).
+        //
+        // It deliberately does NOT inherit the contacts-list "My Contacts" per-agent
+        // default. Property matches are almost always owned by OTHER agents, so a
+        // property search that silently narrowed to the caller's own contacts
+        // returned ~0 results whenever the user hadn't first flipped the list to
+        // "All Contacts" — the exact bug this closes. filterAgentId is therefore
+        // pinned to '' (full scope) and any inherited ?agent_id is ignored.
+        $filterAgentId = '';
 
         $query = Contact::query();
 
         if ($canPickAgent) {
-            if ($filterAgentId === 'unassigned') {
-                $query->whereNull('agent_id');
-            } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
-                $query->where('agent_id', (int) $filterAgentId);
-            } elseif ($dataScope === 'branch' && $user->branch_id) {
+            // 'branch' scope needs an explicit branch narrowing (mirrors the list's
+            // "All Contacts" path); 'all' scope = full agency book (ContactScope
+            // leaves it unrestricted).
+            if ($dataScope === 'branch' && $user->branch_id) {
                 $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $user->branch_id));
             }
         } else {

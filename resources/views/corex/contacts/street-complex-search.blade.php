@@ -29,7 +29,7 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @if($term !== '' && $contacts->isNotEmpty())
-                <a href="{{ route('corex.contacts.street-complex-search.pdf', array_filter(['q' => $term, 'sort' => $sort, 'dir' => $dir, 'agent_id' => $canPickAgent ? $filterAgentId : null], fn($v) => $v !== null)) }}"
+                <a href="{{ route('corex.contacts.street-complex-search.pdf', array_filter(['q' => $term, 'sort' => $sort, 'dir' => $dir], fn($v) => $v !== null)) }}"
                    class="corex-btn-primary text-sm no-underline">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
@@ -46,9 +46,9 @@
     <form method="GET" action="{{ route('corex.contacts.street-complex-search') }}"
           class="rounded-md px-4 py-3 flex flex-wrap items-center gap-3"
           style="background:var(--surface);border:1px solid var(--border);">
-        @if($canPickAgent)
-        <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
-        @endif
+        {{-- No agent_id hidden field: the property search always runs at the agency's
+             full contact-visibility scope, so re-running it must not re-inject a
+             per-agent narrowing (AT-273). --}}
         <div class="relative flex-1 min-w-[220px] max-w-md">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>

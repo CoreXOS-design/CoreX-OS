@@ -128,7 +128,12 @@ class TourRegistry
                     [
                         'element' => '[data-tour="contact-search"]',
                         'title'   => 'Finding contacts later',
-                        'body'    => 'Search by name, phone or email here any time. You\'re ready — close this and capture your first contact.',
+                        'body'    => 'Search by name, phone or email here any time — CoreX matches across every number and address on the record, not just the one on screen.',
+                    ],
+                    [
+                        'element' => '[data-tour="contact-street-search"]',
+                        'title'   => 'Search by street or complex',
+                        'body'    => 'Working a street, complex or estate? Click this house icon and type the street or complex name — CoreX finds every contact whose address or linked property matches, across your whole agency book (or your branch, depending on your access). The results open on their own page — each tagged with when you last contacted them — sortable and downloadable as a PDF. You\'re ready — close this and capture your first contact.',
                     ],
                 ],
             ],

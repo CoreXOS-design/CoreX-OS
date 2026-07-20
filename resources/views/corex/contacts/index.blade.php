@@ -332,8 +332,10 @@
                            scGo(v) {
                                v = (v || '').trim();
                                if (!v) { this.$refs.scInput && this.$refs.scInput.focus(); return; }
+                               {{-- No agent_id: the property search ALWAYS runs at the
+                                    agency's full contact-visibility scope, never the
+                                    list's "My Contacts" narrowing (AT-273). --}}
                                let u = '{{ route('corex.contacts.street-complex-search') }}?q=' + encodeURIComponent(v);
-                               @if($canPickAgent) u += '&agent_id=' + encodeURIComponent('{{ $filterAgentId }}'); @endif
                                window.location.href = u;
                            } }"
                  class="flex items-center gap-1">
@@ -344,6 +346,7 @@
                         class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0 transition-all duration-300"
                         :style="scOpen ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);'"
                         :aria-expanded="scOpen"
+                        data-tour="contact-street-search"
                         title="Street &amp; Complex Search — click to search by street or complex name">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
