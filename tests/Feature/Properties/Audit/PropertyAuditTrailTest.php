@@ -54,7 +54,7 @@ final class PropertyAuditTrailTest extends TestCase
 
     private function makeProperty(array $attrs = []): Property
     {
-        return Property::create(array_merge([
+        $created = Property::create(array_merge([
             'title'     => 'Audit Cottage',
             'agency_id' => $this->agency->id,
             'agent_id'  => $this->user->id,
@@ -63,6 +63,12 @@ final class PropertyAuditTrailTest extends TestCase
             'status'    => 'active',
             'description' => 'original',
         ], $attrs));
+
+        // Re-fetch a FRESH instance: a real edit is a separate request, so
+        // wasRecentlyCreated is false. On the just-created instance it lingers
+        // true and the observer (correctly) treats the save as part of creation,
+        // skipping the change-audit — which would make these edit tests vacuous.
+        return Property::findOrFail($created->id);
     }
 
     private function rows(int $propertyId, ?string $eventType = null)
