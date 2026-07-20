@@ -3447,7 +3447,7 @@ function externalSign() {
                 if (entry) {
                     entry.signed = true;
                     entry.sigData = sigData;
-                    entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                    entry.el.innerHTML = '<img src="' + sigData + '" class="corex-ink corex-ink--initial" style="height:38px;max-height:38px;width:auto;margin:auto;display:block;object-fit:contain;" alt="Initial">';
                     entry.el.classList.add('initial-signed');
                     entry.el.style.border = '2px solid #10b981';
                     entry.el.style.background = 'rgba(16,185,129,0.06)';
