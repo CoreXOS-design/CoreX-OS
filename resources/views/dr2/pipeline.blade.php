@@ -23,7 +23,23 @@
         'not_applicable' => ['N/A',       '#6b7280', '#f3f4f6'],
         'skipped'     => ['Skipped',     '#6b7280', '#f3f4f6'],
     ];
+    // AT-305b — count of completed/terminal steps, for the "Hide completed" toggle.
+    $completedCount = ($steps ?? collect())->filter(fn ($r) => in_array($r['model']->status, ['completed', 'skipped'], true))->count();
 @endphp
+{{--
+    AT-305b — TRUE independent dual-pane scroll. Each column is its own bounded
+    overflow-y region so scrolling the pipeline (left) does NOT move the docs/
+    proforma rail (right) and vice-versa; the page itself does not scroll the
+    columns off screen. Desktop only (≥1024px); on mobile the columns stack and
+    scroll with the page. Scoped <style> (not arbitrary Tailwind) so it applies on
+    qa1 without a CSS rebuild.
+--}}
+<style>
+@media (min-width: 1024px) {
+    .dr2-pipe-grid { height: calc(100vh - 9.5rem); }
+    .dr2-pipe-col  { max-height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: .35rem; }
+}
+</style>
 <div class="corex-page">
     <div class="corex-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
         <div>
@@ -71,10 +87,10 @@
     @endif
 
     {{-- AT-305 — two columns (stacks on mobile). Left: pipeline. Right: sticky docs/proforma rail. --}}
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start" style="margin-top:1rem;">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start dr2-pipe-grid" style="margin-top:1rem;">
 
-        {{-- ── LEFT (≈60%): the pipeline step board ────────────────────────────── --}}
-        <div class="lg:col-span-3 space-y-4 min-w-0">
+        {{-- ── LEFT (≈60%): the pipeline step board — own scroll region ─────────── --}}
+        <div class="lg:col-span-3 space-y-4 min-w-0 dr2-pipe-col">
     @if($steps->isEmpty() && $locked)
         {{-- Declined and never worked: no pipeline to show, and none may be started. --}}
         <div class="corex-card" style="padding:1.5rem;">
@@ -120,12 +136,24 @@
              orders and comments expand in place. AT-244: when the deal is not proceeding
              the board is MUTED and every state-changing action is withdrawn (no dead
              buttons); comments stay live (history-keeping, not a transition). --}}
-        <div class="corex-card" style="padding:.25rem .5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}">
+        <div class="corex-card" style="padding:.25rem .5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}"
+             x-data="{ hideDone: false }" x-init="hideDone = (localStorage.getItem('dr2_hide_completed') === '1')">
+            {{-- AT-305b — Hide-completed toggle. Persists per user via localStorage; default
+                 off (show all). Only offered when there are completed/terminal steps to hide. --}}
+            @if($completedCount > 0)
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:.5rem;padding:.35rem .4rem;border-bottom:1px solid var(--corex-border,#e5e7eb);">
+                <label style="display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;color:#374151;cursor:pointer;">
+                    <input type="checkbox" x-model="hideDone" @change="localStorage.setItem('dr2_hide_completed', hideDone ? '1' : '0')">
+                    Hide completed steps
+                </label>
+                <span x-show="hideDone" x-cloak style="font-size:.72rem;color:#6b7280;">({{ $completedCount }} hidden)</span>
+            </div>
+            @endif
             @foreach($steps as $row)
                 @php($s = $row['model'])
                 @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
                 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
-                <div x-data="{ na:false, cm:false, due:false }" style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
+                <div x-data="{ na:false, cm:false, due:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
 
                     {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
                     <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
@@ -387,8 +415,8 @@
     @endif
         </div>{{-- /LEFT --}}
 
-        {{-- ── RIGHT (≈40%): sticky rail — Documents · Send to a party · Proforma ─── --}}
-        <div class="lg:col-span-2 lg:sticky lg:top-4 self-start space-y-4 min-w-0">
+        {{-- ── RIGHT (≈40%): own scroll region — Documents · Send to a party · Proforma --}}
+        <div class="lg:col-span-2 space-y-4 min-w-0 dr2-pipe-col">
             {{-- DR2 deal documents (AT-225/226) — upload + Send documents to a party --}}
             @include('dr2._deal-documents', ['deal' => $deal])
             {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
