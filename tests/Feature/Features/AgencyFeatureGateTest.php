@@ -198,6 +198,75 @@ class AgencyFeatureGateTest extends TestCase
         $this->assertFalse($this->svc()->enabled('totally-made-up-module', $agency));
     }
 
+    // ── 9a. Owner in the global context bypasses feature flags ───────────────
+
+    /** A system-owner role row (is_owner true, global) + a user wearing it. */
+    private function owner(): User
+    {
+        Role::forceCreate([
+            'name'     => 'super_admin',
+            'label'    => 'System Owner',
+            'is_owner' => true,
+            'agency_id' => null,
+        ]);
+        Role::clearCache();
+
+        return User::factory()->create([
+            'agency_id' => null,
+            'branch_id' => null,
+            'role'      => 'super_admin',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_owner_in_global_context_sees_every_feature(): void
+    {
+        $owner = $this->owner();
+        $this->actingAs($owner);
+
+        // payroll + leave both default OFF and the owner has NO agency, so without
+        // the bypass they resolve false (the bug: Super Admin lost Branch Manager
+        // items an agency admin could see). The owner-global bypass turns them on.
+        $this->assertTrue($this->svc()->enabled('payroll'), 'owner (no agency) sees a default-off module');
+        $this->assertTrue($this->svc()->enabled('leave'), 'owner (no agency) sees a depends_on child too');
+
+        // The typo guard still runs first — an unknown key stays false even for the owner.
+        $this->assertFalse($this->svc()->enabled('totally-made-up-module'), 'owner never masks a bad key');
+    }
+
+    public function test_owner_bypass_does_not_apply_to_an_explicit_agency(): void
+    {
+        $owner  = $this->owner();
+        $agency = $this->agency();
+        $this->actingAs($owner);
+
+        // Passing an explicit agency = "show me THIS agency's real config" (the
+        // switcher preview). The bypass must NOT fire — payroll is off for them.
+        $this->assertFalse(
+            $this->svc()->enabled('payroll', $agency),
+            'an explicit agency resolves that agency\'s true config, never bypassed'
+        );
+
+        // ...and once the agency turns it on, the owner sees it on — normal resolution.
+        $this->override($agency, 'payroll', true);
+        $this->assertTrue($this->svc()->enabled('payroll', $agency));
+    }
+
+    public function test_non_owner_with_no_agency_gets_no_bypass(): void
+    {
+        // A non-owner user with no agency must still fail-closed on a default-off
+        // module — the bypass is owner-only, not "anyone lacking an agency".
+        $user = User::factory()->create([
+            'agency_id' => null,
+            'branch_id' => null,
+            'role'      => 'admin',
+            'is_active' => true,
+        ]);
+        $this->actingAs($user);
+
+        $this->assertFalse($this->svc()->enabled('payroll'), 'non-owner never bypasses feature gating');
+    }
+
     // ── 10. @feature directive + feature() helper ────────────────────────────
 
     public function test_feature_directive_and_helper(): void

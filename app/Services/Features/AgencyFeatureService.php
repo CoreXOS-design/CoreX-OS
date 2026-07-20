@@ -68,6 +68,17 @@ class AgencyFeatureService
             return false;
         }
 
+        // Owner in the GLOBAL context (system owner, no agency selected in the
+        // switcher) sees every real feature — matching PermissionService's owner
+        // bypass. Only when NO explicit agency was passed AND the owner has not
+        // switched into an agency: once they select one, they see that agency's
+        // true feature config (real preview). The typo guard above still runs
+        // first so an owner never masks a bad key. (AT: super_admin couldn't see
+        // Branch Manager sidebar items an agency-scoped admin could.)
+        if ($agency === null && $this->ownerGlobalContext()) {
+            return true;
+        }
+
         return $this->resolvedMap($agency)[$key] ?? false;
     }
 
@@ -342,6 +353,23 @@ class AgencyFeatureService
         return method_exists($user, 'effectiveAgencyId')
             ? $user->effectiveAgencyId()
             : ($user->agency_id ?? null);
+    }
+
+    /**
+     * True when the current auth user is an owner role operating in the global
+     * context (no agency selected in the switcher). In that state the owner is
+     * administering the whole system, not previewing a single agency, so every
+     * feature is visible. Once an agency is selected, resolveAgencyId() returns
+     * it and this is false — the owner then sees that agency's real config.
+     */
+    private function ownerGlobalContext(): bool
+    {
+        $user = Auth::user();
+
+        return $user
+            && method_exists($user, 'isOwnerRole')
+            && $user->isOwnerRole()
+            && $this->resolveAgencyId() === null;
     }
 
     /** @return array<string,array> */
