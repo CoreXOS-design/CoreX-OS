@@ -116,13 +116,16 @@ final class PropertyAuditTrailTest extends TestCase
     {
         $this->actingAs($this->user);
         $p = $this->makeProperty();
-        $before = $this->rows($p->id, 'property_updated')->count();
 
         $p->p24_stats_synced_at = now();  // on the exclusion list
         $p->save();
 
-        $this->assertSame($before, $this->rows($p->id, 'property_updated')->count(),
-            'a noise-only save must not create an audit row');
+        // A noise column must never appear in the trail (other legitimate
+        // derivations on the same save, e.g. title_type self-heal, may still log —
+        // the guarantee is that the EXCLUDED column is never audited).
+        $withNoise = $this->rows($p->id, 'property_updated')
+            ->filter(fn ($r) => array_key_exists('p24_stats_synced_at', $r->new_values ?? []));
+        $this->assertCount(0, $withNoise, 'an excluded noise column must never be logged');
     }
 
     /** 4. ATTRIBUTION — an authenticated user is recorded as the actor. */

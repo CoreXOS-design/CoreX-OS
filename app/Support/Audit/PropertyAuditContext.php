@@ -28,6 +28,24 @@ class PropertyAuditContext
     private static ?string $actorType = null;   // user|system|import|console|sync|portal|unknown
     private static ?string $source = null;
 
+    /** Save/restore stack so an inline job never clobbers the caller's context. */
+    private static array $stack = [];
+
+    /** Snapshot the current context (used around job execution). */
+    public static function push(): void
+    {
+        self::$stack[] = [self::$actorUserId, self::$actorLabel, self::$actorType, self::$source];
+    }
+
+    /** Restore the most recent snapshot. */
+    public static function pop(): void
+    {
+        if (!empty(self::$stack)) {
+            [self::$actorUserId, self::$actorLabel, self::$actorType, self::$source] = array_pop(self::$stack);
+            self::pushToDb();
+        }
+    }
+
     /** Stamp the authenticated user (called by HTTP middleware). */
     public static function setUser(?User $user): void
     {

@@ -148,10 +148,21 @@ class AppServiceProvider extends ServiceProvider
         // (e.g. "P24 import", "agent-merge").
         \Illuminate\Support\Facades\Queue::before(function ($event) {
             try {
+                // Snapshot first so an INLINE (dispatchSync / sync-queue) job never
+                // clobbers the caller's context (e.g. the HTTP user, or an import
+                // source). A real queued worker starts empty, so this still stamps
+                // the job source correctly. Restored in Queue::after/failing.
+                \App\Support\Audit\PropertyAuditContext::push();
                 $name = method_exists($event->job, 'resolveName') ? $event->job->resolveName() : $event->job->getName();
                 \App\Support\Audit\PropertyAuditContext::setSource('job:' . class_basename($name), 'system');
             } catch (\Throwable) {
             }
+        });
+        \Illuminate\Support\Facades\Queue::after(function () {
+            try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
+        });
+        \Illuminate\Support\Facades\Queue::failing(function () {
+            try { \App\Support\Audit\PropertyAuditContext::pop(); } catch (\Throwable) {}
         });
         if ($this->app->runningInConsole()) {
             \Illuminate\Support\Facades\Event::listen(
