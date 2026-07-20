@@ -1707,7 +1707,18 @@ function externalSign() {
                 const selector = '[data-marker-party][data-marker-type="' + fieldType + '"]';
                 container.querySelectorAll(selector).forEach(el => {
                     const rawParty = (el.dataset.markerParty || '').toLowerCase();
-                    const isMine = self.isMyWebSigBlock(rawParty);
+                    // ESIGN-WETINK — per-recipient scope. The per-recipient attestation
+                    // blocks ("Thus done and signed by the Seller (Anine)", "…(Andre)")
+                    // each carry their own data-recipient-identity on these ceremony
+                    // fields. Scope editability to the CURRENT signer's identity — NOT
+                    // just the party role, which matches EVERY same-role block and let
+                    // recipient 1 fill recipient 2's Location/date fields. Fall back to
+                    // the party-role check only for un-stamped single-block templates.
+                    const fieldIdentity = (el.dataset.recipientIdentity || '').toLowerCase();
+                    const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+                    const isMine = fieldIdentity !== ''
+                        ? (fieldIdentity === myIdentity)
+                        : self.isMyWebSigBlock(rawParty);
 
                     if (!isMine) {
                         // Other party or already-filled — leave as read-only
