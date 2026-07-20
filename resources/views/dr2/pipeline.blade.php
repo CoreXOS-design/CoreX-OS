@@ -138,92 +138,6 @@
              orders and comments expand in place. AT-244: when the deal is not proceeding
              the board is MUTED and every state-changing action is withdrawn (no dead
              buttons); comments stay live (history-keeping, not a transition). --}}
-        {{-- AT-229 §17 — right-panel Supplier Work Orders. Tick the COCs this deal needs
-             up front, set who's responsible + who gets each email, and choose the trigger
-             step (default Bond Granted). Un-ticked COCs cascade their pipeline step to N/A.
-             When the trigger step completes, every ticked work order is sent (agents CC'd,
-             de-duped). One deal-level panel, not per step. --}}
-        @php($canWoDeal = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
-        @if($canWoDeal)
-        <div class="corex-card" style="padding:.5rem .75rem;margin-bottom:.5rem;"
-             x-data="{
-                open:false, loading:false, busy:false, err:'', msg:'',
-                items:[], responsible:{}, suppliers:[], triggerOptions:[], triggerId:'',
-                async load(){
-                    this.open=true; this.loading=true; this.err=''; this.msg='';
-                    try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.panel', $deal) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
-                        this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[];
-                        this.triggerOptions=j.trigger_options||[]; this.triggerId=j.trigger_step_id||'';
-                        this.items=(j.items||[]).map(i=>({...i}));
-                    } catch(e){ this.err='Could not load work orders.'; }
-                    this.loading=false;
-                },
-                async save(){
-                    this.busy=true; this.err=''; this.msg='';
-                    try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.save', $deal) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({trigger_step_instance_id:this.triggerId||null, items:this.items.map(i=>({code:i.code, applies:!!i.applies, responsible_party:i.responsible_party, service_provider_id:i.service_provider_id||null}))})});
-                        const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'; await this.load(); }
-                        else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
-                    } catch(e){ this.err='Save failed.'; }
-                    this.busy=false;
-                }
-             }">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
-                <span style="font-size:.82rem;font-weight:600;color:#0f766e;">Supplier Work Orders (COCs)</span>
-                <button type="button" class="corex-btn-outline" style="padding:.15rem .6rem;font-size:.75rem;color:#0f766e;border-color:#0f766e;" @click="load()">Configure COCs</button>
-            </div>
-            <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
-                <div class="corex-card" style="width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
-                    <div style="padding:.75rem 1rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-                        <strong style="font-size:.92rem;">Supplier Work Orders — which COCs does this deal need?</strong>
-                        <button type="button" @click="open=false" style="font-size:1.2rem;line-height:1;color:#6b7280;">&times;</button>
-                    </div>
-                    <div style="padding:1rem;overflow-y:auto;flex:1;">
-                        <div x-show="loading" style="color:#6b7280;font-size:.85rem;">Loading…</div>
-                        <div x-show="!loading">
-                            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap;">
-                                <label style="font-size:.72rem;color:#6b7280;">Send work orders when this step completes:</label>
-                                <select x-model="triggerId" class="corex-input" style="font-size:.8rem;min-width:200px;">
-                                    <template x-for="o in triggerOptions" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
-                                </select>
-                            </div>
-                            <p style="font-size:.72rem;color:#6b7280;margin-bottom:.5rem;">Tick each COC this deal needs and set who is responsible + who receives the work-order email. Un-ticked COCs are marked N/A on the pipeline. Listing &amp; selling agents are CC'd (de-duped).</p>
-                            <template x-for="(it,i) in items" :key="it.code">
-                              <div style="border-top:1px solid #eee;padding:.5rem 0;">
-                                <div style="display:grid;grid-template-columns:auto 1.3fr 1.4fr;gap:.5rem;align-items:center;">
-                                  <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;font-weight:600;" :style="it.status==='sent' ? 'color:#047857;' : ''">
-                                    <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
-                                    <span x-text="it.label"></span>
-                                  </label>
-                                  <div>
-                                    <select x-model="it.responsible_party" :disabled="!it.applies || it.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
-                                      <template x-for="(lbl,val) in responsible" :key="val"><option :value="val" x-text="lbl"></option></template>
-                                    </select>
-                                    <select x-show="it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney'" x-model="it.service_provider_id" :disabled="!it.applies || it.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;margin-top:.25rem;">
-                                      <option value="">— pick supplier —</option>
-                                      <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
-                                    </select>
-                                  </div>
-                                  <div style="font-size:.68rem;color:#6b7280;">
-                                    <span x-show="it.status==='sent'" style="color:#047857;">✓ sent → <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-text="' (cc ' + it.cc_emails + ')'"></span></span>
-                                    <span x-show="it.status!=='sent' && !it.step_name" style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
-                                    <span x-show="it.status!=='sent' && it.step_name" x-text="'step: ' + it.step_name"></span>
-                                  </div>
-                                </div>
-                              </div>
-                            </template>
-                            <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
-                            <div x-show="msg" x-text="msg" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
-                        </div>
-                    </div>
-                    <div style="padding:.75rem 1rem;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:.5rem;">
-                        <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;">Close</button>
-                        <button type="button" @click="save()" :disabled="busy" class="corex-btn-primary" style="font-size:.8rem;">Save</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        @endif
-
         <div class="corex-card" style="padding:.25rem .5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}"
              x-data="{ hideDone: false }" x-init="hideDone = (localStorage.getItem('dr2_hide_completed') === '1')">
             {{-- AT-305b — Hide-completed toggle. Persists per user via localStorage; default
@@ -304,98 +218,6 @@
                         <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
                         @endpermission
 
-                        {{-- AT-229 COC sub-process — per-deal work-order panel: select the COCs this
-                             deal needs, set each one's responsible party + recipient, and send
-                             (listing + selling agents CC'd, de-duped). Shows when the step offers COCs. --}}
-                        @php($canWo = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
-                        @php($offersCoc = $canWo && optional($s->pipelineStep)->workOrders && $s->pipelineStep->workOrders->isNotEmpty() && in_array($s->status, ['active','completed']))
-                        @if($offersCoc)
-                        {{-- AT-229 — map the step's configured service_type CODES to the agency's
-                             friendly labels (Settings → COC / Service Types); withTrashed so an
-                             archived-but-still-configured type still shows a name, not a bare code. --}}
-                        @php($svcLabels = \App\Models\DealV2\AgencyServiceType::withTrashed()->pluck('label','code'))
-                        @php($offeredTypes = $s->pipelineStep->workOrders->pluck('service_type')->filter()->unique()->values()
-                                ->map(fn($c) => ['code' => $c, 'label' => $svcLabels[$c] ?? $c])->all())
-                        <span x-data="{
-                                open:false, loading:false, busy:false, err:'', msg:'',
-                                types: @js($offeredTypes), responsible:{}, suppliers:[], rows:[],
-                                sendBase: '{{ route('deals-dr2.pipeline.step.coc.send', [$deal, $s, '__WO__']) }}',
-                                async load(){
-                                    this.open=true; this.loading=true; this.err=''; this.msg='';
-                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.coc.panel', [$deal, $s]) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
-                                        this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[]; if(j.offered_types&&j.offered_types.length) this.types=j.offered_types;
-                                        this.rows=(j.work_orders||[]).map(w=>({id:w.id,service_type:w.service_type,responsible_party:w.responsible_party,service_provider_id:w.service_provider_id||'',status:w.status,recipient_email:w.recipient_email,cc_emails:w.cc_emails}));
-                                    } catch(e){ this.err='Could not load work orders.'; }
-                                    this.loading=false;
-                                },
-                                async save(){
-                                    this.busy=true; this.err='';
-                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.coc.sync', [$deal, $s]) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({work_orders:this.rows})});
-                                        const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved.'; await this.load(); } else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
-                                    } catch(e){ this.err='Save failed.'; }
-                                    this.busy=false;
-                                },
-                                async send(w){
-                                    if(!w.id){ this.err='Save first, then send.'; return; }
-                                    this.busy=true; this.err='';
-                                    try { const r = await fetch(this.sendBase.replace('__WO__', w.id), {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({})});
-                                        const j = await r.json(); if(r.ok&&j.ok){ this.msg=j.message||'Sent.'; await this.load(); } else { this.err=j.message||'Send failed.'; }
-                                    } catch(e){ this.err='Send failed.'; }
-                                    this.busy=false;
-                                }
-                             }" style="display:inline;">
-                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#0f766e;border-color:#0f766e;" @click="load()">Work orders (COCs)</button>
-                            <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
-                                <div class="corex-card" style="width:100%;max-width:760px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
-                                    <div style="padding:.75rem 1rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
-                                        <strong style="font-size:.9rem;">Work orders (COCs) — {{ $s->name }}</strong>
-                                        <button type="button" @click="open=false" style="font-size:1.2rem;line-height:1;color:#6b7280;">&times;</button>
-                                    </div>
-                                    <div style="padding:1rem;overflow-y:auto;flex:1;">
-                                        <div x-show="loading" style="color:#6b7280;font-size:.85rem;">Loading…</div>
-                                        <div x-show="!loading">
-                                            <p style="font-size:.72rem;color:#6b7280;margin-bottom:.5rem;">Pick the COCs this deal needs + who is responsible for each; Save, then Send. Listing &amp; selling agents are CC'd (de-duped, one email per address).</p>
-                                            <template x-for="(w,i) in rows" :key="i">
-                                              <div style="border-top:1px solid #eee;padding:.5rem 0;">
-                                                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.4rem;align-items:end;">
-                                                  <div>
-                                                    <label style="font-size:.66rem;color:#6b7280;">COC / service</label>
-                                                    <select x-model="w.service_type" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
-                                                      <template x-for="t in types" :key="t.code"><option :value="t.code" x-text="t.label"></option></template>
-                                                    </select>
-                                                  </div>
-                                                  <div>
-                                                    <label style="font-size:.66rem;color:#6b7280;">Responsible / recipient</label>
-                                                    <select x-model="w.responsible_party" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
-                                                      <template x-for="(lbl,val) in responsible" :key="val"><option :value="val" x-text="lbl"></option></template>
-                                                    </select>
-                                                    <select x-show="w.responsible_party==='supplier' || w.responsible_party==='transfer_attorney'" x-model="w.service_provider_id" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;margin-top:.25rem;">
-                                                      <option value="">— pick supplier —</option>
-                                                      <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
-                                                    </select>
-                                                  </div>
-                                                  <div style="display:flex;gap:.35rem;align-items:center;">
-                                                    <span x-show="w.status==='sent'" style="font-size:.7rem;color:#047857;">✓ sent</span>
-                                                    <button type="button" x-show="w.status!=='sent' && w.id" @click="send(w)" :disabled="busy" class="corex-btn-secondary" style="font-size:.72rem;padding:.2rem .5rem;">Send</button>
-                                                    <button type="button" x-show="w.status!=='sent'" @click="rows.splice(i,1)" style="font-size:.85rem;color:#b91c1c;">✕</button>
-                                                  </div>
-                                                </div>
-                                                <div x-show="w.recipient_email" style="font-size:.66rem;color:#6b7280;margin-top:.2rem;" x-text="'→ ' + (w.recipient_email||'') + (w.cc_emails ? '  (cc ' + w.cc_emails + ')' : '')"></div>
-                                              </div>
-                                            </template>
-                                            <button type="button" @click="rows.push({service_type:((types[0]&&types[0].code)||'COC'), responsible_party:'supplier', service_provider_id:'', status:'pending', id:null})" style="font-size:.75rem;color:#0f766e;margin-top:.6rem;">+ Add COC</button>
-                                            <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
-                                            <div x-show="msg" x-text="msg" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
-                                        </div>
-                                    </div>
-                                    <div style="padding:.75rem 1rem;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:.5rem;">
-                                        <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;">Close</button>
-                                        <button type="button" @click="save()" :disabled="busy" class="corex-btn-primary" style="font-size:.8rem;" x-text="busy ? 'Working…' : 'Save selection'"></button>
-                                    </div>
-                                </div>
-                            </div>
-                        </span>
-                        @endif
                         </div>{{-- /compact inline actions --}}
                     </div>{{-- /one-liner --}}
 
@@ -503,8 +325,10 @@
     @endif
         </div>{{-- /LEFT --}}
 
-        {{-- ── RIGHT (≈40%): own scroll region — Documents · Send to a party · Proforma --}}
+        {{-- ── RIGHT (≈40%): own scroll region — Supplier Work Orders · Documents · Send to a party · Proforma --}}
         <div class="lg:col-span-2 space-y-4 min-w-0 dr2-pipe-col">
+            {{-- AT-229 §17 — Supplier Work Orders config, inline in the right column (NOT a modal) --}}
+            @include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])
             {{-- DR2 deal documents (AT-225/226) — upload + Send documents to a party --}}
             @include('dr2._deal-documents', ['deal' => $deal])
             {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
