@@ -457,12 +457,14 @@ class PropertyController extends Controller
             }
             $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
         }
-        // Full history for History tab
+        // AT-321 — FULL history for the History tab. The old ->limit(50) hid the
+        // rest of the trail; paginate instead so every change is reachable. CSV
+        // export (below) remains the unlimited one-shot. Page links keep tab=history.
         $fullAuditLog = \App\Models\PropertyAuditLog::where('property_id', $property->id)
             ->with('user')
             ->orderByDesc('created_at')
-            ->limit(50)
-            ->get();
+            ->paginate(50, ['*'], 'history')
+            ->appends(['tab' => 'history']);
 
         // Drive tab: all documents linked to this property
         try {

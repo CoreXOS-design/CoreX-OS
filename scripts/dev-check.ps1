@@ -276,6 +276,55 @@ if ($SkipPipelineGate) {
     }
 }
 
+# 8. AT-321 property audit bypass gate
+#
+# The property audit trail must log EVERY change (who/when). A raw write that
+# skips the Eloquent observer -- DB::table('properties')->update(...), or a
+# ->updateQuietly()/->saveQuietly() on a Property -- can slip a change past the
+# app-layer audit. The DB trigger is the runtime backstop; THIS gate is the
+# review-time one: a new raw property write must land with an audit test proving
+# it still logs, OR go through Property::auditedQuietUpdate().
+if ($SkipPipelineGate) {
+    Write-Host ''
+    Write-Host '8. Property audit bypass gate (AT-321) -- skipped (-SkipPipelineGate)' -ForegroundColor DarkGray
+} else {
+    Write-Host ''
+    Write-Host '8. Property audit bypass gate (AT-321)' -ForegroundColor Yellow
+
+    $diffLines = @()
+    $diffLines += git diff --diff-filter=ACMRT HEAD 2>$null
+    $diffLines += git diff --cached 2>$null
+    $addedLines = $diffLines | Where-Object { $_ -match '^\+' -and $_ -notmatch '^\+\+\+' }
+
+    $rawWrites = $addedLines | Where-Object {
+        ($_ -match "DB::table\(\s*['""]properties['""]\s*\)") -or
+        (($_ -match '(updateQuietly|saveQuietly)\(') -and ($_ -match 'propert'))
+    } | Where-Object {
+        # The sanctioned helper and the trigger de-dupe plumbing are allowed.
+        ($_ -notmatch 'auditedQuietUpdate') -and ($_ -notmatch 'corex_audit_handled')
+    }
+
+    if ($rawWrites.Count -gt 0) {
+        $auditTests = $changedNorm | Where-Object {
+            ($_ -like 'tests/feature/properties/audit/*') -or ($_ -like '*propertyaudit*')
+        }
+        if ($auditTests.Count -eq 0) {
+            Write-Host '   FAIL: a raw property write that bypasses the audit observer was' -ForegroundColor Red
+            Write-Host '   added without an audit test in tests/Feature/Properties/Audit/.' -ForegroundColor Red
+            Write-Host '' -ForegroundColor Red
+            foreach ($l in $rawWrites) { Write-Host "     $($l.Trim())" -ForegroundColor Red }
+            Write-Host '' -ForegroundColor Red
+            Write-Host '   Route the write through Property::auditedQuietUpdate(), or add a' -ForegroundColor Red
+            Write-Host '   test proving the change still produces an attributed audit row.' -ForegroundColor Red
+            $failed = $true
+        } else {
+            Write-Host "   $($rawWrites.Count) raw property write(s) changed, audit test present" -ForegroundColor Green
+        }
+    } else {
+        Write-Host '   No new raw property writes' -ForegroundColor DarkGray
+    }
+}
+
 # -- Result --
 Write-Host ''
 if ($failed) {

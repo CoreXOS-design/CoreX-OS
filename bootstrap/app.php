@@ -46,6 +46,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\AgencyMaintenanceGate::class,
             \App\Http\Middleware\EnsureDemoGrant::class,
+            \App\Http\Middleware\SetPropertyAuditActor::class,   // AT-321 attribution
+        ]);
+
+        // AT-321 — attribute API-driven property writes (mobile app etc.) too.
+        $middleware->api(append: [
+            \App\Http\Middleware\SetPropertyAuditActor::class,
         ]);
 
         // EnsureDemoGrant MUST run BEFORE Authenticate.

@@ -24,6 +24,7 @@ class PropertyAuditLog extends Model
 
     protected $fillable = [
         'property_id', 'user_id', 'agency_id', 'branch_id',
+        'actor_type', 'actor_label', 'source',
         'event_category', 'event_type',
         'old_values', 'new_values', 'metadata',
         'human_summary', 'created_at',

@@ -140,6 +140,33 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // AT-321 — attribute property writes made outside an HTTP request. Queue
+        // jobs and console commands have no auth()->user(); stamp a clear source
+        // label ("job:<Name>" / "console:<signature>") so every audit row — app
+        // layer AND the unbypassable DB trigger — is attributable, never a blank
+        // "System". Individual jobs/services may override with a friendlier label
+        // (e.g. "P24 import", "agent-merge").
+        \Illuminate\Support\Facades\Queue::before(function ($event) {
+            try {
+                $name = method_exists($event->job, 'resolveName') ? $event->job->resolveName() : $event->job->getName();
+                \App\Support\Audit\PropertyAuditContext::setSource('job:' . class_basename($name), 'system');
+            } catch (\Throwable) {
+            }
+        });
+        if ($this->app->runningInConsole()) {
+            \Illuminate\Support\Facades\Event::listen(
+                \Illuminate\Console\Events\CommandStarting::class,
+                function ($event) {
+                    try {
+                        if ($event->command) {
+                            \App\Support\Audit\PropertyAuditContext::setSource('console:' . $event->command, 'console');
+                        }
+                    } catch (\Throwable) {
+                    }
+                }
+            );
+        }
+
         // Build 1 — Str::humanType. Single source for property-type display
         // ("vacant_land" → "Vacant Land"). Used by every presentation view
         // (cover, summary table, composite list headers) so we never drift

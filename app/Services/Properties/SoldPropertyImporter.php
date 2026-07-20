@@ -88,6 +88,9 @@ class SoldPropertyImporter
      */
     public function import(string $absolutePath, User $actor, array $agentByRow = []): array
     {
+        // AT-321 — attribute audit rows to the importing user via a clear source.
+        \App\Support\Audit\PropertyAuditContext::setSource('sold-import by ' . ($actor->name ?? "User #{$actor->id}"), 'import');
+
         $agencyId = $actor->effectiveAgencyId();
         $branchId = $actor->effectiveBranchId();
 
