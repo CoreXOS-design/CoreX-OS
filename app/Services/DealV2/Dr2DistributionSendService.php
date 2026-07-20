@@ -49,6 +49,7 @@ class Dr2DistributionSendService
         string $channel,
         ?string $message,
         User $actor,
+        array $cc = [],
     ): array {
         if (! $deal->deal_v2_id) {
             // AT-245 — mint the twin on demand rather than dead-end the send. Only
@@ -181,7 +182,7 @@ class Dr2DistributionSendService
             }
 
             // Deliver (email real via Mailer; WhatsApp = log-only deeplink idiom on staging).
-            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel, $dealToken, $messageId);
+            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel, $dealToken, $messageId, $cc);
             $delivered = $delivered || $partDelivered;
 
             // 3-pillar comms — deal (twin) + property + recipient contact (resolved by id, form-safe).
@@ -245,7 +246,7 @@ class Dr2DistributionSendService
     }
 
     /** Actually deliver a part. Email → Mailer; WhatsApp → deeplink+provisional-log (no real dispatch on staging). */
-    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel, string $dealToken = '', ?string $messageId = null): bool
+    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel, string $dealToken = '', ?string $messageId = null, array $cc = []): bool
     {
         if ($channel === DealDocumentDistribution::CHANNEL_WHATSAPP) {
             // The message + secure links go to the recipient over WhatsApp. On staging (WAHA not
@@ -255,7 +256,13 @@ class Dr2DistributionSendService
         }
         try {
             $files = array_map(fn ($a) => ['path' => $a['path'], 'filename' => $a['filename']], $attachments);
-            Mail::to($email)->send(
+            // AT-229 COC — optional CC (listing/selling agents), already de-duped by the caller
+            // and stripped of the primary address; cc([]) is a no-op.
+            $mailer = Mail::to($email);
+            if (! empty($cc)) {
+                $mailer->cc($cc);
+            }
+            $mailer->send(
                 (new DealPackMail($name ?: 'there', $ref, $address, $message, $files, $secureLinks, $partLabel, $dealToken, $messageId))->fromAgent($actor)
             );
             return true;
