@@ -141,11 +141,16 @@
                         <button type="button" @mousedown.prevent="pick(r)"
                                 class="w-full text-left px-3 py-2 text-sm hover:opacity-80"
                                 style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
-                            <span x-text="r.address || r.label"></span>
-                            <span class="block text-xs" style="color: var(--text-muted);">
-                                <span x-text="r.agent ? ('Agent: ' + r.agent) : ''"></span>
-                                <span x-show="r.expiry_date" x-text="' · mandate expires ' + r.expiry_date"></span>
+                            <span class="flex items-center gap-2">
+                                <span class="font-medium" x-text="r.address || r.label"></span>
+                                <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
+                                      :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                      x-text="rStatus(r)"></span>
                             </span>
+                            <span class="block text-xs" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>
+                            <span class="block text-xs" style="color: var(--text-muted);" x-show="rDates(r)" x-text="rDates(r)"></span>
+                            <span class="block text-xs" style="color: var(--text-muted);" x-show="rPrice(r)" x-text="rPrice(r)"></span>
+                            <span class="block text-xs" style="color: var(--text-muted);" x-show="r.expiry_date" x-text="'Mandate expires ' + r.expiry_date"></span>
                         </button>
                     </template>
                 </div>
@@ -423,7 +428,16 @@
                                             <button type="button" @mousedown.prevent="pick(r)"
                                                     class="w-full text-left px-3 py-2 text-xs"
                                                     style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
-                                                <span x-text="r.address || r.label"></span>
+                                                <span class="flex items-center gap-2">
+                                                    <span class="font-medium" x-text="r.address || r.label"></span>
+                                                    <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
+                                                          :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                                          x-text="rStatus(r)"></span>
+                                                </span>
+                                                <span class="block" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>
+                                                <span class="block" style="color: var(--text-muted);" x-show="rDates(r)" x-text="rDates(r)"></span>
+                                                <span class="block" style="color: var(--text-muted);" x-show="rPrice(r)" x-text="rPrice(r)"></span>
+                                                <span class="block" style="color: var(--text-muted);" x-show="r.expiry_date" x-text="'Mandate expires ' + r.expiry_date"></span>
                                             </button>
                                         </template>
                                     </div>
@@ -566,6 +580,14 @@ function filingPicker(initial) {
                 this.open = false;
             }
         },
+
+        // Identifying detail shown per result row — the SAME standard the DR2 deal
+        // register search uses, so a clerk can tell which property is which.
+        rOnMarket(r) { return r.on_market !== false; },
+        rStatus(r)   { return (r.status || (this.rOnMarket(r) ? 'on market' : 'off market')).replace(/_/g, ' '); },
+        rSub(r)      { return [r.ref ? ('Ref ' + r.ref) : '', r.seller ? ('Seller: ' + r.seller) : '', r.agent ? ('Agent: ' + r.agent) : ''].filter(Boolean).join(' · '); },
+        rDates(r)    { return r.listed_date ? ('Listed ' + r.listed_date) : ''; },
+        rPrice(r)    { return (r.price != null && r.price !== '') ? 'R ' + Number(r.price).toLocaleString('en-ZA') : ''; },
 
         async pick(r) {
             this.propertyId = r.id;
