@@ -264,6 +264,21 @@ actionable. (Ceremony "Thus done and signed" fields were identity-scoped earlier
 fd9cf176 by the same rule; these two render paths were the remaining bare-role
 holdouts — AT-300 closed them.)
 
+**Page-break INITIAL boxes are a special case (`_isMyInitialBox`).** Unlike
+signature markers, per-page initial boxes are built CLIENT-SIDE at pagination
+(`_buildInitialsRow` in `partials/a4-page-styles.blade.php`) and carry ONLY
+`data-marker-party` — no `data-name` / `data-recipient-identity`. Their party is the
+`parties_json` role, where a role's FIRST instance is the bare role (`seller`) and
+later instances are suffixed (`seller_2`). So `_isMyMarker`'s bare-role fallback
+`isMyWebSigBlock` breaks for recipient 2: their box is `seller_2` while their
+`signerRole` is `seller` (suffix mismatch) → their own initial is greyed, AND the
+bare `seller` box could be claimed by both sellers. `_isMyInitialBox` resolves the
+box's party to a role_identity (`{role}_{n}` stays; a bare `{role}` → `{role}_1`) and
+matches SOLELY on `currentRoleIdentity` — so each signer's own unsigned box is
+"Click to initial", prior signers' stay locked, and no same-role sibling is claimed.
+(When a box carries explicit identity/name keys those win; when the viewer has no
+identity — single-recipient/pre-identity docs — it falls back to the bare-role check.)
+
 ---
 
 ## 7. PDF Generation
