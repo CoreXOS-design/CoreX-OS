@@ -46,6 +46,12 @@ class PrivatePropertyDeactivateTypeTest extends TestCase
             ->once()
             ->with((string) $p->id, 'Rental')   // <-- the assertion: Rental, not Sale
             ->andReturn(['error' => false]);
+        // AT-68 audit-truth read-back — deactivateListing now confirms the listing
+        // is actually OFF before recording 'deactivated'. PP reports it Inactive.
+        $client->shouldReceive('getListingStatus')
+            ->once()
+            ->with((string) $p->id)
+            ->andReturn(['GetListingStatusResult' => 'Inactive']);
 
         $service = new PrivatePropertySyndicationService($client, app(\App\Services\PrivateProperty\PrivatePropertyListingMapper::class));
         $result = $service->deactivateListing($p);

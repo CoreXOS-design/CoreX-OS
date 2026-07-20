@@ -65,6 +65,9 @@ class PropertyObserver
     /** Static registry for pre-save originals (keyed by property ID) */
     private static array $auditOriginals = [];
 
+    /** AT-68 — renewal re-syndication reminders captured in saving(), fired in saved() (keyed by property ID). */
+    private static array $renewalResyndicateReminders = [];
+
     /**
      * AT-321 — NOISE columns excluded from the audit trail everywhere: pure
      * timestamps, derived/normalised mirrors, portal sync stamps, signatures and
@@ -105,6 +108,26 @@ class PropertyObserver
         // the top of saved(). Generic originals are captured further down — after
         // the in-hook address/title derivations — so the diff is complete.
         \App\Support\Audit\PropertyAuditContext::markHandled();
+
+        // AT-68 — renewal reminder trigger. When an agent extends a lapsed
+        // mandate's expiry_date into the future (today-or-later) on a listing that
+        // WAS expired, they must be reminded to re-syndicate: pulling a listing down
+        // is automatic, but putting it back on the portals is the agent's decision
+        // (Johan) — we never auto-relist. Decide here in saving() where getOriginal()
+        // reliably holds the pre-save value; fire the reminder in saved() after the
+        // write commits. getOriginal('status') covers a pure date-extension where
+        // status is not itself dirty.
+        if ($property->exists
+            && $property->isDirty('expiry_date')
+            && strtolower((string) $property->getOriginal('status')) === 'expired'
+        ) {
+            $newExpiry = $property->expiry_date; // 'date' cast → Carbon|null
+            if ($newExpiry !== null
+                && $newExpiry->startOfDay()->gte(\Illuminate\Support\Carbon::today())
+            ) {
+                self::$renewalResyndicateReminders[$property->id] = true;
+            }
+        }
 
         // AT-266 — ONE TRUTH for the address.
         //
@@ -294,6 +317,23 @@ class PropertyObserver
         // bulk imports must stay fast; ShouldBeUnique + delay collapse a burst into
         // one per-agency recompute. Overnight `matches:recompute` is the backstop.
         $this->queueBuyerMatchRecompute($property);
+
+        // AT-68 — fire the renewal re-syndication reminder captured in saving().
+        // In-app only, delivered directly (always reaches the bell, no queue worker
+        // needed). We do NOT auto-relist — this is purely a nudge to the agent.
+        if (!empty(self::$renewalResyndicateReminders[$property->id])) {
+            unset(self::$renewalResyndicateReminders[$property->id]);
+            try {
+                $agent = $property->agent_id
+                    ? \App\Models\User::withoutGlobalScopes()->find($property->agent_id)
+                    : null;
+                if ($agent) {
+                    $agent->notify(new \App\Notifications\MandateNeedsResyndicationNotification($property));
+                }
+            } catch (\Throwable $e) {
+                Log::warning("AT-68 renewal re-syndication reminder failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
 
         // Update last_activity_at for Command Center health tracking
         try {
