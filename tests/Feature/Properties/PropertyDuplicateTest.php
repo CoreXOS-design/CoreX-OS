@@ -181,6 +181,60 @@ final class PropertyDuplicateTest extends TestCase
         $this->assertNull($clone->deposit_amount, 'sale copy must not carry the source rental deposit');
     }
 
+    /**
+     * THE boboni regression (Johan, property 6107): a rental's landlord must become the
+     * SALE clone's seller, or the seller never pulls through on the new listing's deal
+     * capture (DR2 offers ['seller','owner'] — a landlord on a sale is invisible).
+     */
+    public function test_cross_type_rental_to_sale_remaps_landlord_to_seller(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'rental', 'rental_amount' => 12000]);
+
+        $contact = Contact::create([
+            'agency_id'  => $this->agency->id,
+            'first_name' => 'Premilla',
+            'last_name'  => 'Swepath',
+        ]);
+        $p->contacts()->attach($contact->id, ['role' => 'landlord']);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/duplicate", ['target_type' => 'sale'])
+            ->assertRedirect();
+
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+
+        $this->assertSame('sale', $clone->listing_type);
+        $this->assertSame('seller', $clone->contacts()->first()->pivot->role,
+            'a rental landlord must become the sale clone seller — else the seller never pulls through');
+        // And the seller is now resolvable by BOTH the wide and the narrow resolver.
+        $this->assertNotNull($clone->sellerOwnerContact(), 'sellerOwnerContact must resolve on the sale clone');
+        $this->assertTrue($clone->contactsForRole('seller_owner')->isNotEmpty(),
+            'the DR2 seller offer (narrow ["seller","owner"]) must now see the seller');
+    }
+
+    /** The inverse: a sale seller becomes the RENTAL clone landlord. */
+    public function test_cross_type_sale_to_rental_remaps_seller_to_landlord(): void
+    {
+        $p = $this->makeProperty(['listing_type' => 'sale']);
+
+        $contact = Contact::create([
+            'agency_id'  => $this->agency->id,
+            'first_name' => 'Owen',
+            'last_name'  => 'Ridge',
+        ]);
+        $p->contacts()->attach($contact->id, ['role' => 'seller']);
+
+        $this->actingAs($this->user)
+            ->post("/corex/properties/{$p->id}/duplicate", ['target_type' => 'rental'])
+            ->assertRedirect();
+
+        $clone = Property::where('id', '>', $p->id)->firstOrFail();
+
+        $this->assertSame('rental', $clone->listing_type);
+        $this->assertSame('landlord', $clone->contacts()->first()->pivot->role,
+            'a sale seller must become the rental clone landlord');
+    }
+
     /** Same-type duplicate is a full copy and stays unlocked until completed. */
     public function test_same_type_duplicate_is_a_full_copy(): void
     {

@@ -632,6 +632,41 @@ class Property extends Model
     }
 
     /**
+     * AT-262 fix — translate a property-link (`contact_property.role`) to the role it
+     * must hold on a clone of the OTHER listing type.
+     *
+     * A cross-type duplicate/change-type (rental⇄sale) used to carry the pivot role
+     * verbatim, so a rental's `landlord` stayed `landlord` on the new SALE — where the
+     * seller-side canon is `seller`. The DR2 capture's seller offer (correctly scoped to
+     * ['seller','owner']) then could not see the owner, so "the seller did not pull
+     * through". Same party, one physical asset, two names per side; this is the one map
+     * that keeps the role consistent with what the property now IS.
+     *
+     * Only the party roles that are DIFFERENT between the two types are flipped
+     * (owner-side and buyer-side); a `lead`, a blank, or an unknown role is returned
+     * unchanged. Idempotent for same-type clones (an already-correct role has no target
+     * in the map), so it is safe to apply unconditionally at every clone point.
+     */
+    public static function remapPivotRoleForListingType(?string $pivotRole, ?string $targetListingType): ?string
+    {
+        $role = strtolower(trim((string) $pivotRole));
+        if ($role === '') {
+            return $pivotRole;
+        }
+
+        // rental-side role => its sale-side equivalent.
+        $toSale = ['landlord' => 'seller', 'lessor' => 'seller', 'tenant' => 'buyer', 'lessee' => 'buyer'];
+        // sale-side role => its rental-side equivalent.
+        $toRental = ['seller' => 'landlord', 'owner' => 'landlord', 'buyer' => 'tenant'];
+
+        return match ($targetListingType) {
+            'sale'   => $toSale[$role]   ?? $pivotRole,
+            'rental' => $toRental[$role] ?? $pivotRole,
+            default  => $pivotRole,
+        };
+    }
+
+    /**
      * AT-105 enhancement — ALL contacts attached to this property in a given
      * routing role, in pivot order. Unlike sellerOwnerContact() this is
      * multi-valued (joint sellers / joint buyers) and never collapses to a
@@ -767,12 +802,11 @@ class Property extends Model
         }
 
         $usedStructuredStreet = false;
-        // AT-266 — guarded street line: never prepend the number a second time
-        // when street_name already opens with it ("21" + "21 Crown Road" is
-        // "21 Crown Road", not "21 21 Crown Road"). Shared with
-        // composeAddressFromParts() so every Property address composer agrees.
-        if (!empty($this->street_name)) {
-            $parts[] = $this->composeStreetLine();
+        if (!empty($this->street_number) && !empty($this->street_name)) {
+            $parts[] = $this->street_number . ' ' . $this->street_name;
+            $usedStructuredStreet = true;
+        } elseif (!empty($this->street_name)) {
+            $parts[] = $this->street_name;
             $usedStructuredStreet = true;
         }
 
@@ -848,7 +882,9 @@ class Property extends Model
                 ? trim((string) $this->unit_section_block)
                 : null);
 
-        $street = $this->composeStreetLine();
+        $street = trim(
+            trim((string) ($this->street_number ?? '')) . ' ' . trim((string) ($this->street_name ?? ''))
+        );
 
         $parts = array_filter([
             $unit,
@@ -867,35 +903,6 @@ class Property extends Model
         }
 
         return implode(', ', $cleaned);
-    }
-
-    /**
-     * AT-266 — the ONE guarded street line, shared by every Property address
-     * composer (buildDisplayAddress + composeAddressFromParts, which in turn
-     * feeds the derived `address` column via PropertyObserver::saving()).
-     *
-     * "street_number street_name" — but NEVER prepend the number when the name
-     * already opens with it as a whole token. Machine-written parts (P24 import,
-     * parsers) sometimes carry the number in BOTH columns; the naive concat then
-     * produced "21 21 Crown Road" / "16 16 Lilliecrona Boulevard", and because
-     * `address` is derived from this composer that junk reached the seller-outreach
-     * merge field. Mirrors OutreachAddress::composeStreetFromColumns() exactly so
-     * the two never diverge again. Clean rows are unchanged — the guard only fires
-     * when the name already starts with the number.
-     */
-    public function composeStreetLine(): string
-    {
-        $number = trim((string) ($this->street_number ?? ''));
-        $name   = trim((string) ($this->street_name ?? ''));
-
-        if ($name === '') {
-            return $number;
-        }
-        if ($number === '' || preg_match('/^' . preg_quote($number, '/') . '(?![0-9A-Za-z])/u', $name)) {
-            return $name;
-        }
-
-        return $number . ' ' . $name;
     }
 
     // ── Scopes ──
