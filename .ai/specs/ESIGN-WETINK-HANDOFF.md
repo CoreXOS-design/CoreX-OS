@@ -121,7 +121,38 @@ identity-stamped seller_1×4 / seller_2×4. GOOD — do not "fix" compose.
 **Goal:** replace all display-time re-expansion with "read `canonical_html`, apply
 per-viewer overlays, serve." One artifact, one render.
 
-**Serve points to rewire** (all in `app/Http/Controllers/Docuperfect/`):
+**COMPLETE serve-point surface map (every surface that renders the document — all
+must serve the ONE canonical via `CanonicalDocumentRenderer::forDisplay()`):**
+
+| Surface | Route | Method | Status |
+|---|---|---|---|
+| Recipient ceremony | `signatures/external/{token}` | `SigningController::show()` | ✅ canonical (resolveOrCompose) |
+| **Marker setup (Step 2)** | `documents/{id}/signatures/setup` | `SignatureController::setup()` | ✅ **forDisplay (was self-composing, un-expanded — Johan seam #1)** |
+| **Agent sign** | `documents/{id}/sign` | `SignatureController::sign()` | ✅ **forDisplay (was gated on STORED canonical → pre-send fell back to un-expanded merged_html — Johan seam #2)** |
+| **Agent review** | `documents/{id}/signatures/review` | `SignatureController::review()` | ✅ **forDisplay** |
+| **Amendment review (AT-302)** | (flag review) | `AmendmentController::buildFlaggedDocumentHtml()` | ✅ **forDisplay** |
+| Wizard Step-5 preview | (wizard) | `ESignWizardController::templatePages()` | ➖ already runs expandWithLooping (transient recipients); merged_html = agent-edit source |
+| Final signed PDF | (pdf gen) | `SignaturePdfService::generate()` | ✅ canonical vN precedence |
+| Print / download | `signatures/external/print` | `SigningController::printView()` | ✅ canonicalOrMerged |
+| Consent hash | (verify) | `SigningController` hash | ✅ canonicalOrMerged |
+| Agent completion (WRITE) | `documents/{id}/web-sign-complete` | `SignatureController::webSignComplete()` | ➖ embeds into merged_html BEFORE send → flows into canonical v0 at send-compose (no separate bake needed; a bake here would be overwritten by send's composeAndStore) |
+| Recipient completion (WRITE) | `completeWeb` | `SigningController::completeWeb()` | ✅ bakeInk into canonical (1c) |
+
+> **ROOT CAUSE of the setup/sign seams:** agent-side PREP surfaces (setup, sign)
+> ran BEFORE a canonical is stored, and either self-composed (setup) or gated the
+> canonical serve on the STORED artifact existing (sign) — so pre-send they fell
+> back to raw un-expanded `merged_html` and rendered N-seller domicilium in its
+> COLLECTIVE form. `forDisplay()` = stored canonical if sent, else composed FRESH
+> via the identical pipeline (expandWithLooping included, no store). Every display
+> surface now calls the one method → **byte-identical by construction.**
+>
+> **Verify recipe (deployed qa1, doc 431 — 2 sellers Anine + Andre):** curl the
+> setup, sign and ceremony URLs; extract the seller-domicilium/address block from
+> each; diff — must be byte-identical. (Local DB has no 2-seller web-body doc, so
+> the N-seller byte-diff is a DEPLOYED-qa1 proof; local proved forDisplay
+> stored-vs-compose + expansion + no-bleed via CanonicalInkIdentityScopingTest.)
+
+**Original serve points (Phase 1b first pass, all in `app/Http/Controllers/Docuperfect/`):**
 
 | Surface | File:line (current) | Today it does | Change to |
 |---|---|---|---|

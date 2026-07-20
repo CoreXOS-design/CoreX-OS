@@ -165,7 +165,19 @@ class AmendmentController extends Controller
     private function buildFlaggedDocumentHtml(DocumentAmendment $amendment): string
     {
         $document = $amendment->template?->document ?? $amendment->document;
-        $merged = (string) ($document?->web_template_data['merged_html'] ?? '');
+        // ESIGN-WETINK Phase 1b — the amendment review renders the ONE canonical
+        // artifact (the expanded, ink-bearing document every party saw), not the
+        // raw un-expanded merged_html, so the flagged clause is highlighted on the
+        // SAME rendering as the ceremony. Falls back to merged_html only when no
+        // canonical body composes.
+        $merged = '';
+        if ($amendment->template) {
+            $merged = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->forDisplay($amendment->template);
+        }
+        if (trim($merged) === '') {
+            $merged = (string) ($document?->web_template_data['merged_html'] ?? '');
+        }
         if (trim($merged) === '') {
             return '';
         }
