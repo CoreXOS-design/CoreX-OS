@@ -420,10 +420,16 @@ responsible-party/recipient selection; the send still fires per the pipeline-set
   capability is gone.
 - **No modal reintroduced** — the panel stays inline in the right column (§18).
 
-### 19.1 On-site proof (deployed qa1 `__COMMIT__`, deal #___ / granting step "Bond Approved")
-- PANEL renders inline in the right column with **NO trigger dropdown** — only the COC tick-list +
-  per-ticked responsible/recipient. `cocConfigPanel` JSON carries no `trigger_options`.
-- SAVE: tick a COC + set responsible → work order created with `trigger_step_instance_id` = the
-  granting ("Bond Approved") step, derived server-side (client posts no trigger).
-- FIRE: completing "Bond Approved" sent the ticked work order — Mailpit caught the email with the
-  work-authorisation PDF. Un-ticked COCs auto-N/A; sent rows never rewritten. Proof rolled back.
+### 19.1 On-site proof (deployed qa1 `bc84e2da`, deal #153 / granting step #59 "Bond Approved")
+Driven through the real controllers (`WorkOrderController` + `Dr1PipelineService::completeStep`),
+all mutations rolled back (the SMTP send is synchronous, so Mailpit still captured the real email):
+- PANEL: `cocConfigPanel` JSON keys = `items, responsible_labels, suppliers` — **no `trigger_options`,
+  no `trigger_step_id`** (dropdown source gone). 4 COC types offered (COC/Beetle/Gas/Electric Fence).
+- SAVE: posted a **bogus `trigger_step_instance_id=999999`** with one COC ticked (listing_agent) →
+  work order created with `trigger_step_instance_id = 59` (the pipeline-setup granting step) — the
+  client-posted trigger was **ignored**, the trigger was **derived server-side** from pipeline setup.
+- FIRE: completing "Bond Approved" (#59) sent the ticked work order → WO `status=sent`, document
+  generated, **Mailpit caught the email** (subject "Documents — 1802 [CX-D153]", TO falan@hfcoastal.co.za
+  = listing agent, CC shawn@hfcoastal.co.za). Deployed blade confirmed to carry no dropdown markup.
+- Self-cleaning: DB rolled back (0 `deal_step_work_orders` rows left, granting step back to
+  `not_started`); orphan PDF + test Mailpit message deleted.
