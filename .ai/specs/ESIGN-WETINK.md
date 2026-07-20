@@ -246,3 +246,51 @@ delivers the court-defensible core, with 1d/1e/2 fast-following.
 
 **Build order tonight:** 1a first (compose-once + store + serve on `show()`) — the spine + the finding-(a)
 fix for the ceremony, verifiable on the Anine doc — then 1b, then 1c.
+
+---
+
+## 9. Flow rulings — Elize full-flow run (2026-07-20, Johan)
+
+Rulings from Johan's live full-flow test with Elize, on the canonical-document spine.
+
+### Ruling #1 — clean accept flows straight to the next recipient (IMPLEMENTED `8360202f`)
+A recipient who **ACCEPTS with NO strikeout and NO flag does NOT go back to the agent** —
+the pen passes **straight to the next recipient**. The agent is a checkpoint **only** when a
+flag or a strikeout raises a PENDING amendment; then the amendment-ripple runs (§4 / Build 1).
+Implementation: `SignatureService::handlePartyCompletion` advances a clean accept via
+`advanceToNextParty` (next waiting party, any group) and parks at
+`STATUS_PENDING_AGENT_APPROVAL` only when a `DocumentAmendment` is PENDING; `completeWeb`
+delegates routing entirely (dropped its pre-emptive per-co-owner approval set). N-party.
+
+### Ruling #2 — clause/condition initialing (TICKET — not built)
+Adding **any** Other Condition, or inserting a **Clause-Library** clause, requires an
+**INITIAL from whoever added it** (agent or recipient) — the same mechanism as a strikeout
+initial (initial composed INTO the canonical, audit-logged: who/when/text/initial). More than
+a small addition → own ticket (AT, reporter Johan). Relates to Build 1 strikeout initialing.
+
+### Ruling #3 — completion → PRINT + FILE (TICKET — not built)
+On approve/complete, the agent must be able to **PRINT** the final document (hard-copy filing
+is a legal requirement). The **filed document on the property/mandate must have BOTH a VIEW
+and a PRINT button.** Print exists on some e-sign surfaces (`esign/download.blade.php`,
+`wet-ink-confirmation.blade.php`) but the **property/deal filing surface** needs auditing —
+add whichever of view/print is missing there. Own ticket (AT, reporter Johan).
+
+### Build 1 — strikeout + amendment-ripple (QUEUED — spec only, do NOT build)
+Johan build-gates the strikeout + N-party amendment-ripple model on the spine being verified
+clean first. Full spec to be written into this doc when Johan confirms. Summary to preserve:
+strikeout on BOTH agent + recipient sides at fill & review; struck text stays visible
+(lined-through, never deleted) with an auto-rendered initial beside it, audit-logged; a
+recipient strikeout → agent review/approve/e-sign → ripple back to EACH prior signer (in
+order) to initial the amendment ONLY → once all prior signers re-initial, proceed to the next
+unsigned recipient (worked example: recipient 8 strikes → agent signs → recipients 1–7
+re-initial → proceed to 9). Every party always signs/initials the CURRENT canonical version;
+a change re-consents all prior signers (court-defensibility). Rides the canonical spine (§1–§4);
+the amendment is a new canonical version, the ripple re-collects initials into the artifact.
+Plugs into the FLAG flow (flag = concern raised; strikeout = concrete amendment).
+
+### Phase 2 — OTP clause-select / build-document-from-clauses (QUEUED — ticket, post-launch)
+Agent selects at e-sign setup (property: SS vs FH; parties: VAT / no-VAT; price: cash /
+cash+bond / bond-only / sale-of-2nd) → only applicable clauses render; every clause tagged
+with applicability rules; a setup wizard that cannot produce an invalid contract. RISK: a
+missing clause is invisible (unlike a visible strikeout) → heavy validation + testing; build
+properly after launch. Related to Build 1.
