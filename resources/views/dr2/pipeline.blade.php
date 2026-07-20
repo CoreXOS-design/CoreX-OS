@@ -184,7 +184,12 @@
                         @php($canWo = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
                         @php($offersCoc = $canWo && optional($s->pipelineStep)->workOrders && $s->pipelineStep->workOrders->isNotEmpty() && in_array($s->status, ['active','completed']))
                         @if($offersCoc)
-                        @php($offeredTypes = $s->pipelineStep->workOrders->pluck('service_type')->filter()->unique()->values()->all())
+                        {{-- AT-229 — map the step's configured service_type CODES to the agency's
+                             friendly labels (Settings → COC / Service Types); withTrashed so an
+                             archived-but-still-configured type still shows a name, not a bare code. --}}
+                        @php($svcLabels = \App\Models\DealV2\AgencyServiceType::withTrashed()->pluck('label','code'))
+                        @php($offeredTypes = $s->pipelineStep->workOrders->pluck('service_type')->filter()->unique()->values()
+                                ->map(fn($c) => ['code' => $c, 'label' => $svcLabels[$c] ?? $c])->all())
                         <span x-data="{
                                 open:false, loading:false, busy:false, err:'', msg:'',
                                 types: @js($offeredTypes), responsible:{}, suppliers:[], rows:[],
@@ -230,8 +235,7 @@
                                                   <div>
                                                     <label style="font-size:.66rem;color:#6b7280;">COC / service</label>
                                                     <select x-model="w.service_type" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
-                                                      <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
-                                                      <option value="Other">Other</option>
+                                                      <template x-for="t in types" :key="t.code"><option :value="t.code" x-text="t.label"></option></template>
                                                     </select>
                                                   </div>
                                                   <div>
@@ -253,7 +257,7 @@
                                                 <div x-show="w.recipient_email" style="font-size:.66rem;color:#6b7280;margin-top:.2rem;" x-text="'→ ' + (w.recipient_email||'') + (w.cc_emails ? '  (cc ' + w.cc_emails + ')' : '')"></div>
                                               </div>
                                             </template>
-                                            <button type="button" @click="rows.push({service_type:(types[0]||'COC'), responsible_party:'supplier', service_provider_id:'', status:'pending', id:null})" style="font-size:.75rem;color:#0f766e;margin-top:.6rem;">+ Add COC</button>
+                                            <button type="button" @click="rows.push({service_type:((types[0]&&types[0].code)||'COC'), responsible_party:'supplier', service_provider_id:'', status:'pending', id:null})" style="font-size:.75rem;color:#0f766e;margin-top:.6rem;">+ Add COC</button>
                                             <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
                                             <div x-show="msg" x-text="msg" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
                                         </div>

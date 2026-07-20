@@ -41,6 +41,10 @@ class AgencyObserver
                 ]
             );
 
+            // AT-229 — seed the agency's own COC / service-type list (the
+            // historical hardcoded set) so the work-order dropdown is populated.
+            \App\Models\DealV2\AgencyServiceType::seedDefaultsFor($agency->id);
+
             // Seed leave visibility matrix with defaults
             foreach (AgencyLeaveVisibilityMatrix::defaultRows() as $row) {
                 AgencyLeaveVisibilityMatrix::withoutGlobalScopes()->firstOrCreate(

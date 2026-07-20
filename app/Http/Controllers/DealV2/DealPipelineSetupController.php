@@ -153,7 +153,31 @@ class DealPipelineSetupController extends Controller
         $documentTypes = \App\Models\DocumentType::query()->where('is_active', true)
             ->orderBy('sort_order')->get(['id', 'label']);
 
-        return view('deals-v2.pipeline-setup.edit', compact('template', 'branches', 'stepsJson', 'documentTypes'));
+        // AT-229 — the work-order "service type" dropdown reads from THIS agency's
+        // configured COC/service list (Settings → COC / Service Types), not a
+        // hardcoded array. Active only, in the agency's chosen order.
+        $serviceTypes = \App\Models\DealV2\AgencyServiceType::active()
+            ->orderBy('sort_order')->orderBy('id')->get(['code', 'label'])
+            ->map(fn ($t) => ['code' => $t->code, 'label' => $t->label]);
+
+        // A step may already store a code whose type was later archived. Keep it
+        // selectable IN CONTEXT (marked) so editing the step never silently drops
+        // it — the archive only removes it as a NEW choice, never mid-config.
+        $usedCodes  = $stepsJson->flatMap(fn ($s) => collect($s['work_orders'])->pluck('service_type'))->filter()->unique();
+        $knownCodes = $serviceTypes->pluck('code');
+        $extraCodes = $usedCodes->diff($knownCodes);
+        if ($extraCodes->isNotEmpty()) {
+            $archived = \App\Models\DealV2\AgencyServiceType::withTrashed()
+                ->whereIn('code', $extraCodes)->get()->keyBy('code');
+            foreach ($extraCodes as $code) {
+                $serviceTypes->push([
+                    'code'  => $code,
+                    'label' => ($archived[$code]->label ?? $code) . ' (archived)',
+                ]);
+            }
+        }
+
+        return view('deals-v2.pipeline-setup.edit', compact('template', 'branches', 'stepsJson', 'documentTypes', 'serviceTypes'));
     }
 
     public function update(Request $request, DealPipelineTemplate $template)

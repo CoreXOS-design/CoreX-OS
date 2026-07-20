@@ -796,6 +796,15 @@ Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_
     Route::post('/{template}/steps/reorder', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'reorder'])->name('deals-v2.pipeline.steps.reorder');
 });
 
+// ===== AT-229 — AGENCY COC / SERVICE-TYPE LIST (feeds the work-order dropdown) =====
+Route::prefix('deals-v2/settings/service-types')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'index'])->name('deals-v2.settings.service-types.index');
+    Route::post('/', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'store'])->name('deals-v2.settings.service-types.store');
+    Route::put('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'update'])->name('deals-v2.settings.service-types.update');
+    Route::delete('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroy'])->name('deals-v2.settings.service-types.destroy');
+    Route::post('/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restore'])->name('deals-v2.settings.service-types.restore');
+});
+
 // ===== DEAL REGISTER V2 — SUPPLIER DIRECTORY (WS2 / D2) =====
 Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'index'])->name('deals-v2.suppliers.index')->middleware('permission:deals_v2.manage_suppliers');
