@@ -124,10 +124,26 @@ class CanonicalDocumentRenderer
         if (! $document) {
             return '';
         }
-        $stored = (string) (($document->web_template_data ?? [])['canonical_html'] ?? '');
-        if (trim($stored) !== '') {
+        $webData = $document->web_template_data ?? [];
+        $stored  = (string) ($webData['canonical_html'] ?? '');
+        $version = (int) ($webData['canonical_version'] ?? 0);
+
+        // Ink baked (version >= 1) → the stored canonical is the accumulated source
+        // of truth (every prior party's signatures/initials/fills are composed into
+        // it); return it verbatim so the agent-review and every later party see the
+        // exact accumulated document.
+        if (trim($stored) !== '' && $version >= 1) {
             return $stored;
         }
+
+        // NOT yet baked (version 0 / no ink, or never composed) → RE-COMPOSE fresh so
+        // the structure always reflects the CURRENT pipeline (per-recipient
+        // attestation split, uniform ink, etc.). A stored v0 can be stale — composed
+        // before a structural fix landed — and because nothing is baked into it yet,
+        // re-composing loses nothing and keeps every surface (setup, sign, ceremony,
+        // AGENT-REVIEW) on the one current spine. This is why the review must call
+        // forDisplay: it renders the same accumulated/current canonical, never an
+        // outdated snapshot.
         return $this->compose($template);
     }
 

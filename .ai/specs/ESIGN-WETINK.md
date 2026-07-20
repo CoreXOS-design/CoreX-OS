@@ -360,3 +360,31 @@ returns to the AGENT for approval **between each party** (never recipient→reci
 uploaded scan can't be trusted for what changed, so the agent verifies every hop. This is a
 SEPARATE build AFTER e-sign v1 (supersedes any recipient→recipient assumption for the wet-ink
 path; the e-sign electronic path keeps Ruling #1's straight-through flow).
+
+---
+
+## 11. Agent-review renders the ONE canonical spine (2026-07-20)
+
+The agent-review surface (`SignatureController::review` → `review.blade.php`) renders the
+SAME canonical artifact as the signing screens — it MUST NOT re-render or re-style the
+document. Concretely:
+
+- **Render read = `CanonicalDocumentRenderer::forDisplay($template)`** (identical to
+  show()/sign()/setup). Read-only: no editability overlay, no field→input conversion.
+- **`forDisplay` staleness rule:** returns the STORED `canonical_html` ONLY once ink is
+  baked (`canonical_version >= 1` — the accumulated source of truth carrying every prior
+  party's signatures/initials/fills). For an UNBAKED doc (version 0 / never composed) it
+  **re-composes fresh**, so structural pipeline fixes (per-recipient attestation split,
+  uniform ink) always reach unsigned docs and the review never shows a stale snapshot. A
+  stored v0 composed before a fix is otherwise served forever — that was the agent-review
+  divergence (1 shared seller block instead of the per-recipient split; wrong ink sizing).
+- **Styling is the shared spine ONLY.** `review.blade.php` must not add its own document
+  styles. The shared `a4-page-styles` partial governs ink sizing (fixed-height, uniform per
+  party), the per-recipient blocks, and initial rendering. The old review-only emerald
+  border on `.web-sig-interactive` (the "green box") was removed — the review only makes the
+  document non-interactive (`pointer-events:none`), never re-styles it.
+- **Accumulated ink** (prior recipients' baked signatures/initials) renders because it is
+  IN the canonical `forDisplay` returns; the review renders it verbatim.
+
+Result: agent-review is byte-identical to the ceremony's document render — same ink size,
+same per-recipient scoping, same accumulated signatures.
