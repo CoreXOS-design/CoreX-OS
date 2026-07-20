@@ -1187,7 +1187,16 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/admin/tv-code/revoke', [\App\Http\Controllers\Admin\TvCodeController::class, 'revoke'])->name('admin.tv-code.revoke');
         Route::post('/admin/tv-code/generate-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'generateCompany'])->name('admin.tv-code.generate-company');
         Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
+    });
 
+    // ── Agency / branch context switchers ──
+    // CORE navigation (switch active agency/branch, act-as-BM, cross-branch deal attach, and the
+    // /agency/select interstitial). These were nested inside the TV-messages group; the per-agency
+    // feature-registry commit then added `feature:tv-display` to that group, so CheckFeature 404'd
+    // the agency switcher and /agency/select whenever tv-display was off (its default) — which is
+    // why agency switching broke on QA2. Split back out: keep the Staging guard
+    // (permission:manage_tv_messages) but NEVER gate core switching on the TV feature.
+    Route::middleware(['permission:manage_tv_messages'])->group(function () {
         // Agency switcher (super admin)
         Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('owner_only')->name('agency.switch.clear');
         Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('owner_only')->name('agency.switch');
