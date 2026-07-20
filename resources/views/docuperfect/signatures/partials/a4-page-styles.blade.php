@@ -113,6 +113,36 @@
     vertical-align: bottom !important;
     line-height: 0 !important;
 }
+/* — TYPED-INITIAL / placeholder TEXT fills the initial block (kill the 9px speck) —
+   A page-break initial box (.corex-page-initials, [data-marker-type=initial]) that
+   holds TEXT (the party-label placeholder, or a typed initial rendered as glyphs)
+   was stuck at font-size:9px while the block is 84x40 → a 9px speck floating in the
+   box, next to a full-size image initial. Size the text to FILL the block height so
+   a typed initial matches an image initial and matches the agent. Image initials are
+   handled by the fill rule below; this only affects text content. */
+/* the BOX keeps its 84x40 block size (rule above); here we only center content
+   and kill the 9px so text content is sized by the span rule, not the box. */
+.corex-page-initials {
+    font-size: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+}
+/* the TEXT content (placeholder label OR a typed-glyph initial) fills the block. */
+.initial-placeholder,
+[data-marker-type="initial"] .initial-placeholder {
+    font-size: 24px !important;
+    line-height: 1 !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+    color: #1e293b !important;
+    text-align: center !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+}
+
 /* — INK IMAGE fills its block, scaled, centered, never overflowing — */
 /* Scoped to imgs INSIDE a sized block (never a bare img[src^=data:] whose parent has
    no fixed size — that would collapse or explode it). */
