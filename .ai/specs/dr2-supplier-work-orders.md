@@ -280,9 +280,12 @@ is_active · softDeletes`. `App\Models\DealV2\AgencyServiceType` (BelongsToAgenc
 ### 16.2 Settings screen (full CRUD)
 `deals-v2/settings/service-types` — `AgencyServiceTypeController` (index/store/update/destroy/restore).
 Add / edit (label · order · active) / **soft-delete** (archive) / restore. New types get a slugged
-`code`; a live-code-uniqueness guard blocks duplicates. **Nav link** "COC / Service Types" under
-Deal Pipelines, gated `deals_v2.manage_pipeline` (the same gate as pipeline setup — configuring the
-list is part of pipeline management; no new permission key).
+`code`; a live-code-uniqueness guard blocks duplicates. **Nav (Johan's ruling — agency-configurable
+lists live under Settings):** listed on the **Settings page rail** (`corex.settings`, Operations
+group) as a `type=>'link'`, the exact pattern of Document Types / DocuPerfect Types / P24 Suburbs —
+**Sidebar → Settings → COC / Service Types**. Gated `deals_v2.manage_pipeline` (the same gate as
+pipeline setup — no new permission key). NOT under the Admin group and NOT under the (retired,
+`@if(false)`-hidden) deals-v2 nav group.
 
 ### 16.3 The dropdown reads the list
 `DealPipelineSetupController::edit` passes `$serviceTypes` (agency active list, ordered) to
