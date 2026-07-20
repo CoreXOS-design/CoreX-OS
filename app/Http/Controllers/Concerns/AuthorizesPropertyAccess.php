@@ -22,7 +22,10 @@ trait AuthorizesPropertyAccess
     {
         /** @var User $user */
         $user = auth()->user();
-        $scope = PermissionService::getDataScope($user, 'properties');
+        // MUTATION scope, not view scope: an assistant may LIST their agent's full breadth
+        // (branch/all) but may only EDIT the agent's own listings — mutationScope() caps them
+        // to 'own'. For everyone else this equals getDataScope() and behaviour is unchanged.
+        $scope = PermissionService::mutationScope($user, 'properties');
 
         if ($scope === 'all') {
             return;
@@ -32,12 +35,8 @@ trait AuthorizesPropertyAccess
         }
         // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their Assigned
         // Agent's book (dataIdentityIds()), so an assistant may act on the listings their agent
-        // owns — which is the entire job. For everyone else this is exactly [$user->id] and the
-        // behaviour is unchanged.
-        //
-        // This trait is the SINGLE-RECORD sibling of scopeVisibleTo(): the scope decides what an
-        // assistant can LIST, this decides what they can OPEN and MUTATE. Both have to agree, or
-        // the assistant sees their agent's listing and is then 403'd trying to edit it.
+        // owns — which is the entire job — and NO other agent's, even a branch colleague's the
+        // assistant can see. For everyone else this is exactly [$user->id], unchanged.
         if ($scope === 'own' && in_array((int) $property->agent_id, $user->dataIdentityIds(), true)) {
             return;
         }

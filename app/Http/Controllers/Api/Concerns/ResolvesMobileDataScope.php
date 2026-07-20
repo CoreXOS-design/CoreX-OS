@@ -138,12 +138,16 @@ trait ResolvesMobileDataScope
         // Own listing — always allowed, whether the user is the PRIMARY
         // (agent_id) or the SECONDARY co-listing agent (pp_second_agent_id).
         // A co-listed property is "theirs" for both agents (mirrors the web).
-        if ((int) $property->agent_id === (int) $user->id
-            || (int) $property->pp_second_agent_id === (int) $user->id) {
+        // dataIdentityIds() is [$user->id] for a normal user and [agent, self] for an
+        // ASSISTANT, so an assistant's "own" here is the assigned agent's listings.
+        if (in_array((int) $property->agent_id, $user->dataIdentityIds(), true)
+            || in_array((int) $property->pp_second_agent_id, $user->dataIdentityIds(), true)) {
             return;
         }
 
-        $scope = PermissionService::getDataScope($user, 'properties') ?? 'own';
+        // MUTATION scope: an assistant is capped at 'own' (handled above), so a branch/all
+        // agent's assistant cannot edit a colleague's listing on mobile either.
+        $scope = PermissionService::mutationScope($user, 'properties') ?? 'own';
 
         if ($scope === 'all') {
             return;

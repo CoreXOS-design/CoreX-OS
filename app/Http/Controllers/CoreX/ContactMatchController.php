@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ContactMatchController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     /**
      * Canonical feature token list for the wishlist chip selectors
      * (must_have_features, nice_to_have_features, deal_breakers).
@@ -163,6 +165,7 @@ class ContactMatchController extends Controller
 
     public function store(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $this->validatePayload($request);
         $data['contact_id']         = $contact->id;
         $data['created_by_user_id'] = auth()->id();
@@ -206,6 +209,7 @@ class ContactMatchController extends Controller
 
     public function update(Request $request, Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $match->update($this->validatePayload($request));
 
@@ -215,6 +219,7 @@ class ContactMatchController extends Controller
 
     public function setStatus(Request $request, Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $status = $request->validate([
             'status' => 'required|in:active,paused,fulfilled,expired',
@@ -243,6 +248,7 @@ class ContactMatchController extends Controller
 
     public function toggleHide(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
 
         // Resolve through the scoped model so only an in-agency property id can be
@@ -264,6 +270,7 @@ class ContactMatchController extends Controller
 
     public function destroy(Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $match->delete();
 
@@ -277,6 +284,7 @@ class ContactMatchController extends Controller
      */
     public function convertToDeal(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
 
         // Resolve through the scoped Property model. The {property} route segment

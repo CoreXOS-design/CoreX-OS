@@ -149,7 +149,14 @@ final class AssistantDealEditScopingTest extends TestCase
             ->get(route('admin.deals.edit', $this->dealB))
             ->assertOk();
 
-        // The ASSISTANT is pinned to the agent's own book — 403 on agentB's deal, read and write.
+        // The ASSISTANT may VIEW agentB's deal (the read-only log) at the agent's branch breadth —
+        // they see what their agent sees.
+        $this->actingAs($this->assistant)
+            ->get(route('admin.deals.log', $this->dealB))
+            ->assertOk();
+
+        // ...but may NOT EDIT it — pinned to the agent's own book: 403 on the edit form and the
+        // mutation.
         $this->actingAs($this->assistant)
             ->get(route('admin.deals.edit', $this->dealB))
             ->assertForbidden();
@@ -157,7 +164,7 @@ final class AssistantDealEditScopingTest extends TestCase
             ->post(route('admin.deals.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
             ->assertForbidden();
 
-        // ...and still serves the assistant their own agent's deal.
+        // ...and still edits the assistant's own agent's deal.
         $this->actingAs($this->assistant)
             ->get(route('admin.deals.edit', $this->dealA))
             ->assertOk();

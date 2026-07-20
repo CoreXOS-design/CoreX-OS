@@ -283,6 +283,30 @@ class PermissionService
     }
 
     /**
+     * The data scope for a MUTATION (edit / delete / any write), as opposed to a view/list.
+     *
+     * Identical to getDataScope() for everyone EXCEPT assistants. An assistant may VIEW at the
+     * assigned agent's full breadth (if the agent is a branch manager or admin, the assistant
+     * SEES the branch / agency) — but may only MUTATE the agent's OWN records. So an assistant's
+     * mutation scope is capped at 'own', which — resolved through User::dataIdentityIds() in
+     * every per-record guard — is exactly the agent's own book. An assistant may never EDIT
+     * another agent's item even when they can see it (Johan's ruling 2026-07-20; spec §7.2).
+     *
+     * View/list paths (scopeVisibleTo, route-model binding) keep using getDataScope(); only the
+     * per-record write guards use this.
+     */
+    public static function mutationScope(User $user, string $module): ?string
+    {
+        $scope = static::getDataScope($user, $module);
+
+        if ($scope !== null && $user->is_assistant) {
+            return static::clampScope($scope, 'own'); // caps branch/all down to own
+        }
+
+        return $scope;
+    }
+
+    /**
      * Calendar data-visibility scope for a user (own | branch | all).
      * Reads command_center.calendar.view's scope; defaults to 'own' so a
      * user who reaches the page never accidentally sees the whole agency.

@@ -9,8 +9,11 @@ use Illuminate\Http\Request;
 
 class ContactNoteController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function store(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $request->validate(['body' => 'required|string|max:5000']);
 
         $contact->contactNotes()->create([
@@ -25,6 +28,7 @@ class ContactNoteController extends Controller
 
     public function destroy(Contact $contact, ContactNote $note)
     {
+        $this->authorizeContact($contact);
         abort_unless($note->contact_id === $contact->id, 404);
 
         $note->delete();

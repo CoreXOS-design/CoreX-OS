@@ -10,6 +10,8 @@ use Illuminate\Http\Request;
 
 class ContactPropertyController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     /** Search properties (AJAX JSON) for the link picker — by address/title/suburb. */
     public function search(Request $request, Contact $contact)
     {
@@ -36,6 +38,7 @@ class ContactPropertyController extends Controller
     /** Link a property to the contact. */
     public function link(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             // ExistsInScope (not `exists:`) so AgencyScope is enforced — a property
             // id from another agency must NOT be linkable to this contact.
@@ -87,6 +90,7 @@ class ContactPropertyController extends Controller
     /** Unlink a property from the contact. */
     public function unlink(Contact $contact, Property $property)
     {
+        $this->authorizeContact($contact);
         $contact->properties()->detach($property->id);
 
         return back()->with('success', 'Property unlinked.')->with('tab', 'properties');

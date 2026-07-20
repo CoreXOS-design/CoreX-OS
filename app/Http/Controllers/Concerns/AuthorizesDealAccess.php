@@ -30,13 +30,21 @@ use Illuminate\Support\Facades\DB;
  */
 trait AuthorizesDealAccess
 {
-    protected function authorizeDeal(Deal $deal): void
+    /**
+     * @param bool $forEdit  A write path (edit/update/settle) pins an assistant to the assigned
+     *                       agent's OWN deals; a pure read (the deal log) lets them view at the
+     *                       agent's full breadth. An assistant SEES what their agent sees but only
+     *                       EDITS the agent's own deals (spec §7.2).
+     */
+    protected function authorizeDeal(Deal $deal, bool $forEdit = true): void
     {
         /** @var User|null $user */
         $user = auth()->user();
         abort_unless($user !== null, 403);
 
-        $scope = PermissionService::getDataScope($user, 'deals');
+        $scope = $forEdit
+            ? PermissionService::mutationScope($user, 'deals')
+            : PermissionService::getDataScope($user, 'deals');
 
         if ($scope === 'all') {
             return;

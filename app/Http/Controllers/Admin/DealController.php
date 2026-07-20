@@ -77,7 +77,7 @@ class DealController extends Controller
 public function log(Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
-        $this->authorizeDeal($deal);
+        $this->authorizeDeal($deal, forEdit: false); // pure read — assistant may view at agent breadth
 
         $logs = DealLog::query()
             ->where('deal_id', $deal->id)

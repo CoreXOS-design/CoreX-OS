@@ -389,4 +389,34 @@ final class AssistantPermissionResolverTest extends TestCase
         $this->assertSame('own', PermissionService::getDataScope($this->assistant(), 'contacts'));
         $this->assertTrue($this->assistant()->hasPermission('contacts.view'));
     }
+
+    // View wide, edit narrow (spec §7.2) — the mutation scope pin
+    // ---------------------------------------------------------------
+
+    public function test_mutation_scope_pins_an_assistant_to_own_while_view_stays_wide(): void
+    {
+        // The agent can see ALL deals; the matrix hands the full width over.
+        $this->agentHolds('deals.view', 'all');
+        $this->matrix('deals.view', scope: 'all');
+        $this->reset();
+
+        // VIEW: the assistant sees exactly what the agent sees.
+        $this->assertSame('all', PermissionService::getDataScope($this->assistant(), 'deals'));
+
+        // EDIT: the assistant is pinned to the agent's OWN book, no matter how wide the view is.
+        $this->assertSame('own', PermissionService::mutationScope($this->assistant(), 'deals'));
+
+        // The agent themselves is unaffected — mutationScope == getDataScope for a non-assistant.
+        $this->assertSame('all', PermissionService::mutationScope($this->agent->fresh(), 'deals'));
+    }
+
+    public function test_mutation_scope_is_null_when_the_assistant_has_no_module_access(): void
+    {
+        // The agent cannot see deals at all → both view and mutation resolve to null (no rows).
+        $this->matrix('deals.view', scope: 'all');
+        $this->reset();
+
+        $this->assertNull(PermissionService::getDataScope($this->assistant(), 'deals'));
+        $this->assertNull(PermissionService::mutationScope($this->assistant(), 'deals'));
+    }
 }

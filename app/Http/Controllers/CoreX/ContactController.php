@@ -18,6 +18,8 @@ use Illuminate\Support\Str;
 
 class ContactController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -1056,6 +1058,7 @@ class ContactController extends Controller
 
     public function update(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -1168,6 +1171,7 @@ class ContactController extends Controller
      */
     public function updatePropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'unit_number'        => 'nullable|string|max:50',
             'floor_number'       => 'nullable|string|max:50',
@@ -1316,6 +1320,7 @@ class ContactController extends Controller
      */
     public function clearPropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $columns = [
             'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
             'street_number', 'street_name', 'suburb', 'city', 'province',
@@ -1331,6 +1336,7 @@ class ContactController extends Controller
 
     public function touch(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'last_contacted_at' => 'required|date',
         ]);
@@ -1348,6 +1354,7 @@ class ContactController extends Controller
      */
     public function toggleBirthdayReminder(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         if (! $contact->birthday) {
             return back()->with('error', 'Add a date of birth before setting a birthday reminder.');
         }
@@ -1371,6 +1378,7 @@ class ContactController extends Controller
      */
     public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'channel' => 'required|in:whatsapp,email',
             'subject' => 'nullable|string|max:1000',
@@ -1425,6 +1433,7 @@ class ContactController extends Controller
 
     public function destroy(Contact $contact)
     {
+        $this->authorizeContact($contact);
         $contact->delete();
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact deleted.');
@@ -1432,6 +1441,7 @@ class ContactController extends Controller
 
     public function recordConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'decision'     => 'nullable|in:given,declined',
@@ -1451,6 +1461,7 @@ class ContactController extends Controller
 
     public function revokeConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'reason' => 'nullable|string|max:500',
@@ -1555,6 +1566,7 @@ class ContactController extends Controller
 
     public function syncTags(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'tag_ids'   => 'nullable|array',
             'tag_ids.*' => 'integer|exists:contact_tags,id',
