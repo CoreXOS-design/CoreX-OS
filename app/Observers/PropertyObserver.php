@@ -418,6 +418,26 @@ class PropertyObserver
             }
         }
 
+        // AT-282 — Private Property status parity. The status fan-out below was
+        // P24-only; PP heard nothing, so under-offer/sold were invisible on PP.
+        // Placed ABOVE the P24 guard: that guard early-returns for any non-P24
+        // listing, which would skip PP entirely for a PP-only property. Queued
+        // (SOAP over the internet) so a save never waits on a portal; the job
+        // re-checks pp_syndication_enabled/pp_ref at run time. Fires on a
+        // status_label change too (an under-offer flagged on an on-market base).
+        $ppChanges = $property->getChanges();
+        if (
+            (isset($ppChanges['status']) || isset($ppChanges['status_label']))
+            && $property->pp_syndication_enabled
+            && $property->pp_ref
+        ) {
+            try {
+                \App\Jobs\PrivateProperty\SyncPpListingStatusJob::dispatch($property->id);
+            } catch (\Throwable $e) {
+                Log::warning("PP status sync dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // P24 syndication auto-sync
         if (!$property->p24_syndication_enabled || !$property->p24_ref) {
             return;

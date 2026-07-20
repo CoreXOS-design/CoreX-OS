@@ -264,6 +264,95 @@ class PrivatePropertySyndicationService
     }
 
     /**
+     * AT-282 — push a property's LIFECYCLE status to PP (the wire that never
+     * existed: PropertyObserver fanned status changes to P24 only, so under-offer
+     * was invisible on PP). Maps via ListingLifecycle → PP enum, pushes, then
+     * READS BACK to verify — PP's "Successful" means "received", not "applied"
+     * (same bug-class as AT-221 P24 200-but-not-on-portal). A status we cannot
+     * verify is recorded as an error, not as done.
+     */
+    public function syncStatus(Property $property): array
+    {
+        if (! $property->pp_ref) {
+            return ['success' => false, 'message' => 'Property is not on Private Property.'];
+        }
+
+        $this->client->forAgency($property->agency);
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
+        $desired     = PrivatePropertyListingMapper::statusFor($property, $listingType);
+
+        $result = $this->client->setListingStatus((string) $property->id, $listingType, $desired);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => 'Status sync failed: ' . ($result['message'] ?? 'Unknown error'),
+            ]);
+
+            return ['success' => false, 'message' => $result['message'] ?? 'Status sync failed'];
+        }
+
+        // PP said "Successful" — now make it prove it.
+        $verified = $this->verifyStatus($property, $desired);
+
+        if (! $verified['ok']) {
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => sprintf(
+                    'Private Property reported success but did not apply the status. Asked for "%s", it still reports "%s".',
+                    $desired,
+                    $verified['actual'] ?? 'unknown'
+                ),
+            ]);
+            $this->log('error', sprintf(
+                'PP status NOT applied for property #%s — asked "%s", portal reports "%s" (PP answered Successful)',
+                $property->id, $desired, $verified['actual'] ?? 'unknown'
+            ));
+
+            return ['success' => false, 'message' => 'Private Property accepted the update but did not apply it.', 'desired' => $desired, 'actual' => $verified['actual'] ?? null];
+        }
+
+        // Terminal-vs-removed (#2142 stranding class): only a status that takes the
+        // listing OFF the portal may be recorded as PORTAL_OFF_STATUS ('deactivated')
+        // — the value every delist guard reads as "already off". PendingOffer keeps
+        // the listing live and must NOT be written as deactivated.
+        $property->update([
+            'pp_syndication_status' => $desired === 'Inactive' || $desired === 'Archived'
+                ? Property::PORTAL_OFF_STATUS
+                : 'active',
+            'pp_last_error'         => null,
+        ]);
+        $this->log('info', "PP status synced for property #{$property->id}: {$desired} (verified)");
+
+        return ['success' => true, 'status' => $desired, 'verified' => true];
+    }
+
+    /**
+     * Read the status back and compare with what we asked for. A read that ERRORS
+     * is unverified-but-not-wrong (do not mark the property broken on a flaky read).
+     * The compare is space-insensitive: PP writes `PendingOffer` but reads back
+     * `Pending Offer`, so an exact strcmp would false-flag every under-offer.
+     */
+    private function verifyStatus(Property $property, string $expected): array
+    {
+        $read = $this->client->getListingStatus((string) $property->id);
+
+        if (isset($read['error']) && $read['error'] === true) {
+            $this->log('warning', "PP status read-back unavailable for property #{$property->id}; status not verified");
+
+            return ['ok' => true, 'actual' => null, 'unverified' => true];
+        }
+
+        $actual = $read['GetListingStatusResult'] ?? null;
+        $norm   = fn ($s) => strtolower(str_replace(' ', '', (string) $s));
+
+        return [
+            'ok'     => is_string($actual) && $norm($actual) === $norm($expected),
+            'actual' => $actual,
+        ];
+    }
+
+    /**
      * Sync activation status from PP for a property.
      *
      * PP returns two distinct response shapes that we have to handle:

@@ -793,6 +793,30 @@ class PrivatePropertyListingMapper
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
     }
 
+    /**
+     * AT-282 — the lifecycle → PP PropertyStatus for the DEDICATED `ListingStatusUpdate`
+     * SOAP call (NOT the full-submit path above). This is the ONLY path that may carry
+     * `PendingOffer`: the ListingStatusUpdate contract accepts it, the UpdateListing/submit
+     * contract does not (which is why mapPropertyStatus() stays ForSale/ToLet/Inactive).
+     * Resolves BOTH tiers via ListingLifecycle (base status + status_label sub-label) so an
+     * under-offer flagged on an on-market base finally reaches PP — the exact defect the P24
+     * mapper never had (it already reads the sub-label). Sold → Inactive is AT-68's
+     * documented cautious mapping (PP-keeps-sold-on-portal unconfirmed; verify at staging).
+     */
+    public static function statusFor(Property $property, string $listingType): string
+    {
+        $lifecycle = \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label);
+
+        if ($lifecycle === \App\Services\Syndication\ListingLifecycle::UNDER_OFFER) {
+            return 'PendingOffer'; // still advertised, just flagged
+        }
+        if (in_array($lifecycle, \App\Services\Syndication\ListingLifecycle::OFF_MARKET, true)) {
+            return 'Inactive';     // off the market (incl. sold) — never re-advertise
+        }
+
+        return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
+    }
+
     // The four type-attribute mappers below use substring matching, NOT exact
     // keys. CoreX's property_type vocabulary is human-facing ("Apartment / Flat",
     // "Vacant Land / Plot", "Industrial Property") — exact-key maps silently fell

@@ -104,6 +104,21 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
 
 ---
 
+## 5b. Listing status parity — PP hears under-offer / sold (AT-282)
+
+**The gap:** `PropertyObserver` fanned a `properties.status` change out to Property24 only (inline `setListingStatus`); it held **zero** PP references. So when a property went under offer, P24 updated in seconds and PP received **nothing** — the listing kept advertising as plainly "For Sale" until an agent hit Refresh by hand. `sold` reached PP only as a `Inactive` delist (removed), never "Sold". Root cause: CoreX models status in **two tiers** — base `status` + an optional `status_label` sub-label ("Under Offer" on an on-market base) — and the P24 mapper reads the sub-label while the PP mapper read only `$property->status`.
+
+**The fix (one portal-neutral resolver, both portals translate):**
+- **`App\Services\Syndication\ListingLifecycle::resolve($status, $statusLabel)`** — the ONE answer to "what lifecycle state is this listing in?" (sub-label authoritative; normalises `Under_Offer` / `• Under Offer` / `under offer` alike). A portal mapper only *translates* the state into its own enum.
+- **`PrivatePropertyListingMapper::statusFor(Property, $listingType)`** → the PP `ListingStatusUpdate` `PropertyStatus`: `under_offer → PendingOffer` (stays live, flagged), off-market (incl. `sold`) → `Inactive`, else `ForSale`/`ToLet`. This is the ONLY PP path that may carry `PendingOffer`; the full-submit `mapPropertyStatus()` stays `ForSale`/`ToLet`/`Inactive` (the UpdateListing submit contract does not accept `PendingOffer`).
+- **`PrivatePropertySoapClient::setListingStatus($id, $listingType, $status)`** — a generic `ListingStatusUpdate` (generalises deactivate/reactivate).
+- **`PrivatePropertySyndicationService::syncStatus(Property)`** — pushes, then **reads the status back and only records success when PP's own answer matches** (`verifyStatus()`; space-insensitive compare, since PP writes `PendingOffer` but reads back `Pending Offer`). PP's "Successful" means "received", not "applied" — same class as AT-221 (P24 200-but-not-on-portal). An unverified push → `pp_syndication_status='error'` + `pp_last_error`, not "done". `PendingOffer` is recorded `active` (still on portal); only `Inactive`/`Archived` write `PORTAL_OFF_STATUS` so the next delist guard reads it correctly.
+- **Wire:** `PropertyObserver` dispatches `App\Jobs\PrivateProperty\SyncPpListingStatusJob` on a `status` **or** `status_label` change when `pp_syndication_enabled && pp_ref` — placed **above** the P24 guard (which early-returns for non-P24 listings, else PP-only listings would be skipped). Queued (SOAP over the internet; a save must never wait on a portal); the job re-checks the guards at run time.
+
+**Declared decision (Johan/Andre to confirm at staging):** `sold → Inactive` (remove) is the cautious mapping AT-68's live probe left in place — it could not confirm PP keeps a Sold listing ON the portal the way P24 does. PP's read-back **does** model `'Sold'`, so `sold → Sold` (true P24 parity, keep-on-portal-as-sold) is likely achievable; **qa1 blanks PP outbound**, so the real round-trip verifies at Staging. Related: **AT-271** (Andre — the refresh *trigger* in the same files); this ticket is the PP *mapping* half.
+
+---
+
 ## 6. Listing Mapper (PrivatePropertyListingMapper)
 
 `map(Property $p): array` builds the WSDL `Listing` struct. All fields below are sent on every submission.
