@@ -313,11 +313,22 @@ class DocumentFilingController extends Controller
         // Visibility, NOT a hand-rolled tenant filter. This previously matched on the raw
         // $user->agency_id, so an owner/super-admin (agency_id NULL → 0) silently got zero
         // results and the picker looked broken. STANDARDS Rule 17.
+        // Same identifying detail the DR2 deal-register search returns
+        // (DealRegisterController::searchProperties), via the SAME canonical
+        // primitive (Property::toSearchResult), so a clerk can tell one property
+        // from another on the register: reference + seller + listing agent + price
+        // + a status badge, alongside the address. (mandate expiry_date is the one
+        // filing-specific extra we keep.)
         $results = $linker->candidates($q, $user)
             ->map(fn (Property $p) => $p->toSearchResult([
                 'address'     => $p->buildDisplayAddress(),
-                'expiry_date' => $p->expiry_date?->format('Y-m-d'),
+                'ref'         => $p->property_number,
                 'seller'      => $p->sellerOwnerContact()?->full_name,
+                'price'       => $p->listing_price ?? $p->price ?? null,
+                'status'      => (string) $p->status,
+                'on_market'   => $p->isOnMarket(),
+                'listed_date' => optional($p->listed_date ?? $p->first_marketed_at)->toDateString(),
+                'expiry_date' => $p->expiry_date?->format('Y-m-d'),
             ]))
             ->values();
 
