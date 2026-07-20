@@ -664,9 +664,20 @@ class MobilePropertyController extends Controller
 
         $file = $request->file('image');
         $path = $file->store("properties/{$property->id}", 'public');
-        $url  = Storage::url($path);
 
-        // List-view thumbnail (original untouched).
+        // Bake EXIF orientation into the stored original BEFORE any thumbnail or
+        // downscale runs. Phone captures store portrait shots as landscape pixels
+        // plus a "rotate me" EXIF tag; GD re-encoding downstream drops that tag
+        // without turning the pixels, so the photo lands sideways (property 6118).
+        // Absorbing it here means every surface — and the current app build —
+        // shows it upright. No-op for HEIC/PNG/already-upright. See
+        // ImageOrientationNormalizer.
+        app(\App\Services\Images\ImageOrientationNormalizer::class)
+            ->normalizeInPlace(Storage::disk('public')->path($path));
+
+        $url = Storage::url($path);
+
+        // List-view thumbnail (now generated from the upright original).
         app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
 
         // Append to flat gallery list
