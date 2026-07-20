@@ -12,6 +12,9 @@ return [
     'pace_min_seconds'  => 20,      // polite gap between suburb page loads (min) — politeness, not evasion
     'pace_max_seconds'  => 55,      // polite gap between suburb page loads (max)
     'nav_timeout_ms'    => 45000,
+    'max_pages'         => 60,       // max results pages to walk per suburb search (pagination)
+    'pace_page_min_ms'  => 3000,     // polite gap between results-page loads (ms)
+    'pace_page_max_ms'  => 7000,
     'alert_enabled'     => true,
     'source_site'       => 'property24',
     'p24_base'          => 'https://www.property24.com',

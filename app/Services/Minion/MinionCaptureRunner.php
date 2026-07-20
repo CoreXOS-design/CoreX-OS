@@ -13,17 +13,16 @@ use Illuminate\Support\Facades\Process;
 /**
  * AT-284 — orchestrates one nightly/manual P24 capture.
  * Reuses the EXISTING portal-capture ingest (dedup + cross-portal match + agency stamp +
- * last_seen_at deactivation feed) — no parallel ingester. Node script only fetches the
- * PUBLIC search page; this service POSTs it to our own /portal-captures/ingest with the
- * extension's service token, exactly as the extension does.
+ * last_seen_at deactivation feed) — no parallel ingester. Node script fetches EVERY PUBLIC
+ * results page for a suburb (pagination); this service POSTs each page to our own
+ * /portal-captures/ingest with the extension's service token, exactly as the extension does.
  */
 class MinionCaptureRunner
 {
     /** Capture every ticked suburb in one town (city), paced. Returns the run rows. */
     public function captureTown(int $agencyId, string $townName, string $triggeredBy = 'manual', ?int $userId = null): array
     {
-        $ids = $this->tickedSuburbIdsForTown($agencyId, $townName);
-        return $this->captureMany($agencyId, $ids, $triggeredBy, $userId);
+        return $this->captureMany($agencyId, $this->tickedSuburbIdsForTown($agencyId, $townName), $triggeredBy, $userId);
     }
 
     /** Nightly slice: the least-recently-captured N ticked suburbs (cadence is a setting). */
@@ -34,8 +33,7 @@ class MinionCaptureRunner
             ->orderByRaw('last_captured_at IS NULL DESC')
             ->orderBy('last_captured_at')
             ->limit((int) $s['targets_per_night'])
-            ->pluck('p24_suburb_id')
-            ->all();
+            ->pluck('p24_suburb_id')->all();
 
         return $this->captureMany($agencyId, $ids, $triggeredBy, null);
     }
@@ -46,19 +44,16 @@ class MinionCaptureRunner
         $s    = MinionCaptureSettings::resolved($agencyId);
         $runs = [];
         $last = count($p24SuburbIds) - 1;
-
         foreach (array_values($p24SuburbIds) as $i => $suburbId) {
             $runs[] = $this->captureSuburb($agencyId, (int) $suburbId, $triggeredBy, $userId);
             if ($i < $last) {
-                // Polite pacing between page loads (politeness, not evasion).
-                $gap = random_int((int) $s['pace_min_seconds'], max((int) $s['pace_min_seconds'], (int) $s['pace_max_seconds']));
-                sleep($gap);
+                sleep(random_int((int) $s['pace_min_seconds'], max((int) $s['pace_min_seconds'], (int) $s['pace_max_seconds'])));
             }
         }
-
         return $runs;
     }
 
+    /** Capture ALL results pages of one suburb (paginated) and ingest each through the existing pipeline. */
     public function captureSuburb(int $agencyId, int $p24SuburbId, string $triggeredBy = 'manual', ?int $userId = null): MinionCaptureRun
     {
         $started = now();
@@ -72,51 +67,43 @@ class MinionCaptureRunner
             'status'               => 'running',
             'triggered_by'         => $triggeredBy,
             'triggered_by_user_id' => $userId,
-            'pages_attempted'      => 1,
+            'pages_attempted'      => 0,
         ]);
 
         if (! $sub) {
             return $this->fail($run, $started, 'p24 suburb not found: ' . $p24SuburbId);
         }
 
-        $url = P24SearchUrlBuilder::forSale(
+        $baseUrl = P24SearchUrlBuilder::forSale(
             (string) config('minion_capture.p24_base'),
-            (string) ($sub->province_name ?? ''),
-            (string) ($sub->city_name ?? ''),
-            (string) ($sub->slug ?: $sub->suburb_name),
-            (int) $sub->p24_id
+            (string) ($sub->province_name ?? ''), (string) ($sub->city_name ?? ''),
+            (string) ($sub->slug ?: $sub->suburb_name), (int) $sub->p24_id
         );
 
-        // --- Node fetch of the PUBLIC search page ---
-        $outFile = storage_path('app/minion/' . $run->id . '.json');
-        @mkdir(dirname($outFile), 0775, true);
-        $node = [
-            'url'          => $url,
-            'outFile'      => $outFile,
-            'navTimeoutMs' => (int) config('minion_capture.nav_timeout_ms'),
-            'chromiumPath' => (string) config('minion_capture.chromium_path'),
-        ];
+        $outDir = storage_path('app/minion/' . $run->id);
+        @mkdir($outDir, 0775, true);
 
-        $proc = Process::path(base_path())
-            ->timeout(120)
-            ->run([
-                (string) config('minion_capture.node_binary'),
-                base_path((string) config('minion_capture.node_script')),
-                json_encode($node),
-            ]);
+        $proc = Process::path(base_path())->timeout(3600)->run([
+            (string) config('minion_capture.node_binary'),
+            base_path((string) config('minion_capture.node_script')),
+            json_encode([
+                'baseUrl'      => $baseUrl,
+                'outDir'       => $outDir,
+                'navTimeoutMs' => (int) config('minion_capture.nav_timeout_ms'),
+                'chromiumPath' => (string) config('minion_capture.chromium_path'),
+                'maxPages'     => (int) config('minion_capture.max_pages'),
+                'paceMinMs'    => (int) config('minion_capture.pace_page_min_ms'),
+                'paceMaxMs'    => (int) config('minion_capture.pace_page_max_ms'),
+            ]),
+        ]);
 
         $meta = json_decode(trim($proc->output()), true) ?: [];
-
         if (! $proc->successful() || ! ($meta['ok'] ?? false)) {
             if ($meta['blocked'] ?? false) {
-                return $this->fail($run, $started, 'P24 served a block/challenge — stopped (no bypass). final=' . ($meta['finalUrl'] ?? $url));
+                return $this->fail($run, $started, 'P24 served a block/challenge — stopped (no bypass). ' . ($meta['error'] ?? ''));
             }
-            return $this->fail($run, $started, 'node fetch failed: ' . ($meta['error'] ?? $proc->errorOutput() ?: 'unknown'));
+            return $this->fail($run, $started, 'node fetch failed: ' . ($meta['error'] ?? ($proc->errorOutput() ?: 'unknown')));
         }
-
-        // --- Route through the EXISTING ingest, exactly like the extension ---
-        $payload = json_decode((string) @file_get_contents($outFile), true) ?: [];
-        @unlink($outFile);
 
         $ingestUrl   = (string) config('minion_capture.ingest_url');
         $ingestToken = (string) config('minion_capture.ingest_token');
@@ -124,45 +111,43 @@ class MinionCaptureRunner
             return $this->fail($run, $started, 'MINION_INGEST_URL / MINION_INGEST_TOKEN not configured (.env)');
         }
 
-        try {
-            $resp = Http::withToken($ingestToken)
-                ->acceptJson()
-                ->timeout(60)
-                ->post($ingestUrl, [
+        $cap = 0; $new = 0; $upd = 0; $pagesOk = 0; $fails = [];
+        foreach (($meta['results'] ?? []) as $r) {
+            if (! empty($r['blocked'])) { $fails[] = 'blocked p' . ($r['page'] ?? '?'); continue; }
+            $file = $r['file'] ?? null;
+            if (! $file || ! is_file($file)) { $fails[] = 'missing page file p' . ($r['page'] ?? '?'); continue; }
+            $payload = json_decode((string) @file_get_contents($file), true) ?: [];
+            @unlink($file);
+            try {
+                $resp = Http::withToken($ingestToken)->acceptJson()->timeout(60)->post($ingestUrl, [
                     'source_site'       => (string) config('minion_capture.source_site'),
                     'page_type'         => 'search',
-                    'source_url'        => $payload['source_url'] ?? $url,
-                    'final_url'         => $payload['final_url'] ?? ($meta['finalUrl'] ?? $url),
-                    'page_title'        => $payload['page_title'] ?? ($meta['title'] ?? null),
+                    'source_url'        => $payload['source_url'] ?? $baseUrl,
+                    'final_url'         => $payload['final_url'] ?? ($r['finalUrl'] ?? $baseUrl),
+                    'page_title'        => $payload['page_title'] ?? ($r['title'] ?? null),
                     'captured_at'       => now()->toIso8601String(),
                     'extractor_version' => 'minion-v1',
                     'parse_status'      => 'parsed',
                     'html'              => $payload['html'] ?? '',
                 ]);
-        } catch (\Throwable $e) {
-            return $this->fail($run, $started, 'ingest POST error: ' . $e->getMessage());
+            } catch (\Throwable $e) { $fails[] = 'ingest p' . ($r['page'] ?? '?') . ' err: ' . $e->getMessage(); continue; }
+            if (! $resp->successful()) { $fails[] = 'ingest p' . ($r['page'] ?? '?') . ' HTTP ' . $resp->status(); continue; }
+            $b = $resp->json(); $t = $b['tracking'] ?? [];
+            $cap += (int) ($b['extraction']['items_on_page'] ?? ($t['processed'] ?? 0));
+            $new += (int) ($t['new'] ?? 0); $upd += (int) ($t['updated'] ?? 0); $pagesOk++;
         }
+        @rmdir($outDir);
 
-        if (! $resp->successful()) {
-            return $this->fail($run, $started, 'ingest HTTP ' . $resp->status() . ': ' . mb_substr($resp->body(), 0, 300));
-        }
-
-        $body     = $resp->json();
-        $tracking = $body['tracking'] ?? [];
-
+        $status = $pagesOk > 0 ? ($fails ? 'partial' : 'ok') : 'failed';
         $run->update([
-            'finished_at'      => now(),
-            'status'           => 'ok',
-            'captured'         => (int) ($body['extraction']['items_on_page'] ?? ($tracking['processed'] ?? 0)),
-            'listings_new'     => (int) ($tracking['new'] ?? 0),
-            'listings_updated' => (int) ($tracking['updated'] ?? 0),
+            'finished_at'      => now(), 'status' => $status,
+            'captured'         => $cap, 'listings_new' => $new, 'listings_updated' => $upd,
+            'pages_attempted'  => (int) ($meta['pagesFetched'] ?? $pagesOk),
+            'failures'         => count($fails), 'failures_json' => $fails ?: null,
             'duration_ms'      => (int) $started->diffInMilliseconds(now()),
         ]);
 
-        MinionCaptureArea::where('agency_id', $agencyId)
-            ->where('p24_suburb_id', $p24SuburbId)
-            ->update(['last_captured_at' => now()]);
-
+        MinionCaptureArea::where('agency_id', $agencyId)->where('p24_suburb_id', $p24SuburbId)->update(['last_captured_at' => now()]);
         return $run->refresh();
     }
 
@@ -170,16 +155,12 @@ class MinionCaptureRunner
     {
         Log::warning('AT-284 minion capture failed', ['run' => $run->id, 'msg' => $msg]);
         $run->update([
-            'finished_at'   => now(),
-            'status'        => 'failed',
-            'failures'      => 1,
-            'failures_json' => [$msg],
-            'duration_ms'   => (int) $started->diffInMilliseconds(now()),
+            'finished_at' => now(), 'status' => 'failed', 'failures' => 1,
+            'failures_json' => [$msg], 'duration_ms' => (int) $started->diffInMilliseconds(now()),
         ]);
         return $run->refresh();
     }
 
-    /** p24 suburb joined to its city + province + agency town region (for URL + label). */
     private function suburbGeo(int $p24SuburbId): ?object
     {
         return DB::table('p24_suburbs as s')
@@ -196,11 +177,7 @@ class MinionCaptureRunner
         return DB::table('minion_capture_areas as a')
             ->join('p24_suburbs as s', 's.id', '=', 'a.p24_suburb_id')
             ->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')
-            ->whereNull('a.deleted_at')
-            ->where('a.agency_id', $agencyId)
-            ->where('c.name', $townName)
-            ->pluck('a.p24_suburb_id')
-            ->map(fn ($v) => (int) $v)
-            ->all();
+            ->whereNull('a.deleted_at')->where('a.agency_id', $agencyId)->where('c.name', $townName)
+            ->pluck('a.p24_suburb_id')->map(fn ($v) => (int) $v)->all();
     }
 }
