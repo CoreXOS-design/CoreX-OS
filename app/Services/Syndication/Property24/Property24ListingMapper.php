@@ -1560,15 +1560,30 @@ class Property24ListingMapper
      *
      * Two-tier model (mirrors P24/Propcon): a listing has a BASE status and an
      * optional SUB-LABEL on an on-market base — e.g. For Sale + "Reduced Price",
-     * For Sale + "Pending", For Sale + "Back on Market". The sub-label IS the
-     * authoritative P24 lifecycle signal when present, so it is resolved FIRST;
-     * a For-Sale base with no label falls through to the base-status logic.
+     * For Sale + "Pending", For Sale + "Back on Market". Every sub-label banner
+     * is an ON-MARKET refinement, so it may only refine an on-market base: a
+     * TERMINAL / off-market base status (sold, withdrawn, expired, cancelled,
+     * let-out, draft, …) is resolved FIRST and is absolute — it can never be
+     * overridden by a banner. Only once the base is on-market does the sub-label
+     * take precedence; an on-market base with no label falls through to the
+     * base-status logic.
+     *
+     * WHY the terminal base wins (the bug this ordering fixes): a listing is
+     * routinely Active + a sticky banner (e.g. "Reduced Price"). When it is
+     * later withdrawn/sold, the banner is not always cleared alongside the base
+     * status (the web edit form clears it; other ingress paths historically did
+     * not). If the banner were still resolved first, getP24Status() would return
+     * 'ReducedPrice' — an on-market state — and the observer would leave the
+     * listing LIVE on the portal even though CoreX shows it Withdrawn. A stale
+     * on-market banner must never resurrect an off-market listing.
      *
      * Back-compat: $statusLabel is optional and defaults to null. With a null
      * label this returns exactly what the prior flat-status version returned for
      * every base status — proven by the AT-P24 before/after round-trip table —
      * with one intentional fix: a let-out rental now maps to 'Rented' instead of
-     * silently falling through to 'NewListing'.
+     * silently falling through to 'NewListing'. The only other behaviour change
+     * is the intended one above: a terminal base + on-market banner now resolves
+     * to the terminal status instead of the banner.
      */
     public static function getP24Status(?string $corexStatus, ?string $p24Ref = null, ?string $statusLabel = null): string
     {
@@ -1577,7 +1592,30 @@ class Property24ListingMapper
             return preg_replace('/\s+/', ' ', $v); // collapse multiple spaces
         };
 
-        // 1) Sub-label (banner) takes precedence — it is the P24 lifecycle state.
+        $status = $normalise($corexStatus);
+
+        // 1) A terminal / off-market BASE status is absolute. It is resolved
+        //    before the sub-label so a stale on-market banner (Reduced Price,
+        //    Back on Market, …) can never keep a withdrawn/sold/expired listing
+        //    live on the portal. See the WHY note in the docblock.
+        $terminal = match (true) {
+            str_contains($status, 'sold')              => 'Sold',
+            str_contains($status, 'rented')
+                || str_contains($status, 'let out')     => 'Rented',
+            str_contains($status, 'withdrawn')
+                || str_contains($status, 'unavailable') => 'Withdrawn',
+            str_contains($status, 'expired')            => 'Expired',
+            str_contains($status, 'cancelled')
+                || str_contains($status, 'archived')    => 'Cancelled',
+            str_contains($status, 'draft')              => 'Withdrawn',
+            default                                     => null,
+        };
+        if ($terminal !== null) {
+            return $terminal;
+        }
+
+        // 2) On-market base: the sub-label (banner) takes precedence — it is the
+        //    authoritative P24 lifecycle refinement on top of an Active listing.
         $label = $normalise($statusLabel);
         if ($label !== '') {
             $fromLabel = match (true) {
@@ -1593,24 +1631,13 @@ class Property24ListingMapper
             }
         }
 
-        // 2) Base status.
-        $status = $normalise($corexStatus);
-
+        // 3) On-market base status (no resolving label).
         return match (true) {
-            str_contains($status, 'sold')              => 'Sold',
-            str_contains($status, 'rented')
-                || str_contains($status, 'let out')     => 'Rented',
-            str_contains($status, 'withdrawn')
-                || str_contains($status, 'unavailable') => 'Withdrawn',
             str_contains($status, 'under offer')
                 || str_contains($status, 'pending')     => 'Pending',
             str_contains($status, 'back on market')     => 'BackOnMarket',
             str_contains($status, 'reduced')            => 'ReducedPrice',
             str_contains($status, 'raised')             => 'RaisedPrice',
-            str_contains($status, 'expired')            => 'Expired',
-            str_contains($status, 'cancelled')
-                || str_contains($status, 'archived')    => 'Cancelled',
-            str_contains($status, 'draft')              => 'Withdrawn',
             str_contains($status, 'auction')            => 'Active',
             $p24Ref !== null                            => 'Active',
             default                                     => 'NewListing',

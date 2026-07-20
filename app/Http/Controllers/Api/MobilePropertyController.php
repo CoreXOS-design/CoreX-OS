@@ -140,6 +140,7 @@ class MobilePropertyController extends Controller
         $data = $this->applyP24Location($data, required: true);
 
         $data = $this->mapPayloadToColumns($data);
+        $data = $this->applyStatusLabelHygiene($data, null);
 
         $property = Property::create($data);
 
@@ -189,6 +190,7 @@ class MobilePropertyController extends Controller
         }
 
         $data = $this->mapPayloadToColumns($data);
+        $data = $this->applyStatusLabelHygiene($data, $property->status);
 
         $property->update($data);
 
@@ -228,6 +230,12 @@ class MobilePropertyController extends Controller
             'property_type' => "{$req}|string|max:100",
             'listing_type'  => "{$req}|string|in:sale,rental",
             'status'        => "{$req}|string|max:50",
+            // Optional P24 sub-label banner (Reduced Price / Pending / Back on
+            // Market / Raised Price). Only meaningful on an on-market 'active'
+            // base — cleared automatically the moment the base status leaves
+            // 'active' (see applyStatusLabelHygiene). Web parity: the web
+            // store/update accept + clear this the same way (AT-P24).
+            'status_label'  => 'nullable|string|max:50',
             'price'         => "{$req}|integer|min:0",
 
             // ── Property24 location (the spine of suburb/city/province) ──
@@ -338,6 +346,34 @@ class MobilePropertyController extends Controller
             if ($bedSpace)  $data['beds']    = (int) floor($bedSpace['count']);
             if ($bathSpace) $data['baths']   = (int) floor($bathSpace['count']);
             if ($garSpace)  $data['garages'] = (int) floor($garSpace['count']);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Clean-status-architecture parity (AT-P24). The P24 sub-label banner
+     * (`status_label` — Reduced Price / Pending / Back on Market / Raised Price)
+     * is only meaningful on an on-market 'active' base status. The moment the
+     * base status leaves 'active' — Withdrawn, Sold, Expired, … — the banner
+     * MUST be cleared, otherwise it lingers as a stale on-market signal:
+     * `Property24ListingMapper::getP24Status()` would (historically) resolve the
+     * banner ahead of the base and keep the listing LIVE on Property24 even
+     * though CoreX shows it Withdrawn. That is the mobile "withdraw doesn't sync
+     * to the portal" bug — the web edit form already clears the label here
+     * (CoreX\PropertyController::update), the mobile path was missed.
+     *
+     * PATCH-style safe: keyed off the EFFECTIVE status (the value being written,
+     * or the property's current status when the client didn't touch it), so a
+     * partial update that never sends `status` still can't leave a contradictory
+     * banner behind. `$currentStatus` is null on create.
+     */
+    private function applyStatusLabelHygiene(array $data, ?string $currentStatus): array
+    {
+        $effectiveStatus = array_key_exists('status', $data) ? $data['status'] : $currentStatus;
+
+        if ($effectiveStatus !== null && $effectiveStatus !== '' && $effectiveStatus !== 'active') {
+            $data['status_label'] = null;
         }
 
         return $data;

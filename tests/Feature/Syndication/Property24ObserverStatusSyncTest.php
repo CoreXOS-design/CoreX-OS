@@ -102,6 +102,32 @@ class Property24ObserverStatusSyncTest extends TestCase
     }
 
     /**
+     * A live listing routinely carries an on-market P24 banner
+     * (status_label = "Reduced Price"). When the base status goes Withdrawn but
+     * the banner is still set, getP24Status() must resolve the terminal base —
+     * NOT the stale banner — so the listing is actually removed from P24. If the
+     * banner won, P24 would receive 'ReducedPrice' and keep the listing live
+     * while CoreX shows it Withdrawn (the mobile "withdraw doesn't sync" bug).
+     */
+    public function test_withdrawn_with_a_stale_on_market_banner_still_pushes_withdrawn(): void
+    {
+        Queue::fake();
+        Http::fake(['*' => Http::response(['success' => true], 200)]);
+
+        $p = $this->makeSyndicatedProperty();
+        $p->forceFill(['status_label' => 'Reduced Price'])->saveQuietly();
+
+        $p->update(['status' => 'withdrawn']);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '99887766')
+            && str_contains($request->url(), 'listingStatus=Withdrawn'));
+
+        $fresh = $p->fresh();
+        $this->assertSame(Property::PORTAL_OFF_STATUS, $fresh->p24_syndication_status);
+        $this->assertFalse($fresh->mayBeLiveOnP24());
+    }
+
+    /**
      * A property already marked sold must still be dispatched to the desync job
      * when it later goes off-market — the old $onPortal check ignored P24.
      */
