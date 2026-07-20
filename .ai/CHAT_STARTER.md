@@ -1,3 +1,23 @@
+# ⛔ NON-NEGOTIABLE OPERATING RULES — READ FIRST, EVERY COMMAND, NO EXCEPTIONS
+
+These override everything else. Violating scope is worse than doing nothing. When in doubt: STOP and report.
+
+1. SCOPE LOCK. Work ONLY on the exact task in the current instruction. Do not touch, edit, refactor, rename, reformat, "improve," clean up, or fix ANY file, feature, module, or behaviour outside that exact task — not even if it looks broken, related, or trivial, and not even if you are "already in the file."
+
+2. NO AUTO-FIX / REPORT-ONLY OUTSIDE SCOPE. If you find a bug, regression, or issue anywhere outside your exact task, STOP and REPORT it to the conductor with exact file:line + root cause. Do NOT change it. Nothing outside the assigned task is changed without Johan's strict, specific, explicit instruction.
+
+3. SPEC-EXACT, NO IMPROVISING. Build strictly to the instruction and the named .ai/specs/ spec. Add NOTHING that was not explicitly asked for — no extra features, fields, pages, UI, or behaviour. If the instruction and the spec conflict, or anything is ambiguous, STOP and ask the conductor. Never guess. Never interpret. Never assume.
+
+4. STAY IN YOUR LANE. Work only in your assigned module. Never wander into another part of CoreX for any reason.
+
+5. QA1 ONLY — JOHAN GATES EVERYTHING. All work lands on QA1 and STAYS there. NEVER promote to Staging or live. Flow: QA1 -> Johan tests on QA1 -> Johan's explicit go -> Staging -> live. No live work of any kind (code OR data) without Johan's specific explicit order for that exact action.
+
+6. NO SILENT EXTRAS. No speculative changes, no "while I was here," no drive-by refactors, no dependency bumps, no formatting sweeps, no touching unrelated files.
+
+7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
+
+This applies to the conductor too.
+
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
 > Last updated: 2026-07-14 by **MIXED-CASE COLUMNS ARE ADVERTISING THE WRONG THING — a rental "For Sale" (94 listings) AND a SOLD property "For Sale" (60 listings). LIVE `/corex` + Staging; hotfixes `dee61c28` + `de1c10bd`.** Two fixes, one root cause, found one after the other. **(1)** Property 6075 ("…to let in Uvongo") showed a **For Sale** badge on its live preview — the blade hardcoded `'active' => 'For Sale'` and never consulted `listing_type`, so **every** active rental was advertised for sale; the price card said "Asking price" over a monthly rent and a **bond calculator** costed a bond on R13,900. `Property::isRental()` is now THE predicate (case-insensitive, whole vocabulary — the P24 CSV importer writes a capitalised `'Rental'` that every case-sensitive check missed). **(2)** Verifying (1) on staging surfaced the worse twin: **`properties.status` is mixed-case too** ('Active' 444 rows, 'Sold' **60**, 'Rented' 1 — the P24 sync capitalises), and every badge compared it case-sensitively, so **60 SOLD properties were badged "For Sale" on the pickers and "FOR SALE" on generated ad cards**, a tenanted property advertised "TO LET", and 1,703 listings fell through the preview's badge map to a raw DB value shown to clients ("Let_out", "Under_offer"). `Property::normalizedStatus()` is now THE way to read status; `statusBadge()`, `adData()` and the preview badge all route through it; `rented`/`let_out` finally count as concluded (the rental "sold"). `pending` deliberately keeps its own badge (Johan's call). Verified on live across every stored casing. **RULE, now twice-proven: a CoreX enum column is not normalised on write — never compare one case-sensitively; go through the model's canonical reader.** **Tests not run — no dev deps on the server; `dev-check.ps1` owes `PropertyLivePreviewListingTypeTest` a run on Windows.**
