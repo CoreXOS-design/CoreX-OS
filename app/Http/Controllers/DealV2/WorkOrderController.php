@@ -298,18 +298,12 @@ class WorkOrderController extends Controller
             ];
         })->values()->all();
 
-        // Trigger-step options + default (the granting step — "Bond Granted").
-        $triggerOptions = $steps->map(fn ($s) => ['id' => $s->id, 'name' => $s->name])->all();
-        $default = $steps->firstWhere('status_trigger', 'granted') ?? $steps->firstWhere('status_trigger', 'accepted');
-        $current = $existing->pluck('trigger_step_instance_id')->filter()->first() ?? $default?->id;
-
+        // The WHEN/trigger step is defined in PIPELINE SETUP (the granting step), not
+        // selected on this panel — so no trigger options are surfaced to the UI (Johan 2026-07-20).
         return response()->json([
             'items'              => $items,
             'responsible_labels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
             'suppliers'          => $this->supplierPayload(),
-            'trigger_options'    => $triggerOptions,
-            'trigger_step_id'    => $current,
-            'trigger_default_id' => $default?->id,
         ]);
     }
 
@@ -321,7 +315,6 @@ class WorkOrderController extends Controller
     public function cocConfigSave(Request $request, Deal $deal, \App\Services\Deal\Dr1PipelineService $pipelines)
     {
         $data = $request->validate([
-            'trigger_step_instance_id'   => ['nullable', 'integer'],
             'items'                      => ['required', 'array'],
             'items.*.code'               => ['required', 'string', 'max:40'],
             'items.*.applies'            => ['required', 'boolean'],
@@ -331,7 +324,10 @@ class WorkOrderController extends Controller
 
         $steps   = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)->get();
         $types   = \App\Models\DealV2\AgencyServiceType::active()->get()->keyBy('code');
-        $triggerId = $data['trigger_step_instance_id'] ?: optional($steps->firstWhere('status_trigger', 'granted'))->id;
+        // The trigger step is defined in PIPELINE SETUP (the granting step), never re-selected on
+        // the deal panel — derive it here, ignore any client-posted trigger (Johan 2026-07-20).
+        $triggerId = optional($steps->firstWhere('status_trigger', 'granted'))->id
+                     ?? optional($steps->firstWhere('status_trigger', 'accepted'))->id;
         $naReason  = 'Not required — supplier work orders';
         $userId    = $request->user()?->id;
 

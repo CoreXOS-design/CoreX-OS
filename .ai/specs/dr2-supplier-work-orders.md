@@ -333,8 +333,10 @@ configures every COC up front; the sends fire automatically off a trigger step.
 - **Reuses:** `deal_step_work_orders`, `CocWorkOrderService` (resolveRecipient/ccList/send),
   `AgencyServiceType` list, AT-228 `Dr2DistributionSendService`. New: panel UI + `cocConfig` save
   endpoint + trigger hook in `completeStep`.
-- **Trigger step config:** which step fires the sends is stored per deal (default = the step whose
-  `status_trigger`='granted', i.e. Bond Granted); agent can change it in the panel.
+- **Trigger step config:** which step fires the sends is defined in PIPELINE SETUP — the granting
+  step (the step whose `status_trigger`='granted', i.e. Bond Granted/Approved). It is **not** selected
+  on the deal panel. **Superseded 2026-07-20 — see §19** (the per-panel trigger dropdown was removed;
+  the trigger is read from pipeline setup, never re-selected on the deal).
 
 ### 17.1 On-site proof (deployed qa1 `a5af6fdd`, deal_no 1804 = deal #155)
 Trigger step = #28 "Bond Approved". `matchStep` maps Electrical COC→step34, Beetle→35, Gas→36,
@@ -393,3 +395,35 @@ rebuilds the collection (soft-deletes the old set, recreates — no hard deletes
 (`work_orders: [COC/activated, Gas/completed]`) wrote 2 `deal_pipeline_step_work_orders` rows;
 `edit()` reload returned `stepsJson.work_orders = 2`; the old payload without `work_orders` wrote 0
 (early-return, confirming the cause). Proof rolled back.
+
+## 19. Panel trigger dropdown REMOVED — trigger is read from pipeline setup (Johan FINAL 2026-07-20)
+
+Johan's ruling: **the WHEN/trigger for supplier work orders is defined in PIPELINE SETUP (at the step
+level), NOT on the deal's right panel.** §17/§18's right panel carried a "Send work orders when this
+step completes" dropdown (default "Bond Approved") that let the agent re-select the trigger per deal —
+that dropdown is **removed**. The panel keeps ONLY the tick-list of COC types + per-ticked-COC
+responsible-party/recipient selection; the send still fires per the pipeline-setup-defined trigger step.
+
+- **UI removed** — `dr2/_supplier-work-orders.blade.php`: the "Trigger step" `<div>` (label + select),
+  the `triggerOptions`/`triggerId` x-data props, the `load()` lines that hydrated them, and the
+  `trigger_step_instance_id` field in the `save()` POST body are all gone. No dropdown, no per-panel
+  trigger selection.
+- **Backend derives the trigger from pipeline setup** — `WorkOrderController::cocConfigSave` no longer
+  reads `trigger_step_instance_id` from the request (removed from validation); `$triggerId` is derived
+  purely from the pipeline-setup granting step (`status_trigger`='granted', fallback 'accepted') — the
+  same default §17 already used. `cocConfigPanel` no longer returns `trigger_options` /
+  `trigger_step_id` / `trigger_default_id` (nothing consumes them).
+- **Send mechanism unchanged** — the derived `$triggerId` is still written to each ticked work order's
+  `deal_step_work_orders.trigger_step_instance_id`; `Dr1PipelineService::fireSupplierWorkOrders` still
+  sends every pending work order whose trigger step is the one just completed (positive outcome only).
+  For the common case (agent leaves the default) behaviour is IDENTICAL to §17 — only the override
+  capability is gone.
+- **No modal reintroduced** — the panel stays inline in the right column (§18).
+
+### 19.1 On-site proof (deployed qa1 `__COMMIT__`, deal #___ / granting step "Bond Approved")
+- PANEL renders inline in the right column with **NO trigger dropdown** — only the COC tick-list +
+  per-ticked responsible/recipient. `cocConfigPanel` JSON carries no `trigger_options`.
+- SAVE: tick a COC + set responsible → work order created with `trigger_step_instance_id` = the
+  granting ("Bond Approved") step, derived server-side (client posts no trigger).
+- FIRE: completing "Bond Approved" sent the ticked work order — Mailpit caught the email with the
+  work-authorisation PDF. Un-ticked COCs auto-N/A; sent rows never rewritten. Proof rolled back.

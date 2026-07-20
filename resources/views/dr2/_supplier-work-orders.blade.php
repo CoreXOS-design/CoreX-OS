@@ -1,26 +1,26 @@
 {{-- AT-229 §17 — Supplier Work Orders, INLINE in the DR2 pipeline RIGHT column
      (alongside Documents / Send-to-party / Proforma). NOT a modal. Tick the COCs
-     this deal needs up front, set responsible party + recipient per ticked one,
-     choose the trigger step; un-ticked COCs cascade their pipeline step to N/A and
-     ticked ones send when the trigger step completes (agents CC'd, de-duped). --}}
+     this deal needs up front, set responsible party + recipient per ticked one;
+     un-ticked COCs cascade their pipeline step to N/A and ticked ones send when the
+     trigger step completes (agents CC'd, de-duped). The WHEN/trigger step is defined
+     in PIPELINE SETUP (the granting step), NOT selected here — Johan 2026-07-20. --}}
 @php($canWoDeal = ! ($locked ?? false) && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
 @if($canWoDeal && ! $steps->isEmpty())
 <div class="corex-card" style="padding:.75rem;"
      x-data="{
         loading:true, busy:false, err:'', msg:'',
-        items:[], responsible:{}, suppliers:[], triggerOptions:[], triggerId:'',
+        items:[], responsible:{}, suppliers:[],
         async load(){
             this.loading=true; this.err='';
             try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.panel', $deal) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
                 this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[];
-                this.triggerOptions=j.trigger_options||[]; this.triggerId=j.trigger_step_id||'';
                 this.items=(j.items||[]).map(i=>({...i}));
             } catch(e){ this.err='Could not load supplier work orders.'; }
             this.loading=false;
         },
         async save(){
             this.busy=true; this.err=''; this.msg='';
-            try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.save', $deal) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({trigger_step_instance_id:this.triggerId||null, items:this.items.map(i=>({code:i.code, applies:!!i.applies, responsible_party:i.responsible_party, service_provider_id:i.service_provider_id||null}))})});
+            try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.save', $deal) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({items:this.items.map(i=>({code:i.code, applies:!!i.applies, responsible_party:i.responsible_party, service_provider_id:i.service_provider_id||null}))})});
                 const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'; await this.load(); }
                 else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
             } catch(e){ this.err='Save failed.'; }
@@ -35,14 +35,7 @@
     <p style="font-size:.72rem;color:#6b7280;margin:0 0 .6rem;">Tick the COCs this deal needs and set who is responsible + who receives each work-order email. Un-ticked COCs are marked N/A on the pipeline. Work orders send when the trigger step completes; listing &amp; selling agents are CC'd (de-duped).</p>
 
     <div x-show="!loading" x-cloak>
-        {{-- Trigger step --}}
-        <div style="margin-bottom:.6rem;">
-            <label style="font-size:.7rem;color:#6b7280;display:block;margin-bottom:.15rem;">Send work orders when this step completes</label>
-            <select x-model="triggerId" class="corex-input" style="width:100%;font-size:.8rem;">
-                <template x-for="o in triggerOptions" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
-            </select>
-        </div>
-
+        {{-- Trigger step is defined in PIPELINE SETUP (the granting step), not re-selected here. --}}
         {{-- Tick-list — one clean vertical row per COC; responsible/recipient appears under a ticked row --}}
         <template x-for="(it,i) in items" :key="it.code">
             <div style="border-top:1px solid #eee;padding:.5rem 0;">
