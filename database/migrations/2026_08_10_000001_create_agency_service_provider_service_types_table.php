@@ -36,9 +36,12 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->foreign('service_provider_id')->references('id')->on('agency_service_providers')->cascadeOnDelete();
-            $table->index(['agency_id', 'service_type']); // the filter
-            $table->index('service_provider_id');
+            // Explicit SHORT constraint/index names — the table name is long, so Laravel's
+            // auto-generated "{table}_{col}_foreign" would exceed MySQL's 64-char identifier limit.
+            $table->foreign('service_provider_id', 'aspst_provider_fk')
+                ->references('id')->on('agency_service_providers')->cascadeOnDelete();
+            $table->index(['agency_id', 'service_type'], 'aspst_agency_type_idx'); // the filter
+            $table->index('service_provider_id', 'aspst_provider_idx');
         });
 
         $this->backfillFromSpecialty();
