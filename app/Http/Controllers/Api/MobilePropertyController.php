@@ -630,7 +630,27 @@ class MobilePropertyController extends Controller
             // and sits far below nginx (1000 MB) and the FPM pool (512 MB).
             'image'    => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'room_tag' => 'nullable|string|max:100',
+            // Client idempotency key (rebuilt app). The client retries a photo on
+            // timeout/network/5xx with the SAME key; we use it to dedupe so a retry
+            // returns the already-stored record instead of inserting a duplicate.
+            // Optional — older builds omit it and simply get no dedupe (the row
+            // lock below still protects them from the concurrent lost-update race).
+            'client_upload_id' => 'nullable|string|max:255',
         ]);
+
+        $clientUploadId = trim((string) $request->input('client_upload_id'));
+        $clientUploadId = $clientUploadId !== '' ? $clientUploadId : null;
+
+        // Fast-path idempotency: this exact client upload is already durably
+        // committed for this property → return the existing record, no second
+        // file, no second row. Re-checked under a row lock below to also close
+        // the window where two retries race in concurrently.
+        if ($clientUploadId !== null) {
+            $existingUrl = $property->gallery_upload_keys[$clientUploadId] ?? null;
+            if (is_string($existingUrl) && $existingUrl !== '') {
+                return $this->uploadedImageResponse($existingUrl, null, null, true);
+            }
+        }
 
         // Resolve room_tag case- and whitespace-insensitively against the
         // property's live tag library, then adopt the library's CANONICAL
@@ -665,6 +685,16 @@ class MobilePropertyController extends Controller
         $file = $request->file('image');
         $path = $file->store("properties/{$property->id}", 'public');
 
+        // Persistence integrity: never return 2xx if the file did not land on
+        // disk. The client drops a photo from its retry queue on any 2xx, so a
+        // swallowed storage failure = a permanently lost photo. A 500 here makes
+        // the client retry (exactly what we want).
+        if (! is_string($path) || $path === '' || ! Storage::disk('public')->exists($path)) {
+            return response()->json([
+                'message' => 'Image could not be stored. Please retry.',
+            ], 500);
+        }
+
         // Bake EXIF orientation into the stored original BEFORE any thumbnail or
         // downscale runs. Phone captures store portrait shots as landscape pixels
         // plus a "rotate me" EXIF tag; GD re-encoding downstream drops that tag
@@ -680,38 +710,71 @@ class MobilePropertyController extends Controller
         // List-view thumbnail (now generated from the upright original).
         app(\App\Services\Images\PropertyThumbnailService::class)->generateForUrl($url);
 
-        // Append to flat gallery list
-        $gallery   = $property->gallery_images_json ?? [];
-        $gallery[] = $url;
-        $property->gallery_images_json = $gallery;
+        // Serialise the gallery mutation on the property row. The gallery lives in
+        // a JSON column, so the read-modify-write append is a classic lost-update
+        // hazard: 3 concurrent uploads to one property each read the array, append
+        // one URL and save the whole thing — last write wins, the others' rows
+        // vanish (a real cause of "uploaded 30, only 14 landed"). lockForUpdate
+        // forces concurrent uploads to the SAME property to queue, and makes the
+        // idempotency check-and-set atomic. Different properties never contend.
+        $duplicateUrl = null;
+        DB::transaction(function () use ($property, $url, $roomTag, $clientUploadId, &$duplicateUrl) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
 
-        // Tag into category if room_tag provided
-        if ($roomTag) {
-            $cats  = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
-            $found = false;
-
-            foreach ($cats['categories'] as &$cat) {
-                if ($cat['name'] === $roomTag) {
-                    $cat['images'][] = $url;
-                    $found = true;
-                    break;
+            // Re-check idempotency inside the lock: a concurrent retry may have
+            // committed this key between our fast-path read and acquiring the lock.
+            if ($clientUploadId !== null) {
+                $seen = $locked->gallery_upload_keys ?? [];
+                if (isset($seen[$clientUploadId]) && is_string($seen[$clientUploadId]) && $seen[$clientUploadId] !== '') {
+                    $duplicateUrl = $seen[$clientUploadId];
+                    return; // leave the gallery untouched; caller bins the dup file
                 }
             }
-            unset($cat);
 
-            if (! $found) {
-                $cats['categories'][] = ['name' => $roomTag, 'images' => [$url]];
+            $gallery   = $locked->gallery_images_json ?? [];
+            $gallery[] = $url;
+            $locked->gallery_images_json = $gallery;
+
+            // Tag into category if room_tag provided, else drop into unsorted.
+            $cats = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+            if ($roomTag) {
+                $found = false;
+                foreach ($cats['categories'] as &$cat) {
+                    if ($cat['name'] === $roomTag) {
+                        $cat['images'][] = $url;
+                        $found = true;
+                        break;
+                    }
+                }
+                unset($cat);
+                if (! $found) {
+                    $cats['categories'][] = ['name' => $roomTag, 'images' => [$url]];
+                }
+            } else {
+                $cats['unsorted'][] = $url;
+            }
+            $locked->gallery_categories_json = $cats;
+
+            // Record the idempotency key -> url so a later retry short-circuits.
+            if ($clientUploadId !== null) {
+                $seen = $locked->gallery_upload_keys ?? [];
+                $seen[$clientUploadId] = $url;
+                $locked->gallery_upload_keys = $seen;
             }
 
-            $property->gallery_categories_json = $cats;
-        } else {
-            // No tag — add to unsorted
-            $cats = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
-            $cats['unsorted'][] = $url;
-            $property->gallery_categories_json = $cats;
-        }
+            $locked->saveQuietly();
+        });
 
-        $property->saveQuietly();
+        // A concurrent retry beat us to the commit: discard the redundant file we
+        // just stored (and its thumb) so we don't orphan bytes, and return the
+        // canonical existing record. Still a 2xx — nothing was lost.
+        if ($duplicateUrl !== null) {
+            Storage::disk('public')->delete($path);
+            app(\App\Services\Images\PropertyThumbnailService::class)->deleteForUrl($url);
+
+            return $this->uploadedImageResponse($duplicateUrl, $roomTag, null, true);
+        }
 
         // Queue AI vision analysis (gated by user permission — AI is universal
         // at the agency level, so there is no per-agency enable flag).
@@ -734,13 +797,24 @@ class MobilePropertyController extends Controller
             $analysisId = $analysis->id;
         }
 
+        return $this->uploadedImageResponse($url, $roomTag, $analysisId, false);
+    }
+
+    /**
+     * Uniform 2xx body for a stored (or already-stored) gallery image. Used for
+     * fresh uploads (201) and idempotent replays of a client_upload_id (200) so
+     * the app can render the photo straight back without a reload. The `duplicate`
+     * flag lets the client tell "this retry was absorbed" from "new photo stored".
+     */
+    private function uploadedImageResponse(string $url, ?string $roomTag, ?int $analysisId, bool $duplicate): JsonResponse
+    {
         return response()->json([
-            'message'     => 'Image uploaded.',
-            // Absolute so the app can render it straight back without a reload.
+            'message'     => $duplicate ? 'Image already uploaded.' : 'Image uploaded.',
             'url'         => $this->absoluteImageUrl($url),
             'room_tag'    => $roomTag,
             'analysis_id' => $analysisId,
-        ], 201);
+            'duplicate'   => $duplicate,
+        ], $duplicate ? 200 : 201);
     }
 
     // ── Response helpers ───────────────────────────────────────
