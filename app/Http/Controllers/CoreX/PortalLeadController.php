@@ -15,7 +15,15 @@ class PortalLeadController extends Controller
     {
         $query = PortalLead::query()
             ->visibleTo($request->user())
-            ->with(['listing:id,title,agent_id,unit_number,complex_name,street_number,street_name,address,suburb,city', 'contact:id,first_name,last_name,email,phone,created_by_user_id', 'existingContactAgent:id,name'])
+            ->with([
+                // pp_second_agent_id + listing.agent power the AT-308 filter (listing's
+                // agent) and the "Agent" column; contact.created_at + last_contacted_at
+                // power the cross-agent badge's keep-vs-move dates.
+                'listing:id,title,agent_id,pp_second_agent_id,unit_number,complex_name,street_number,street_name,address,suburb,city',
+                'listing.agent:id,name',
+                'contact:id,first_name,last_name,email,phone,created_by_user_id,created_at,last_contacted_at',
+                'existingContactAgent:id,name',
+            ])
             ->orderByDesc('received_at');
 
         if ($portal = $request->get('portal')) {
@@ -32,10 +40,19 @@ class PortalLeadController extends Controller
         }
 
         if ($agentId = $request->get('agent_id')) {
-            $query->where(function ($q) use ($agentId) {
-                $q->whereHas('listing', fn ($lq) => $lq->where('agent_id', $agentId))
-                  ->orWhere('existing_contact_agent_id', $agentId);
-            });
+            // AT-308 — Johan ruling (a): "leads for agent X" = every enquiry on
+            // agent X's LISTINGS / stock. Bind STRICTLY to the listing's agent —
+            // the primary OR the co-listing second agent (mirroring
+            // PortalLead::agentIds() and scopeVisibleTo) — and NOT the enquiring
+            // contact's existing agent. The old contact-agent OR-branch over-matched:
+            // a lead on X's listing whose buyer already belonged to Y matched the
+            // "X" filter yet the row rendered "Y", so the filter looked broken.
+            // The buyer-belongs-to-another-agent signal now lives on the row as the
+            // cross-agent badge, where it informs a keep-vs-move decision instead of
+            // silently widening the filter.
+            $query->whereHas('listing', fn ($lq) => $lq
+                ->where('agent_id', $agentId)
+                ->orWhere('pp_second_agent_id', $agentId));
         }
 
         if (($status = $request->get('status')) !== null && $status !== '') {
