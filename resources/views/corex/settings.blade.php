@@ -121,6 +121,10 @@
                     $can('outreach_templates.manage')
                         ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'section', 'keywords'=>'seller outreach whatsapp email template merge fields pitch tracking link']
                         : null,
+                    // AT-229 — agency's own COC / service-type list (feeds the deal work-order dropdown).
+                    $can('deals_v2.manage_pipeline')
+                        ? ['key'=>'coc-service-types', 'label'=>'COC / Service Types', 'type'=>'link', 'href'=>route('deals-v2.settings.service-types.index'), 'keywords'=>'coc certificate compliance electrical gas beetle plumbing electric fence supplier work order service type deal pipeline certificates']
+                        : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
                 ])),
