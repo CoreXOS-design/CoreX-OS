@@ -347,3 +347,28 @@ Electric Fence→37 (Plumbing/Other = no step). Via the real controllers:
   rochelle; TO rochelle (listing agent) / CC none (self-CC de-duped)**. 2 distinct Documents + 2
   AT-228 audit rows. Sent rows never rewritten.
 Also: "Mark passed"/"Mark complete" now renders as a bordered green button like its siblings.
+
+## 18. PLACEMENT CORRECTION (Johan FINAL) — right-hand panel, NOT a modal
+
+§17's first build wrongly floated a **modal popup** ("Supplier Work Orders — which COCs does this
+deal need?") over the pipeline. Johan's ruling: the config lives **inline in the RIGHT-HAND column**
+of the DR2 pipeline (`dr2/pipeline.blade`), the same right region as Documents / Send-to-party /
+Proforma, set up front — **NOT a modal, NOT per COC step**.
+
+- New partial `dr2/_supplier-work-orders.blade.php`, `@include`d in the right column
+  (`lg:col-span-2 space-y-4 dr2-pipe-col`) above `_deal-documents` + `proforma._deal-section`.
+- Inline Alpine (loads on `x-init`, no `open`/overlay). Trigger-step selector at top; a **vertical
+  tick-list** of the agency COC types; a ticked row reveals ONE aligned responsible-party + recipient
+  (+ supplier picker) selector beneath it — no stacked/overlapping dropdowns. One "Save work orders".
+- Removed BOTH the §17 deal-level modal AND the older §15 per-step COC modal — **zero `position:fixed`
+  overlays remain** in the pipeline.
+- Twin fix: `CocWorkOrderService::send` now mints the DR2 twin BEFORE generating the PDF, so the FIRST
+  work order on a twin-less deal lands in the corpus (was throwing "select at least one document").
+
+### 18.1 On-site proof (deployed qa1 `d5498781`, deal_no 1802 = deal #153 — the screenshot deal)
+Rendered the real pipeline: the **inline "Supplier Work Orders" section renders in the right column,
+no modal / no `position:fixed`**. Functional: panel lists the 4 live COC types + trigger default #59
+"Bond Approved"; tick Electrical (supplier) + Gas (listing agent), untick the rest → 2 work orders,
+**Beetle + Electric Fence steps auto-N/A**; completing "Bond Approved" fired both — **Mailpit: TO
+electrician / CC falan+shawn (both agents); TO falan (listing) / CC shawn (selling; self-CC
+de-duped)**. 2 distinct PDFs + 2 AT-228 audit rows, twin minted. Proof rolled back.
