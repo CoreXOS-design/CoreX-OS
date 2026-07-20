@@ -192,3 +192,70 @@ render as None/Cancelled, so it silently re-posts `'declined'` and `in:cancelled
 (`status_trigger`, `negative_status_trigger`, `work_order_trigger_point`, `trigger_step_id`) to
 null/default when the posted value is out of the current set — class-wide, so None/legacy is always
 valid and a legitimate step never fails to save. Test: `tests/Unit/PipelineStepTriggerNormalizeTest.php`.
+
+## 15. COC sub-process — per-deal selection, responsible party + recipient, CC & de-dupe (on-site 2026-07-20)
+
+Johan's full COC sub-process, layered on §14's multi-supplier config. §14 said *which COC service
+types a step CAN trigger* (template config). §15 is the **runtime, per-deal** layer: on a real deal the
+agent picks *which of those COCs THIS deal actually needs*, and for each one *who is responsible* and
+*who receives it*.
+
+### 15.1 Data model — runtime selection
+New `deal_step_work_orders` (per-deal, per-instance — NOT the template config):
+`deal_step_instance_id · dr1_deal_id · agency_id · service_type · responsible_party (default 'supplier')
+· service_provider_id · recipient_name · recipient_email · cc_emails · status (pending|sent) ·
+document_id · sent_at · sent_by_id · softDeletes`. FK → `deal_step_instances` cascadeOnDelete.
+`DealStepWorkOrder` model — `RESPONSIBLE = [seller, listing_agent, selling_agent, supplier,
+transfer_attorney]`; `isSent()`.
+
+### 15.2 Responsible party → recipient resolution
+`CocWorkOrderService::resolveRecipient(Deal,DealStepWorkOrder)` switches on `responsible_party`:
+- **seller** (self-handling) → `deal->sellers()->first()` (Contact).
+- **listing_agent** → `deal->listingAgents()->first()` (User).
+- **selling_agent** → `deal->sellingAgents()->first()` (User).
+- **transfer_attorney** → the twin `DealV2`'s attorney provider-party (else `service_provider_id`).
+- **supplier** → `service_provider_id` (AgencyServiceProvider).
+A responsible party with no resolvable email throws `DomainException` (surfaced as 422) — never a
+silent no-send.
+
+### 15.3 CC the listing + selling agents, de-duped
+`CocWorkOrderService::ccList(Deal, primaryEmail)` collects the listing + selling agent emails, keys them
+by **lowercased address** (so listing==selling collapses to one), and drops the primary recipient's own
+address. One unique address = one email. Threaded into AT-228 send via a new `$cc` arg on
+`Dr2DistributionSendService::sendToParty`/`deliver` (single `Mail::to()->cc()`).
+
+### 15.4 Runtime UI — the COC panel
+`dr2/pipeline.blade` — a step that carries a work-order config (`pipelineStep->workOrders` non-empty)
+and is active/completed shows a **"Work orders (COCs)"** button opening a panel: one row per COC =
+service type (from the offered set) + responsible party + supplier picker (when supplier/attorney) +
+Send + live status. Add/remove COC; **Save** = `cocSync`; **Send** per row = `cocSend`.
+- `WorkOrderController::cocPanel` → JSON (offered_types, responsible_labels, work_orders, suppliers).
+- `cocSync` upserts the selection; **a sent row is never re-written** (audit integrity); removed
+  non-sent rows soft-deleted.
+- `cocSend` → `CocWorkOrderService::send` (resolve → generate PDF → AT-228 file+email with CC → stamp
+  status=sent + document_id + recipient/cc snapshot).
+- Routes: `deals-dr2.pipeline.step.coc.{panel,sync,send}` (`permission:deals_v2.distribute_documents`).
+
+### 15.5 Decision steps fire the forward chain ONLY on the positive outcome (item 6b)
+A **decision step** = a step with a `negative_status_trigger` configured (e.g. "Bond Application" with a
+"Bond Declined" branch). `Dr1PipelineService::completeStep` now accepts an `outcome`:
+- **positive** (default) → activates downstream successors + applies `status_trigger` (unchanged).
+- **negative** → completes the step, applies `negative_status_trigger` (declined/cancelled → 'D'), and
+  **never** activates the positive-path successors.
+The DR1 pipeline action bar shows a red **"{negative_outcome_label}"** button (only when the step has a
+negative branch); the positive button reads "Mark passed" for a decision step, "Mark complete"
+otherwise. `Dr2\PipelineController::completeStep` only honours `outcome=negative` when the step actually
+has a negative trigger.
+
+### 15.6 On-site proof (deployed qa1 `e45623a4`, real deal #156 / active step #16, listing==selling==Barbara)
+Driven through the real controller path:
+- PANEL offers COC + Gas; 5 responsible options.
+- SYNC creates 2 work orders to **different** parties (COC→listing_agent, Gas→supplier).
+- SEND: COC → `barbara@hfcoastal.co.za`, **CC empty** (primary == both agents, de-duped away);
+  Gas → `gas-coc@example.com`, **CC = the one agent** (listing==selling collapsed). Confirmed in
+  Mailpit: `TO gas-coc@example.com / CC barbara@hfcoastal.co.za`.
+- TWO distinct `Documents` generated; **+2** AT-228 `deal_document_distributions` rows on the twin.
+- IDEMPOTENT re-sync: the sent COC row is preserved (responsible_party unchanged, no duplicate).
+- 6b (constructed decision step, rolled back): NEGATIVE → parent completed, downstream **not_started**
+  (not activated), deal → 'D'; POSITIVE → parent completed, downstream **active**, deal → 'G'.
+All proofs self-cleaning (WO rows, docs, audits, supplier email, WO config reverted; 6b rolled back).
