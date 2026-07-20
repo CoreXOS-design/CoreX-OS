@@ -335,3 +335,15 @@ configures every COC up front; the sends fire automatically off a trigger step.
   endpoint + trigger hook in `completeStep`.
 - **Trigger step config:** which step fires the sends is stored per deal (default = the step whose
   `status_trigger`='granted', i.e. Bond Granted); agent can change it in the panel.
+
+### 17.1 On-site proof (deployed qa1 `a5af6fdd`, deal_no 1804 = deal #155)
+Trigger step = #28 "Bond Approved". `matchStep` maps Electrical COC→step34, Beetle→35, Gas→36,
+Electric Fence→37 (Plumbing/Other = no step). Via the real controllers:
+- PANEL lists the agency's 4 LIVE COC types (Plumbing/Other archived → excluded); trigger default #28.
+- SAVE: tick Electrical (supplier) + Gas (listing agent), untick the rest → 2 work orders created
+  (trigger_step_instance_id=28); **un-ticked Beetle + Electric Fence steps auto-cascade to N/A**,
+  ticked Electrical step stays live.
+- FIRE: completing "Bond Approved" sent BOTH — **Mailpit: TO electrician@example.com / CC
+  rochelle; TO rochelle (listing agent) / CC none (self-CC de-duped)**. 2 distinct Documents + 2
+  AT-228 audit rows. Sent rows never rewritten.
+Also: "Mark passed"/"Mark complete" now renders as a bordered green button like its siblings.
