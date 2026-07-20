@@ -44,7 +44,7 @@ class AssistantController extends Controller
 
         return view('admin.assistants.index', [
             'assignments'       => $assignments,
-            'assistantsEnabled' => (bool) $request->user()->agency?->assistants_enabled,
+            'assistantsEnabled' => $request->user()->assistantsEnabledForEffectiveAgency(),
         ]);
     }
 

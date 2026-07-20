@@ -155,6 +155,45 @@ final class AssistantSettingsTest extends TestCase
     }
 
     /**
+     * THE AGENCY-RESOLUTION BUG. Company Settings writes/reads the toggle for the admin's
+     * EFFECTIVE agency (session switcher / branch-derived — SettingsController::updateAssistants).
+     * The Assistants admin page must read the SAME agency, or an owner switched into an agency
+     * sees Settings say ON while the Assistants page's banner says OFF (it read the raw
+     * users.agency_id, which is null for a global owner). Regression guard for that mismatch.
+     */
+    public function test_assistant_page_reads_the_flag_for_the_effective_agency(): void
+    {
+        $this->agency->update(['assistants_enabled' => true]);
+
+        // A global owner (agency_id null) — is_owner role so the assistants.view gate is bypassed.
+        // forceCreate: is_owner is guarded (not in $fillable), so a plain create() drops it.
+        Role::forceCreate(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true, 'agency_id' => null]);
+        Role::clearCache();
+        $owner = User::factory()->create([
+            'agency_id' => null, 'branch_id' => null, 'role' => 'super_admin', 'is_active' => true,
+        ]);
+
+        // Not switched into any agency → no context → banner OFF (correct: no agency selected).
+        User::flushAssistantsEnabledCache();
+        $this->assertFalse(
+            $owner->assistantsEnabledForEffectiveAgency(),
+            'a global owner with no agency selected has no assistants context'
+        );
+
+        // Switched into the agency via the switcher → banner must read that agency's real flag (ON).
+        User::flushAssistantsEnabledCache();
+        $this->actingAs($owner)
+            ->withSession(['active_agency_id' => $this->agency->id])
+            ->get(route('admin.assistants.index'))
+            ->assertOk()
+            ->assertDontSee('Assistants are switched off for this agency');
+
+        // ...and an admin whose raw agency_id IS the agency also sees it on — unchanged path.
+        User::flushAssistantsEnabledCache();
+        $this->assertTrue($this->admin->assistantsEnabledForEffectiveAgency());
+    }
+
+    /**
      * Non-negotiable #10a: a setting that exists only on the settings page is NOT done. The
      * wizard is the only place an agency is ever walked through what CoreX can do — a feature
      * whose switch never appears there ships inert and stays inert.

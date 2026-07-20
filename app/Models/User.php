@@ -785,6 +785,20 @@ class User extends Authenticatable
     }
 
     /**
+     * Is the Assistants agency kill switch ON for the agency this user is CURRENTLY
+     * acting in (session switcher / branch-derived, then home agency_id)? This is the
+     * admin-surface reading — it must resolve the same agency the Company Settings
+     * write path targets (SettingsController::updateAssistants → effectiveAgencyId()),
+     * so an owner switched into an agency sees the flag they just toggled there rather
+     * than the flag of their raw home agency_id (which is null for a global owner).
+     * Enforcement paths keep using the assistant's OWN agency_id — that is deliberate.
+     */
+    public function assistantsEnabledForEffectiveAgency(): bool
+    {
+        return static::assistantsEnabledFor($this->effectiveAgencyId());
+    }
+
+    /**
      * True only when the flag AND a live assignment agree. A stale `is_assistant`
      * with no assignment is not an assistant — it is a user with no permissions
      * (the resolver fails closed), never a user who falls back to agent defaults.
