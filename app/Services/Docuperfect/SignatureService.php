@@ -1233,9 +1233,15 @@ class SignatureService
                             'signer_name'     => $request?->signer_name,
                         ],
                     );
-                    // Hand the pen to the next waiting party (any group), or finalise
-                    // if this was the last. No agent checkpoint on a clean accept.
-                    $this->advanceToNextParty($template, $completedParty);
+                    // Clean accept: pass the pen straight to the next waiting recipient,
+                    // exactly as Elize's ruling requires — NO between-recipient checkpoint.
+                    // BUT (AT-322) when THIS was the LAST recipient, the finalize is HELD for
+                    // the agent's Review & Approve instead of self-completing — so the finished
+                    // doc lands in "Needs Your Approval" and NOTHING files or emails until the
+                    // agent approves. Wet-ink is EXEMPT (its own review already serves as the
+                    // agent approval — AT-322 open question); it completes as before.
+                    $gateFinalForAgentReview = ($request?->signing_method !== 'wet_ink');
+                    $this->advanceToNextParty($template, $completedParty, null, $gateFinalForAgentReview);
                     return;
                 }
 
@@ -1543,7 +1549,7 @@ class SignatureService
      *                                       contiguous in signing_order. Passing the target explicitly
      *                                       means the caller's intent cannot be lost to a data ordering.
      */
-    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null): void
+    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
     {
         // Find the next WAITING request by signing_order — not by role name
         // This correctly handles co-owners who share the same party_role string
@@ -1579,7 +1585,17 @@ class SignatureService
             }
 
             if ($this->isFullyComplete($template)) {
-                $this->completeDocument($template);
+                if ($gateFinalizeForAgentReview) {
+                    // AT-322 — FINAL agent-review gate. The last recipient signed a CLEAN
+                    // electronic document; hold it at pending_agent_approval so it lands in
+                    // the agent's "Needs Your Approval". completeDocument() — which BOTH files
+                    // the PDF (autoFileSignedDocument) AND sends the recipient completion
+                    // emails (sendCompletionEmails is INSIDE it) — runs ONLY after the agent
+                    // approves via approveAndAdvance(). Nothing files or emails before review.
+                    $this->holdForFinalAgentReview($template, $completedParty);
+                } else {
+                    $this->completeDocument($template);
+                }
             }
             return;
         }
@@ -1610,6 +1626,37 @@ class SignatureService
         } else {
             $this->sendSigningRequest($nextRequest);
         }
+    }
+
+    /**
+     * AT-322 — hold a fully-signed CLEAN document at the FINAL agent-review gate.
+     *
+     * Sets status to pending_agent_approval (so it surfaces in the agent's "Needs Your
+     * Approval" on My Documents), audits it, and fires the in-app agent notification.
+     * It deliberately does NOT call completeDocument(): the PDF file
+     * (autoFileSignedDocument) and the recipient completion emails (sendCompletionEmails)
+     * BOTH live inside completeDocument(), so holding here holds BOTH until the agent
+     * clicks Review & Approve — which routes through approveAndAdvance() -> completeDocument().
+     * Failure-isolated is unnecessary here (single status write); the caller's transaction
+     * covers it.
+     */
+    private function holdForFinalAgentReview(SignatureTemplate $template, string $completedParty): void
+    {
+        $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
+
+        SignatureAuditLog::log(
+            $template,
+            'pending_agent_approval',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'completed_party' => $completedParty,
+                'reason'          => 'final_clean_complete',
+            ],
+        );
+
+        // In-app notification to the agent — no PDF, no completion email to recipients yet.
+        $this->sendAgentApprovalNotification($template, $completedParty, null);
     }
 
     /**
