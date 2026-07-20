@@ -193,8 +193,13 @@ class WorkOrderController extends Controller
     {
         abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
 
+        // AT-229 — the offered service types are the step's configured CODES,
+        // mapped to the agency's friendly labels (withTrashed so an archived-but-
+        // still-configured type keeps a name). Returned as {code,label} pairs.
+        $svcLabels = \App\Models\DealV2\AgencyServiceType::withTrashed()->pluck('label', 'code');
         $offered = ($step->pipelineStep?->workOrders ?? collect())
-            ->pluck('service_type')->filter()->unique()->values()->all();
+            ->pluck('service_type')->filter()->unique()->values()
+            ->map(fn ($c) => ['code' => $c, 'label' => $svcLabels[$c] ?? $c])->all();
 
         $rows = \App\Models\DealV2\DealStepWorkOrder::where('deal_step_instance_id', $step->id)
             ->orderBy('id')->get()

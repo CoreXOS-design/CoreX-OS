@@ -284,12 +284,10 @@
                                         <select x-model="wo.service_type" class="w-full rounded-md text-sm px-2 py-1.5 focus:outline-none"
                                                 style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                             <option value="">— select —</option>
-                                            <option value="COC">Electrical COC</option>
-                                            <option value="Beetle">Beetle / Entomologist</option>
-                                            <option value="Gas">Gas Certificate</option>
-                                            <option value="Electric Fence">Electric Fence COC</option>
-                                            <option value="Plumbing">Plumbing</option>
-                                            <option value="Other">Other</option>
+                                            {{-- AT-229 — agency-configurable list (Settings → COC / Service Types). --}}
+                                            @foreach($serviceTypes as $st)
+                                            <option value="{{ $st['code'] }}">{{ $st['label'] }}</option>
+                                            @endforeach
                                         </select>
                                     </div>
                                     <div class="flex-1">
