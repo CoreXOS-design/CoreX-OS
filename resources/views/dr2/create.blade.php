@@ -622,6 +622,40 @@
                     }
                 }, { passive: false });
             });
+
+
+            // External-agency auto-tick: typing an external-agency NAME on a side
+            // ticks that side's "External agency handled this side" box for you.
+            // Un-tick is deliberately non-destructive — we only clear a box that
+            // THIS logic ticked, that was NOT already checked when the page loaded
+            // (i.e. not a saved-external deal), and that the user did not tick
+            // themselves. Clearing the name in those safe cases un-ticks the box.
+            ['listing', 'selling'].forEach(side => {
+                const nameEl = document.querySelector(`input[name="${side}_external_agency"]`);
+                const boxEl  = document.getElementById(`${side}_external`);
+                if (!nameEl || !boxEl) return;
+
+                const wasCheckedOnLoad = boxEl.checked;
+                let autoTicked = false;
+
+                // The user taking manual control of the box wins — stop auto-managing.
+                boxEl.addEventListener('change', () => { autoTicked = false; });
+
+                const apply = () => {
+                    const hasName = nameEl.value.trim() !== '';
+                    if (hasName && !boxEl.checked) {
+                        boxEl.checked = true;   // programmatic — does not fire 'change'
+                        autoTicked = true;
+                    } else if (!hasName && boxEl.checked && autoTicked && !wasCheckedOnLoad) {
+                        boxEl.checked = false;
+                        autoTicked = false;
+                    }
+                };
+
+                nameEl.addEventListener('input', apply);
+                nameEl.addEventListener('blur', apply);
+                apply(); // reflect any pre-filled name (old()/edit repopulation)
+            });
         </script>
     </form>
 

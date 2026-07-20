@@ -509,6 +509,18 @@ class DealRegisterController extends Controller
             return back()->withErrors('Listing split % + Selling split % must equal 100. Currently: ' . ($listingSplit + $sellingSplit))->withInput();
         }
 
+        // A filled external-agency NAME is the authoritative signal that this side
+        // was handled externally — treat the side as external even if the checkbox
+        // was not submitted (e.g. JS disabled, or the box was left unticked). This
+        // keeps the stored checkbox consistent with the name and stops the
+        // "requires at least one agent" guard below from demanding internal-agent
+        // fields for a side that is plainly external.
+        foreach (['listing', 'selling'] as $side) {
+            if (trim((string) ($data[$side . '_external_agency'] ?? '')) !== '') {
+                $data[$side . '_external'] = true;
+            }
+        }
+
         foreach (['listing', 'selling'] as $side) {
             $external  = !empty($data[$side . '_external']);
             $agents    = $data[$side . '_agents'] ?? [];
