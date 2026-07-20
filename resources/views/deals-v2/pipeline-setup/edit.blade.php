@@ -459,6 +459,13 @@
                                 requires_bm_approval: this.editForm.requires_bm_approval ? 1 : 0,
                                 document_type_id: ['document_upload','document_signed'].includes(this.editForm.completion_type)
                                     ? (this.editForm.expected_document_type_id || null) : null,
+                                // AT-229 — the repeatable supplier work-order collection was never
+                                // sent, so syncWorkOrders early-returned and the config never persisted
+                                // (the step row saved → "saved" toast, but the work orders vanished on
+                                // refresh). Post it so the collection is rebuilt from the UI.
+                                work_orders: (this.editForm.work_orders || [])
+                                    .filter(w => w.service_type)
+                                    .map(w => ({ service_type: w.service_type, trigger_point: w.trigger_point || 'activated' })),
                             },
                         });
 
