@@ -24,16 +24,26 @@
         ])->values(),
     ])->values();
 
+    // The picker only knows the six fixed parents; a pivot/tag row pointing at a
+    // NON-canonical legacy type (un-normalised install — e.g. "Seller, Lead")
+    // must never be seeded as a selection, or it renders a blank chip and posts a
+    // parent_type_ids[] the controller's Rule::in(parentIds()) rejects, hard-
+    // blocking the save ("The selected parent_type_ids.0 is invalid"). Guard every
+    // seed path against the canonical set — same rule the mirror fallback uses below.
+    $canonicalIds = $pickerParents->pluck('id')->all();
+
     $pickerInitial = [];
     $pc = $contact ?? null;
     if ($pc && $pc->exists) {
         $seenParents = [];
         foreach ($pc->tags as $t) {
             if (!$t->contact_type_id) { continue; }
+            if (!in_array((int) $t->contact_type_id, $canonicalIds, true)) { continue; }
             $pickerInitial[] = ['parentId' => (int) $t->contact_type_id, 'tagId' => (int) $t->id, 'newTag' => null];
             $seenParents[(int) $t->contact_type_id] = true;
         }
         foreach ($pc->parentTypes as $p) {
+            if (!in_array((int) $p->id, $canonicalIds, true)) { continue; }
             if (empty($seenParents[(int) $p->id])) {
                 $pickerInitial[] = ['parentId' => (int) $p->id, 'tagId' => null, 'newTag' => null];
                 $seenParents[(int) $p->id] = true;
@@ -45,7 +55,6 @@
         // isn't silently wiped when the agent edits and saves the contact. Only a
         // CANONICAL mirror is seeded (the picker only knows the 4 parents, and a
         // non-canonical id would fail the controller's canonical-parent rule).
-        $canonicalIds = $pickerParents->pluck('id')->all();
         if ($pc->contact_type_id
             && empty($seenParents[(int) $pc->contact_type_id])
             && in_array((int) $pc->contact_type_id, $canonicalIds, true)) {
