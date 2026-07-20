@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect\SigningView;
 
+use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureRequest;
+use App\Models\Docuperfect\SignatureTemplate;
+use App\Services\Docuperfect\CanonicalDocumentRenderer;
 use App\Services\Docuperfect\CanonicalInkComposer;
 use App\Services\Docuperfect\RoleBlockExpansionService;
 use Illuminate\Support\Collection;
@@ -156,6 +159,24 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         );
 
         $this->assertSame(0, substr_count($baked, 'corex-ink--signature'), 'un-stamped shared marker left blank when signer is not sole-of-role');
+    }
+
+    public function test_forDisplay_returns_stored_canonical_verbatim(): void
+    {
+        // The byte-identity guarantee's core: once a canonical artifact is stored
+        // (post-send), EVERY display surface (show/sign/setup/review/amendment) that
+        // calls forDisplay() returns that ONE stored artifact UNCHANGED — so they
+        // cannot diverge. Proven here without DB: stored short-circuits before any
+        // compose/recipient query.
+        $frozen = '<div id="STORED-SENTINEL" data-role-block="seller">frozen artifact</div>';
+        $doc = new Document();
+        $doc->web_template_data = ['canonical_html' => $frozen];
+        $template = new SignatureTemplate();
+        $template->setRelation('document', $doc);
+
+        $out = app(CanonicalDocumentRenderer::class)->forDisplay($template);
+
+        $this->assertSame($frozen, $out, 'stored canonical is served verbatim — no per-surface re-composition');
     }
 
     public function test_editability_overlay_scopes_to_viewer_identity(): void

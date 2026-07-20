@@ -94,6 +94,44 @@ class CanonicalDocumentRenderer
     }
 
     /**
+     * ESIGN-WETINK Phase 1b — THE display read for EVERY surface that shows the
+     * document (recipient ceremony, agent sign, marker setup, agent review,
+     * amendment review, print/PDF preview).
+     *
+     * Returns the stored `canonical_html` when present (the immutable post-send
+     * artifact — the frozen truth every party signed). When absent — a document
+     * still being PREPARED (pre-send: the agent is on the setup/markers/sign
+     * screens and no canonical has been composed yet) — it composes ONE fresh via
+     * the exact same pipeline (`compose()` → normalize → letterhead → insertable →
+     * expandWithLooping), WITHOUT storing.
+     *
+     * Why no store on the pre-send path: during preparation `merged_html` is still
+     * changing (the agent is editing fields), so a stored snapshot would go stale
+     * between screens. Composing fresh each load means EVERY prep surface renders
+     * from the same current inputs through the same code — so setup, sign, review
+     * and the eventual ceremony are BYTE-IDENTICAL by construction, not by
+     * coincidence. That is the whole point of the wet-ink "one document" rule: the
+     * seller domicilium (and every other role-block) can no longer compose one way
+     * on the markers screen and another way in the ceremony, because there is now
+     * exactly ONE composition path and all surfaces call it.
+     *
+     * Returns '' when the template has no composable web body (caller keeps its
+     * page-image/PDF path).
+     */
+    public function forDisplay(SignatureTemplate $template): string
+    {
+        $document = $template->document;
+        if (! $document) {
+            return '';
+        }
+        $stored = (string) (($document->web_template_data ?? [])['canonical_html'] ?? '');
+        if (trim($stored) !== '') {
+            return $stored;
+        }
+        return $this->compose($template);
+    }
+
+    /**
      * ESIGN-WETINK Phase 1b — resolve the canonical artifact for a display
      * surface. Returns the stored `canonical_html` when present (the wet-ink
      * happy path: composed once at send, served verbatim everywhere). When

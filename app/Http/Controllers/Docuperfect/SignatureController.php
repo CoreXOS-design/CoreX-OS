@@ -268,11 +268,38 @@ class SignatureController extends Controller
             // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
 
-            if (!empty($webTemplateData['merged_html'])) {
+            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE on the marker-setup screen ═══
+            // Step 2 "Markers" previously composed its OWN document preview: it read
+            // the raw merged_html and ran normalize + letterhead but NEVER the
+            // role-block expansion — so an N-seller domicilium rendered in its
+            // COLLECTIVE/combined form here while the ceremony (which serves the
+            // expanded canonical) rendered it PER-SELLER. That is precisely the
+            // render-divergence the wet-ink doctrine forbids. Route this screen
+            // through the ONE display path (forDisplay = stored canonical if sent,
+            // else composed fresh via the identical pipeline) so the setup preview
+            // is byte-identical to show()/sign()/PDF. Editability overlay is applied
+            // for the agent (marker placement is agent-facing) exactly as the other
+            // surfaces do — no bespoke composition.
+            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->forDisplay($template);
+            if (trim($canonicalHtml) !== '') {
+                $agentRequest = $template->requests()->where('party_role', 'agent')->first();
+                $fieldMappingsRaw = is_array($docTemplate->field_mappings ?? null)
+                    ? $docTemplate->field_mappings
+                    : [];
+                $webTemplateHtml = $agentRequest
+                    ? app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                        ->applyViewerEditabilityOverlay($canonicalHtml, $agentRequest, $fieldMappingsRaw)
+                    : $canonicalHtml;
+                $pageCount = count($webTemplateData['template_ids'] ?? [1]);
+            } elseif (!empty($webTemplateData['merged_html'])) {
+                // Fallback (no composable canonical body): current behaviour.
                 $webTemplateHtml = $webTemplateData['merged_html'];
                 $pageCount = count($webTemplateData['template_ids'] ?? [1]);
+                $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
             } else {
-                // Single template — render blade view normally
+                // Single template — render blade view normally (no merged_html yet).
                 $viewData = $webTemplateData;
                 if (!empty($docTemplate->signing_parties)) {
                     $viewData['signing_parties'] = $docTemplate->signing_parties;
@@ -288,23 +315,6 @@ class SignatureController extends Controller
                 }
                 $webTemplateHtml = $styles . $bodyHtml;
                 $pageCount = 1;
-            }
-
-            // Markers/setup uniquely bypassed the signing-path normalisation
-            // that every other web-template render runs (cf. lines ~926-927,
-            // SigningController). Two consequences this fixes:
-            //   1. Stale letterhead: the stored merged_html snapshot is frozen
-            //      with whatever agency data existed at prepareSigning (old
-            //      FFC / "Mandate Company"). LetterheadRefresher swaps in the
-            //      live company-header (current HFC agency).
-            //   2. Layout regression: the snapshot can carry unbalanced <div>
-            //      tags; injected raw via {!! !!} those stray closes climb the
-            //      DOM and break the flex two-column row (panel drops below) —
-            //      min-w-0 cannot defend a broken DOM. LetterheadRefresher's
-            //      DOMDocument round-trip re-serialises BALANCED markup, so the
-            //      document can no longer over-close its column regardless of
-            //      what the template HTML contains.
-            if ($webTemplateHtml !== '') {
                 $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
                 $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
             }
@@ -912,15 +922,18 @@ class SignatureController extends Controller
                 $document->fields_json ?? []
             );
 
-            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE on the agent surface ═══
-            // Once the document has been sent, the canonical artifact exists and
-            // the agent surface serves it VERBATIM (with a per-viewer editability
-            // overlay for the agent's own fields) so the agent sees the IDENTICAL
-            // expanded document every recipient sees. BEFORE send there is no
-            // canonical — the agent works on the merged_html prep copy, which is
-            // exactly what canonical is composed FROM at send (doctrine I2:
-            // composed once, when the agent finalises and sends).
-            $canonicalHtml = (string) ($webTemplateData['canonical_html'] ?? '');
+            // ═══ ESIGN-WETINK Phase 1b — CANONICAL SERVE on the agent sign surface ═══
+            // /documents/{id}/sign must render the SAME document as the ceremony,
+            // the setup screen and the PDF. The earlier gate ("serve canonical only
+            // if already STORED") meant a PRE-SEND document — the agent signing/
+            // previewing before dispatch, when no canonical is persisted yet — fell
+            // through to the raw, UN-EXPANDED merged_html and rendered N-seller
+            // role-blocks in their collective form (Johan's doc-431 divergence).
+            // forDisplay() closes that: stored canonical when sent, else composed
+            // fresh via the identical pipeline (expandWithLooping included). One
+            // path, byte-identical across every surface.
+            $canonicalHtml = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                ->forDisplay($template);
             if (trim($canonicalHtml) !== '') {
                 $agentRequest = $template->requests()->where('party_role', 'agent')->first();
                 $fieldMappingsRaw = is_array($docTemplate->field_mappings ?? null)
@@ -2284,10 +2297,20 @@ class SignatureController extends Controller
         $webTemplateData = $document->web_template_data ?? [];
         $hasDocPages = !empty($webTemplateData['flattened_page_count']);
 
-        // Detect web template with merged_html — render inline HTML instead of page images
+        // Detect web template — render inline HTML instead of page images.
+        // ESIGN-WETINK Phase 1b — the agent REVIEW surface serves the ONE
+        // canonical artifact (post-send: the stored vN with every party's baked
+        // ink; pre-send: composed fresh via the identical pipeline) so the review
+        // is byte-identical to the ceremony and the setup screen. Read-only here
+        // (no editability overlay — review is an approval gate, not a fill step).
         $isWebTemplate = false;
         $webTemplateHtml = null;
-        if (!empty($webTemplateData['merged_html'])) {
+        $reviewCanonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->forDisplay($template);
+        if (trim($reviewCanonical) !== '') {
+            $isWebTemplate = true;
+            $webTemplateHtml = $reviewCanonical;
+        } elseif (!empty($webTemplateData['merged_html'])) {
             $isWebTemplate = true;
             $webTemplateHtml = $webTemplateData['merged_html'];
         }
