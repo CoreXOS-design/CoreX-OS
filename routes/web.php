@@ -2018,7 +2018,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
         Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
         Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
+        // AT-173 — decrypting stream serve for uploaded FICA documents (replaces the direct Storage::url).
+        Route::get('/{submission}/documents/{document}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewDocument'])->name('documents.view');
     });
+
+    // AT-173 — media-encryption status (admin visibility of encryption at rest).
+    Route::get('/compliance/media-encryption', [\App\Http\Controllers\Compliance\MediaEncryptionStatusController::class, 'index'])
+        ->middleware(['permission:access_compliance', 'agency.required'])
+        ->name('compliance.media-encryption.status');
 
     // ── Whistleblower Compliance Reporting ──
     Route::middleware(['agency.required'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {

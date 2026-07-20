@@ -81,7 +81,9 @@ class FicaWetInkService
      */
     public function addUploadedDocument(FicaSubmission $submission, UploadedFile $file, string $slot): FicaDocument
     {
-        $path = $file->store("fica/wet-ink/{$submission->id}", 'public');
+        // AT-173 — encrypt on write to the PRIVATE disk (was the public disk).
+        $path = app(\App\Services\Compliance\FicaDocumentStorage::class)
+            ->putUploaded($file, "fica/wet-ink/{$submission->id}");
 
         return FicaDocument::create([
             'fica_submission_id' => $submission->id,
@@ -107,16 +109,14 @@ class FicaWetInkService
             return null;
         }
 
-        $stream = @fopen($absPath, 'rb');
-        if (! $stream) {
+        $bytes = @file_get_contents($absPath);
+        if ($bytes === false) {
             return null;
         }
 
+        // AT-173 — encrypt on write to the PRIVATE disk (was the public disk).
         $relPath = "fica/wet-ink/{$submission->id}/" . \Illuminate\Support\Str::random(8) . '_' . basename($originalName);
-        Storage::disk('public')->put($relPath, $stream);
-        if (is_resource($stream)) {
-            @fclose($stream);
-        }
+        app(\App\Services\Compliance\FicaDocumentStorage::class)->putBytes($relPath, $bytes);
 
         return FicaDocument::create([
             'fica_submission_id' => $submission->id,

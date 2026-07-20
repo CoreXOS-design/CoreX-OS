@@ -1,6 +1,64 @@
-# CoreX — Per-Agency Media Encryption (Envelope + Seal/Unseal + Consent-Gated Key Release)
+# CoreX — Media Encryption at Rest (AT-173)
 
-> **Status: SPEC — awaiting Johan's digest approval. No build until approved.** Jira **AT-173**. Held from live.
+> **DECISION (2026-07-20, Johan): build APPLICATION-LEVEL media encryption with an
+> app-managed key — NOT the full per-agency envelope / seal-unseal / consent-keystore
+> design below (that remains the future upgrade path).** The envelope spec (from §1 on)
+> is retained as the deeper design of record.
+
+---
+
+## DELIVERED — App-Level Media Encryption at Rest (Phase 1)
+
+**What it does.** Client-sensitive files are encrypted with an app-managed key (AES-256-GCM,
+authenticated) BEFORE being written to disk, and decrypted transparently on serve. Protects
+a stolen/decommissioned disk, the off-box backups, a DB/volume dump, and casual file browsing
+(POPIA §19). Honest limit: the key lives in the server environment, so it does NOT defend a
+live-root attacker who can read it — documented, accepted.
+
+**Key management.** A dedicated `MEDIA_ENCRYPTION_KEY` (base64, 32 bytes), SEPARATE from
+`APP_KEY`, per environment in `.env` (never committed). `MEDIA_ENCRYPTION_KEY_PREVIOUS` slot +
+per-file key-version header support rotation. Generate with `php artisan media:key:generate`
+(refuses to overwrite an existing key — never orphans encrypted media).
+
+**Envelope.** `CXE1 | keyVersion(1) | nonce(12) | tag(16) | ciphertext`. The magic header lets
+read paths distinguish ciphertext from legacy plaintext, so a half-migrated store reads correctly.
+
+**Scope (Phase 1).**
+- **Communication media** — encrypt/decrypt seam in `CommunicationStorageService` (store/get).
+  Content hash stays the PLAINTEXT sha256, so dedup + integrity are unchanged; ciphertext sits at
+  the plaintext-addressed path.
+- **FICA documents** (ID copies, proof of address, FICA forms) — `App\Services\Compliance\FicaDocumentStorage`
+  writes encrypted to the PRIVATE disk (moved off the public disk) and serves via a decrypting
+  stream route `compliance.fica.documents.view` (replaces the direct `Storage::url`). Migration-safe
+  reads: legacy public/plaintext files still stream.
+- **OUT:** public property/agent marketing photos (public by design). **Phase 2 (separate ticket):**
+  DocuPerfect/e-sign working files (read by external PDF/image tools by raw path — need a decrypt-to-temp
+  shim) and deal documents.
+
+**Backfill.** `media:encrypt-backfill --scope=comms|fica [--dry-run]` — idempotent; per file:
+in-memory round-trip proof BEFORE writing, temp-write + verify then atomic replace (comms) / write-to-private
++ verify then drop the public copy (fica), post-write read-back proof. No plaintext removed until its
+ciphertext round-trips byte-for-byte. `--dry-run` writes nothing.
+
+**Status indicator.** Compliance → **Media Encryption** (`compliance.media-encryption.status`): ON/OFF,
+key configured, algorithm, covered scopes, FICA doc count, the backfill commands, and the honest
+threat-model note.
+
+**Performance.** AES-256-GCM on small files (voice notes, PDFs, ID scans) is sub-millisecond per
+read/write; negligible on the serve path.
+
+**Files.** `config/media-encryption.php`, `app/Services/Security/MediaCipher.php`,
+`app/Services/Compliance/FicaDocumentStorage.php`, `app/Console/Commands/GenerateMediaKey.php`,
+`app/Console/Commands/EncryptMediaBackfill.php`, `MediaEncryptionStatusController` + view + nav,
+seams in `CommunicationStorageService` / `FicaController` / `FicaPublicController` / `FicaWetInkService`,
+route `compliance.fica.documents.view`. Tests: `MediaCipherTest`, `CommMediaEncryptionTest`,
+`EncryptMediaBackfillTest`, `FicaDocumentEncryptionTest`.
+
+---
+
+# (Original design of record — Per-Agency Envelope + Seal/Unseal + Consent-Gated Key Release)
+
+> **Status: SUPERSEDED for v1 by the app-level design above; retained as the future upgrade path.** Jira **AT-173**.
 > Slots into the media pipeline where the "encryption" step sat (supersedes plain app-level encryption). Depends on nothing that isn't already built; interacts with AT-163 (media + transcripts + restic off-box backup) and the switch-user consent design (Andre).
 
 ---
