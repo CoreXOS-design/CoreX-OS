@@ -67,6 +67,25 @@ class PropertyObserver
 
     public function saving(Property $property): void
     {
+        // AT-307 — status-membership backstop. The LAST line of defence: no path
+        // (mobile / web / api / job / console / import / direct save) may persist a
+        // status outside the canonical vocabulary. This is the class of bug behind
+        // the 2903 incident — a write that set an unrecognised / ineffective status
+        // slipped through silently because nothing validated the value at the model.
+        // Case-insensitive (existing 'Sold'/'Rented' capitalisation still passes);
+        // null is left alone so the column default applies; only a dirty, non-null,
+        // out-of-vocabulary value is rejected. Request layers give a clean 422 first
+        // (App\Rules\ValidPropertyStatus); this catches everything that skips them.
+        if ($property->isDirty('status')
+            && $property->status !== null
+            && ! Property::isValidStatus($property->status)) {
+            throw new \App\Exceptions\InvalidPropertyStatusException(
+                "Refusing to persist unrecognised property status '{$property->status}' "
+                . "on property #{$property->id}. Allowed statuses: "
+                . implode(', ', Property::ALLOWED_STATUSES) . '.'
+            );
+        }
+
         // Capture originals in static registry for audit diffing in saved()
         if ($property->exists && !$property->wasRecentlyCreated) {
             $auditFields = ['price', 'status', 'agent_id', 'compliance_snapshot_at', 'published_at', 'mandate_type'];

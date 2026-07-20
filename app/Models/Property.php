@@ -50,6 +50,37 @@ class Property extends Model
     ];
 
     /**
+     * AT-307 — the canonical property-status vocabulary. The membership backstop
+     * (PropertyObserver::saving) rejects any status NOT in this set, so no path —
+     * mobile / web / api / job / console / import — can silently persist an invalid
+     * status (the class that let the 2903 mobile-withdraw incident go undetected).
+     * The union of the on-market states + OFF_MARKET_STATUSES + the governed
+     * `property_status` slugs + the system-written states. Compared case-insensitively
+     * (so existing capitalised 'Sold'/'Rented' still pass). NOT status governance
+     * (mapping/case-normalisation on write is AT-68) — only a validity gate.
+     */
+    public const ALLOWED_STATUSES = [
+        // on-market / live
+        'active', 'for_sale', 'sales_listing', 'on_show', 'on_auction',
+        'reduced_price', 'raised_price', 'back_on_market', 'pending', 'under_offer',
+        'to_let', 'available',
+        // off-market / terminal
+        'sold', 'rented', 'transferred', 'withdrawn', 'expired',
+        'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
+    ];
+
+    /** True when $status is a recognised property status (case-insensitive). Null/empty is NOT valid. */
+    public static function isValidStatus(?string $status): bool
+    {
+        if ($status === null) {
+            return false;
+        }
+        $s = strtolower(trim($status));
+
+        return $s !== '' && in_array($s, self::ALLOWED_STATUSES, true);
+    }
+
+    /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
      * canonical definition of "active"/live stock for dashboards and filters.
      */
