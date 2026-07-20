@@ -801,13 +801,23 @@ class DealRegisterController extends Controller
      * §2.3 — seller / buyer offered from the linked property. Returns the property's
      * contacts split by role so the capture screen can auto-fill the seller and
      * present a tick-list of linked buyers. Agency scope is structural (global scope).
+     *
+     * The role split is LISTING-TYPE-AWARE (AT-262/DR2): a rental property offers its
+     * landlord/lessor as the seller-side party and its tenant/lessee as the buyer-side,
+     * a sale offers seller/owner and buyer — so a genuine rental deal's landlord pulls
+     * through instead of silently vanishing. Sets come from the canonical maps on
+     * Property, not a literal here.
      */
     public function propertyContacts(Property $property): JsonResponse
     {
         abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
 
-        $sellerRoles = Property::pivotRolesForContactRole('seller_owner'); // ['seller','owner']
-        $buyerRoles  = Property::pivotRolesForContactRole('buyer');        // ['buyer']
+        // Listing-type-aware (AT-262/DR2): a RENTAL property's seller-side party is the
+        // landlord/lessor, its buyer-side the tenant/lessee; a SALE keeps seller/owner and
+        // buyer. The fixed ['seller','owner'] set was blind to a rental's landlord, so a
+        // genuine rental deal could never pull its seller through. Canon lives on Property.
+        $sellerRoles = Property::sellerSidePivotRolesForListingType($property->listing_type);
+        $buyerRoles  = Property::buyerSidePivotRolesForListingType($property->listing_type);
 
         $sellers = [];
         $buyers  = [];

@@ -333,4 +333,56 @@ class Dr2CaptureTest extends TestCase
         $this->assertDatabaseMissing('contact_property', ['property_id' => $property->id, 'contact_id' => $c->id, 'role' => 'buyer']);
         $this->assertSame(1, DB::table('contact_property')->where(['property_id' => $property->id, 'contact_id' => $c->id])->count());
     }
+
+    /**
+     * PART C (AT-262/DR2) — the seller offer is LISTING-TYPE-AWARE. A RENTAL property's
+     * landlord IS the seller-side party of the rental deal and MUST pull through; the old
+     * fixed ['seller','owner'] set left it invisible (the boboni class, generalised).
+     */
+    public function test_property_contacts_offers_a_rental_landlord_as_the_seller(): void
+    {
+        [$agency, $branch, $admin, $l] = $this->scaffold('dr2-rental-offer');
+
+        $property = Property::create([
+            'title' => 'Boboni Rental', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'rental', 'address' => '651 Boboni Rd',
+            'suburb' => 'Shelly Beach', 'price' => 0, 'rental_amount' => 9000, 'property_type' => 'House',
+        ]);
+        $landlord = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Premilla', 'last_name' => 'Swepath']);
+        $tenant   = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Thabo', 'last_name' => 'Ndlovu']);
+        $property->contacts()->attach($landlord->id, ['role' => 'landlord']);
+        $property->contacts()->attach($tenant->id, ['role' => 'tenant']);
+
+        $res = $this->actingAs($admin)
+            ->getJson(route('deals-dr2.search.property-contacts', ['property' => $property->id]))
+            ->assertOk()
+            ->json();
+
+        $sellerIds = array_column($res['sellers'] ?? [], 'id');
+        $buyerIds  = array_column($res['buyers'] ?? [], 'id');
+        $this->assertContains($landlord->id, $sellerIds, 'a rental landlord must be offered as the seller-side party');
+        $this->assertContains($tenant->id, $buyerIds, 'a rental tenant must be offered as the buyer-side party');
+    }
+
+    /** The SALE path is unchanged: seller/owner offered, landlord/lessor are not. */
+    public function test_property_contacts_still_offers_seller_owner_on_a_sale(): void
+    {
+        [$agency, $branch, $admin, $l] = $this->scaffold('dr2-sale-offer');
+
+        $property = Property::create([
+            'title' => 'Uvongo Sale', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '12 Marine Dr',
+            'suburb' => 'Uvongo', 'price' => 1950000, 'property_type' => 'House',
+        ]);
+        $seller = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Owen', 'last_name' => 'Ridge']);
+        $property->contacts()->attach($seller->id, ['role' => 'seller']);
+
+        $res = $this->actingAs($admin)
+            ->getJson(route('deals-dr2.search.property-contacts', ['property' => $property->id]))
+            ->assertOk()
+            ->json();
+
+        $this->assertContains($seller->id, array_column($res['sellers'] ?? [], 'id'),
+            'a sale seller must still be offered');
+    }
 }
