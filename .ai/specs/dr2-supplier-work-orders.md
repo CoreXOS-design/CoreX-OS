@@ -309,3 +309,29 @@ This adds an agency setting (the COC/service list). Per #10a a new setting norma
 the Agency Onboarding Setup Wizard. This is arguably an expert/rarely-touched list an agency curates
 once running, seeded sensibly by default — a legitimate candidate for "not in the wizard". **Flagged
 to Johan for the call; not added to `config/agency-onboarding-copy.php` pending his word.**
+
+## 17. Right-panel Supplier Work Orders (up-front config, trigger-driven) — Johan FINAL 2026-07-20
+
+Replaces the inline-per-step attempt. ONE right-hand panel on the DR2 pipeline (`dr2/pipeline`)
+configures every COC up front; the sends fire automatically off a trigger step.
+
+- **Panel:** a "Supplier Work Orders" panel in the pipeline right rail. Lists the agency's active
+  COC/service types (Settings → COC / Service Types). Header shows the trigger step (default
+  "Bond Granted").
+- **Per type the agent sets:** ☐ Applies · Responsible party (seller / listing agent / selling agent /
+  supplier / transferring attorney) · Recipient (auto from responsible; supplier/attorney → pick from
+  directory). Saved to `deal_step_work_orders` (already exists) keyed to the type's matching COC step.
+- **Auto-N/A cascade:** on Save, every COC/service type that is NOT ticked → its matching pipeline step
+  is marked **N/A** (existing `markNotApplicable`, reason "not required — supplier work orders"). Re-tick
+  → reinstate. Ticked ones stay live.
+- **Trigger-driven send:** when the configured trigger step (e.g. "Bond Granted") COMPLETES, every ticked
+  work order is sent — PDF generated, filed via AT-228, emailed to the recipient. Fires from
+  `Dr1PipelineService::completeStep` after the step completes (positive outcome only).
+- **CC + de-dupe:** each send CCs the listing + selling agents, de-duped by lowercased address, primary
+  dropped (existing `CocWorkOrderService::ccList`).
+- **Idempotent:** a work order already `sent` is never re-sent; the trigger send skips sent rows.
+- **Reuses:** `deal_step_work_orders`, `CocWorkOrderService` (resolveRecipient/ccList/send),
+  `AgencyServiceType` list, AT-228 `Dr2DistributionSendService`. New: panel UI + `cocConfig` save
+  endpoint + trigger hook in `completeStep`.
+- **Trigger step config:** which step fires the sends is stored per deal (default = the step whose
+  `status_trigger`='granted', i.e. Bond Granted); agent can change it in the panel.

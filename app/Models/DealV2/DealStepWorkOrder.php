@@ -21,7 +21,7 @@ class DealStepWorkOrder extends Model
     public const RESPONSIBLE = ['seller', 'listing_agent', 'selling_agent', 'supplier', 'transfer_attorney'];
 
     protected $fillable = [
-        'deal_step_instance_id', 'dr1_deal_id', 'agency_id',
+        'deal_step_instance_id', 'trigger_step_instance_id', 'dr1_deal_id', 'agency_id',
         'service_type', 'responsible_party', 'service_provider_id',
         'recipient_name', 'recipient_email', 'cc_emails',
         'status', 'document_id', 'sent_at', 'sent_by_id',

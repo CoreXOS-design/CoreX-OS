@@ -744,6 +744,11 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/{step}/coc/sync',               [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocSync'])->whereNumber(['deal', 'step'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.coc.sync');
     Route::post('/{deal}/pipeline/steps/{step}/coc/{workOrder}/send',   [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocSend'])->whereNumber(['deal', 'step', 'workOrder'])->middleware('permission:deals_v2.distribute_documents')->name('pipeline.step.coc.send');
 
+    // AT-229 §17 — DEAL-level right-panel: tick applicable COCs up front (auto-N/A the rest),
+    // set responsible/recipient, choose the trigger step; sends fire when that step completes.
+    Route::get('/{deal}/pipeline/coc-config',  [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocConfigPanel'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('pipeline.coc-config.panel');
+    Route::post('/{deal}/pipeline/coc-config', [\App\Http\Controllers\DealV2\WorkOrderController::class, 'cocConfigSave'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('pipeline.coc-config.save');
+
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware('permission:view_deals')->name('documents.download');

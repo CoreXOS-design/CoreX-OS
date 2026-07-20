@@ -70,6 +70,45 @@ class AgencyServiceType extends Model
         }
     }
 
+    /**
+     * §17 — the distinctive tokens of a COC name: lowercased words with the
+     * generic certificate noise ("coc", "certificate", "compliance", …) stripped,
+     * so "Electrical COC" → [electrical] and "Electric Fence COC" → [electric, fence].
+     * Lets a service type be matched to its pipeline step by the noun that
+     * actually differentiates it, not the shared "COC/Certificate" tail.
+     */
+    public static function distinctiveTokens(string $text): array
+    {
+        $noise = ['coc', 'certificate', 'cert', 'compliance', 'of', 'the', 'and', 'entomologist'];
+        $words = preg_split('/[^a-z0-9]+/', strtolower($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_values(array_diff($words, $noise));
+    }
+
+    /**
+     * §17 — best-matching step from a collection of DealStepInstance for THIS type
+     * (highest distinctive-token overlap, ≥1). Used to N/A the un-ticked COCs and
+     * to attach a ticked COC's work order to its own pipeline step.
+     */
+    public function matchStep($stepInstances): ?object
+    {
+        $mine = self::distinctiveTokens($this->label . ' ' . $this->code);
+        if (empty($mine)) {
+            return null;
+        }
+        $best = null;
+        $bestScore = 0;
+        foreach ($stepInstances as $step) {
+            $score = count(array_intersect($mine, self::distinctiveTokens((string) $step->name)));
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $step;
+            }
+        }
+
+        return $bestScore >= 1 ? $best : null;
+    }
+
     protected static function booted(): void
     {
         // A new agency-added type gets a stable code slugged from its label

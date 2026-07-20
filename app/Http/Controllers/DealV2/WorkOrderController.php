@@ -267,6 +267,116 @@ class WorkOrderController extends Controller
         return response()->json(['ok' => true, 'message' => "Work order sent to {$workOrder->recipient_email}{$cc}."]);
     }
 
+    /**
+     * §17 — the DEAL-level right-panel: the agency's COC/service list, each mapped to
+     * its pipeline step, with the current tick/responsible/recipient config + the
+     * trigger step (default Bond Granted) that fires the sends.
+     */
+    public function cocConfigPanel(Deal $deal)
+    {
+        $types = \App\Models\DealV2\AgencyServiceType::active()->orderBy('sort_order')->orderBy('id')->get();
+        $steps = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->orderBy('position')->orderBy('id')->get();
+
+        $existing = \App\Models\DealV2\DealStepWorkOrder::where('dr1_deal_id', $deal->id)
+            ->get()->keyBy('service_type');
+
+        $items = $types->map(function ($t) use ($steps, $existing) {
+            $step = $t->matchStep($steps);
+            $wo   = $existing->get($t->code);
+            return [
+                'code'              => $t->code,
+                'label'             => $t->label,
+                'step_id'           => $step?->id,
+                'step_name'         => $step?->name,
+                'applies'           => (bool) $wo,
+                'responsible_party' => $wo->responsible_party ?? 'supplier',
+                'service_provider_id' => $wo->service_provider_id ?? '',
+                'status'            => $wo->status ?? null,
+                'recipient_email'   => $wo->recipient_email ?? null,
+                'cc_emails'         => $wo->cc_emails ?? null,
+            ];
+        })->values()->all();
+
+        // Trigger-step options + default (the granting step — "Bond Granted").
+        $triggerOptions = $steps->map(fn ($s) => ['id' => $s->id, 'name' => $s->name])->all();
+        $default = $steps->firstWhere('status_trigger', 'granted') ?? $steps->firstWhere('status_trigger', 'accepted');
+        $current = $existing->pluck('trigger_step_instance_id')->filter()->first() ?? $default?->id;
+
+        return response()->json([
+            'items'              => $items,
+            'responsible_labels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
+            'suppliers'          => $this->supplierPayload(),
+            'trigger_options'    => $triggerOptions,
+            'trigger_step_id'    => $current,
+            'trigger_default_id' => $default?->id,
+        ]);
+    }
+
+    /**
+     * §17 — save the right-panel config: ticked COCs become pending work orders (fired
+     * when the trigger step completes); un-ticked COCs auto-cascade their pipeline step
+     * to N/A. Never rewrites a sent row.
+     */
+    public function cocConfigSave(Request $request, Deal $deal, \App\Services\Deal\Dr1PipelineService $pipelines)
+    {
+        $data = $request->validate([
+            'trigger_step_instance_id'   => ['nullable', 'integer'],
+            'items'                      => ['required', 'array'],
+            'items.*.code'               => ['required', 'string', 'max:40'],
+            'items.*.applies'            => ['required', 'boolean'],
+            'items.*.responsible_party'  => ['required', 'in:' . implode(',', \App\Models\DealV2\DealStepWorkOrder::RESPONSIBLE)],
+            'items.*.service_provider_id' => ['nullable', 'integer'],
+        ]);
+
+        $steps   = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)->get();
+        $types   = \App\Models\DealV2\AgencyServiceType::active()->get()->keyBy('code');
+        $triggerId = $data['trigger_step_instance_id'] ?: optional($steps->firstWhere('status_trigger', 'granted'))->id;
+        $naReason  = 'Not required — supplier work orders';
+        $userId    = $request->user()?->id;
+
+        foreach ($data['items'] as $item) {
+            $type = $types->get($item['code']);
+            if (! $type) { continue; }
+            $step = $type->matchStep($steps);                     // the COC's own step (may be null)
+            $wo   = \App\Models\DealV2\DealStepWorkOrder::where('dr1_deal_id', $deal->id)
+                        ->where('service_type', $item['code'])->first();
+
+            if ($item['applies']) {
+                $attrs = [
+                    'deal_step_instance_id'    => $step?->id ?? $triggerId,
+                    'trigger_step_instance_id' => $triggerId,
+                    'agency_id'                => $deal->agency_id,
+                    'responsible_party'        => $item['responsible_party'],
+                    'service_provider_id'      => in_array($item['responsible_party'], ['supplier', 'transfer_attorney'], true) ? ($item['service_provider_id'] ?? null) : null,
+                ];
+                if ($wo && $wo->isSent()) {
+                    // keep — audit integrity; do not rewrite a sent row
+                } elseif ($wo) {
+                    $wo->update($attrs);
+                } else {
+                    \App\Models\DealV2\DealStepWorkOrder::create($attrs + [
+                        'dr1_deal_id'  => $deal->id,
+                        'service_type' => $item['code'],
+                        'status'       => 'pending',
+                    ]);
+                }
+                // Ticked → the COC's step is live; undo an auto-N/A we set earlier.
+                if ($step && $step->status === 'skipped' && $step->na_reason === $naReason) {
+                    $pipelines->reinstateStep($step, $userId);
+                }
+            } else {
+                // Un-ticked → drop the pending work order and N/A its pipeline step.
+                if ($wo && ! $wo->isSent()) { $wo->delete(); }
+                if ($step && ! in_array($step->status, ['completed', 'skipped'], true)) {
+                    $pipelines->markNotApplicable($step, $userId, $naReason);
+                }
+            }
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     // ── shared helpers ───────────────────────────────────────────────────────
 
     private function validateSupplier(Request $request): array

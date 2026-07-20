@@ -138,6 +138,92 @@
              orders and comments expand in place. AT-244: when the deal is not proceeding
              the board is MUTED and every state-changing action is withdrawn (no dead
              buttons); comments stay live (history-keeping, not a transition). --}}
+        {{-- AT-229 §17 — right-panel Supplier Work Orders. Tick the COCs this deal needs
+             up front, set who's responsible + who gets each email, and choose the trigger
+             step (default Bond Granted). Un-ticked COCs cascade their pipeline step to N/A.
+             When the trigger step completes, every ticked work order is sent (agents CC'd,
+             de-duped). One deal-level panel, not per step. --}}
+        @php($canWoDeal = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
+        @if($canWoDeal)
+        <div class="corex-card" style="padding:.5rem .75rem;margin-bottom:.5rem;"
+             x-data="{
+                open:false, loading:false, busy:false, err:'', msg:'',
+                items:[], responsible:{}, suppliers:[], triggerOptions:[], triggerId:'',
+                async load(){
+                    this.open=true; this.loading=true; this.err=''; this.msg='';
+                    try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.panel', $deal) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
+                        this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[];
+                        this.triggerOptions=j.trigger_options||[]; this.triggerId=j.trigger_step_id||'';
+                        this.items=(j.items||[]).map(i=>({...i}));
+                    } catch(e){ this.err='Could not load work orders.'; }
+                    this.loading=false;
+                },
+                async save(){
+                    this.busy=true; this.err=''; this.msg='';
+                    try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.save', $deal) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({trigger_step_instance_id:this.triggerId||null, items:this.items.map(i=>({code:i.code, applies:!!i.applies, responsible_party:i.responsible_party, service_provider_id:i.service_provider_id||null}))})});
+                        const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'; await this.load(); }
+                        else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
+                    } catch(e){ this.err='Save failed.'; }
+                    this.busy=false;
+                }
+             }">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
+                <span style="font-size:.82rem;font-weight:600;color:#0f766e;">Supplier Work Orders (COCs)</span>
+                <button type="button" class="corex-btn-outline" style="padding:.15rem .6rem;font-size:.75rem;color:#0f766e;border-color:#0f766e;" @click="load()">Configure COCs</button>
+            </div>
+            <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
+                <div class="corex-card" style="width:100%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
+                    <div style="padding:.75rem 1rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                        <strong style="font-size:.92rem;">Supplier Work Orders — which COCs does this deal need?</strong>
+                        <button type="button" @click="open=false" style="font-size:1.2rem;line-height:1;color:#6b7280;">&times;</button>
+                    </div>
+                    <div style="padding:1rem;overflow-y:auto;flex:1;">
+                        <div x-show="loading" style="color:#6b7280;font-size:.85rem;">Loading…</div>
+                        <div x-show="!loading">
+                            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;flex-wrap:wrap;">
+                                <label style="font-size:.72rem;color:#6b7280;">Send work orders when this step completes:</label>
+                                <select x-model="triggerId" class="corex-input" style="font-size:.8rem;min-width:200px;">
+                                    <template x-for="o in triggerOptions" :key="o.id"><option :value="o.id" x-text="o.name"></option></template>
+                                </select>
+                            </div>
+                            <p style="font-size:.72rem;color:#6b7280;margin-bottom:.5rem;">Tick each COC this deal needs and set who is responsible + who receives the work-order email. Un-ticked COCs are marked N/A on the pipeline. Listing &amp; selling agents are CC'd (de-duped).</p>
+                            <template x-for="(it,i) in items" :key="it.code">
+                              <div style="border-top:1px solid #eee;padding:.5rem 0;">
+                                <div style="display:grid;grid-template-columns:auto 1.3fr 1.4fr;gap:.5rem;align-items:center;">
+                                  <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;font-weight:600;" :style="it.status==='sent' ? 'color:#047857;' : ''">
+                                    <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
+                                    <span x-text="it.label"></span>
+                                  </label>
+                                  <div>
+                                    <select x-model="it.responsible_party" :disabled="!it.applies || it.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
+                                      <template x-for="(lbl,val) in responsible" :key="val"><option :value="val" x-text="lbl"></option></template>
+                                    </select>
+                                    <select x-show="it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney'" x-model="it.service_provider_id" :disabled="!it.applies || it.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;margin-top:.25rem;">
+                                      <option value="">— pick supplier —</option>
+                                      <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                                    </select>
+                                  </div>
+                                  <div style="font-size:.68rem;color:#6b7280;">
+                                    <span x-show="it.status==='sent'" style="color:#047857;">✓ sent → <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-text="' (cc ' + it.cc_emails + ')'"></span></span>
+                                    <span x-show="it.status!=='sent' && !it.step_name" style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
+                                    <span x-show="it.status!=='sent' && it.step_name" x-text="'step: ' + it.step_name"></span>
+                                  </div>
+                                </div>
+                              </div>
+                            </template>
+                            <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
+                            <div x-show="msg" x-text="msg" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
+                        </div>
+                    </div>
+                    <div style="padding:.75rem 1rem;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:.5rem;">
+                        <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;">Close</button>
+                        <button type="button" @click="save()" :disabled="busy" class="corex-btn-primary" style="font-size:.8rem;">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endif
+
         <div class="corex-card" style="padding:.25rem .5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}"
              x-data="{ hideDone: false }" x-init="hideDone = (localStorage.getItem('dr2_hide_completed') === '1')">
             {{-- AT-305b — Hide-completed toggle. Persists per user via localStorage; default
@@ -177,7 +263,7 @@
                         @if($s->status === 'active')
                             @permission('view_deals')
                             <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
-                                <button type="submit" class="corex-btn-secondary" style="padding:.12rem .5rem;font-size:.72rem;">{{ $s->negative_status_trigger ? 'Mark passed' : 'Mark complete' }}</button>
+                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#047857;border-color:#6ee7b7;">{{ $s->negative_status_trigger ? 'Mark passed' : 'Mark complete' }}</button>
                             </form>
                             {{-- AT-229 6b — a DECISION step (has a negative branch) also offers the negative
                                  outcome. It completes the step and drives the deal by its negative trigger,

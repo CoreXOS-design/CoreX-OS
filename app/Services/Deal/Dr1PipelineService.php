@@ -286,7 +286,37 @@ class Dr1PipelineService
 
             // Sweep #2 — fire the step's configured status_trigger (positive or negative) onto the deal.
             $this->applyStatusTrigger($step, $userId, $isNegative);
+
+            // AT-229 §17 — trigger-driven supplier work orders. When the configured
+            // trigger step (default "Bond Granted") completes POSITIVELY, every pending
+            // work order that points at it is sent (PDF + AT-228 filing + email, agents
+            // CC'd). Never on a negative outcome. Each send is isolated so one bad
+            // recipient never rolls back the step completion.
+            if (! $isNegative) {
+                $this->fireSupplierWorkOrders($step, $userId);
+            }
         });
+    }
+
+    /** §17 — send every pending work order whose trigger step is the one just completed. */
+    private function fireSupplierWorkOrders(DealStepInstance $step, ?int $userId): void
+    {
+        $orders = \App\Models\DealV2\DealStepWorkOrder::where('trigger_step_instance_id', $step->id)
+            ->where('status', 'pending')->get();
+        if ($orders->isEmpty()) {
+            return;
+        }
+        $coc  = app(\App\Services\DealV2\CocWorkOrderService::class);
+        $user = $userId ? \App\Models\User::withoutGlobalScopes()->find($userId) : null;
+        foreach ($orders as $order) {
+            try {
+                $coc->send($order, $user);
+            } catch (\Throwable $e) {
+                \Log::warning('AT-229 §17 trigger send failed', [
+                    'work_order_id' => $order->id, 'deal' => $step->dr1_deal_id, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /** DR2 status_trigger vocabulary → DR1 `accepted_status` code (the field the register reads). */
