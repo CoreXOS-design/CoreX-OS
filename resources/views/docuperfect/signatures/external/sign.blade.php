@@ -1797,9 +1797,12 @@ function externalSign() {
                     return;
                 }
 
-                // ESIGN-WETINK — decide "mine" by the signer's IDENTITY, not bare
-                // party role, so recipient 2 is never offered recipient 1's initials.
-                const isMine = self._isMyMarker(el);
+                // ESIGN-WETINK (AT-300) — decide "mine" by the signer's IDENTITY,
+                // resolved from the initial box's party (boxes carry only
+                // data-marker-party, so _isMyInitialBox maps it to a role_identity).
+                // The current signer's OWN unsigned box → "Click to initial"; a
+                // same-role sibling's box is never claimed.
+                const isMine = self._isMyInitialBox(el);
                 const entry = { el, rawParty, index: initPartyCounters[rawParty] - 1, initKey, isMine, signed: false, sigData: null };
                 self.webInitialElements.push(entry);
 
@@ -2962,6 +2965,38 @@ function externalSign() {
         _isMarkerSigned(el) {
             return el.getAttribute('data-signed') === 'true'
                 || !!el.querySelector('img.web-sig-signed-img, img.corex-ink, img[alt="Signature"], img[alt="Initial"]');
+        },
+
+        /**
+         * ESIGN-WETINK (AT-300) \u2014 does this page-break INITIAL box belong to the
+         * current signer? Initial boxes are built client-side at pagination
+         * (_buildInitialsRow) and carry ONLY data-marker-party \u2014 no data-name /
+         * data-recipient-identity that signature markers have. data-marker-party
+         * is the party's parties_json role: the FIRST instance of a role is the
+         * bare role ("seller"), later instances are suffixed ("seller_2"). So
+         * bare-role ownership (isMyWebSigBlock) fails for recipient 2 \u2014 their box
+         * is "seller_2" while their signerRole is "seller" (suffix mismatch), and
+         * it would also let recipient 2 claim recipient 1's bare "seller" box.
+         *
+         * Resolve the box's party to a role_identity \u2014 {role}_{n} stays, a bare
+         * {role} is that role's first instance \u2192 {role}_1 \u2014 and decide SOLELY by
+         * currentRoleIdentity. That matches ONLY the signer's own box and never a
+         * same-role sibling's. When the box does carry explicit identity/name keys
+         * (future-proofing) those win; when the viewer has no identity at all
+         * (single-recipient / pre-identity docs) fall back to the bare-role check.
+         */
+        _isMyInitialBox(el) {
+            const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+            const explicitIdent = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
+            if (explicitIdent) return myIdentity !== '' && explicitIdent === myIdentity;
+            const myName = this._normalizeInkName(this.signerName);
+            const markerName = this._normalizeInkName(el.getAttribute('data-name'));
+            if (markerName !== '' && myName !== '') return markerName === myName;
+            const party = (el.dataset.markerParty || '').toLowerCase();
+            // No identity to scope by \u2192 bare-role fallback (safe on single-recipient docs).
+            if (myIdentity === '' || party === '') return this.isMyWebSigBlock(party);
+            const boxIdentity = /_\d+$/.test(party) ? party : party + '_1';
+            return boxIdentity === myIdentity;
         },
 
         // \u00A719 Part A \u2014 shared disclosure logic (single source; agent +
