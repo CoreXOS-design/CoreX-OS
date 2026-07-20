@@ -58,6 +58,35 @@ v1.1 was written **before** the code existed and before the 4 decisions. Three t
 10. Overview board/kanban, dashboard cards, CSV, scope switcher; per-user iCal.
 11. **Zero automated tests for the DR2 engine** — the highest-priority gap.
 
+### 2.3 Party auto-offer from the linked property — LISTING-TYPE-AWARE (AT-262/boboni fix)
+When a property is picked on the capture screen, `DealRegisterController::propertyContacts()`
+splits the property's `contact_property` links into a seller-side auto-fill and a buyer-side
+tick-list. **The split is listing-type-aware**, because the same physical party is named
+differently per type:
+
+| Listing type | Seller-side pivot roles | Buyer-side pivot roles |
+|---|---|---|
+| `sale` (and any unknown/legacy) | `seller`, `owner` | `buyer` |
+| `rental` | `landlord`, `lessor` | `tenant`, `lessee` |
+
+The membership lives in **one canonical place** — `Property::sellerSidePivotRolesForListingType()`
+/ `Property::buyerSidePivotRolesForListingType()` — sharing the role vocabulary of
+`Property::remapPivotRoleForListingType()` (the cross-type duplicate fix, §below), so the
+offer and the duplicate-remap can never drift. A `lead` (portal enquirer) is never a party
+and is excluded from both sets by omission.
+
+**Why:** the historical fixed `['seller','owner']` set was blind to a rental's `landlord`, so a
+genuine **rental deal could never pull its seller-side party through** (surfaced by Johan on the
+"651 Boboni road" property). The related root cause — a cross-type `duplicate()`/`changeType()`
+carrying the pivot role verbatim so a rental's `landlord` stayed `landlord` on the new **sale** —
+is fixed at the clone points by `Property::remapPivotRoleForListingType()` (rental
+landlord/lessor ⇄ sale seller; buyer ⇄ tenant; idempotent for same-type clones).
+
+**Verification gate:** a rental property with a linked `landlord` returns that contact in
+`sellers[]` (and a `tenant` in `buyers[]`); a sale still returns `seller`/`owner` in `sellers[]`;
+a cross-type duplicate produces a target-type-correct pivot role. Covered by
+`tests/Feature/Dr2/Dr2CaptureTest.php` + `tests/Feature/Properties/PropertyDuplicateTest.php`.
+
 ---
 
 ## 3. Locked decisions (AT-158)
