@@ -380,17 +380,32 @@ model is on an explicit `PRIVATE_TO_SELF` allowlist **with a written reason**.
 `AiConversation` is the first allowlist entry: an Assistant must **not** read the Agent's private
 Ellie conversations. Not everything the Agent can see is something the Agent meant to delegate.
 
-Data scope clamps to the Agent's:
+Data scope clamps to the Agent's, then is **hard-pinned to `own`**:
 
 ```
 getDataScope(assistant, module):
     matrixScope = assignment.scopeFor(module + '.view')   # what the Agent granted
     agentScope  = getDataScope(assignedAgent, module)     # the live ceiling
     if agentScope is null: return null
-    return clampScope(matrixScope, agentScope)            # PermissionService.php:284 — already exists
+    if matrixScope is null: return null                   # the Agent did not hand this module over
+    clamped = clampScope(matrixScope, agentScope)         # never wider than the Agent
+    return clampScope(clamped, 'own')                     # AND never wider than the Agent's OWN book
 ```
 
 `clampScope()` already implements exactly this ceiling semantic. Reuse it; do not write a second one.
+
+**The `own` hard-pin (Johan's ruling, 2026-07-20).** An Assistant is confined to the Assigned
+Agent's **own records**, *regardless of how wide the Agent's own scope is*. Even when the Agent is a
+Branch Manager or Admin whose module scope is `branch` or `all`, their Assistant sees and edits only
+the Agent's own book — never other agents' properties, contacts, or deals in that branch or agency.
+An Assistant is a proxy for **one person**, not for that person's authority over other people's
+records. Because an Assistant's `own` resolves through `dataIdentityIds()` = `[agent_id, self_id]`,
+pinning the width to `own` yields exactly the Agent's own records. The Agent's live ceiling and the
+matrix are still honoured first (they can only ever *subtract* module access → `null`); the `own`
+cap is applied last, on top of the intersection. This is stricter than "never more than the Agent"
+— it is "never more than the Agent's *own* records." Enforced at the single chokepoint
+`AssistantPermissionResolver::dataScope()`, so every `scopeVisibleTo()` and every per-record
+authorize trait (`AuthorizesPropertyAccess`, `AuthorizesDealAccess`) inherits it for free.
 
 ---
 

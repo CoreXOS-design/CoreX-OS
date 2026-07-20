@@ -94,13 +94,19 @@ class AssistantPermissionResolver
 
     /**
      * The data scope for an assistant on a module: the narrower of what the agent granted
-     * in the matrix and what the agent themselves actually has.
+     * in the matrix and what the agent themselves actually has — then HARD-PINNED to 'own'.
      *
      * Returns null (= no access at all; every scopeVisibleTo reads this as "no rows") when
      * the assistant has no live assignment, or the agent has no access to the module.
      *
      * NOTE this answers "how WIDE", not "whose". The 'own' scope for an assistant means the
      * AGENT's own — that is User::dataIdentityIds(), wired into scopeVisibleTo in Prompt D.
+     *
+     * THE 'own' HARD-PIN (Johan's ruling, 2026-07-20; spec §7.2). An assistant is confined to
+     * the assigned agent's OWN records regardless of how wide the agent's scope is — even when
+     * the agent is a branch manager or admin (branch/all), the assistant never reaches another
+     * agent's records in that branch/agency. An assistant is a proxy for ONE person, not for
+     * that person's authority over other people's records.
      */
     public static function dataScope(User $assistant, string $module): ?string
     {
@@ -131,8 +137,12 @@ class AssistantPermissionResolver
         }
 
         // clampScope() already implements exactly this ceiling semantic (own < branch < all).
-        // Reuse it — do not write a second one.
-        return PermissionService::clampScope($matrixScope, $agentScope);
+        // Reuse it — do not write a second one. First the agent's live ceiling ∩ the matrix,
+        // then the 'own' hard-pin on top: an assistant is never wider than the agent's OWN book,
+        // even when the agent's own scope is 'branch' or 'all'.
+        $clamped = PermissionService::clampScope($matrixScope, $agentScope);
+
+        return PermissionService::clampScope($clamped, 'own');
     }
 
     /** Is this key in the property-upload locked set? */

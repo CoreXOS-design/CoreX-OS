@@ -126,6 +126,43 @@ final class AssistantDealEditScopingTest extends TestCase
             ->assertForbidden();
     }
 
+    /**
+     * THE 'own' HARD-PIN (spec §7.2, Johan 2026-07-20). Even when the assigned agent's own scope
+     * is BRANCH — so the agent themselves may edit a colleague's deal in that branch — the
+     * assistant is confined to the agent's OWN book and is 403'd on the colleague's deal. The
+     * assistant is a proxy for one person, never for that person's authority over others.
+     */
+    public function test_an_assistant_is_pinned_to_own_even_when_the_agent_has_branch_scope(): void
+    {
+        // The agent is a branch-scope user on deals; the matrix hands over the full branch width.
+        $this->grantRole('deals.view', 'branch');
+        $this->grantAssistant('deals.view', 'branch');
+        foreach (['create_deals', 'deals.edit'] as $key) {
+            $this->grantRole($key);
+            $this->grantAssistant($key);
+        }
+        $this->reset();
+
+        // The AGENT themselves CAN edit agentB's deal (same branch) — proves the assistant is
+        // strictly narrower than the agent, not merely equal to them.
+        $this->actingAs($this->agentA)
+            ->get(route('admin.deals.edit', $this->dealB))
+            ->assertOk();
+
+        // The ASSISTANT is pinned to the agent's own book — 403 on agentB's deal, read and write.
+        $this->actingAs($this->assistant)
+            ->get(route('admin.deals.edit', $this->dealB))
+            ->assertForbidden();
+        $this->actingAs($this->assistant)
+            ->post(route('admin.deals.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
+            ->assertForbidden();
+
+        // ...and still serves the assistant their own agent's deal.
+        $this->actingAs($this->assistant)
+            ->get(route('admin.deals.edit', $this->dealA))
+            ->assertOk();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function makeUser(string $name, string $role, bool $isAssistant = false): User
@@ -153,7 +190,7 @@ final class AssistantDealEditScopingTest extends TestCase
 
     private function grantRole(string $key, ?string $scope = null): void
     {
-        RolePermission::firstOrCreate(
+        RolePermission::updateOrCreate(
             ['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id],
             ['scope' => $scope],
         );
