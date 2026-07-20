@@ -48,8 +48,16 @@
                 <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-direction:column;gap:.3rem;">
                     <div>
                         <label style="font-size:.66rem;color:#6b7280;display:block;">Responsible / recipient</label>
+                        {{-- Responsible-party options are a CONSTANT enum (CocWorkOrderService::responsibleLabels),
+                             identical for every COC type incl. agency-custom ones — server-rendered as real
+                             <option>s so x-model binds the correct value on init for EVERY row. A nested
+                             Alpine <template x-for> here desynced the <select> (options absent at bind time →
+                             fell back to the first option "Seller" while the model kept its real value, e.g.
+                             'supplier' → stray "Seller" beside the supplier picker). Static options = uniform. --}}
                         <select x-model="it.responsible_party" :disabled="it.status==='sent'" class="corex-input" style="width:100%;font-size:.78rem;">
-                            <template x-for="(lbl,val) in responsible" :key="val"><option :value="val" x-text="lbl"></option></template>
+                            @foreach(\App\Services\DealV2\CocWorkOrderService::responsibleLabels() as $rpVal => $rpLbl)
+                                <option value="{{ $rpVal }}">{{ $rpLbl }}</option>
+                            @endforeach
                         </select>
                     </div>
                     <div x-show="it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney'" x-cloak>
