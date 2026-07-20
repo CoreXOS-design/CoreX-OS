@@ -3416,12 +3416,41 @@ function externalSign() {
             this.webTypedSignature = '';
         },
 
+        // ESIGN-WETINK — crop a capture canvas TIGHTLY to its ink bounds so the
+        // produced PNG is just the glyph/strokes with a hair of padding, no empty
+        // frame. object-contain then fills the fixed ink block at full size for
+        // EVERY ink (typed sig, drawn sig, typed initial, drawn initial), instead
+        // of a small glyph floating in a large canvas rendering as a speck.
+        _cropCanvasToInk(srcCanvas) {
+            try {
+                const w = srcCanvas.width, h = srcCanvas.height;
+                const data = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+                let minX = w, minY = h, maxX = -1, maxY = -1;
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        if (data[(y * w + x) * 4 + 3] > 10) {
+                            if (x < minX) minX = x; if (x > maxX) maxX = x;
+                            if (y < minY) minY = y; if (y > maxY) maxY = y;
+                        }
+                    }
+                }
+                if (maxX < minX || maxY < minY) return null; // nothing drawn
+                const pad = Math.max(2, Math.round(Math.max(maxX - minX, maxY - minY) * 0.06));
+                minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+                maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+                const cw = maxX - minX + 1, chh = maxY - minY + 1;
+                const out = document.createElement('canvas');
+                out.width = cw; out.height = chh;
+                out.getContext('2d').drawImage(srcCanvas, minX, minY, cw, chh, 0, 0, cw, chh);
+                return out.toDataURL('image/png');
+            } catch (e) { return null; }
+        },
+
         applyWebSignature() {
             const canvas = this.$refs.webSigCanvas;
             let sigData;
 
             if (this.webSigMode === 'draw') {
-                sigData = canvas.toDataURL('image/png');
                 // Check if canvas is effectively blank
                 const ctx = canvas.getContext('2d');
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -3430,17 +3459,46 @@ function externalSign() {
                     this.showNotification('Please draw your signature first.', 'warning');
                     return;
                 }
+                // Crop to the drawn strokes so a small scribble fills its block too.
+                sigData = this._cropCanvasToInk(canvas) || canvas.toDataURL('image/png');
             } else {
                 if (!this.webTypedSignature.trim()) {
                     this.showNotification('Please type your name.', 'warning');
                     return;
                 }
+                // ESIGN-WETINK — draw the typed glyphs to FILL the canvas.
+                // The old fixed 32px at (20,90) left a SHORT initial ("AS") as a
+                // tiny glyph in a 400x150 canvas → when the img is scaled to 38px it
+                // became an ~8px speck (the real root cause; baked into the PNG, not
+                // fixable in CSS). The agent path (generateTypedSignature) fills its
+                // canvas — match it: measure the text and size the font so it fills
+                // ~72% of the canvas HEIGHT, shrinking only if it would exceed ~90%
+                // of the WIDTH, then centre it. A short initial fills the height; a
+                // long name shrinks to fit the width. Either way the glyph fills the
+                // frame, so at 38px it renders full-size — same as the agent.
                 const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.font = '32px "Dancing Script", cursive';
+                const cw = canvas.width, chh = canvas.height;
+                ctx.clearRect(0, 0, cw, chh);
+                const text = this.webTypedSignature.trim();
+                const family = '"Dancing Script", cursive';
+                let fontSize = Math.max(12, Math.floor(chh * 0.72));
+                ctx.font = fontSize + 'px ' + family;
+                const maxW = cw * 0.9;
+                let tw = ctx.measureText(text).width;
+                if (tw > maxW && tw > 0) {
+                    fontSize = Math.max(12, Math.floor(fontSize * (maxW / tw)));
+                    ctx.font = fontSize + 'px ' + family;
+                }
                 ctx.fillStyle = '#1e293b';
-                ctx.fillText(this.webTypedSignature, 20, 90);
-                sigData = canvas.toDataURL('image/png');
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'center';
+                ctx.fillText(text, cw / 2, chh / 2);
+                // Crop the PNG TIGHTLY to the glyph's ink bounds so there is no
+                // empty padding around a short initial. The cropped image is just
+                // the glyph → object-contain fills the initial block at full size,
+                // regardless of the pad canvas's wide aspect. This is the definitive
+                // fix (the tininess was baked into the 400x150 PNG's empty space).
+                sigData = this._cropCanvasToInk(canvas) || canvas.toDataURL('image/png');
             }
 
             const sigId = this.currentWebSigBlockId;
