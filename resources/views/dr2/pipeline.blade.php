@@ -36,8 +36,10 @@
 --}}
 <style>
 @media (min-width: 1024px) {
-    .dr2-pipe-grid { height: calc(100vh - 9.5rem); }
-    .dr2-pipe-col  { max-height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: .35rem; }
+    /* Each column is its OWN fixed-height scroll region — bulletproof regardless of
+       the grid's align-items (does not rely on stretch): scrolling one never moves
+       the other, and the page does not scroll the columns off. */
+    .dr2-pipe-col { height: calc(100vh - 9.5rem); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: .35rem; }
 }
 </style>
 <div class="corex-page">
