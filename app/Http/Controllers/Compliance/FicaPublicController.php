@@ -206,7 +206,8 @@ class FicaPublicController extends Controller
 
         $file = $request->file('file');
         $dir  = "fica/{$submission->id}";
-        $path = $file->store($dir, 'local');
+        // AT-173 — encrypt on write (private disk) via the FICA storage seam.
+        $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, $dir);
 
         $doc = FicaDocument::create([
             'fica_submission_id' => $submission->id,

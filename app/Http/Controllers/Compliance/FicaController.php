@@ -798,7 +798,8 @@ class FicaController extends Controller
             if (! $type) {
                 continue;
             }
-            $path = $file->store("fica/{$submission->id}", 'public');
+            // AT-173 — encrypt on write to the PRIVATE disk (was the public disk).
+            $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, "fica/{$submission->id}");
 
             $doc = FicaDocument::create([
                 'fica_submission_id' => $submission->id,
@@ -857,6 +858,20 @@ class FicaController extends Controller
         ]);
 
         return back()->with('success', 'Document removed (archived — an admin can recover it).');
+    }
+
+    /**
+     * AT-173 — stream a FICA document decrypted, through PHP (never a direct disk
+     * URL). Gated by the route (access_compliance + agency.required), the agency
+     * authorisation, and the document-belongs-to-submission check. Reads legacy
+     * plaintext / public-disk files transparently during migration.
+     */
+    public function viewDocument(Request $request, FicaSubmission $submission, FicaDocument $document)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless((int) $document->fica_submission_id === (int) $submission->id, 404);
+
+        return app(\App\Services\Compliance\FicaDocumentStorage::class)->stream($document);
     }
 
     /**
