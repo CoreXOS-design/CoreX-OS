@@ -508,7 +508,15 @@
                                  Positioned with absolute % values relative to the paginated container.
                                  Container width locked to 210mm (A4) to match setup coordinate system. --}}
                             <template x-for="marker in markers" :key="'wm-' + marker.id">
-                                <div x-show="!hasFlattened || (marker.is_mine && !marker.signed)"
+                                {{-- ESIGN-WETINK BUG6 — the empty emerald "green rectangles": the OTHER-party
+                                     marker overlay's INNER content is x-if="false" (AT-300), but this OUTER
+                                     positioned box still rendered for every marker (the old x-show fired on
+                                     !hasFlattened for web templates), leaving an empty markerDisplayClasses
+                                     box (emerald border) floating above the letterhead. Recipients + the agent
+                                     only ever need their OWN markers here (prior parties' ink is baked into the
+                                     canonical body), so render the positioned box ONLY when marker.is_mine.
+                                     Other parties' markers never get a box → no green rectangles. --}}
+                                <div x-show="marker.is_mine"
                                      class="absolute flex items-center justify-center select-none transition-all duration-200"
                                      :id="'marker-' + marker.id"
                                      :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:40px;max-width:200px;z-index:10;`"
@@ -2103,13 +2111,29 @@ function externalSign() {
                         }
                         input.setAttribute('data-viewer-editable', '1');
                         input.className = span.className + ' field-editable';
+                        input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
+                        // ESIGN-WETINK BUG2 — recipient-editable inputs GROW to their
+                        // content. A bare <input type="text"> has a fixed default
+                        // width, so a long value ("Home Finders Coastal, shop 5, The
+                        // emporium, …") was visually CLIPPED even though the full
+                        // value is present. Auto-size via the `size` attribute (in
+                        // characters), floored so short fields still look like a field,
+                        // capped by max-width:100% so it never overflows the A4 column,
+                        // and re-sized on every keystroke so it grows as the user types.
+                        // Class-level fix for EVERY recipient-editable field.
+                        const autoSize = (el) => {
+                            const v = (el.value || '');
+                            const ph = (el.placeholder || '');
+                            el.size = Math.max(v.length, ph.length, 12) + 1;
+                        };
                         input.style.cssText = span.style.cssText +
                             'background:rgba(251,191,36,0.08);' +
                             'border:none;border-bottom:2px solid rgba(251,191,36,0.6);' +
                             'outline:none;font:inherit;color:inherit;' +
-                            'padding:0 2pt;';
-                        input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
+                            'padding:0 2pt;max-width:100%;box-sizing:border-box;';
+                        autoSize(input);
                         input.addEventListener('input', () => {
+                            autoSize(input);
                             this.webFieldsDirty = true;
                             // B3 — keep the items-remaining counter live.
                             this.updateIncompleteCount();

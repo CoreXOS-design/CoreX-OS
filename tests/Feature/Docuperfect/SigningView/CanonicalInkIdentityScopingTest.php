@@ -123,6 +123,38 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         $this->assertStringContainsString($sig2, $baked2, "seller_2's ink now present too");
     }
 
+    public function test_bakeInk_matches_markers_by_data_name_no_bleed(): void
+    {
+        // The real doc-431/EATS shape: signature markers live in a shared
+        // signature table, NOT inside cloned role-blocks, so they carry NO
+        // data-recipient-identity — but they ARE bound to each person by
+        // data-name. bakeInk must fill a signer's own name-bound markers (even
+        // as a NON-sole seller) and never another person's. This is the fix for
+        // "agent review / next party shows NO recipient ink".
+        $html =
+            '<div class="sig-table">'
+          . '<span data-marker-party="seller" data-marker-type="signature" data-name="Anine Van der Westhuizen">x</span>'
+          . '<span data-marker-party="seller_2" data-marker-type="signature" data-name="Andre Roets">x</span>'
+          . '<span data-marker-party="agent" data-marker-type="signature" data-name="Johan Reichel">x</span>'
+          . '</div>';
+
+        $anine = $this->seller(1, 'Anine Van der Westhuizen');
+        $sig = 'data:image/png;base64,QU5JTkU=';
+        // NON-sole (2 sellers) — party fallback disabled; only data-name saves it.
+        $baked = app(CanonicalInkComposer::class)->bakeInk($html, $anine, ['seller-sig-0' => $sig], [], [], false);
+
+        $this->assertSame(1, substr_count($baked, 'corex-ink--signature'), 'exactly one marker inked — only Anine\'s name-bound marker');
+        $this->assertStringContainsString('Signed by Anine Van der Westhuizen', $baked);
+        // Andre's + Johan's markers must remain untouched.
+        $this->assertStringContainsString('data-name="Andre Roets">x</span>', $baked, "Andre's marker not filled by Anine");
+        $this->assertStringContainsString('data-name="Johan Reichel">x</span>', $baked, "Johan's marker not filled by Anine");
+
+        // Case-insensitive / whitespace-tolerant name match.
+        $andre = $this->seller(2, '  andre   roets ');
+        $baked2 = app(CanonicalInkComposer::class)->bakeInk($baked, $andre, ['seller-sig-0' => 'data:image/png;base64,QU5EUkU='], [], [], false);
+        $this->assertSame(2, substr_count($baked2, 'corex-ink--signature'), 'Andre now inked too (2 total) via normalized name match');
+    }
+
     public function test_bakeInk_sole_of_role_fills_unstamped_marker(): void
     {
         // An agent signature marker OUTSIDE any role-block carries no identity.

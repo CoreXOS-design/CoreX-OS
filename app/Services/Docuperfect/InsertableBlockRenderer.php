@@ -36,6 +36,41 @@ final class InsertableBlockRenderer
     public const CONTEXT_PDF_RENDER           = 'pdf_render';
 
     /**
+     * ESIGN-WETINK BUG1 — make the other-conditions block RECIPIENT-FILLABLE on
+     * the served canonical.
+     *
+     * The canonical artifact is composed viewer-agnostic (CONTEXT_AGENT_PREPARATION,
+     * signingToken=null), so its "+ Add condition" button carries no
+     * `data-signing-token` — the recipient's add-condition modal has no token to
+     * POST to `sign/{token}/conditions`, so the block renders but is not fillable.
+     * Rather than recompose the whole document per viewer (which would break the
+     * one-artifact rule), this stamps the CURRENT signer's token onto every
+     * add-condition button at display time — a per-viewer affordance overlay,
+     * exactly like the editability overlay. The document body is otherwise
+     * untouched, so the canonical stays byte-identical across surfaces.
+     *
+     * Idempotent and safe: only buttons that carry the btn-add-condition class
+     * are touched; an existing token is replaced with the viewer's own.
+     */
+    public function stampConditionSigningToken(string $documentHtml, string $token): string
+    {
+        if ($documentHtml === '' || $token === '' || ! str_contains($documentHtml, 'btn-add-condition')) {
+            return $documentHtml;
+        }
+        $safe = htmlspecialchars($token, ENT_QUOTES);
+        // Drop any existing data-signing-token on add-condition buttons, then
+        // inject the viewer's. Operates on the button's opening tag only.
+        return (string) preg_replace_callback(
+            '/<button\b[^>]*\bclass="[^"]*\bbtn-add-condition\b[^"]*"[^>]*>/i',
+            function (array $m) use ($safe): string {
+                $tag = preg_replace('/\s*data-signing-token="[^"]*"/i', '', $m[0]);
+                return substr($tag, 0, -1) . ' data-signing-token="' . $safe . '">';
+            },
+            $documentHtml,
+        );
+    }
+
+    /**
      * Replace every `~~~~MARKER~~~~` in $documentHtml with a styled block
      * rendered for the requested context.
      *
