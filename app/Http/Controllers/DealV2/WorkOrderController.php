@@ -395,9 +395,20 @@ class WorkOrderController extends Controller
     {
         return AgencyServiceProvider::query()
             ->where('is_active', true)
-            ->with(['serviceContacts' => fn ($q) => $q->where('is_active', true)])
+            ->with([
+                'serviceContacts' => fn ($q) => $q->where('is_active', true),
+                'serviceTypes', // AT-319 — the type codes this supplier handles (drives the picker filter)
+            ])
             ->orderByDesc('is_preferred')->orderBy('name')
-            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred']);
+            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred'])
+            ->map(function ($p) {
+                // AT-319 — expose `types` (AgencyServiceType codes) so the work-order panel can filter
+                // the supplier dropdown by the row's required type. `specialty` is kept for attorney rows.
+                $p->setAttribute('types', $p->serviceTypes->pluck('service_type')->unique()->values()->all());
+                $p->unsetRelation('serviceTypes');
+
+                return $p;
+            });
     }
 
     /**

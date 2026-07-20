@@ -3,6 +3,8 @@
 
 {{-- WS2 (AT-158 / DR2, D2) — reusable agency supplier directory settings. --}}
 @section('corex-content')
+{{-- AT-319 — code→label map for the active service types (badges fall back to the code if archived). --}}
+@php($typeLabels = $serviceTypes->pluck('label', 'code'))
 <div class="w-full space-y-5" x-data="{ showAdd: false }">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
@@ -88,6 +90,20 @@
                     Preferred for this specialty
                 </label>
             </div>
+            {{-- AT-319 — a supplier can handle MORE THAN ONE service type. Multi-select of the
+                 agency's configurable COC/service list (Settings → COC / Service Types). The
+                 work-order panel filters its supplier picker by these. --}}
+            <div class="md:col-span-3">
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Service types <span class="text-[11px]" style="color: var(--text-muted);">(the COCs / services this supplier handles — filters the work-order picker)</span></label>
+                @forelse($serviceTypes as $t)
+                    <label class="inline-flex items-center gap-1.5 text-sm mr-4 mb-1" style="color: var(--text-secondary);">
+                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" style="accent-color: var(--brand-button, #0ea5e9);">
+                        {{ $t->label }}
+                    </label>
+                @empty
+                    <div class="text-xs" style="color: var(--text-muted);">No service types configured yet — add them under Settings → COC / Service Types.</div>
+                @endforelse
+            </div>
             <div class="md:col-span-3 flex items-center gap-2">
                 <button type="submit" class="corex-btn-primary text-sm">Save to directory</button>
                 <button type="button" @click="showAdd = false" class="corex-btn-outline text-sm">Cancel</button>
@@ -115,6 +131,14 @@
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
                                 @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
+                                {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
+                                @if($p->serviceTypes->isNotEmpty())
+                                    <div class="mt-1 flex flex-wrap gap-1">
+                                        @foreach($p->serviceTypes as $st)
+                                            <span class="ds-badge ds-badge-default text-[10px]">{{ $typeLabels[$st->service_type] ?? $st->service_type }}</span>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $p->specialty)) }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
@@ -143,6 +167,38 @@
                         @if($p->is_active)
                         <tr style="background: var(--surface-2, #f8fafc);">
                             <td colspan="5" class="px-4 py-3">
+                                {{-- AT-319 — edit this supplier's service types (the "edit" for types). Un-tick + Save
+                                     soft-deletes; archived-but-still-tagged types stay checked so a Save never
+                                     silently drops them (marked "archived"). --}}
+                                @php($ownCodes = $p->typeCodes())
+                                @php($archivedOwn = array_values(array_diff($ownCodes, $serviceTypes->pluck('code')->all())))
+                                <div class="mb-4">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Service types</div>
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.types', $p) }}">
+                                        @csrf
+                                        <div class="flex flex-wrap gap-x-4 gap-y-1 mb-2">
+                                            @forelse($serviceTypes as $t)
+                                                <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                                    <input type="checkbox" name="service_types[]" value="{{ $t->code }}"
+                                                           @checked(in_array($t->code, $ownCodes, true))
+                                                           style="accent-color: var(--brand-button, #0ea5e9);">
+                                                    {{ $t->label }}
+                                                </label>
+                                            @empty
+                                                <span class="text-xs" style="color: var(--text-muted);">No service types configured — add them under Settings → COC / Service Types.</span>
+                                            @endforelse
+                                            @foreach($archivedOwn as $code)
+                                                <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-muted);">
+                                                    <input type="checkbox" name="service_types[]" value="{{ $code }}" checked style="accent-color: var(--brand-button, #0ea5e9);">
+                                                    {{ $code }} <span class="text-[10px]">(archived)</span>
+                                                </label>
+                                            @endforeach
+                                        </div>
+                                        @if($serviceTypes->isNotEmpty() || !empty($archivedOwn))
+                                            <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">Save types</button>
+                                        @endif
+                                    </form>
+                                </div>
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)
                                     <div class="flex items-center justify-between py-1 text-xs" style="color: var(--text-secondary);">

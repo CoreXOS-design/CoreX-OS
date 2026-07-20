@@ -5,6 +5,8 @@ namespace App\Http\Controllers\DealV2;
 use App\Http\Controllers\Controller;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\AgencyServiceProviderContact;
+use App\Models\DealV2\AgencyServiceProviderServiceType;
+use App\Models\DealV2\AgencyServiceType;
 use App\Models\DealV2\DealV2;
 use App\Services\DealV2\AgencyServiceProviderService;
 use Illuminate\Http\JsonResponse;
@@ -35,22 +37,47 @@ class SupplierDirectoryController extends Controller
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
         $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->with(['serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name')])
+            ->with([
+                'serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name'),
+                'serviceTypes',
+            ])
             ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
             ->get();
+
+        // AT-319 — the agency's active, configurable service types drive the multi-select.
+        $serviceTypes = AgencyServiceType::query()->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('is_active', true)
+            ->orderBy('sort_order')->orderBy('id')->get(['code', 'label']);
 
         return view('deals-v2.suppliers.index', [
             'providers' => $providers,
             'specialties' => self::SPECIALTIES,
+            'serviceTypes' => $serviceTypes,
         ]);
     }
 
     public function store(Request $request)
     {
         $data = $this->validated($request);
-        $this->service->findOrCreate((int) $request->user()?->effectiveAgencyId(), $data, $request->user()->id);
+        $agencyId = (int) $request->user()?->effectiveAgencyId();
+        $provider = $this->service->findOrCreate($agencyId, $data, $request->user()->id);
+        // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
+        $this->syncServiceTypes($provider, $this->postedTypeCodes($request, $agencyId));
 
         return back()->with('success', 'Provider saved to the directory.');
+    }
+
+    /**
+     * AT-319 — the "edit" for a supplier's types: re-sync the multi-select. Dedicated route
+     * (same idiom as preferred/deactivate) so it never trips update()'s required-field rules.
+     * Un-ticked types are soft-deleted (restore-or-create on re-add); an empty set is valid.
+     */
+    public function syncTypes(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $this->syncServiceTypes($provider, $this->postedTypeCodes($request, (int) $provider->agency_id));
+
+        return back()->with('success', "Updated the service types for {$provider->name}.");
     }
 
     public function update(Request $request, AgencyServiceProvider $provider)
@@ -125,6 +152,53 @@ class SupplierDirectoryController extends Controller
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',
         ]);
+    }
+
+    /**
+     * AT-319 — the posted service_types, kept only where they are a REAL active AgencyServiceType
+     * code for this agency (the checkboxes only offer valid codes; anything else is absorbed/dropped,
+     * never a 500). Optional: an empty/absent set is a legitimate types-less supplier.
+     */
+    private function postedTypeCodes(Request $request, int $agencyId): array
+    {
+        $posted = array_filter(array_map('strval', (array) $request->input('service_types', [])), fn ($c) => $c !== '');
+        if (empty($posted)) {
+            return [];
+        }
+        $valid = AgencyServiceType::query()->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('is_active', true)->pluck('code')->all();
+
+        return array_values(array_unique(array_intersect($posted, $valid)));
+    }
+
+    /**
+     * AT-319 — reconcile a supplier's type rows to $codes: soft-delete de-selected ones, restore or
+     * create the selected ones (no hard deletes, no duplicates). Agency-scoped, idempotent.
+     */
+    private function syncServiceTypes(AgencyServiceProvider $provider, array $codes): void
+    {
+        $existing = AgencyServiceProviderServiceType::query()->withTrashed()->withoutGlobalScopes()
+            ->where('service_provider_id', $provider->id)->get();
+
+        foreach ($existing as $row) {
+            if (! in_array($row->service_type, $codes, true) && ! $row->trashed()) {
+                $row->delete(); // de-selected → soft-delete (history preserved)
+            }
+        }
+        foreach ($codes as $code) {
+            $row = $existing->firstWhere('service_type', $code);
+            if ($row) {
+                if ($row->trashed()) {
+                    $row->restore();
+                }
+            } else {
+                AgencyServiceProviderServiceType::query()->withoutGlobalScopes()->create([
+                    'agency_id'           => (int) $provider->agency_id,
+                    'service_provider_id' => $provider->id,
+                    'service_type'        => $code,
+                ]);
+            }
+        }
     }
 
     /**

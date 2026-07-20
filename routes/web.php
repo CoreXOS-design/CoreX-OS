@@ -817,6 +817,8 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::post('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'store'])->name('deals-v2.suppliers.store')->middleware('permission:deals_v2.manage_suppliers');
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
+    // AT-319 — re-sync a supplier's multi-select service types (the "edit" for types).
+    Route::post('/{provider}/types', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'syncTypes'])->name('deals-v2.suppliers.types')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');

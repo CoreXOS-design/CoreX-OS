@@ -10,6 +10,19 @@
      x-data="{
         loading:true, busy:false, err:'', msg:'',
         items:[], responsible:{}, suppliers:[],
+        {{-- AT-319 — filter the supplier picker by the row's required type. Supplier rows match on
+             the COC service-type code (it.code) against the supplier's types; attorney rows match on
+             the legacy specialty. Prevent-or-absorb: zero matches → show ALL + a hint, never a dead
+             dropdown; an untagged supplier is reachable via the fallback or by tagging it. --}}
+        attorneySpecialties: ['transfer_attorney','conveyancer','bond_attorney'],
+        matchingSuppliers(it){
+            if(it.responsible_party==='transfer_attorney'){
+                return this.suppliers.filter(s => this.attorneySpecialties.includes(s.specialty));
+            }
+            return this.suppliers.filter(s => Array.isArray(s.types) && s.types.includes(it.code));
+        },
+        suppliersFor(it){ const m=this.matchingSuppliers(it); return m.length ? m : this.suppliers; },
+        isSupplierFallback(it){ return this.suppliers.length>0 && this.matchingSuppliers(it).length===0; },
         async load(){
             this.loading=true; this.err='';
             try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.panel', $deal) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
@@ -64,8 +77,9 @@
                         <label style="font-size:.66rem;color:#6b7280;display:block;">Supplier</label>
                         <select x-model="it.service_provider_id" :disabled="it.status==='sent'" class="corex-input" style="width:100%;font-size:.78rem;">
                             <option value="">— pick supplier —</option>
-                            <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                            <template x-for="s in suppliersFor(it)" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
                         </select>
+                        <span x-show="isSupplierFallback(it)" x-cloak style="font-size:.66rem;color:#b45309;display:block;margin-top:.15rem;">No supplier of this type — showing all. Add one in the Supplier Directory.</span>
                     </div>
                     <div style="font-size:.66rem;color:#6b7280;">
                         <span x-show="it.status==='sent'" x-cloak>→ <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-cloak x-text="' (cc ' + it.cc_emails + ')'"></span></span>

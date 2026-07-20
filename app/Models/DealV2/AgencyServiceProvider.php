@@ -45,6 +45,22 @@ class AgencyServiceProvider extends Model
         return $this->hasMany(AgencyServiceProviderContact::class, 'service_provider_id')->orderBy('attorney_name');
     }
 
+    /**
+     * AT-319 — the agency-configurable service types this supplier provides (a supplier
+     * can be more than one). `service_type` is the AgencyServiceType code; soft-deleted
+     * so un-ticking preserves history. The work-order panel filters the picker by these.
+     */
+    public function serviceTypes()
+    {
+        return $this->hasMany(AgencyServiceProviderServiceType::class, 'service_provider_id');
+    }
+
+    /** The active (non-trashed) service-type codes this supplier provides. */
+    public function typeCodes(): array
+    {
+        return $this->serviceTypes->pluck('service_type')->unique()->values()->all();
+    }
+
     protected $casts = [
         'is_preferred' => 'boolean',
         'is_active' => 'boolean',

@@ -465,3 +465,83 @@ Rendered the real panel partial: nested `x-for="(lbl,val) in responsible"` **gon
 transfer_attorney) present at DOM-parse time. It is ONE `<select>` template inside the `x-for` item loop,
 so Beetle, Electrical, and any agency-custom COC render the **identical** control — no stray "Seller"
 beside a supplier picker. Supplier `<select>` (AT-319) confirmed untouched.
+
+## 21. AT-319 — Supplier multi-type directory + type-filtered work-order dropdown
+
+Two coupled gaps, on Johan's/conductor's approved design:
+1. A supplier can be **more than one type** — the directory must capture a **multi-select** of types.
+2. The work-order panel supplier `<select>` (`_supplier-work-orders.blade.php`, `x-for="s in suppliers"`)
+   must **filter by the required type** so only relevant suppliers show.
+
+### 21.1 Vocabulary decision (Option A) — the agency-configurable AgencyServiceType list
+Supplier types are tied to the **agency-configurable `AgencyServiceType` list** (§16), NOT a hardcoded
+enum — matching Non-negotiable "agency-configurable, never hardcoded". The work-order row's required
+type is already an `AgencyServiceType` **code** (`it.code`, e.g. `COC`/`Beetle`/`Gas` + agency-custom),
+so filtering is a direct `supplier.types ∋ row.code` check — custom types included.
+
+**The legacy single `specialty` enum stays UNTOUCHED** (`agency_service_providers.specialty`): the
+attorney/bond party-pickers, `createInline` dedup, `DealDistributionService`, and `CocRequestGenerator`
+all still use it. AT-319 **adds** the multi-select alongside; it does not retire or merge `specialty`.
+
+### 21.2 Data model
+New pivot `agency_service_provider_service_types`: `id · agency_id · service_provider_id (FK
+agency_service_providers, cascadeOnDelete) · service_type (string 40 = the AgencyServiceType code) ·
+timestamps · softDeletes`. Indexes `(agency_id, service_type)` (the filter) + `(service_provider_id)`.
+`App\Models\DealV2\AgencyServiceProviderServiceType` (BelongsToAgency + SoftDeletes).
+`AgencyServiceProvider::serviceTypes()` hasMany + `typeCodes()` (active, non-trashed codes).
+
+**Backfill (migration, idempotent, per agency):** map each existing supplier's legacy `specialty` to the
+matching **default** AgencyServiceType code when that code still exists for the agency —
+electrician→`COC`, entomologist→`Beetle`, plumber→`Plumbing`, gas→`Gas`, electric_fence→`Electric Fence`.
+Attorney/bond/conveyancer/other specialties map to no COC type (they're identified by `specialty`). So
+the filter is useful day-one and no supplier starts silently type-less where a mapping is obvious. Pure
+per-agency data → NO `deploy:sync-reference-data` entry needed (mirrors §16).
+
+### 21.3 Directory CRUD (the "edit" for types)
+The directory index (`deals-v2/suppliers/index.blade.php`) has an **Add form + per-row action routes**
+(preferred/deactivate/contacts), no full edit form — types follow that idiom:
+- **Create:** a multi-select checkbox group of the agency's active `AgencyServiceType`s on the Add form;
+  `store()` syncs the pivot.
+- **Read:** a "Types" display (labels) per supplier row.
+- **Update:** a per-row inline types editor (checkboxes + Save) → **new dedicated route**
+  `POST deals-v2/suppliers/{provider}/types` → `SupplierDirectoryController::syncTypes` (avoids reworking
+  `update()`'s required-field validation; same idiom as `preferred`/`deactivate`). Gated on the existing
+  `deals_v2.manage_suppliers` — **no new permission key**.
+- **"Delete" a type:** untick + Save → the pivot row is **soft-deleted** (restore-or-create on re-add).
+  No hard deletes. Supplier soft-delete (deactivate) unchanged.
+
+`syncServiceTypes(provider, codes[])` validates each code against the agency's active AgencyServiceType
+set, soft-deletes removed rows, restores/creates present ones. Empty array = valid (a types-less
+supplier), never a 500.
+
+### 21.4 Type-filtered dropdown (prevent-or-absorb)
+`WorkOrderController::supplierPayload()` adds `types: [codes]` per supplier (keeps `specialty`).
+`_supplier-work-orders.blade.php` filters the supplier `<select>`:
+- **supplier rows** (`responsible_party==='supplier'`) → suppliers whose `types` include the row's
+  `it.code`.
+- **attorney rows** (`responsible_party==='transfer_attorney'`) → suppliers whose legacy `specialty` is
+  in the attorney set `{transfer_attorney, conveyancer, bond_attorney}` (consistent filtering across the
+  board, per decision 4).
+- **Fallback (never a dead dropdown):** if zero suppliers match, show **ALL** suppliers plus a clear hint
+  "no supplier of this type — add one". A supplier that is simply untagged is reachable by tagging it in
+  the directory, or via the zero-match fallback — nothing is hidden without a path.
+
+### 21.5 Standards
+- **Nav/permission:** reuse the existing "Supplier Directory" sidebar link + `deals_v2.manage_suppliers`
+  — no new keys, no new nav.
+- **§10a Setup Wizard — deliberately N/A (reasoned exclusion):** the multi-select is **per-supplier
+  directory data**, not an agency-wide setting/toggle. It is not surfaced in the onboarding wizard, the
+  same call as the Supplier Directory itself and §16's per-type list. Recorded here per §10a step 3.
+- **Robustness:** full CRUD on types; a types-less supplier never 500s (empty valid + dropdown fallback);
+  soft-delete respected on both supplier and type rows; dropdown never hides a needed supplier without a
+  path to it.
+
+### 21.6 Files
+- Migration: `…_create_agency_service_provider_service_types_table.php` (+ backfill) · `schema:dump`.
+- Model: `app/Models/DealV2/AgencyServiceProviderServiceType.php`; `AgencyServiceProvider` +serviceTypes()/typeCodes().
+- `app/Http/Controllers/DealV2/SupplierDirectoryController.php` (+index data, +store sync, +syncTypes).
+- `routes/web.php` (+`/{provider}/types`).
+- `resources/views/deals-v2/suppliers/index.blade.php` (Add-form multi-select, Types column, inline editor).
+- `app/Http/Controllers/DealV2/WorkOrderController.php` `supplierPayload()` (+types).
+- `resources/views/dr2/_supplier-work-orders.blade.php` (filter + fallback hint).
+- Test: `tests/Feature/DealV2/SupplierServiceTypesTest.php`.
