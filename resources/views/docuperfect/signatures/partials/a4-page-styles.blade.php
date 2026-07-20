@@ -88,30 +88,40 @@
    ceremony, agent-review, print. Legal: a signature that renders tiny disappears on
    print/scan — a filled block never does. */
 
-/* — SIGNATURE BLOCK (the fixed container) — */
+/* ═══ ESIGN-WETINK — UNIFORM, REALISTIC ink sizing ═══
+   Every party's ink renders at the SAME HEIGHT. The prior "img 100% + object-fit
+   contain in a fixed 200x54 box" made a LONG name fit-to-width → come out shorter
+   than a SHORT name (the "different sizes per signatory" bug), and filled the block
+   edge-to-edge (oversized). Instead ink is sized by a FIXED HEIGHT (~65-70% of the
+   line, with padding) and its width follows the tight-cropped glyph's aspect — so
+   EVERY signatory's signature is the same height, EVERY initial is the same height,
+   and both look like a real mark in the box, not bursting it. */
+
+/* signature LINE — accommodates the mark on one line; does NOT clip a wider name. */
 [data-marker-type="signature"],
 .web-sig-interactive[data-marker-type="signature"],
 .sig-inline-line,
 .sig-cell-line {
     display: inline-block !important;
-    width: 200px !important;
-    max-width: 200px !important;
-    height: 54px !important;
-    max-height: 54px !important;
-    overflow: hidden !important;
+    min-width: 120px !important;
+    min-height: 42px !important;
+    overflow: visible !important;
     vertical-align: bottom !important;
-    line-height: 0 !important;
+    white-space: nowrap !important;
+    text-align: center !important;
 }
-/* — INITIAL BLOCK — */
-[data-marker-type="initial"] {
-    display: inline-block !important;
+/* initial BOX — fixed, centred. */
+[data-marker-type="initial"],
+.corex-page-initials {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     width: 84px !important;
     max-width: 84px !important;
     height: 40px !important;
     max-height: 40px !important;
     overflow: hidden !important;
     vertical-align: bottom !important;
-    line-height: 0 !important;
 }
 /* — TYPED-INITIAL / placeholder TEXT fills the initial block (kill the 9px speck) —
    A page-break initial box (.corex-page-initials, [data-marker-type=initial]) that
@@ -143,28 +153,48 @@
     overflow: hidden !important;
 }
 
-/* — INK IMAGE fills its block, scaled, centered, never overflowing — */
-/* Scoped to imgs INSIDE a sized block (never a bare img[src^=data:] whose parent has
-   no fixed size — that would collapse or explode it). */
+/* — SIGNATURE INK — ONE height for EVERY signatory (~67% of the 54px line). Width
+   follows the tight-cropped glyph (long name = wider, not shorter). Capped generously
+   so an extreme name can't run away; that cap is the only case height can dip. — */
 [data-marker-type="signature"] img,
-[data-marker-type="initial"] img,
 .sig-inline-line img,
 .sig-cell-line img,
-[data-marker-type] img.web-sig-signed-img,
-[data-marker-type] img.corex-ink {
-    width: 100% !important;
-    height: 100% !important;
-    max-width: 100% !important;
-    max-height: 100% !important;
+[data-marker-type="signature"] img.web-sig-signed-img,
+[data-marker-type="signature"] img.corex-ink,
+img.corex-ink--signature {
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    width: auto !important;
     min-width: 0 !important;
-    min-height: 0 !important;
+    max-width: 240px !important;
     object-fit: contain !important;
     object-position: center !important;
-    display: block !important;
-    margin: 0 !important;
+    display: inline-block !important;
+    vertical-align: bottom !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     transform: none !important;
-    box-sizing: border-box !important;
+    box-sizing: content-box !important;
+}
+/* — INITIAL INK — ONE height for EVERY party (~65% of the 40px box). — */
+[data-marker-type="initial"] img,
+.corex-page-initials img,
+img.corex-ink--initial {
+    height: 26px !important;
+    min-height: 26px !important;
+    max-height: 26px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 76px !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    transform: none !important;
+    box-sizing: content-box !important;
 }
 </style>
 <script>
