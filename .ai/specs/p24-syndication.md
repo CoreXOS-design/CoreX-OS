@@ -378,3 +378,86 @@ after every deploy. That is exactly why the agent id lives in the **users table*
    a wall).
 3. **Gate** — `scripts/dev-check.ps1` §7 fails any change to the portal sync files that
    lands without a test diff in `tests/Feature/Syndication/`.
+
+---
+
+# AT-68 — Expired mandate → pull the property off the portals (status-driven kill-switch)
+
+> Johan's ruling, 2026-07-20. **Applies to BOTH portals** (Property24 AND Private
+> Property) and the agency website(s). The agency must NEVER advertise a listing whose
+> mandate has expired — PPRA / Property Practitioners Act 22 of 2019. This section is the
+> governing contract; where code disagrees, code is the defect.
+
+## The rule in plain terms
+
+**Property status is the driver. CoreX owns property status.**
+
+- **PULL-DOWN is AUTOMATIC and status-driven.** If a listing is syndicated AND its mandate
+  `expiry_date` is **before the current date**, it is EXPIRED and must be OFF the portals.
+  If `expiry_date >= current date` it MAY be live (only if the agent syndicated it).
+  When the mandate expires, CoreX status becomes `expired`, and that status change fires a
+  portal resync that REMOVES the stock.
+- **Timing: MIDNIGHT.** Withdrawal happens at (or after) the first midnight once the mandate
+  has expired — the end of the contractual obligation. **NO grace period** — not an hour,
+  not a day. There is deliberately **no configurable grace setting**; a grace window would
+  mean advertising without a mandate, which is the exact legal exposure this closes.
+- **RE-LIST is the AGENT'S task, NOT automatic.** "Renewal" = the agent extends `expiry_date`
+  into the future and saves. On that save, if the property WAS expired and the date was
+  changed to a future date, CoreX **reminds the agent to syndicate** — it does NOT auto-relist.
+  Pulling down is automatic; putting a listing back on the portals stays the agent's decision.
+
+## Audit-truth (non-negotiable — P24/PP lie)
+
+Both portals ACK `"success"` while doing nothing (P24: HTTP 200 while rejecting — AT-221;
+PP: `"Successful"` while the status is unchanged — AT-68 PP parity probe). **A withdrawal is
+recorded as done ONLY after a READ-BACK confirms the listing is actually OFF the portal.**
+Never write `deactivated` / log a removal that did not occur.
+
+- **P24:** after `setListingStatus(…, 'Withdrawn')` acks success, call
+  `Property24ApiClient::isOnPortal()`. Record `p24_syndication_status = deactivated` (and
+  return success) ONLY when read-back says OFF-portal. Still on portal, or read-back
+  inconclusive/unreachable → do NOT record removal; return a retryable failure so the queued
+  job (`DesyndicatePropertyFromPortalsJob`, 3 tries) retries. Transient-failure handling on
+  the withdraw ack itself is unchanged (leave live, mark retryable — AT-P24 #5).
+- **PP:** after `deactivateListing()` acks, call `getListingStatus()`. OFF = status ∈
+  {`Inactive`, `Archived`} or listing not found. Still an active status (`ForSale`, `ToLet`,
+  `PendingOffer`, `Sold`) or read-back inconclusive → do NOT record removal; retryable.
+- **Website:** the public feed joins on `enabled = true`; disabling the pivot is
+  self-verifying (the feed cannot serve a disabled row), so no external read-back applies.
+
+## What is already built (reused, not rebuilt) — investigation `.ai/investigations/AT-68-expired-mandate-portal-withdraw.md`
+
+- Detector `ExpireMandates` (`mandates:expire`): scans `properties.expiry_date < today` (status
+  not already expired/sold/withdrawn), sets `status='expired'`, fires `MandateExpired`.
+- Listener `DesyndicateExpiredMandate` → `DesyndicatePropertyFromPortalsJob` → P24 + PP + website
+  `deactivateListing`. Failure-isolated, idempotent, 3 tries + backoff.
+- The SAME job is the manual off-market withdraw path (`PropertyObserver` on any off-market
+  status change) — auto-withdraw and manual-withdraw share one proven path.
+
+## What AT-68 adds/changes
+
+1. **Timing → midnight.** `routes/console.php` schedules `mandates:expire` at `00:00`
+   (was `01:00` — an hour of unlawful advertising). `onOneServer` + `withoutOverlapping` kept.
+2. **Read-back audit-truth** in `Property24SyndicationService::deactivateListing()` and
+   `PrivatePropertySyndicationService::deactivateListing()` — per the audit-truth rule above.
+3. **Renewal reminder.** `PropertyObserver`: on save, when the ORIGINAL status was `expired`
+   AND `expiry_date` changed to a value `>= today`, send the listing agent an in-app
+   `MandateNeedsResyndicationNotification`. No auto-relist, no portal call. Delivered directly
+   (database channel) so it always reaches the bell and needs no queue worker.
+
+## Deliberately NOT in the Setup Wizard
+
+There is **no new agency setting** (Johan: no grace window — the threshold is the law, not a
+preference). So there is nothing to surface in the Agency Onboarding Setup Wizard for AT-68.
+Recorded here per CLAUDE.md Non-negotiable #10a.
+
+## Verification split (QA1 vs Staging)
+
+- **Provable on QA1 (outbound neutralised):** the WIRING (expiry → status → event → listener →
+  job dispatch), the read-back GATE logic (client mocked: still-on-portal ⇒ no removal recorded;
+  off-portal ⇒ removal recorded), and the renewal reminder (notification created; no reactivate
+  call). Tests live in `tests/Feature/Syndication/`.
+- **Staging-only (real P24/PP credentials, queue worker):** that a real `Withdrawn` push actually
+  removes the listing; that `isOnPortal` / `getListingStatus` read-back returns portal truth; and
+  that the queued `DesyndicatePropertyFromPortalsJob` runs end-to-end. QA1 is web-only (no worker)
+  and outbound-neutralised, so these cannot be proven there. Johan gates Staging.
