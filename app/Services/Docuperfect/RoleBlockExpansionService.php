@@ -429,6 +429,19 @@ final class RoleBlockExpansionService
             );
         }
 
+        // ESIGN-WETINK BUG2 — split a SHARED signature-attestation block ("Thus
+        // done and signed by the Seller/s (A), (B) … on this __ day of __ at __")
+        // into ONE complete block PER recipient. Runs after role-block expansion,
+        // fail-safe (leaves the block untouched on any anomaly).
+        try {
+            $this->expandAttestationBlocksPerRecipient($dom, $recipients);
+        } catch (\Throwable $e) {
+            Log::warning('RoleBlockExpansionService: attestation split failed (non-fatal, block left shared)', [
+                'template_id' => $template?->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
         if (!empty($structuralLog)) {
             Log::info('RoleBlockExpansionService: structural notes during expansion', [
                 'template_id' => $template?->id,
@@ -437,6 +450,171 @@ final class RoleBlockExpansionService
         }
 
         return $this->detector->serializeFragment($dom);
+    }
+
+    /**
+     * ESIGN-WETINK BUG2 — per-recipient signature-attestation blocks (N-party).
+     *
+     * The "Thus done and signed by the Seller/s (Anine …), (Andre …) at __ on this
+     * __ day of __ 20__ at __" block renders ONCE, shared across all same-role
+     * recipients — one place/date/time line for everybody. Johan's ruling: EVERY
+     * recipient gets their OWN complete attestation block (own place/date/time
+     * fields + own signature line), exactly like the agent has. So for a role with
+     * N>1 recipients we clone its `.sig-party-block` N times and, per clone:
+     *   - rewrite the "Seller/s (all names)" lead-in to "Seller (this name)";
+     *   - stamp every ceremony marker (location/day/month/year/time) with this
+     *     recipient's data-name + data-recipient-identity so each fills their OWN;
+     *   - keep ONLY this recipient's signature cell (drop the others' cells).
+     * A single-recipient role's block is already individual → left untouched.
+     */
+    private function expandAttestationBlocksPerRecipient(DOMDocument $dom, Collection $recipients): void
+    {
+        $xpath  = new DOMXPath($dom);
+        $blocks = $xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " sig-party-block ")]');
+        if ($blocks === false || $blocks->length === 0) {
+            return;
+        }
+        $byRole = $this->groupRecipientsByRole($recipients);
+
+        // Snapshot to a plain array — we mutate the DOM while iterating.
+        $blockEls = [];
+        foreach ($blocks as $b) {
+            if ($b instanceof DOMElement) {
+                $blockEls[] = $b;
+            }
+        }
+
+        foreach ($blockEls as $block) {
+            // Which party does this attestation block belong to? Read the first
+            // ceremony/signature marker's party.
+            $marker = $xpath->query('.//*[@data-marker-party]', $block)->item(0);
+            if (! $marker instanceof DOMElement) {
+                continue;
+            }
+            $markerParty = strtolower($marker->getAttribute('data-marker-party'));
+            $role = self::CANONICAL_FOR_VIEWER[$markerParty] ?? $markerParty;
+
+            // Resolve recipients for this block's role (match by canonical role or raw token).
+            $recips = $byRole[$markerParty] ?? $byRole[$role] ?? collect();
+            if ($recips->count() < 2) {
+                continue; // single recipient (or agent) → already an individual block
+            }
+
+            $parent = $block->parentNode;
+            if (! $parent instanceof DOMNode) {
+                continue;
+            }
+            $allNames = $recips->map(fn ($r) => (string) ($r->signer_name ?? ''))->filter()->values()->all();
+
+            $insertAfter = $block;
+            $index = 0;
+            foreach ($recips as $recipient) {
+                $index++;
+                $name = (string) ($recipient->signer_name ?? '');
+                $identity = strtolower($markerParty) . '_' . $index;
+
+                $clone = $block->cloneNode(true);
+                if (! $clone instanceof DOMElement) {
+                    continue;
+                }
+
+                // 1) Rewrite the "Seller/s (all names)" lead-in to this recipient only.
+                $this->rewriteAttestationNames($clone, $name, $allNames, $markerParty);
+
+                // 2) Scope every ceremony marker to this recipient (own place/date/time).
+                $cloneXp = new DOMXPath($dom);
+                foreach ($cloneXp->query('.//*[@data-marker-party]', $clone) as $m) {
+                    if (! $m instanceof DOMElement) {
+                        continue;
+                    }
+                    $mtype = $m->getAttribute('data-marker-type');
+                    if ($mtype === 'signature' || $mtype === 'initial') {
+                        // 3) Signature/initial: keep ONLY this recipient's, drop others' cells.
+                        $mn = $this->attestNameKey($m->getAttribute('data-name'));
+                        if ($mn !== '' && $mn !== $this->attestNameKey($name)) {
+                            $cell = $this->closestSigCell($m);
+                            ($cell ?? $m)->parentNode?->removeChild($cell ?? $m);
+                            continue;
+                        }
+                        $m->setAttribute('data-name', $name);
+                        $m->setAttribute('data-recipient-identity', $identity);
+                    } else {
+                        // Ceremony field → this recipient's own.
+                        $m->setAttribute('data-name', $name);
+                        $m->setAttribute('data-recipient-identity', $identity);
+                    }
+                }
+
+                if ($insertAfter->nextSibling !== null) {
+                    $parent->insertBefore($clone, $insertAfter->nextSibling);
+                } else {
+                    $parent->appendChild($clone);
+                }
+                $insertAfter = $clone;
+            }
+
+            // Remove the original shared block — replaced by the per-recipient clones.
+            $parent->removeChild($block);
+        }
+    }
+
+    /** Normalised name key for attestation matching. */
+    private function attestNameKey(string $name): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $name)));
+    }
+
+    /** Nearest ancestor sig-cell (or the marker itself if none). */
+    private function closestSigCell(DOMElement $el): ?DOMElement
+    {
+        $n = $el;
+        while ($n instanceof DOMElement) {
+            $cls = ' ' . trim($n->getAttribute('class')) . ' ';
+            if (str_contains($cls, ' sig-cell ')) {
+                return $n;
+            }
+            $n = $n->parentNode instanceof DOMElement ? $n->parentNode : null;
+        }
+        return null;
+    }
+
+    /**
+     * Rewrite the attestation lead-in text so a per-recipient clone names ONLY its
+     * own recipient: strip every OTHER recipient's "(name)" and collapse the joined
+     * list, and singularise "Seller/s" → "Seller". Operates on text nodes only.
+     */
+    private function rewriteAttestationNames(DOMElement $clone, string $keepName, array $allNames, string $role): void
+    {
+        $xp = new DOMXPath($clone->ownerDocument);
+        foreach ($xp->query('.//text()[contains(., "signed") or contains(., "/s") or contains(., "(")]', $clone) as $node) {
+            $t = $node->nodeValue;
+            if ($t === null || trim($t) === '') {
+                continue;
+            }
+            $before = $t;
+            foreach ($allNames as $other) {
+                if ($this->attestNameKey($other) === $this->attestNameKey($keepName)) {
+                    continue;
+                }
+                $t = str_replace('(' . $other . ')', '', $t);
+                $t = str_replace($other, '', $t);
+            }
+            // Tidy the joined-list punctuation left behind.
+            $t = preg_replace('/\(\s*\)/', '', (string) $t);
+            $t = preg_replace('/\s*,\s*,\s*/', ', ', (string) $t);
+            $t = preg_replace('/\(\s*,\s*/', '(', (string) $t);
+            $t = preg_replace('/\s*,\s*(at\b|on this\b)/i', ' $1', (string) $t);
+            $t = str_replace(['Seller/s', 'Purchaser/s', 'Buyer/s', 'Lessor/s', 'Lessee/s', 'Tenant/s', 'Landlord/s'],
+                             ['Seller', 'Purchaser', 'Buyer', 'Lessor', 'Lessee', 'Tenant', 'Landlord'], (string) $t);
+            // Strip a leftover comma between the (now singular) role label and the
+            // kept name — e.g. "Seller , (Andre Roets)" → "Seller (Andre Roets)" —
+            // which is what removing an EARLIER recipient's name leaves behind.
+            $t = preg_replace('/\b(Seller|Purchaser|Buyer|Lessor|Lessee|Tenant|Landlord)\s*,\s*/', '$1 ', (string) $t);
+            $t = preg_replace('/\s{2,}/', ' ', (string) $t);
+            if ($t !== $before) {
+                $node->nodeValue = $t;
+            }
+        }
     }
 
     /**

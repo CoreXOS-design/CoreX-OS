@@ -193,6 +193,39 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         $this->assertSame(0, substr_count($baked, 'corex-ink--signature'), 'un-stamped shared marker left blank when signer is not sole-of-role');
     }
 
+    public function test_shared_attestation_block_splits_per_recipient(): void
+    {
+        // A SHARED "Thus done and signed by the Seller/s (Alice), (Bob) … on this
+        // __ day of __" block with ONE ceremony field set + per-seller signature
+        // cells must become ONE complete block PER seller (own place/date/time +
+        // own signature). N-party.
+        $html =
+            '<div class="sig-party-block">'
+          . '<p class="sig-text">Thus done and signed by the Seller/s (Alice Adams), (Bob Brown) at '
+          . '<span class="sig-field" data-marker-party="seller" data-marker-type="location"></span> on this '
+          . '<span class="sig-field" data-marker-party="seller" data-marker-type="day"></span> day</p>'
+          . '<div class="sig-row-adaptive cols-2">'
+          . '<div class="sig-cell"><span data-marker-party="seller" data-marker-type="signature" data-name="Alice Adams"></span></div>'
+          . '<div class="sig-cell"><span data-marker-party="seller" data-marker-type="signature" data-name="Bob Brown"></span></div>'
+          . '</div></div>';
+
+        $out = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $html, $this->sellers([[1, 'Alice Adams'], [2, 'Bob Brown']]),
+        );
+
+        $this->assertSame(2, substr_count($out, 'sig-party-block'), 'shared attestation block must split into one per seller');
+        $this->assertStringContainsString('Seller (Alice Adams)', $out, 'seller_1 block names only Alice');
+        $this->assertStringContainsString('Seller (Bob Brown)', $out, 'seller_2 block names only Bob');
+        $this->assertStringNotContainsString('Seller/s', $out, 'the shared "Seller/s" lead-in is singularised');
+
+        // Each block's ceremony field is scoped to its own recipient identity.
+        $this->assertStringContainsString('data-recipient-identity="seller_1"', $out);
+        $this->assertStringContainsString('data-recipient-identity="seller_2"', $out);
+        // Each recipient's signature stays name-bound (bakeInk fills the right one).
+        $this->assertStringContainsString('data-name="Alice Adams"', $out);
+        $this->assertStringContainsString('data-name="Bob Brown"', $out);
+    }
+
     public function test_forDisplay_returns_stored_canonical_verbatim(): void
     {
         // The byte-identity guarantee's core: once a canonical artifact is stored
