@@ -336,9 +336,30 @@ class SignatureTemplate extends Model
 
         foreach ($parties as $party) {
             $role = $party['role'];
-            $request = $this->requests->firstWhere('party_role', $role);
 
-            $partyMarkers = $this->markers->where('assigned_party', $role);
+            // ESIGN-WETINK BUG3 — resolve the CORRECT request for a multi-same-role
+            // party. parties_json names N same-role parties "seller", "seller_2",
+            // "seller_3", … but every one of them is stored as a SignatureRequest
+            // with party_role="seller" + role_index=1..N. A plain
+            // firstWhere('party_role', $role) therefore (a) never matches
+            // "seller_2"/"seller_3" (no request has that literal party_role) — so a
+            // signed second seller shows "waiting" forever — and (b) returns an
+            // arbitrary seller for the base "seller" key. Parse the trailing _N as
+            // the role_index (bare = index 1) and match on base-role + index, so
+            // each party's status/completed_at come from ITS OWN request. N-party,
+            // no seller_1/seller_2 assumption.
+            if (preg_match('/^(.*)_(\d+)$/', (string) $role, $mm)) {
+                $baseRole = $mm[1];
+                $roleIndex = (int) $mm[2];
+            } else {
+                $baseRole = (string) $role;
+                $roleIndex = 1;
+            }
+            $request = $this->requests->first(
+                fn ($r) => $r->party_role === $baseRole && (int) ($r->role_index ?? 1) === $roleIndex
+            ) ?? $this->requests->firstWhere('party_role', $role);
+
+            $partyMarkers = $this->markers->where('assigned_party', $baseRole);
             $totalRequired = $partyMarkers->where('required', true)->count();
             $signedMarkerIds = $this->signatures
                 ->whereIn('signature_marker_id', $partyMarkers->pluck('id'))
