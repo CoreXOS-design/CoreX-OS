@@ -188,11 +188,9 @@
 function assistantMatrix() {
     return {
         matrix: @json(collect($sections)->flatten(1)->mapWithKeys(fn ($r) => [$r['key'] => $r['granted'] && !$r['is_locked']])),
-        settings: @json([
-            'can_manage_my_records' => (bool) $assignment->can_manage_my_records,
-            'show_attribution'      => (bool) $assignment->show_attribution,
-            'notify_on_action'      => (bool) $assignment->notify_on_action,
-        ]),
+        {{-- @json must stay on ONE line: Blade's directive parser mishandles a multi-line
+             array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
+        settings: @json(['can_manage_my_records' => (bool) $assignment->can_manage_my_records, 'show_attribution' => (bool) $assignment->show_attribution, 'notify_on_action' => (bool) $assignment->notify_on_action]),
         dirty: false,
         saved: false,
         timer: null,
