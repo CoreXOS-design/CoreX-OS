@@ -615,21 +615,51 @@ class MobilePropertyController extends Controller
         $this->authorizeProperty($request->user(), $property);
 
         $request->validate([
-            'image'    => 'required|image|max:10240',
+            // Accept the same set the sibling rental-images endpoint already
+            // accepts — HEIC/HEIF included. Laravel's `image` rule excludes
+            // HEIC, so before this an un-transcoded iPhone photo 422'd here even
+            // though rental uploads took it. The app normally transcodes
+            // HEIC→JPEG client-side; this is defence-in-depth for an older build
+            // or a transcode miss. GD can't downscale HEIC, so a stored HEIC
+            // simply gets no thumbnail (the thumbnail service falls back to the
+            // original) — it never 500s.
+            //
+            // Size: phone photos routinely exceed 10 MB (48 MP captures). The
+            // old 10 MB cap silently 422'd large photos the web edit form (200
+            // MB) and rental endpoint (50 MB) would take. 50 MB matches rental
+            // and sits far below nginx (1000 MB) and the FPM pool (512 MB).
+            'image'    => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'room_tag' => 'nullable|string|max:100',
         ]);
 
+        // Resolve room_tag case- and whitespace-insensitively against the
+        // property's live tag library, then adopt the library's CANONICAL
+        // casing. getAvailableGalleryTags() de-dupes case-insensitively, so a
+        // client that echoes a tag with a different case/trailing space than it
+        // was stored under would otherwise fail the old strict in_array(...,
+        // true) check and 422 on a tag that is genuinely valid. Normalising
+        // here also files the photo under the SAME category the library shows.
         $roomTag = $request->input('room_tag');
 
-        if ($roomTag !== null && $roomTag !== '') {
+        if ($roomTag !== null && trim($roomTag) !== '') {
             $available = $property->getAvailableGalleryTags();
-            if (!in_array($roomTag, $available, true)) {
+            $canonical = null;
+            foreach ($available as $t) {
+                if (strcasecmp(trim((string) $t), trim($roomTag)) === 0) {
+                    $canonical = $t;
+                    break;
+                }
+            }
+            if ($canonical === null) {
                 return response()->json([
                     'message' => "Tag '{$roomTag}' is not available on this property. Add the matching space first.",
                     'errors'  => ['room_tag' => ["Tag '{$roomTag}' is not on this property's space list."]],
                     'available_tags' => $available,
                 ], 422);
             }
+            $roomTag = $canonical;
+        } else {
+            $roomTag = null;
         }
 
         $file = $request->file('image');
