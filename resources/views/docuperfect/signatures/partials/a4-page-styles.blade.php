@@ -75,36 +75,47 @@
 }
 
 /* ═══ ESIGN-WETINK — ONE ink render spec (uniform for EVERY party, EVERY surface) ═══
-   The assembled/agent-review render was showing recipient ink markedly SMALLER
-   than the agent's, because ink reaches the DOM by more than one path (the baked
-   canonical img, the restoreStoredInitials JS, legacy embeds) each at its own
-   size. This enforces ONE size for signatures and ONE for initials, regardless of
-   who signed or which path rendered it — with !important so no inline/JS size can
-   shrink a party's ink below another's. Applied on every surface that includes
-   this partial (recipient ceremony, agent review, print). */
-.web-sig-signed-img,
+   Recipient ink was rendering TINY next to the agent's full-size ink in the same
+   signature row. Root cause: ink reaches the DOM by SEVERAL paths at different
+   sizes — the baked canonical <img>, the Alpine overlay marker
+   <img class="w-full h-full"> (sized to a marker box that can be marker.width%
+   narrow), the restore/embeds — and the earlier class-based rules did NOT match the
+   class-less overlay img, so it kept its tiny box size. This rule matches ink by its
+   DATA-URI src: every signature/initial is a base64 image data URI, while logos /
+   document photos are URL-based, so it targets ALL ink and NOTHING else, regardless
+   of class or element. flex:0 0 auto + a FIXED (not %) max-width stop a flex row or a
+   narrow marker box from shrinking wide ink to a sliver; transform:none defeats any
+   scale; min-height forces the standard visible box even from a small drawn canvas.
+   Signatures 56px, initials 38px — identical for every party, every surface
+   (ceremony, agent-review, print). Legal: tiny ink vanishes on print/scan. */
+img[src^="data:image"],
+img.web-sig-signed-img,
 img.corex-ink,
 img.corex-ink--signature,
-[data-marker-type="signature"] img,
-[data-marker-type="signature"] .web-sig-signed-img {
+[data-marker-type="signature"] img {
     height: 56px !important;
+    min-height: 56px !important;
     max-height: 56px !important;
     width: auto !important;
-    max-width: 100% !important;
+    min-width: 0 !important;
+    max-width: 260px !important;
     object-fit: contain !important;
+    object-position: center !important;
+    flex: 0 0 auto !important;
+    transform: none !important;
     display: inline-block !important;
     vertical-align: bottom !important;
+    box-sizing: content-box !important;
+    padding: 0 !important;
 }
-img.corex-ink--initial,
+/* Initials — placed AFTER + higher/equal specificity so they win the size cascade. */
 [data-marker-type="initial"] img,
-[data-marker-type="initial"] .web-sig-signed-img {
+[data-marker-type="initial"] img[src^="data:image"],
+img.corex-ink--initial {
     height: 38px !important;
+    min-height: 38px !important;
     max-height: 38px !important;
-    width: auto !important;
-    max-width: 100% !important;
-    object-fit: contain !important;
-    display: inline-block !important;
-    vertical-align: bottom !important;
+    max-width: 160px !important;
 }
 </style>
 <script>
