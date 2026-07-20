@@ -163,3 +163,32 @@ view is fine — CoreX owns files).
 live view; `dr1Form` → 17 auto-filled fields + supplier list; `dr1Send` → `work_authorisation` PDF filed
 to the deal+step, emailed to the picked supplier (Mailpit), audited in `deal_document_distributions`
 (recipient_provider_id, twin `deal_v2_id`). Self-cleaning proof; step config restored.
+
+## 14. Multi-supplier work orders (on-site 2026-07-20) — a step triggers SEVERAL
+
+Johan's on-site test: a single "Certificates of Compliance" step needs to trigger *several* COCs at
+once (Electrical, Gas, Beetle, Plumbing), each its own supplier + service. The per-step config moved
+from a single `{sends_work_order, service_type, trigger}` to a **collection**.
+
+- **Data model:** new `deal_pipeline_step_work_orders` (pipeline_step_id · agency_id · service_type ·
+  trigger_point · sort_order · softDeletes) + `DealPipelineStepWorkOrder` model +
+  `DealPipelineStep::workOrders()`. Migration backfills every existing single-config into a one-entry
+  collection; the legacy columns are LEFT in place (no hard delete) and mirrored from the first entry.
+- **Config UI:** the block is a **repeatable list** — add/remove rows, each = service type + trigger
+  timing (Activated/Completed). `DealPipelineStepController::syncWorkOrders` rebuilds the collection from
+  the posted `work_orders` array (removed rows soft-deleted).
+- **Runtime:** `dr2/pipeline.blade` renders **one "Send work order — {service}" per configured entry**
+  matching the step's trigger state; each opens its own modal, supplier chosen/captured per entry,
+  posts its `service_type`. `WorkOrderController::dr1Form/dr1Send` take the entry's service type; each
+  send = one work order + one AT-228 audit (loops naturally via N independent buttons).
+- **On-site proof (deployed qa1, real deal / active step):** 2 entries (COC + Gas) → 2 per-entry
+  buttons render → each send generates a distinct `work_authorisation` PDF + AT-228 distribution row.
+
+### 14.1 Save-block hotfix (same screen)
+Johan also hit **"the selected negative status trigger is invalid"** saving a step — root cause: the
+"Bond Approved" steps carry a legacy `negative_status_trigger='declined'` the current select can only
+render as None/Cancelled, so it silently re-posts `'declined'` and `in:cancelled` rejects it.
+`DealPipelineStepController::normalizeOptionalTriggers` now coerces every OPTIONAL trigger enum
+(`status_trigger`, `negative_status_trigger`, `work_order_trigger_point`, `trigger_step_id`) to
+null/default when the posted value is out of the current set — class-wide, so None/legacy is always
+valid and a legitimate step never fails to save. Test: `tests/Unit/PipelineStepTriggerNormalizeTest.php`.

@@ -114,11 +114,13 @@ class WorkOrderController extends Controller
     // generalised to the DR1 deal + the AT-228 DR1 distribution path.
     // =========================================================================
 
-    public function dr1Form(Deal $deal, DealStepInstance $step, WorkAuthorisationGenerator $generator)
+    public function dr1Form(Request $request, Deal $deal, DealStepInstance $step, WorkAuthorisationGenerator $generator)
     {
         abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
 
-        $serviceType = $step->pipelineStep?->work_order_service_type;
+        // AT-229 multi — the service type comes from the chosen work-order ENTRY (a step may
+        // configure several); fall back to the legacy single field.
+        $serviceType = $request->query('service_type') ?: $step->pipelineStep?->work_order_service_type;
 
         return response()->json([
             'service_type' => $serviceType,
@@ -140,7 +142,8 @@ class WorkOrderController extends Controller
         $data = $this->validateSupplier($request);
         $actor       = $request->user();
         $agencyId    = (int) ($deal->agency_id ?: 0);
-        $serviceType = $step->pipelineStep?->work_order_service_type ?? ($data['service_type'] ?? null);
+        // AT-229 multi — prefer the entry's service type posted with the send; fall back to legacy.
+        $serviceType = ($data['service_type'] ?? null) ?: $step->pipelineStep?->work_order_service_type;
 
         [$provider, $toEmail, $toName] = $this->resolveProviderAndRecipient($data, $agencyId, $serviceType, $actor, $providers);
 
