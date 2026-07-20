@@ -294,3 +294,46 @@ cash+bond / bond-only / sale-of-2nd) → only applicable clauses render; every c
 with applicability rules; a setup wizard that cannot produce an invalid contract. RISK: a
 missing clause is invisible (unlike a visible strikeout) → heavy validation + testing; build
 properly after launch. Related to Build 1.
+
+---
+
+## 10. E-SIGN v1 — Definition of Done (Johan, 2026-07-20) — THE target
+
+Build to EXACTLY this, nothing more, until it works end-to-end. Sequenced so each lands testable.
+
+**(a) PERFECT-WORLD FLOW must work clean FIRST (the immediate gate):**
+agent creates → recipient 1 signs → recipient 2 signs → agent approves → files. On a 2-seller
+doc: both sellers get IDENTICAL sign/initial actions; ink accumulates into the canonical;
+agent-review shows ALL ink. (This is the six-bug + recipient-2-parity work.)
+
+**IN v1 (non-negotiable, NOT deferred):**
+1. **Strikeout + amendment-ripple** (§9 Build 1) — agent AND recipient side.
+2. **Auto-initial on ADD** — adding any clause / other-condition requires an initial from
+   whoever added it (same mechanism as a strikeout initial). (Ruling #2.)
+3. **Emails carry ALL ink** — recipient emails must render the document with every prior
+   signature/initial (currently they don't). Fix the email doc render to use the accumulated
+   `canonical_html`, not a bare/early snapshot.
+4. **Final document FILED + VIEWABLE + PRINTABLE** — the filed doc on the property has a VIEW
+   button AND a PRINT button (print = hard-copy for legal filing). (Ruling #3.)
+
+**Flow optimisation (Elize, IMPLEMENTED `8360202f`):** a clean accept (no strikeout/flag)
+flows straight to the next recipient; only flag/strikeout routes back to the agent.
+
+**Build order:** (a) prove perfect-world spine clean on-site FIRST → (b) strikeout+ripple +
+clause-add-initial → (c) email-all-ink + filed/view/print.
+
+**⚠️ BUG1 correction (2026-07-20):** the "other-conditions recipient-fillable block" is a v1
+item, NOT a one-line bug. Traced on doc 431: its template has `insertable_blocks: 0`, no
+`~~~~` markers, no other-conditions region in merged_html — so `compose()` produces no body
+block; the "+ Add condition" button is blade-only (`add-condition-modal.blade.php`) with
+nowhere to render. Delivering it requires a recipient-fillable other-conditions region to
+EXIST in the document (default region for all mandates, or template config) + the add→initial
+of item (2). Folds into build order (b). `stampConditionSigningToken` (token overlay on show)
+is in place for templates that DO carry a body block, but is a no-op where none exists.
+
+### NOTE (log only — do NOT build now): WET-INK / OTP flow REVISED
+OTP is generated THROUGH e-sign but distributed **download → sign → upload**, and ALWAYS
+returns to the AGENT for approval **between each party** (never recipient→recipient) — an
+uploaded scan can't be trusted for what changed, so the agent verifies every hop. This is a
+SEPARATE build AFTER e-sign v1 (supersedes any recipient→recipient assumption for the wet-ink
+path; the e-sign electronic path keeps Ruling #1's straight-through flow).
