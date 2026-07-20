@@ -259,3 +259,50 @@ Driven through the real controller path:
 - 6b (constructed decision step, rolled back): NEGATIVE → parent completed, downstream **not_started**
   (not activated), deal → 'D'; POSITIVE → parent completed, downstream **active**, deal → 'G'.
 All proofs self-cleaning (WO rows, docs, audits, supplier email, WO config reverted; 6b rolled back).
+
+## 16. Agency-configurable COC / service-type list (on-site 2026-07-20)
+
+The COC/service-type dropdown in the pipeline step-config was a **hardcoded** array
+(`COC / Beetle / Gas / Electric Fence / Plumbing / Other`). It is now an **agency-owned,
+agency-configurable** list — each agency curates its own certificates & services.
+
+### 16.1 Data model
+New agency-scoped table `agency_service_types` — `agency_id · code · label · sort_order ·
+is_active · softDeletes`. `App\Models\DealV2\AgencyServiceType` (BelongsToAgency + SoftDeletes).
+- **`code`** = the STABLE value stored on a work order (`service_type` on both
+  `deal_pipeline_step_work_orders` and `deal_step_work_orders`). Renaming a label never
+  rewrites a configured step. **`label`** = agent-facing name.
+- `AgencyServiceType::DEFAULTS` = the exact historical hardcoded set; `seedDefaultsFor($agencyId)`
+  is idempotent. The **migration backfills every existing agency**; the **AgencyObserver** seeds
+  each new agency — so the dropdown is never empty and nothing breaks. Per-agency seed (not global)
+  → no `deploy:sync-reference-data` entry needed.
+
+### 16.2 Settings screen (full CRUD)
+`deals-v2/settings/service-types` — `AgencyServiceTypeController` (index/store/update/destroy/restore).
+Add / edit (label · order · active) / **soft-delete** (archive) / restore. New types get a slugged
+`code`; a live-code-uniqueness guard blocks duplicates. **Nav link** "COC / Service Types" under
+Deal Pipelines, gated `deals_v2.manage_pipeline` (the same gate as pipeline setup — configuring the
+list is part of pipeline management; no new permission key).
+
+### 16.3 The dropdown reads the list
+`DealPipelineSetupController::edit` passes `$serviceTypes` (agency active list, ordered) to
+`pipeline-setup/edit`; the hardcoded `<option>`s are replaced by a loop over it. The runtime COC
+panel (`dr2/pipeline` + `WorkOrderController::cocPanel`) also reads the list and shows **labels**
+(code→label map, withTrashed). **No silent drop:** a `code` a step already stores whose type was
+later archived stays selectable in-context, marked "(archived)" — the archive only removes it as a
+NEW choice, never mid-config.
+
+### 16.4 On-site proof (deployed qa1 `d49b4ba0`, agency 1, template #1)
+Migration ran; **12 rows across 2 agencies** (6 defaults each). Through the real controllers:
+index shows the 6 seeded defaults; ADD "Solar PV Certificate" (code `solar_pv_certificate`);
+RENAME Gas label → "Gas Compliance Certificate" with **code 'Gas' unchanged**; ARCHIVE Beetle →
+soft-deleted, gone from the active list; **the step-config dropdown reflects all of it** (new type
+in, renamed label shown, Beetle excluded); RESTORE Beetle; agency-scoped (my 6+ vs another agency's
+6 not visible). Settings page + edit page both **render** over the web stack. Proof rolled back —
+list restored to seeded defaults.
+
+### 16.5 Deliberately pending Johan's call — Setup Wizard (Non-negotiable #10a)
+This adds an agency setting (the COC/service list). Per #10a a new setting normally also surfaces in
+the Agency Onboarding Setup Wizard. This is arguably an expert/rarely-touched list an agency curates
+once running, seeded sensibly by default — a legitimate candidate for "not in the wizard". **Flagged
+to Johan for the call; not added to `config/agency-onboarding-copy.php` pending his word.**
