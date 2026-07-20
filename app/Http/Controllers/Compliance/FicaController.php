@@ -931,7 +931,11 @@ class FicaController extends Controller
 
             $ext = pathinfo($ficaDoc->file_name, PATHINFO_EXTENSION) ?: 'pdf';
             $newPath = "contact-documents/{$contact->id}/" . Str::uuid() . ".{$ext}";
-            $localDisk->put($newPath, $sourceDisk->get($ficaDoc->file_path));
+            // AT-173 — the filed FICA copy (the durable, openable client document) is
+            // encrypted at rest. Read back via Document::downloadResponse/decryptedContents.
+            $plainBytes = $sourceDisk->get($ficaDoc->file_path);
+            $mediaCipher = app(\App\Services\Security\MediaCipher::class);
+            $localDisk->put($newPath, $mediaCipher->enabled() ? $mediaCipher->encrypt($plainBytes) : $plainBytes);
 
             $document = Document::create([
                 'agency_id'        => $submission->agency_id,

@@ -68,9 +68,31 @@ class Document extends Model
         return Storage::disk($this->disk)->url($this->storage_path);
     }
 
+    /**
+     * AT-173 — decrypted bytes for this document. Enveloped (encrypted) files are
+     * decrypted; legacy plaintext passes through unchanged. Every byte-reader of a
+     * potentially-encrypted Document (currently source_type='fica') MUST go through
+     * this (or downloadResponse), never read the raw file directly.
+     */
+    public function decryptedContents(): ?string
+    {
+        $raw = Storage::disk($this->disk)->get($this->storage_path);
+
+        return app(\App\Services\Security\MediaCipher::class)->decrypt($raw);
+    }
+
     public function downloadResponse()
     {
-        return Storage::disk($this->disk)->download($this->storage_path, $this->original_name);
+        // AT-173 — stream decrypted through PHP (a plaintext file is streamed as-is).
+        $bytes = $this->decryptedContents();
+
+        return response()->streamDownload(
+            function () use ($bytes) {
+                echo $bytes;
+            },
+            $this->original_name,
+            ['Content-Type' => $this->mime_type ?: 'application/octet-stream']
+        );
     }
 
     public function getHumanSizeAttribute(): string

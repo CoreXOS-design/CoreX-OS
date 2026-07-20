@@ -168,6 +168,55 @@ class EncryptMediaBackfill extends Command
             }
         });
 
+        // AT-173 — the FILED FICA copies in the contact document drive
+        // (Document source_type='fica') — the durable, openable client docs. These
+        // are already on the private disk; encrypt in place, round-trip + read-back verified.
+        \App\Models\Document::withoutGlobalScopes()->where('source_type', 'fica')->orderBy('id')
+            ->chunkById(200, function ($docs) use (&$stats) {
+                foreach ($docs as $doc) {
+                    if ($this->hitLimit($stats)) {
+                        return false;
+                    }
+                    $stats['seen']++;
+                    $disk = Storage::disk($doc->disk ?: 'local');
+                    $path = (string) $doc->storage_path;
+                    if ($path === '' || ! $disk->exists($path)) {
+                        $stats['skipped_empty']++;
+                        continue;
+                    }
+                    $raw = $disk->get($path);
+                    if ($this->cipher->isEncrypted($raw)) {
+                        $stats['already']++;
+                        continue;
+                    }
+                    if (! $this->provenEncrypt($raw, $env)) {
+                        $stats['failed']++;
+                        $this->warn("round-trip FAILED (untouched): Document #{$doc->id}");
+                        continue;
+                    }
+                    if ($this->dry) {
+                        $stats['encrypted']++;
+                        continue;
+                    }
+                    $tmp = $path . '.cxe-tmp';
+                    $disk->put($tmp, $env);
+                    if ($this->cipher->decrypt($disk->get($tmp)) !== $raw) {
+                        $disk->delete($tmp);
+                        $stats['failed']++;
+                        $this->warn("temp verify FAILED (original untouched): Document #{$doc->id}");
+                        continue;
+                    }
+                    $disk->delete($path);
+                    $disk->move($tmp, $path);
+                    if ($this->cipher->decrypt($disk->get($path)) !== $raw) {
+                        $stats['failed']++;
+                        $this->error("POST-REPLACE verify FAILED: Document #{$doc->id}");
+                        continue;
+                    }
+                    $stats['encrypted']++;
+                }
+            });
+
         return $stats;
     }
 
