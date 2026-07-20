@@ -295,6 +295,7 @@ class Property extends Model
         'gallery_images_json',
         'gallery_categories_json',
         'gallery_custom_tags',
+        'gallery_upload_keys',
         'agent_id',
         'branch_id',
         // agency_id is the tenant key. It stays fillable so trusted non-auth ingress
@@ -384,6 +385,7 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
+        'gallery_upload_keys'     => 'array',
         'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',

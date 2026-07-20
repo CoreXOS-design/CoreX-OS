@@ -108,6 +108,64 @@ class MobileGalleryUploadTest extends TestCase
     }
 
     /**
+     * Idempotency: the rebuilt app retries a photo on timeout with the SAME
+     * client_upload_id. A retry must NOT create a second gallery row or a second
+     * stored file — it returns the already-stored record with a 2xx so the client
+     * safely drops it from its retry queue.
+     */
+    public function test_a_retried_upload_with_same_client_upload_id_is_deduped(): void
+    {
+        $property = $this->makeProperty();
+        $key = 'photo-abc-123';
+
+        $first = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'            => UploadedFile::fake()->image('a.jpg', 800, 600),
+                'client_upload_id' => $key,
+            ]);
+        $first->assertStatus(201);
+        $first->assertJson(['duplicate' => false]);
+
+        // The retry: same key, a fresh multipart body (as the client would resend).
+        $retry = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image'            => UploadedFile::fake()->image('a.jpg', 800, 600),
+                'client_upload_id' => $key,
+            ]);
+        $retry->assertStatus(200);
+        $retry->assertJson(['duplicate' => true]);
+
+        $property->refresh();
+        $this->assertCount(1, $property->gallery_images_json ?? [],
+            'A retried client_upload_id must not add a second gallery row.');
+        // Only ONE file on disk for this property (the retry stored none / cleaned up).
+        $this->assertCount(1, Storage::disk('public')->files("properties/{$property->id}"),
+            'A retried upload must not orphan a second stored file.');
+        // And the returned URL is the original, canonical one.
+        $this->assertSame($first->json('url'), $retry->json('url'));
+    }
+
+    /**
+     * Two DISTINCT photos to the same property must both persist — guards the
+     * row-locked transaction path against dropping rows on the append.
+     */
+    public function test_two_distinct_uploads_both_persist(): void
+    {
+        $property = $this->makeProperty();
+
+        foreach (['one', 'two'] as $k) {
+            $this->actingAs($this->user)
+                ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                    'image'            => UploadedFile::fake()->image("{$k}.jpg", 800, 600),
+                    'client_upload_id' => $k,
+                ])->assertStatus(201);
+        }
+
+        $property->refresh();
+        $this->assertCount(2, $property->gallery_images_json ?? []);
+    }
+
+    /**
      * The property-6118 regression: a portrait phone photo arrives as landscape
      * pixels + EXIF Orientation=6. The stored original must be rewritten upright
      * (portrait) with the tag stripped, so every downstream surface renders it
