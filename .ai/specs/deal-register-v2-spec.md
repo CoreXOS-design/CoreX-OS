@@ -330,3 +330,13 @@ Each WS closes with the CLAUDE.md done-checklist (`php -l`, view/route/cache cle
 
 ## 18. What this replaces (unchanged from v1.1 — the human wins)
 Spreadsheet tracking → visual pipeline + RAG. BM chasing agents → real-time dashboard + escalation. Forgotten bond deadline → phone-calendar reminder. Unknown deal status → company-wide view. Late addendum → RED alert days early. Manual commission → auto-linked settlement. **Hand-filled COC request → one-tick auto-generated + distributed.** "Where is the COC?" emails → step status visible to all. A deal falling through the cracks → impossible; every step, document, and distribution tracked.
+
+---
+
+## 19. AT-305 — DR2 pipeline screen two-column redesign (layout/density only)
+`resources/views/dr2/pipeline.blade.php` (`Dr2\PipelineController@show`). Presentational only — no controller/route/model/DB change; all functionality preserved.
+
+- **Left column (≈60%, `lg:col-span-3`):** the pipeline step board condensed to **dense one-liner rows** — `status dot · step name (· ◆ milestone / · + custom) · due date · status badge`, with **Complete / N-A / Reinstate / Edit due / Remove / Comments(n)** as **compact inline actions** that expand their forms **in place** (N/A reason, due-date edit, comment thread + post + attach-document-to-step). Removed-steps and Add-custom-step blocks unchanged. Blocked/excused notes render as a thin sub-line only when present.
+- **Right column (≈40%, `lg:col-span-2 lg:sticky lg:top-4 self-start`):** a **sticky, independently-scrolling rail** modelled on the buyer viewing-pack screen (`command-center/viewing-packs/show.blade.php` — `grid grid-cols-1 lg:grid-cols-5 gap-4 items-start`). Holds the relocated **Documents** + **Send documents to a party** (unchanged `@include('dr2._deal-documents')`) and **Proforma Invoices** (`@include('proforma._deal-section')`). **Stacks to one column on mobile** (`grid-cols-1`).
+- **Preserved:** every route, `@csrf`, `@permission('view_deals')` gate, confirm dialog, AT-244 lock-mute, and the empty/attach/declined states.
+- **Acceptance (on-site, deal 156):** two columns render; steps read as one-liners with working inline actions; the right rail shows Documents/Send/Proforma and scrolls independently; mobile stacks.
