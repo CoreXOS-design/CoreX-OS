@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<link rel="stylesheet" href="{{ asset('css/docuperfect-editor.css') }}">
+<link rel="stylesheet" href="{{ asset('css/docuperfect-editor.css') }}?v={{ @filemtime(public_path('css/docuperfect-editor.css')) ?: '312' }}">
 
 {{-- Full-bleed wrapper: negates <main>'s padding so sticky elements span full width --}}
 <div class="-m-4 lg:-m-6">
@@ -166,8 +166,11 @@
         packInstanceSaveUrl: @json(route('docuperfect.api.packInstanceValuesSave'))
     };
 </script>
-<script src="{{ asset('js/corex-connection-guard.js') }}"></script>
-<script src="{{ asset('js/docuperfect-editor.js') }}"></script>
+<script src="{{ asset('js/corex-connection-guard.js') }}?v={{ @filemtime(public_path('js/corex-connection-guard.js')) ?: '312' }}"></script>
+{{-- AT-312 — cache-bust the editor bundle by file mtime so a deploy's new JS/CSS
+     loads immediately (the un-versioned asset() was serving stale cached JS, which
+     is why the template-field font-toolbar fix appeared "not deployed" on screen). --}}
+<script src="{{ asset('js/docuperfect-editor.js') }}?v={{ @filemtime(public_path('js/docuperfect-editor.js')) ?: '312' }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const setupBtn = document.getElementById('setup-signatures-btn');
