@@ -32,7 +32,8 @@ class NormaliseContactTypes extends Command
 {
     protected $signature = 'contacts:normalise-types
         {--force : Apply changes (default is a dry-run report)}
-        {--preserve-unmappable : Keep non-transaction types (Lead, Other, Attorney, …) as unsorted parent-less tags instead of aborting}';
+        {--preserve-unmappable : Keep non-transaction types (Lead, Other, Attorney, …) as unsorted parent-less tags instead of aborting}
+        {--skip-unmappable : Leave non-transaction types (Lead, Other, Attorney, …) COMPLETELY untouched — MAP/DROP only. Neither re-buckets nor clears them.}';
 
     protected $description = 'Collapse contact types to the 4 fixed e-sign parents; map/drop/preserve extras (AT-79).';
 
@@ -54,6 +55,12 @@ class NormaliseContactTypes extends Command
     {
         $apply    = (bool) $this->option('force');
         $preserve = (bool) $this->option('preserve-unmappable');
+        $skip     = (bool) $this->option('skip-unmappable');
+
+        if ($preserve && $skip) {
+            $this->error('--preserve-unmappable and --skip-unmappable are mutually exclusive. Choose one.');
+            return self::FAILURE;
+        }
         $this->info($apply ? 'APPLYING contact-type normalisation…' : 'DRY RUN — no changes will be written. Use --force to apply.');
         $this->newLine();
 
@@ -109,8 +116,12 @@ class NormaliseContactTypes extends Command
                 $this->warn('PRESERVE (non-transaction type -> unsorted tag, transaction type cleared):');
                 foreach ($unmappable as $u) $this->line("  • {$u['extra']->name}  ({$u['contacts']} contacts)");
                 $this->newLine();
+            } elseif ($skip) {
+                $this->warn('SKIP (non-transaction type LEFT UNTOUCHED — not re-bucketed, not cleared):');
+                foreach ($unmappable as $u) $this->line("  • {$u['extra']->name}  ({$u['contacts']} contacts)");
+                $this->newLine();
             } else {
-                $this->error('UNMAPPABLE extras WITH contacts — pass --preserve-unmappable to keep them as unsorted tags, or rename/map them, then re-run:');
+                $this->error('UNMAPPABLE extras WITH contacts — pass --preserve-unmappable to keep them as unsorted tags, --skip-unmappable to leave them untouched (MAP/DROP only), or rename/map them, then re-run:');
                 foreach ($unmappable as $u) $this->line("  • {$u['extra']->name} ({$u['contacts']} contacts)");
                 $this->error('Aborting: refusing to mis-bucket real contacts.');
                 return self::FAILURE;
@@ -129,7 +140,7 @@ class NormaliseContactTypes extends Command
         }
 
         if (!$apply) {
-            $this->info('Dry run complete. Re-run with --force' . ($preserve ? ' --preserve-unmappable' : '') . ' to apply.');
+            $this->info('Dry run complete. Re-run with --force' . ($preserve ? ' --preserve-unmappable' : ($skip ? ' --skip-unmappable' : '')) . ' to apply.');
             return self::SUCCESS;
         }
 
