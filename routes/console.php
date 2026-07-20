@@ -375,10 +375,13 @@ if (\App\Support\Instance::isDemo()) {
         ->name('demo-access.reset');
 }
 
-// Mandate expiry — daily at 01:00. Marks stock properties whose expiry_date
-// has passed as 'expired' and fires Mandate\MandateExpired domain events.
-// Spec: .ai/specs/corex-domain-events-spec.md (Wave 6 deferred wiring).
-Schedule::command('mandates:expire')->dailyAt('01:00')->onOneServer()->withoutOverlapping();
+// Mandate expiry — daily at MIDNIGHT. Marks stock properties whose expiry_date
+// has passed as 'expired' and fires Mandate\MandateExpired domain events, which
+// pull the listing OFF the portals. AT-68 (Johan): the withdraw fires at the
+// first midnight once the mandate has expired — the end of the contractual
+// obligation, NO grace period (was 01:00 = an hour of unlawful advertising).
+// Spec: .ai/specs/p24-syndication.md (AT-68) + corex-domain-events-spec.md.
+Schedule::command('mandates:expire')->dailyAt('00:00')->onOneServer()->withoutOverlapping();
 
 // Fault reports auto-prune — soft-delete reports older than 3 days, daily at 02:30.
 Schedule::call(function () {

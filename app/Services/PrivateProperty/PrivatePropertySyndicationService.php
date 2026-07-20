@@ -250,17 +250,71 @@ class PrivatePropertySyndicationService
             ];
         }
 
+        // AT-68 audit-truth — PP answers the deactivation "Successful" while
+        // leaving the listing's status UNCHANGED (AT-68 parity probe: pushed a
+        // status change, ack "Successful", read back → unchanged). We must NEVER
+        // record a removal that did not occur. Read the status back and confirm the
+        // listing is actually OFF before writing 'deactivated'. Not-confirmed (still
+        // an active status, or read-back inconclusive/unreachable) → leave the prior
+        // status, return retryable so the queued DesyndicatePropertyFromPortalsJob
+        // (3 tries) re-attempts.
+        $confirm = $this->confirmOffPortal($property);
+        if (($confirm['confirmed'] ?? false) !== true) {
+            $property->update([
+                'pp_last_error' => 'Withdrawal not confirmed — ' . $confirm['message'] . '. Listing may still be live; will retry.',
+            ]);
+            $this->log('warning', "PP withdrawal UNCONFIRMED for property #{$property->id} — not recorded as removed", ['detail' => $confirm['message']]);
+            return [
+                'success'     => false,
+                'unconfirmed' => true,
+                'message'     => 'Withdrawal not confirmed off Private Property — will retry.',
+            ];
+        }
+
         $property->update([
             'pp_syndication_status' => 'deactivated',
             'pp_last_error'         => null,
         ]);
 
-        $this->log('info', "Listing deactivated for property #{$property->id}");
+        $this->log('info', "Listing deactivated for property #{$property->id} (confirmed off portal)");
 
         return [
             'success' => true,
             'message' => 'Listing deactivated on Private Property',
         ];
+    }
+
+    /**
+     * AT-68 audit-truth read-back. After a deactivation, ask PP for the listing's
+     * status and return an unambiguous verdict. Only an explicit off-market status
+     * (Inactive / Archived) confirms removal — a still-live status, an unknown/empty
+     * value, or a read-back error all return confirmed=false so the caller records
+     * nothing and retries. (Client is already bound to the agency by the caller.)
+     * Live-status list mirrors syncActivationStatus().
+     */
+    private function confirmOffPortal(Property $property): array
+    {
+        $check = $this->client->getListingStatus((string) $property->id);
+        if (isset($check['error']) && $check['error'] === true) {
+            return ['confirmed' => false, 'message' => 'read-back failed (' . ($check['message'] ?? 'portal unreachable') . ')'];
+        }
+
+        $raw = $check['GetListingStatusResult'] ?? null;
+        $statusString = is_string($raw)
+            ? trim($raw)
+            : (is_array($raw) ? ($raw['Status'] ?? $raw['PropertyStatus'] ?? null) : null);
+
+        $liveStatuses    = ['For Sale', 'To Let', 'Pending Offer', 'Sold', 'Active'];
+        $offMarketStatus = ['Inactive', 'Archived'];
+
+        if ($statusString !== null && in_array($statusString, $liveStatuses, true)) {
+            return ['confirmed' => false, 'message' => "listing still live on PP (status: {$statusString})"];
+        }
+        if ($statusString !== null && in_array($statusString, $offMarketStatus, true)) {
+            return ['confirmed' => true, 'message' => "confirmed off portal (status: {$statusString})"];
+        }
+        // Unknown / empty / unrecognised status — do NOT claim removal.
+        return ['confirmed' => false, 'message' => 'read-back inconclusive (status: ' . ($statusString ?? 'none') . ')'];
     }
 
     /**

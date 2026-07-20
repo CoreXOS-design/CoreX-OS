@@ -488,9 +488,53 @@ class Property24SyndicationService
             return ['success' => false, 'message' => $result['message'] ?? 'Deactivation failed'];
         }
 
+        // AT-68 audit-truth — P24 acks the Withdrawn push as success while
+        // sometimes leaving the listing LIVE on the portal (AT-221: HTTP 200 while
+        // rejecting). We must NEVER record a removal that did not occur. Read the
+        // portal back and confirm the listing is actually OFF before writing
+        // 'deactivated'. Not-confirmed (still live, or read-back unreachable) →
+        // leave the prior status, return a retryable failure so the queued
+        // DesyndicatePropertyFromPortalsJob (3 tries) re-attempts.
+        $confirm = $this->confirmOffPortal($property);
+        if (($confirm['confirmed'] ?? false) !== true) {
+            $property->update([
+                'p24_last_error' => 'Withdrawal not confirmed — ' . $confirm['message'] . '. Listing may still be live; will retry.',
+            ]);
+            $this->log('warning', "P24 withdrawal UNCONFIRMED for property #{$property->id} — not recorded as removed", ['detail' => $confirm['message']]);
+            return ['success' => false, 'unconfirmed' => true, 'message' => 'Withdrawal not confirmed off Property24 — will retry.'];
+        }
+
         $property->update(['p24_syndication_status' => 'deactivated', 'p24_last_error' => null]);
-        $this->log('info', "Listing deactivated for property #{$property->id}");
+        $this->log('info', "Listing deactivated for property #{$property->id} (confirmed off portal)");
         return ['success' => true, 'message' => 'Listing deactivated on Property24'];
+    }
+
+    /**
+     * AT-68 audit-truth read-back. After a Withdrawn push, ask the portal whether
+     * the listing is still on it and return an unambiguous verdict. Only an
+     * explicit "off portal" answer confirms removal — a still-on answer, an
+     * inconclusive shape, or an unreachable read-back all return confirmed=false
+     * so the caller records nothing and retries. (Client is already bound by the
+     * caller's bindClientForProperty().) Mirrors syncActivationStatus()'s
+     * is-on-portal interpretation.
+     */
+    private function confirmOffPortal(Property $property): array
+    {
+        $check = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
+        if (! ($check['success'] ?? false)) {
+            return ['confirmed' => false, 'message' => 'read-back failed (' . ($check['message'] ?? 'portal unreachable') . ')'];
+        }
+        $data = $check['data'] ?? [];
+        $isOn = is_array($data)
+            ? ($data['raw'] ?? $data['isOnPortal'] ?? $data['IsOnPortal'] ?? null)
+            : $data;
+        if ($isOn === true || $isOn === 'true' || $isOn === 'True') {
+            return ['confirmed' => false, 'message' => 'listing still ON portal after withdraw'];
+        }
+        if ($isOn === false || $isOn === 'false' || $isOn === 'False') {
+            return ['confirmed' => true, 'message' => 'confirmed off portal'];
+        }
+        return ['confirmed' => false, 'message' => 'read-back inconclusive'];
     }
 
     public function reactivateListing(Property $property): array
