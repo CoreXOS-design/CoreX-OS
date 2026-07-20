@@ -275,18 +275,39 @@ and a PRINT button.** Print exists on some e-sign surfaces (`esign/download.blad
 `wet-ink-confirmation.blade.php`) but the **property/deal filing surface** needs auditing —
 add whichever of view/print is missing there. Own ticket (AT, reporter Johan).
 
-### Build 1 — strikeout + amendment-ripple (QUEUED — spec only, do NOT build)
-Johan build-gates the strikeout + N-party amendment-ripple model on the spine being verified
-clean first. Full spec to be written into this doc when Johan confirms. Summary to preserve:
-strikeout on BOTH agent + recipient sides at fill & review; struck text stays visible
-(lined-through, never deleted) with an auto-rendered initial beside it, audit-logged; a
-recipient strikeout → agent review/approve/e-sign → ripple back to EACH prior signer (in
-order) to initial the amendment ONLY → once all prior signers re-initial, proceed to the next
-unsigned recipient (worked example: recipient 8 strikes → agent signs → recipients 1–7
-re-initial → proceed to 9). Every party always signs/initials the CURRENT canonical version;
-a change re-consents all prior signers (court-defensibility). Rides the canonical spine (§1–§4);
-the amendment is a new canonical version, the ripple re-collects initials into the artifact.
-Plugs into the FLAG flow (flag = concern raised; strikeout = concrete amendment).
+### Build 1 — AMENDMENT MODEL (LOCKED + SIMPLIFIED, Johan + Elize 2026-07-20)
+> This SUPERSEDES the earlier "strikeout on both sides + full N-party ripple" spec. It is
+> SMALLER. Do NOT build recipient-side strikeout; do NOT build a full-document re-sign ripple.
+> Build-gated: land + verify the 2 render bugs + recipient-2 leg FIRST.
+
+**Two amendment mechanisms, by actor:**
+- **STRIKEOUT = AGENT-ONLY, PREP-TIME ONLY.** The agent may strike/edit text while PREPARING
+  the document (before/at prep). Struck text stays VISIBLE (lined-through, never deleted) with
+  an auto-rendered initial beside it (the agent's), audit-logged (who/when/original/initial).
+  **Recipients CANNOT strike anything in e-sign** — a recipient who needs a strike must move to
+  the WET-INK process. (No recipient-side strikeout build.)
+- **RECIPIENTS ONLY FLAG.** The existing FLAG mechanism IS the recipient amendment path. Only
+  the AGENT ever mutates the document — **agent = sole source of truth.** Flags are captured +
+  logged; the agent makes the actual edit.
+
+**FLAG-RESOLUTION FLOW (the core of v1):**
+- **Gating:** while ANY flag is unresolved, that person CANNOT sign — the doc returns straight
+  to the AGENT to fix; once fixed, the person signs. (Largely built — the 423 freeze gate +
+  pending-amendment routing; VERIFY it.)
+- **Recipient 1 flags (COMMON, ~999/1000):** nobody else has signed yet → agent fixes → recipient
+  1 signs FRESH / FULL. Simple. This is the architecture's centre.
+- **Recipient 2+ flags (RARE late-flag edge):** agent resolves that part → it returns to
+  recipient 1 (and anyone else who already signed) to **INITIAL ONLY THAT CHANGE** — they do
+  NOT re-sign the whole document — then flow continues forward to the next unsigned recipient.
+  (Forcing a full re-sign of all prior parties is unacceptable — loses deals.)
+
+Rides the canonical spine (§1–§4): the agent's edit is a new canonical version; the initial-only
+re-consent composes the prior signer's initial INTO the artifact at the changed clause. Build
+the initial-only path but treat it as the edge case, not the centre.
+
+**v1 = perfect-world flow (agent → r1 → r2 → agent approve → file) + flag→agent-fix→sign gating
++ the two flag cases + agent-prep strikeout + email-all-ink + filed/view/print. NO recipient
+strikeout, NO full-document re-sign ripple.**
 
 ### Phase 2 — OTP clause-select / build-document-from-clauses (QUEUED — ticket, post-launch)
 Agent selects at e-sign setup (property: SS vs FH; parties: VAT / no-VAT; price: cash /
@@ -307,7 +328,9 @@ doc: both sellers get IDENTICAL sign/initial actions; ink accumulates into the c
 agent-review shows ALL ink. (This is the six-bug + recipient-2-parity work.)
 
 **IN v1 (non-negotiable, NOT deferred):**
-1. **Strikeout + amendment-ripple** (§9 Build 1) — agent AND recipient side.
+1. **Amendment model (§9 Build 1, LOCKED)** — agent-only prep-time strikeout + recipients-only
+   flag → agent fixes → sign; r2+ late-flag = prior signers initial-only-the-change. NO recipient
+   strikeout, NO full re-sign ripple.
 2. **Auto-initial on ADD** — adding any clause / other-condition requires an initial from
    whoever added it (same mechanism as a strikeout initial). (Ruling #2.)
 3. **Emails carry ALL ink** — recipient emails must render the document with every prior
