@@ -106,4 +106,50 @@ class MobileGalleryUploadTest extends TestCase
         $property->refresh();
         $this->assertCount(1, $property->gallery_categories_json['unsorted'] ?? []);
     }
+
+    /**
+     * The property-6118 regression: a portrait phone photo arrives as landscape
+     * pixels + EXIF Orientation=6. The stored original must be rewritten upright
+     * (portrait) with the tag stripped, so every downstream surface renders it
+     * the right way up regardless of whether it honours EXIF.
+     */
+    public function test_a_sideways_exif_photo_is_stored_upright(): void
+    {
+        $property = $this->makeProperty();
+
+        // Real file with a genuine EXIF orientation tag — fake()->image() can't
+        // produce one, so we upload the committed fixture (900x600, orientation 6).
+        $upload = new UploadedFile(
+            base_path('tests/Fixtures/Images/portrait-exif6.jpg'),
+            'photo.jpg',
+            'image/jpeg',
+            null,
+            true, // test mode — skip the is_uploaded_file() check
+        );
+
+        $res = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/images", [
+                'image' => $upload,
+            ]);
+
+        $res->assertStatus(201);
+
+        $property->refresh();
+        $storedUrl = $property->gallery_images_json[0] ?? null;
+        $this->assertNotNull($storedUrl, 'The photo must have been stored.');
+
+        $rel = ltrim(parse_url($storedUrl, PHP_URL_PATH) ?: '', '/');
+        $rel = preg_replace('#^storage/#', '', $rel);
+        $absolute = Storage::disk('public')->path($rel);
+
+        [$width, $height] = getimagesize($absolute);
+        $this->assertGreaterThan($width, $height,
+            'A portrait capture must be stored portrait (taller than wide), not sideways.');
+        $this->assertSame(600, $width);
+        $this->assertSame(900, $height);
+
+        $exif = @exif_read_data($absolute);
+        $this->assertArrayNotHasKey('Orientation', $exif ?: [],
+            'The baked-in orientation tag must be stripped so nothing double-rotates.');
+    }
 }
