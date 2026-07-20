@@ -73,6 +73,39 @@
         display: none !important;
     }
 }
+
+/* ═══ ESIGN-WETINK — ONE ink render spec (uniform for EVERY party, EVERY surface) ═══
+   The assembled/agent-review render was showing recipient ink markedly SMALLER
+   than the agent's, because ink reaches the DOM by more than one path (the baked
+   canonical img, the restoreStoredInitials JS, legacy embeds) each at its own
+   size. This enforces ONE size for signatures and ONE for initials, regardless of
+   who signed or which path rendered it — with !important so no inline/JS size can
+   shrink a party's ink below another's. Applied on every surface that includes
+   this partial (recipient ceremony, agent review, print). */
+.web-sig-signed-img,
+img.corex-ink,
+img.corex-ink--signature,
+[data-marker-type="signature"] img,
+[data-marker-type="signature"] .web-sig-signed-img {
+    height: 56px !important;
+    max-height: 56px !important;
+    width: auto !important;
+    max-width: 100% !important;
+    object-fit: contain !important;
+    display: inline-block !important;
+    vertical-align: bottom !important;
+}
+img.corex-ink--initial,
+[data-marker-type="initial"] img,
+[data-marker-type="initial"] .web-sig-signed-img {
+    height: 38px !important;
+    max-height: 38px !important;
+    width: auto !important;
+    max-width: 100% !important;
+    object-fit: contain !important;
+    display: inline-block !important;
+    vertical-align: bottom !important;
+}
 </style>
 <script>
 /**
@@ -381,11 +414,15 @@ function restoreStoredInitials(container, storedInitials) {
 
             if (firstInitialData && !el.getAttribute('data-signed')) {
                 el.setAttribute('data-signed', 'true');
-                el.style.border = '2px solid #10b981';
-                el.style.background = 'rgba(16,185,129,0.06)';
                 el.style.cursor = 'default';
                 el.style.opacity = '1';
-                el.innerHTML = '<img src="' + firstInitialData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
+                // ESIGN-WETINK — render restored initials at the SAME uniform
+                // initial size as the baked canonical (was max-height:26px — the
+                // tiny-recipient-initial bug). No emerald box either (BUG6 lineage:
+                // green rectangles). The .corex-ink--initial class also picks up the
+                // enforced ink spec above.
+                el.innerHTML = '<img src="' + firstInitialData + '" class="corex-ink corex-ink--initial" '
+                    + 'style="height:38px;max-height:38px;width:auto;object-fit:contain;" alt="Initial">';
             }
         });
     });

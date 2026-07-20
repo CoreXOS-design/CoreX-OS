@@ -1208,7 +1208,38 @@ class SignatureService
                     return;
                 }
 
-                // The group is finished (or this party was a group of one) → the agent checkpoint.
+                // ESIGN-WETINK Ruling #1 (Elize flow optimisation) — a CLEAN accept
+                // (the party signed with NO flag and NO strikeout/amendment) flows
+                // STRAIGHT to the next recipient. The agent is NOT a checkpoint on
+                // every completion — that was friction with no decision in it. The
+                // agent is pulled back in ONLY when a flag or a strikeout has raised a
+                // PENDING amendment (which freezes the chain and routes here); the
+                // amendment-ripple then runs as specced. Wet-ink sequential flow: the
+                // agent prepares + signs first, each recipient accepts in turn, and
+                // only a concrete concern (flag/strikeout) interrupts for agent review.
+                $hasPendingReview = DocumentAmendment::query()
+                    ->where('signature_template_id', $template->id)
+                    ->where('status', DocumentAmendment::STATUS_PENDING)
+                    ->exists();
+
+                if (! $hasPendingReview) {
+                    SignatureAuditLog::log(
+                        $template,
+                        'clean_accept_advanced',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'completed_party' => $completedParty,
+                            'signer_name'     => $request?->signer_name,
+                        ],
+                    );
+                    // Hand the pen to the next waiting party (any group), or finalise
+                    // if this was the last. No agent checkpoint on a clean accept.
+                    $this->advanceToNextParty($template, $completedParty);
+                    return;
+                }
+
+                // A flag / strikeout raised a PENDING amendment → agent checkpoint.
                 $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
 
                 SignatureAuditLog::log(
@@ -1219,6 +1250,7 @@ class SignatureService
                     metadata: [
                         'completed_party' => $completedParty,
                         'signer_name' => $request?->signer_name,
+                        'reason' => 'flag_or_strikeout',
                     ],
                 );
 

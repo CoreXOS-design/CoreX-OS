@@ -1716,14 +1716,13 @@ class SigningController extends Controller
             ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
             ->doesntExist();
 
-        if ($allRoleComplete) {
-            // All co-owners for this role signed — run approval gate
-            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-        } else {
-            // More co-owners still need to sign — still require agent approval before next co-owner
-            $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
-            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-        }
+        // ESIGN-WETINK Ruling #1 — routing is delegated ENTIRELY to
+        // handlePartyCompletion, which advances a CLEAN accept straight to the next
+        // recipient and checkpoints to the agent ONLY on a pending flag/strikeout.
+        // (Previously this set STATUS_PENDING_AGENT_APPROVAL before every next
+        // co-owner — the friction Elize's run flagged.) handlePartyCompletion is
+        // idempotent about which co-owner remains, so both branches call it plainly.
+        $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
 
         $fullyComplete = $this->signatureService->isFullyComplete($template);
 
