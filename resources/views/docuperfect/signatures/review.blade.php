@@ -11,16 +11,18 @@
 
 @include('docuperfect.signatures.partials.a4-page-styles')
 <style>
-/* Read-only document container — interactive elements made inert */
+/* Read-only document container — interactive elements made inert. The DOCUMENT
+   render itself (ink sizing, per-recipient blocks, accumulated signatures) is
+   governed ENTIRELY by the shared canonical-spine partial (a4-page-styles), so the
+   agent-review renders identically to the signing screens — the review must NOT
+   re-style the document. We only make it non-interactive. (The previous emerald
+   border/background on .web-sig-interactive was a review-only divergence — the
+   "green box" — and is removed; the spine's own signed/ink styling stands.) */
 .review-doc-container .web-sig-interactive,
 .review-doc-container .corex-page-initials,
 .review-doc-container [data-marker-type] {
     pointer-events: none;
     cursor: default;
-}
-.review-doc-container .web-sig-interactive {
-    border: 2px solid #10b981 !important;
-    background: rgba(16,185,129,0.04) !important;
 }
 /* Clause flag highlight */
 .clause-flag-card {

@@ -235,7 +235,10 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         // compose/recipient query.
         $frozen = '<div id="STORED-SENTINEL" data-role-block="seller">frozen artifact</div>';
         $doc = new Document();
-        $doc->web_template_data = ['canonical_html' => $frozen];
+        // canonical_version >= 1 = ink has been baked → the stored artifact is the
+        // accumulated source of truth and is served VERBATIM. (An unbaked v0 is
+        // re-composed instead, so structural fixes always reach unsigned docs.)
+        $doc->web_template_data = ['canonical_html' => $frozen, 'canonical_version' => 2];
         $template = new SignatureTemplate();
         $template->setRelation('document', $doc);
 
