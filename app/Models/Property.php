@@ -455,6 +455,7 @@ class Property extends Model
         'cma_gps_lng'                 => 'decimal:7',
         'last_cma_at'                 => 'datetime',
         'last_cma_presentation_id'    => 'integer',
+        'sg_last_searched_at'         => 'datetime',
     ];
 
     protected static function boot(): void
