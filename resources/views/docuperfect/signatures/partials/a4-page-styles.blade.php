@@ -414,8 +414,13 @@ function _buildInitialsRow(parties, pageIdx) {
         box.setAttribute('data-marker-party', party.role);
         box.setAttribute('data-marker-type', 'initial');
         box.setAttribute('data-marker-index', pageIdx + '-' + pIdx);
-        box.style.cssText = 'width:60px;height:30px;border:1px solid #94a3b8;display:flex;align-items:center;justify-content:center;font-size:9px;color:#64748b;cursor:pointer;';
-        box.innerHTML = '<span class="initial-placeholder">' + (party.label || party.role) + '</span>';
+        // ESIGN-WETINK — the initial block + its TEXT fill at the standard size.
+        // Box 84x40; the placeholder/typed-glyph SPAN carries font-size:24px INLINE
+        // so it never depends on a stylesheet rule reaching the child (the conductor
+        // measured the span still tiny even with the .initial-placeholder rule — an
+        // inline size on the span itself is the bulletproof fix).
+        box.style.cssText = 'width:84px;height:40px;border:1px solid #94a3b8;display:flex;align-items:center;justify-content:center;font-size:24px;color:#334155;cursor:pointer;overflow:hidden;';
+        box.innerHTML = '<span class="initial-placeholder" style="font-size:24px;line-height:1;font-weight:600;display:flex;align-items:center;justify-content:center;width:100%;height:100%;">' + (party.label || party.role) + '</span>';
         row.appendChild(box);
     });
 
