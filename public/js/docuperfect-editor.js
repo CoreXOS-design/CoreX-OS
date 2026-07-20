@@ -559,6 +559,7 @@
             if (field.named_field_id) syncNamedField(field.named_field_id, this.value, this);
         });
         inp.addEventListener('mousedown', stopProp);
+        selectFieldOnFocus(inp, field);
         el.appendChild(inp);
     }
 
@@ -573,6 +574,7 @@
         applyStyle(inp, field);
         inp.addEventListener('change', function () { field.value = this.value; isDirty = true; });
         inp.addEventListener('mousedown', stopProp);
+        selectFieldOnFocus(inp, field);
         el.appendChild(inp);
     }
 
@@ -728,6 +730,7 @@
         ta.style.fontSize = ((field.style && field.style.fontSize) || 10) + 'px';
         ta.addEventListener('input', function () { field.text = this.value; isDirty = true; });
         ta.addEventListener('mousedown', stopProp);
+        selectFieldOnFocus(ta, field);
         el.appendChild(ta);
     }
 
@@ -1058,6 +1061,13 @@
         selectedFieldId = id;
         selectedZoneId = null;
         renderAllFields();
+        // AT-312 — renderAllFields rebuilds the field DOM, so restore the cursor to
+        // the just-selected field's input; clicking a (template) field then shows the
+        // font toolbar AND keeps the cursor so you can type without a second click.
+        if (C.mode === 'document') {
+            var inpEl = editorEl.querySelector('.dp-field.selected .dp-field-input');
+            if (inpEl) { inpEl.focus(); try { var L = (inpEl.value || '').length; inpEl.setSelectionRange(L, L); } catch (e) {} }
+        }
     }
 
     function selectZone(id) {
@@ -2396,6 +2406,18 @@
     }
 
     function stopProp(e) { e.stopPropagation(); }
+
+    // AT-312 — select a field when its value input gains focus. Template-defined
+    // fields (e.g. "Lessor Name") have no move/resize handles to click, and the
+    // input stops mousedown propagation to the field's select handler, so without
+    // this they can never become selectedField and the per-field font/format
+    // toolbar never appears. Focusing the input (clicking in to type) now selects
+    // the field exactly like a manually-added text field does.
+    function selectFieldOnFocus(inp, field) {
+        inp.addEventListener('focus', function () {
+            if (selectedFieldId !== field.id) selectField(field.id);
+        });
+    }
 
     function escHtml(str) {
         var d = document.createElement('div');
