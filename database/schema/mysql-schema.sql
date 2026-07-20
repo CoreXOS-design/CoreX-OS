@@ -9181,6 +9181,7 @@ CREATE TABLE `properties` (
   `gallery_categories_json` json DEFAULT NULL,
   `gallery_custom_tags` json DEFAULT NULL,
   `gallery_upload_keys` json DEFAULT NULL,
+  `rental_upload_keys` json DEFAULT NULL,
   `rental_images_json` json DEFAULT NULL COMMENT 'Rental inspection galleries: {in_inspection:{date,images[]}, out_inspection:{date,images[]}, custom:[{id,name,date,images[]}]}. Only used when listing_type=rental.',
   `features_json` json DEFAULT NULL,
   `features_json_meta` json DEFAULT NULL COMMENT 'Per-feature audit: {pool:{source:ai|manual,confidence:0.92,confirmed_by_user_id:5,confirmed_at:...}}',
@@ -13504,3 +13505,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1000,'2026_08_03_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1001,'2026_08_05_000001_register_fica_referral_returned_notification',188);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1002,'2026_07_14_120000_create_agency_subscriptions_table',189);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1003,'2026_08_06_000001_add_gallery_upload_keys_to_properties_table',190);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1004,'2026_08_06_000002_add_rental_upload_keys_to_properties_table',191);
