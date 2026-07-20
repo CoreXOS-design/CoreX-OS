@@ -107,10 +107,18 @@
             <tbody>
                 @forelse($leads as $lead)
                     @php
-                        $agent = $lead->existingContactAgent
-                              ?? ($lead->listing && $lead->listing->agent_id
-                                  ? \App\Models\User::find($lead->listing->agent_id)
-                                  : null);
+                        // AT-308 — the lead ALWAYS belongs to the LISTING's agent
+                        // (Johan ruling (a)); that is who the "Agent" column shows,
+                        // matching the agent filter exactly.
+                        $listingAgent = $lead->listing?->agent;
+
+                        // The enquiring buyer may already belong to a DIFFERENT agent.
+                        // That does not move the lead — it is an informational signal
+                        // for the receiving agent/BM's keep-vs-move judgement, surfaced
+                        // as the cross-agent badge (never automated).
+                        $buyerAgent = $lead->existingContactAgent;
+                        $crossAgent = ($buyerAgent && $listingAgent && $buyerAgent->id !== $listingAgent->id)
+                            ? $buyerAgent : null;
                     @endphp
                     <tr class="transition-all duration-300"
                         id="portal-lead-{{ $lead->id }}"
@@ -171,16 +179,37 @@
                             @if($lead->contact_exists)
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold"
                                       style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
-                                    Already Exists{{ $lead->existingContactAgent ? ' — ' . $lead->existingContactAgent->name : '' }}
+                                    Already Exists
                                 </span>
                             @else
                                 <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold text-white"
                                       style="background: var(--brand-icon, #0ea5e9);">
-                                    New Contact{{ $agent ? ' — ' . $agent->name : '' }}
+                                    New Contact
                                 </span>
                             @endif
                         </td>
-                        <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">{{ $agent->name ?? '—' }}</td>
+                        {{-- Agent = the LISTING's agent (the lead's owner, AT-308). The
+                             cross-agent badge below it names the buyer's existing agent
+                             plus the dates that inform a keep-vs-move decision. --}}
+                        <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">
+                            <div class="font-medium" style="color: var(--text-primary);">{{ $listingAgent->name ?? '—' }}</div>
+                            @if($crossAgent)
+                                <div class="mt-1 inline-flex flex-col gap-0.5 px-2 py-1 rounded-md text-[10px] leading-tight"
+                                     data-cross-agent="{{ $crossAgent->id }}"
+                                     style="background: var(--surface-2); border: 1px solid var(--border);"
+                                     title="This buyer already has a relationship with another agent. The lead stays with the listing agent — keep-vs-move is your agency's call.">
+                                    <span class="font-semibold" style="color: var(--brand-icon, #0ea5e9);">
+                                        &#9873; Buyer known to {{ $crossAgent->name }}
+                                    </span>
+                                    <span style="color: var(--text-muted);">
+                                        Contact since {{ optional($lead->contact?->created_at)->format('Y-m-d') ?? '—' }}
+                                    </span>
+                                    <span style="color: var(--text-muted);">
+                                        Last interaction {{ optional($lead->contact?->last_contacted_at)->format('Y-m-d') ?? 'none recorded' }}
+                                    </span>
+                                </div>
+                            @endif
+                        </td>
                     </tr>
                 @empty
                     <tr>

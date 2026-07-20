@@ -92,7 +92,10 @@ When a `CommandTask` is created with `source_type = 'private_property_webhook'`:
 
 - **Route**: `GET /real-estate/portal-leads` → `PortalLeadController@index`. JSON variant at `GET /real-estate/portal-leads/poll` for the toast poller.
 - **Sidebar**: new entry under Real Estate, after Core Matches.
-- **Page**: filters (portal/date/agent/status) + table with row expansion for full message + raw payload. Status badges: green "New Contact — Created as Buyer" / amber "Already Exists — under <Agent>".
+- **Page**: filters (portal/date/agent/status) + table with row expansion for full message + raw payload. Status badges: green "New Contact" / neutral "Already Exists".
+- **Agent filter semantics (AT-308, Johan ruling (a))**: filtering by an agent returns every lead **on that agent's LISTINGS / stock** — the listing's primary agent OR the co-listing second agent (`pp_second_agent_id`), mirroring `PortalLead::agentIds()` and `scopeVisibleTo`. It does **NOT** match on the enquiring contact's existing agent. (The original filter matched listing-agent OR contact-agent, but the row **displays** the listing agent — so a lead on agent X's listing whose buyer already belonged to agent Y matched the "X" filter yet rendered "Y", making the filter look broken. Filter-semantics now equal display-semantics.) The lead always belongs to the listing agent; who owns the buyer relationship is informational, not a filter axis.
+- **"Agent" column**: shows the **listing agent** (the lead's owner), matching the filter exactly.
+- **Cross-agent badge (AT-308)**: when the enquiring buyer already belongs to a **different** agent than the listing agent, the row shows an informational badge — "⚑ Buyer known to <other agent>", plus the **contact-created date** (`contacts.created_at`) and **last-interaction date** (`contacts.last_contacted_at`, the AT-59 marker). This lets the receiving agent/BM judge keep-vs-move. It is **informational only** — the lead is never auto-reassigned; keep-vs-move is agency policy, a human decision.
 - **Property Intelligence tab**: append a "Portal Leads" panel partial — total + per-portal counts + leads table newest-first.
 - **Toast**: Alpine.js component polling the JSON endpoint every 30s for `agency_id`-scoped leads with `notified_at IS NULL`, marks them notified on display.
 
