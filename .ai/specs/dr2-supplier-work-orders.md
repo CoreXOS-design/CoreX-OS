@@ -545,3 +545,29 @@ supplier), never a 500.
 - `app/Http/Controllers/DealV2/WorkOrderController.php` `supplierPayload()` (+types).
 - `resources/views/dr2/_supplier-work-orders.blade.php` (filter + fallback hint).
 - Test: `tests/Feature/DealV2/SupplierServiceTypesTest.php`.
+
+### 21.7 On-site proof (deployed qa1 `d2f478ba`, agency 1)
+Migration ran (fixed: short FK/index names — the long table name blew MySQL's 64-char limit on the
+first attempt; `aspst_provider_fk` / `aspst_agency_type_idx` / `aspst_provider_idx`). Driven through the
+real controllers, all mutations rolled back (self-cleaning):
+- **STORE multi-type:** a supplier saved with `service_types=['COC','Gas']` → 2 pivot rows, `typeCodes()`
+  = [COC, Gas].
+- **SYNC {COC,Gas}→{COC,Beetle}:** COC kept, Beetle added, **Gas soft-deleted** (not hard-deleted).
+- **TYPES-LESS:** a supplier saved with no `service_types` → no 500, zero pivot rows (lazy-but-valid).
+- **Invalid code absorbed:** a bogus code posted alongside COC → only COC persists.
+- **Payload:** `WorkOrderController::supplierPayload()` carries `types:[Beetle,COC]` for the supplier.
+- **Filter (data-level):** the supplier shows for a `COC` row and is excluded from a `Gas` row after the
+  sync removed Gas.
+- **Renders:** directory index renders 54 `service_types[]` checkboxes over the agency's 6 active types
+  (Add form + per-row editors) + the Save-types form; the work-order panel renders the filtered
+  `suppliersFor(it)` picker + the fallback hint. Backfill: agency 1 had no mappable legacy suppliers
+  (attorneys/other) → 0 backfilled, as expected.
+
+**Test:** `tests/Feature/DealV2/SupplierServiceTypesTest.php` (6 cases: store-with-types, sync
+add/remove-with-soft-delete, restore-on-re-add, types-less no-500, invalid-code absorbed, payload
+carries types) is written to the BUILD_STANDARD input matrix and lints clean. It could NOT execute on
+this lane: the `hfc_dash_test_6` test DB fails `RefreshDatabase` bootstrap (schema-snapshot load
+`ProcessFailedException` → `1051 Unknown table` drop-all → `1050 migrations already exists`), the known
+test-DB gotcha (CLAUDE.md #13). All 6 error at 0 assertions in setUp, before any assertion runs — a
+pre-existing infra baseline, not this change. Every path is instead proven on QA1 through the real
+controllers (§21.7).
