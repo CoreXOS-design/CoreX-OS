@@ -193,7 +193,7 @@
                             </div>
                         </div>
                         @if($pl->portal_url)
-                            <a href="{{ $pl->portal_url }}" target="_blank" rel="noopener"
+                            <a href="{{ $pl->portal_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"
                                class="text-[10px] font-medium px-2 py-1 rounded no-underline flex-shrink-0"
                                style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
                                 Open ↗
