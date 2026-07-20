@@ -269,14 +269,23 @@ class Dr1PipelineService
                 'current_rag'     => 'grey',
             ]);
 
+            $outcome    = $completionData['outcome'] ?? 'positive';
+            $isNegative = $outcome === 'negative';
+
+            $label = $isNegative ? (' — ' . ($step->negative_outcome_label ?: 'negative outcome')) : '';
             $notes = ! empty($completionData['notes']) ? " — {$completionData['notes']}" : '';
             $this->logActivity($step->dr1Deal, $step, $userId, 'step_completed',
-                "Step \"{$step->name}\" completed{$notes}");
+                "Step \"{$step->name}\" completed{$label}{$notes}");
 
-            $this->activateDownstreamSteps($step);
+            // AT-229 6b — a DECISION step fires its forward chain ONLY on the positive outcome.
+            // A negative outcome (e.g. "Bond Declined") completes the step and applies its
+            // negative status trigger, but never activates the positive-path successors.
+            if (! $isNegative) {
+                $this->activateDownstreamSteps($step);
+            }
 
-            // Sweep #2 — fire the step's configured status_trigger onto the deal's status.
-            $this->applyStatusTrigger($step, $userId);
+            // Sweep #2 — fire the step's configured status_trigger (positive or negative) onto the deal.
+            $this->applyStatusTrigger($step, $userId, $isNegative);
         });
     }
 
@@ -301,9 +310,11 @@ class Dr1PipelineService
      * downgrades a 'Registered' deal), 'D' (declined) always applies. Stamps granted_at /
      * registration_date on first reach. Audited to the deal timeline.
      */
-    private function applyStatusTrigger(DealStepInstance $step, ?int $userId): void
+    private function applyStatusTrigger(DealStepInstance $step, ?int $userId, bool $isNegative = false): void
     {
-        $trigger = $step->status_trigger;
+        // AT-229 6b — a negative outcome drives the deal by the step's NEGATIVE trigger
+        // (typically declined/cancelled → 'D'), never the positive one.
+        $trigger = $isNegative ? $step->negative_status_trigger : $step->status_trigger;
         $code    = $trigger ? (self::STATUS_TRIGGER_MAP[$trigger] ?? null) : null;
         $deal    = $step->dr1Deal;
         if (! $code || ! $deal) {

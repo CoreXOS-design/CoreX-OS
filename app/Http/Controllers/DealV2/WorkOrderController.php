@@ -182,6 +182,86 @@ class WorkOrderController extends Controller
         return back()->with('success', $msg);
     }
 
+    // =========================================================================
+    // AT-229 COC sub-process — the per-deal work-order panel on the live pipeline.
+    // The step-template config lists the COC types a step OFFERS; here the agent
+    // selects which this deal needs, sets each COC's RESPONSIBLE party + recipient,
+    // and sends (CC agents, de-duped) — one work order + audit each.
+    // =========================================================================
+
+    public function cocPanel(Deal $deal, DealStepInstance $step)
+    {
+        abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
+
+        $offered = ($step->pipelineStep?->workOrders ?? collect())
+            ->pluck('service_type')->filter()->unique()->values()->all();
+
+        $rows = \App\Models\DealV2\DealStepWorkOrder::where('deal_step_instance_id', $step->id)
+            ->orderBy('id')->get()
+            ->map(fn ($w) => [
+                'id' => $w->id, 'service_type' => $w->service_type, 'responsible_party' => $w->responsible_party,
+                'service_provider_id' => $w->service_provider_id, 'status' => $w->status,
+                'recipient_email' => $w->recipient_email, 'cc_emails' => $w->cc_emails,
+            ])->all();
+
+        return response()->json([
+            'offered_types'      => $offered,
+            'responsible_labels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
+            'work_orders'        => $rows,
+            'suppliers'          => $this->supplierPayload(),
+        ]);
+    }
+
+    public function cocSync(Request $request, Deal $deal, DealStepInstance $step)
+    {
+        abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
+
+        $data = $request->validate([
+            'work_orders' => ['nullable', 'array'],
+            'work_orders.*.id' => ['nullable', 'integer'],
+            'work_orders.*.service_type' => ['required', 'string', 'max:40'],
+            'work_orders.*.responsible_party' => ['required', 'in:' . implode(',', \App\Models\DealV2\DealStepWorkOrder::RESPONSIBLE)],
+            'work_orders.*.service_provider_id' => ['nullable', 'integer'],
+        ]);
+
+        $keepIds = [];
+        foreach ($data['work_orders'] ?? [] as $row) {
+            $attrs = [
+                'dr1_deal_id'         => $deal->id,
+                'agency_id'           => $deal->agency_id,
+                'service_type'        => $row['service_type'],
+                'responsible_party'   => $row['responsible_party'],
+                'service_provider_id' => $row['responsible_party'] === 'supplier' || $row['responsible_party'] === 'transfer_attorney' ? ($row['service_provider_id'] ?? null) : null,
+            ];
+            // Never re-write a row that already sent (audit integrity).
+            $existing = ! empty($row['id']) ? \App\Models\DealV2\DealStepWorkOrder::where('deal_step_instance_id', $step->id)->find($row['id']) : null;
+            if ($existing && $existing->isSent()) { $keepIds[] = $existing->id; continue; }
+            if ($existing) { $existing->update($attrs); $keepIds[] = $existing->id; }
+            else { $created = \App\Models\DealV2\DealStepWorkOrder::create($attrs + ['deal_step_instance_id' => $step->id]); $keepIds[] = $created->id; }
+        }
+        // Soft-delete rows the agent removed (never a sent one).
+        \App\Models\DealV2\DealStepWorkOrder::where('deal_step_instance_id', $step->id)
+            ->whereNotIn('id', $keepIds ?: [0])->where('status', '!=', 'sent')->get()->each->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function cocSend(Request $request, Deal $deal, DealStepInstance $step, \App\Models\DealV2\DealStepWorkOrder $workOrder, \App\Services\DealV2\CocWorkOrderService $coc)
+    {
+        abort_unless((int) $step->dr1_deal_id === (int) $deal->id && (int) $workOrder->deal_step_instance_id === (int) $step->id, 404);
+        if ($workOrder->isSent()) {
+            return response()->json(['ok' => false, 'message' => 'This work order was already sent.'], 422);
+        }
+        try {
+            $coc->send($workOrder, $request->user(), $request->only(self::FIELD_KEYS));
+        } catch (\DomainException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
+        $workOrder->refresh();
+        $cc = $workOrder->cc_emails ? " (cc {$workOrder->cc_emails})" : '';
+        return response()->json(['ok' => true, 'message' => "Work order sent to {$workOrder->recipient_email}{$cc}."]);
+    }
+
     // ── shared helpers ───────────────────────────────────────────────────────
 
     private function validateSupplier(Request $request): array

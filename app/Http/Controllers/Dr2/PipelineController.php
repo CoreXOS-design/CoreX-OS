@@ -119,13 +119,20 @@ class PipelineController extends Controller
         }
 
         $notes = trim((string) $request->input('notes', ''));
+        // AT-229 6b — a decision step may complete with a NEGATIVE outcome (e.g. "Bond Declined");
+        // only honour it when the step actually has a negative branch configured.
+        $outcome = $request->input('outcome') === 'negative' && $step->negative_status_trigger ? 'negative' : 'positive';
+
+        $completion = [];
+        if ($notes !== '') { $completion['notes'] = $notes; }
+        if ($outcome === 'negative') { $completion['outcome'] = 'negative'; }
 
         // Wave 2 granted-uniqueness — a step whose trigger would GRANT this deal
         // is blocked when the property already carries a granted deal. The
         // service throws inside the transaction (step completion rolls back);
         // surface it to the user instead of silently swallowing it.
         try {
-            $this->pipelines->completeStep($step, $request->user()?->id, $notes !== '' ? ['notes' => $notes] : []);
+            $this->pipelines->completeStep($step, $request->user()?->id, $completion);
         } catch (\App\Exceptions\Deal\DuplicateGrantException $e) {
             $other = $e->existingGrantedDeal;
             return back()->with('error', sprintf(
