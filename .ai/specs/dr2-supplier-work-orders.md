@@ -372,3 +372,24 @@ no modal / no `position:fixed`**. Functional: panel lists the 4 live COC types +
 **Beetle + Electric Fence steps auto-N/A**; completing "Bond Approved" fired both — **Mailpit: TO
 electrician / CC falan+shawn (both agents); TO falan (listing) / CC shawn (selling; self-CC
 de-duped)**. 2 distinct PDFs + 2 AT-228 audit rows, twin minted. Proof rolled back.
+
+## 19. Pipeline-setup work-order config PERSISTENCE fix (2026-07-20)
+
+Bug (Johan): configuring the "Supplier work orders on this step" list in Pipeline Setup, clicking
+Save, showed a "Step saved" toast — but on refresh the work orders were gone.
+
+**Cause (frontend only):** `deals-v2/pipeline-setup/edit.blade.php` `saveStep()` built the axios
+payload field-by-field and **omitted `work_orders`**. So `DealPipelineStepController::syncWorkOrders`
+hit `if (! $request->has('work_orders')) return;` and wrote nothing. The step row itself saved (hence
+the toast), but the collection was never posted → empty on reload.
+
+**Reload path was already correct:** `DealPipelineSetupController::edit()` eager-loads
+`steps.workOrders` and maps them into `stepsJson.work_orders`.
+
+**Fix:** include the filtered `work_orders` array in the `saveStep` payload. `syncWorkOrders`
+rebuilds the collection (soft-deletes the old set, recreates — no hard deletes).
+
+**On-site proof (deployed qa1 `76812804`, template #1 / step #1):** posting the fixed payload
+(`work_orders: [COC/activated, Gas/completed]`) wrote 2 `deal_pipeline_step_work_orders` rows;
+`edit()` reload returned `stepsJson.work_orders = 2`; the old payload without `work_orders` wrote 0
+(early-return, confirming the cause). Proof rolled back.
