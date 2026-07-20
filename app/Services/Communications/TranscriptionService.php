@@ -54,7 +54,18 @@ class TranscriptionService
         if (! Storage::disk($disk)->exists($att->storage_path)) {
             return $this->markFailed($comm, 'audio_missing');
         }
-        $audioPath = Storage::disk($disk)->path($att->storage_path);
+        // AT-173 — media may be encrypted at rest; the whisper worker reads a raw
+        // path, so decrypt to a short-lived temp file (removed in finally). Legacy
+        // plaintext passes through the seam unchanged.
+        $plainBytes = app(\App\Services\Communications\CommunicationStorageService::class)->get($att->storage_path);
+        if ($plainBytes === null) {
+            return $this->markFailed($comm, 'audio_missing');
+        }
+        $ext = pathinfo($att->storage_path, PATHINFO_EXTENSION) ?: 'ogg';
+        $tmpBase = tempnam(sys_get_temp_dir(), 'cxe_tx_');
+        $audioPath = $tmpBase . '.' . $ext;
+        @rename($tmpBase, $audioPath);
+        file_put_contents($audioPath, $plainBytes);
 
         $model   = $modelOverride ?: (string) config('communications.transcription.model', 'medium');
         $threads = (string) (int) config('communications.transcription.threads', 8);
@@ -99,6 +110,11 @@ class TranscriptionService
         } catch (\Throwable $e) {
             Log::warning('AT-163 transcription error', ['communication_id' => $comm->id, 'error' => $e->getMessage()]);
             return $this->markFailed($comm, Str::limit($e->getMessage(), 200, ''));
+        } finally {
+            // AT-173 — never leave the decrypted temp audio on disk.
+            if (isset($audioPath) && is_file($audioPath)) {
+                @unlink($audioPath);
+            }
         }
     }
 

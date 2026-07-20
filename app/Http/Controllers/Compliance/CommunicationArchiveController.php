@@ -295,19 +295,26 @@ class CommunicationArchiveController extends Controller
         // Only a fully-stored attachment is served; a media-pending row has no file.
         abort_unless($attachment->isPlayable(), 404);
 
-        $disk = Storage::disk($this->storage->disk());
-        abort_unless($disk->exists($attachment->storage_path), 404);
+        abort_unless(Storage::disk($this->storage->disk())->exists($attachment->storage_path), 404);
 
         $mime = $attachment->mime ?: 'application/octet-stream';
         // Strip any ;codecs=… parameter for the outbound header base type, but keep
         // the full mimetype — browsers accept "audio/ogg; codecs=opus" fine.
         $downloadName = $this->downloadName($attachment);
 
-        return response()->file($disk->path($attachment->storage_path), [
+        // AT-173 — serve DECRYPTED through the storage seam (never the raw disk path,
+        // which would hand the browser ciphertext once media is encrypted). Legacy
+        // plaintext passes through unchanged. Small media (voice notes/images) are
+        // streamed whole; byte-range seeking is not offered on the encrypted path.
+        $bytes = $this->storage->get($attachment->storage_path);
+        abort_if($bytes === null, 404);
+
+        return response($bytes, 200, [
             'Content-Type'        => $mime,
             'Content-Disposition' => 'inline; filename="' . $downloadName . '"',
             'Cache-Control'       => 'private, max-age=0, no-store',
             'X-Content-Type-Options' => 'nosniff',
+            'Content-Length'      => (string) strlen($bytes),
         ]);
     }
 
