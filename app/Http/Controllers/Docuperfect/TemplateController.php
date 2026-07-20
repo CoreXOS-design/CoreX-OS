@@ -820,7 +820,12 @@ class TemplateController extends Controller
      * When $taggedHtml is null, falls back to rendering from CDS JSON via
      * CdsRendererService (original path, for backward compatibility).
      */
-    private function generateCdsBladeView(
+    /**
+     * Public so WebTemplateBladeEnsurer can regenerate a missing generated blade
+     * on-demand from stored template data (blank-preview regression fix). Behaviour
+     * unchanged — the save path still calls it exactly as before.
+     */
+    public function generateCdsBladeView(
         array $cds,
         array $fieldMappings,
         int $templateId,
@@ -1304,7 +1309,9 @@ BLADE;
         // Pass header_display so company-header component respects template setting
         $viewData['header_display'] = $template->header_display ?? 'first_page';
 
-        $html = view($template->blade_view, $viewData)->render();
+        // Blank-preview fix: regenerate the generated blade if its file is missing,
+        // and never blank on a render failure (stored-HTML fallback).
+        $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($template, $viewData);
 
         return response($html)->header('Content-Type', 'text/html');
     }

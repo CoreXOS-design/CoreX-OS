@@ -1345,7 +1345,9 @@ class ESignWizardController extends Controller
                         $propSrc = $stepData['property']['_property_source'] ?? null;
                         $tplData['document_context'] = $tpl->isSalesDocument($propSrc) ? 'sales' : 'rental';
                     }
-                    $html = view($tpl->blade_view, $tplData)->render();
+                    // Blank-preview fix: regenerate the generated blade if its file is
+                    // missing, and never blank on a render failure (stored-HTML fallback).
+                    $html = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($tpl, $tplData);
                     $styles = '';
                     preg_match_all('/<style[^>]*>.*?<\/style>/si', $html, $sm);
                     if (!empty($sm[0])) {
@@ -1395,7 +1397,9 @@ class ESignWizardController extends Controller
                 $propSrc = $stepData['property']['_property_source'] ?? null;
                 $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
             }
-            $fullHtml = view($template->blade_view, $viewData)->render();
+            // Blank-preview fix: regenerate the generated blade if its file is missing,
+            // and never blank on a render failure (stored-HTML fallback).
+            $fullHtml = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->renderOrFallback($template, $viewData);
             $bodyHtml = $fullHtml;
             if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
                 $bodyHtml = trim($m[1]);
