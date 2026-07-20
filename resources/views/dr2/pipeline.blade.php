@@ -170,11 +170,11 @@
 
                         {{-- AT-229 — OPTIONAL "Send work order" (Non-neg #2 entry point). Shows only
                              when this step's config sends a work order and it is at its trigger point. --}}
-                        @php($wo = $s->pipelineStep)
-                        @php($woTrig = $wo?->work_order_trigger_point ?: 'activated')
-                        @php($showWo = ! $locked && $wo?->sends_work_order && (($s->status === 'active' && $woTrig === 'activated') || ($s->status === 'completed' && $woTrig === 'completed')) && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
-                        @if($showWo)
+                        @php($canWo = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
+                        @php($stepWorkOrders = $canWo ? (optional($s->pipelineStep)->workOrders ?? collect())->filter(fn ($w) => (($w->trigger_point ?: 'activated') === 'activated' && $s->status === 'active') || (($w->trigger_point ?: 'activated') === 'completed' && $s->status === 'completed')) : collect())
+                        @foreach($stepWorkOrders as $wo)
                         <span x-data="{
+                                serviceType: '{{ addslashes((string) $wo->service_type) }}',
                                 open:false, loading:false, sending:false, err:'', ok:'',
                                 fields:{}, suppliers:[], supplierId:'', contactId:'',
                                 newSupplier:{ name:'', company:'', email:'', phone:'' },
@@ -185,13 +185,13 @@
                                 get contacts(){ return this.chosen?.service_contacts || []; },
                                 async load(){
                                     this.open=true; this.loading=true; this.err=''; this.ok='';
-                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.work-order.form', [$deal, $s]) }}', { headers:{'Accept':'application/json'}, credentials:'same-origin' }); const j = await r.json(); this.fields = j.fields || {}; this.suppliers = j.suppliers || []; }
+                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.work-order.form', [$deal, $s]) }}' + '?service_type=' + encodeURIComponent(this.serviceType), { headers:{'Accept':'application/json'}, credentials:'same-origin' }); const j = await r.json(); this.fields = j.fields || {}; this.suppliers = j.suppliers || []; }
                                     catch(e){ this.err='Could not load the work order form.'; }
                                     this.loading=false;
                                 },
                                 async send(){
                                     this.sending=true; this.err='';
-                                    const body = { ...this.fields };
+                                    const body = { ...this.fields, service_type: this.serviceType };
                                     if (this.supplierId === '__new__'){ Object.assign(body, { supplier_name:this.newSupplier.name, supplier_company:this.newSupplier.company, supplier_email:this.newSupplier.email, supplier_phone:this.newSupplier.phone }); }
                                     else { body.service_provider_id = this.supplierId; body.service_provider_contact_id = this.contactId || null; }
                                     try {
@@ -203,7 +203,7 @@
                                     this.sending=false;
                                 }
                              }" style="display:inline;">
-                            <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#0f766e;border-color:#0f766e;" @click="load()">Send work order{{ $wo->work_order_service_type ? ' — '.$wo->work_order_service_type : '' }}</button>
+                            <button type="button" class="corex-btn-outline" style="padding:.2rem .6rem;font-size:.78rem;color:#0f766e;border-color:#0f766e;" @click="load()">Send work order{{ $wo->service_type ? ' — '.$wo->service_type : '' }}</button>
 
                             <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
                                 <div class="corex-card" style="width:100%;max-width:640px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
@@ -252,7 +252,7 @@
                                 </div>
                             </div>
                         </span>
-                        @endif
+                        @endforeach
                     </div>
 
                     {{-- N/A reason form --}}

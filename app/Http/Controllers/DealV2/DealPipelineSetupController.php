@@ -111,7 +111,7 @@ class DealPipelineSetupController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.manage_pipeline'), 403);
 
-        $template->load(['steps' => fn ($q) => $q->orderBy('position'), 'steps.triggerStep', 'branch']);
+        $template->load(['steps' => fn ($q) => $q->orderBy('position'), 'steps.triggerStep', 'steps.workOrders', 'branch']);
         $branches = Branch::orderBy('name')->get();
 
         $stepsJson = $template->steps->map(function ($s) {
@@ -138,10 +138,15 @@ class DealPipelineSetupController extends Controller
                 'negative_outcome_label' => $s->negative_outcome_label,
                 'requires_bm_approval' => $s->requires_bm_approval,
                 'expected_document_type_id' => data_get($s->completion_config, 'document_type_id'), // WS3 (D4)
-                // AT-229 — per-step work-order config.
+                // AT-229 — per-step work-order config (legacy single + the multi collection).
                 'sends_work_order' => (bool) $s->sends_work_order,
                 'work_order_service_type' => $s->work_order_service_type,
                 'work_order_trigger_point' => $s->work_order_trigger_point ?: 'activated',
+                'work_orders' => $s->workOrders->map(fn ($w) => [
+                    'id' => $w->id,
+                    'service_type' => $w->service_type,
+                    'trigger_point' => $w->trigger_point ?: 'activated',
+                ])->values()->all(),
             ];
         })->values();
 

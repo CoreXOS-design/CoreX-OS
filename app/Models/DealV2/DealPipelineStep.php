@@ -78,6 +78,13 @@ class DealPipelineStep extends Model
         return $this->hasMany(DealStepInstance::class, 'pipeline_step_id');
     }
 
+    /** AT-229 — the work-order entries this step triggers (multi-supplier COCs, ordered). */
+    public function workOrders(): HasMany
+    {
+        return $this->hasMany(DealPipelineStepWorkOrder::class, 'pipeline_step_id')
+            ->orderBy('sort_order')->orderBy('id');
+    }
+
     /**
      * AT-158 WS-V1 — additional AND-gate predecessors (beyond the single
      * primary `trigger_step_id`). A step activates only when its primary trigger
