@@ -333,7 +333,7 @@
                                 <span style="padding: 1px 5px; font-size: 0.6125rem; background: rgba(107,114,128,0.15); color: var(--text-muted); border-radius: 2px;">inactive</span>
                             @endif
                             @if($listing->portal_url)
-                                <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
+                                <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"
                                    style="margin-left: auto; font-size: 0.6875rem; color: var(--brand-icon); text-decoration: none;">
                                     Open on portal ↗
                                 </a>

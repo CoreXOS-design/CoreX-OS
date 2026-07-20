@@ -109,7 +109,7 @@
 
         {{-- Line 1: address + price --}}
         <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;">
-            <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
+            <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"
                onclick="event.stopPropagation();"
                style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">
                 {{ $addressShort }}
