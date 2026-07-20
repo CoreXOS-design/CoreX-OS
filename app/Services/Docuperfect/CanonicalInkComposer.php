@@ -86,9 +86,10 @@ class CanonicalInkComposer
             $signerRole     = strtolower((string) ($signer->party_role ?? ''));
             $signerAliases  = $this->aliasesFor($signerRole);
             $signerName     = (string) ($signer->signer_name ?? '');
+            $signerNameKey  = $this->normalizeName($signerName);
 
             $ownsMarker = fn (\DOMElement $el): bool => $this->markerBelongsToSigner(
-                $el, $signerIdentity, $signerRole, $signerAliases, $signerIsSoleOfRole,
+                $el, $signerIdentity, $signerRole, $signerNameKey, $signerAliases, $signerIsSoleOfRole,
             );
 
             // ── Signatures ── representative capture → every signature marker
@@ -152,27 +153,45 @@ class CanonicalInkComposer
     /**
      * Does this marker belong to the signer whose ink we are baking?
      *
-     *  - Marker carries a `data-recipient-identity` → strict identity match
-     *    (this is the multi-recipient case; a mismatch means a DIFFERENT party's
-     *    marker and MUST NOT be filled).
-     *  - Marker carries NO identity → party-alias fallback, permitted ONLY when
-     *    the signer is the sole recipient of their role. In that case party
-     *    scoping == identity scoping (no sibling to bleed onto), so it is safe to
-     *    fill the agent's / single-seller's out-of-block markers. When the signer
-     *    is NOT sole-of-role, an un-stamped shared marker is ambiguous and left
-     *    untouched — blank is safer than contaminated.
+     * Match priority (most specific → least):
+     *  1. `data-name` — the merged_html binds EVERY signature/initial marker to
+     *     the exact person it belongs to (`data-name="Anine Van der Westhuizen"`).
+     *     This is the primary key: it is per-person, N-party-safe, and — crucially
+     *     — works even when the markers live in a shared signature table rather
+     *     than inside cloned role-blocks (the real doc-431/EATS shape, where
+     *     markers carry NO data-recipient-identity). This is the fix for the
+     *     "agent review / next party shows NO recipient ink" defect: seller_1's
+     *     ink was matching nothing because the seller markers are name-bound, not
+     *     identity-stamped, and the sole-of-role party fallback is (correctly)
+     *     disabled for a 2-seller document.
+     *  2. `data-recipient-identity` — markers stamped inside cloned role-blocks.
+     *  3. Party-alias fallback — ONLY when the signer is the sole recipient of
+     *     their role (agent, single seller/buyer); safe because there is no
+     *     same-role sibling to bleed onto. For a non-sole signer an un-keyed
+     *     marker is left blank (safer than contaminated).
+     *
+     * A marker that carries a data-name for a DIFFERENT person is never filled by
+     * this signer (step 1 returns false), so there is no cross-party bleed.
      */
     private function markerBelongsToSigner(
         \DOMElement $el,
         string $signerIdentity,
         string $signerRole,
+        string $signerName,
         array $signerAliases,
         bool $signerIsSoleOfRole,
     ): bool {
+        // 1) Name binding (the reliable per-person key).
+        $markerName = $this->normalizeName($el->getAttribute('data-name'));
+        if ($markerName !== '' && $signerName !== '') {
+            return $markerName === $signerName;
+        }
+        // 2) Identity stamp (role-block-cloned markers).
         $markerIdentity = strtolower($el->getAttribute('data-recipient-identity'));
         if ($markerIdentity !== '') {
             return $signerIdentity !== '' && $markerIdentity === $signerIdentity;
         }
+        // 3) Sole-of-role party fallback.
         if (! $signerIsSoleOfRole) {
             return false;
         }
@@ -180,7 +199,25 @@ class CanonicalInkComposer
         return $markerParty === $signerRole || in_array($markerParty, $signerAliases, true);
     }
 
-    /** Paint an ink image into a marker element with a uniform render box. */
+    /** Case-insensitive, whitespace-collapsed name key for data-name matching. */
+    private function normalizeName(string $name): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $name)));
+    }
+
+    /**
+     * ESIGN-WETINK I5 / BUG5 — the ONE uniform ink render box. Every baked
+     * signature and initial, on EVERY surface that serves the canonical
+     * (ceremony, agent sign, agent review, PDF), renders at these fixed
+     * dimensions with aspect preserved. A `min-height` floor stops a
+     * small/low-DPI capture from rendering as a faint sliver, and object-fit
+     * contain stops any capture from stretching — so ink is consistent in size
+     * and weight regardless of the marker geometry it lands on.
+     */
+    private const INK_SIGNATURE_STYLE = 'display:block;height:56px;min-height:56px;max-height:56px;width:auto;max-width:100%;margin:2px auto;object-fit:contain;';
+    private const INK_INITIAL_STYLE   = 'display:block;height:38px;min-height:38px;max-height:38px;width:auto;max-width:100%;margin:1px auto;object-fit:contain;';
+
+    /** Paint an ink image into a marker element with the uniform render box. */
     private function paintImage(\DOMDocument $dom, \DOMElement $el, string $data, string $kind, string $signerName): void
     {
         while ($el->firstChild) {
@@ -191,14 +228,7 @@ class CanonicalInkComposer
         $img->setAttribute('src', $data);
         $img->setAttribute('class', 'web-sig-signed-img corex-ink corex-ink--' . $kind);
         $img->setAttribute('alt', $isSig ? 'Signature' : 'Initial');
-        // Uniform, aspect-preserving render box (ESIGN-WETINK I5). Phase 1d
-        // promotes these to shared size constants across browser + PDF.
-        $img->setAttribute(
-            'style',
-            $isSig
-                ? 'display:block;max-height:50px;width:auto;margin:2px auto;object-fit:contain;'
-                : 'display:block;max-height:28px;width:auto;margin:1px auto;object-fit:contain;',
-        );
+        $img->setAttribute('style', $isSig ? self::INK_SIGNATURE_STYLE : self::INK_INITIAL_STYLE);
         $el->appendChild($img);
         $el->setAttribute('data-signed', 'true');
         if ($signerName !== '') {

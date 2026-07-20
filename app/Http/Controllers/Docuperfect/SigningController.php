@@ -280,6 +280,14 @@ class SigningController extends Controller
                         $fieldMappingsRaw,
                     );
 
+                // ESIGN-WETINK BUG1 — make the other-conditions block fillable for
+                // THIS signer: the viewer-agnostic canonical's "+ Add condition"
+                // button carries no signing token, so stamp the current token on so
+                // the recipient (or agent) can post a new condition. Display overlay
+                // only — the document body stays byte-identical across surfaces.
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->stampConditionSigningToken($webTemplateHtml, (string) $token);
+
                 // Editable field-name list — the signing view still consumes
                 // this array (client input-affordance gating). Prefer CDS
                 // field_mappings with editable_by; fall back to the static map.
