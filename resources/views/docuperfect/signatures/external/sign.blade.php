@@ -2485,8 +2485,15 @@ function externalSign() {
             if (!canvas) return;
 
             const ratio = Math.max(window.devicePixelRatio || 1, 1);
-            canvas.width = canvas.offsetWidth * ratio;
-            canvas.height = canvas.offsetHeight * ratio;
+            // ESIGN-WETINK capture guard — if the pad isn't laid out yet
+            // (offsetWidth/Height 0, e.g. opened from a not-yet-measured panel),
+            // a 0×0 canvas captures a NEAR-EMPTY image → the signature renders as a
+            // tiny/blank sliver regardless of render CSS. Fall back to a real
+            // drawing resolution so the strokes are always captured at proper size.
+            const cssW = canvas.offsetWidth || 600;
+            const cssH = canvas.offsetHeight || 200;
+            canvas.width = cssW * ratio;
+            canvas.height = cssH * ratio;
             canvas.getContext('2d').scale(ratio, ratio);
 
             if (this.signaturePad) {

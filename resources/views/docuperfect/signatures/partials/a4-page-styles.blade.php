@@ -74,48 +74,67 @@
     }
 }
 
-/* ═══ ESIGN-WETINK — ONE ink render spec (uniform for EVERY party, EVERY surface) ═══
-   Recipient ink was rendering TINY next to the agent's full-size ink in the same
-   signature row. Root cause: ink reaches the DOM by SEVERAL paths at different
-   sizes — the baked canonical <img>, the Alpine overlay marker
-   <img class="w-full h-full"> (sized to a marker box that can be marker.width%
-   narrow), the restore/embeds — and the earlier class-based rules did NOT match the
-   class-less overlay img, so it kept its tiny box size. This rule matches ink by its
-   DATA-URI src: every signature/initial is a base64 image data URI, while logos /
-   document photos are URL-based, so it targets ALL ink and NOTHING else, regardless
-   of class or element. flex:0 0 auto + a FIXED (not %) max-width stop a flex row or a
-   narrow marker box from shrinking wide ink to a sliver; transform:none defeats any
-   scale; min-height forces the standard visible box even from a small drawn canvas.
-   Signatures 56px, initials 38px — identical for every party, every surface
-   (ceremony, agent-review, print). Legal: tiny ink vanishes on print/scan. */
-img[src^="data:image"],
-img.web-sig-signed-img,
-img.corex-ink,
-img.corex-ink--signature,
-[data-marker-type="signature"] img {
-    height: 56px !important;
-    min-height: 56px !important;
-    max-height: 56px !important;
-    width: auto !important;
+/* ═══ ESIGN-WETINK — FIT-TO-BLOCK ink render (Johan's locked spec) ═══
+   NOT "force every img to 56px" (that overflows a small marker box and makes
+   signatures collide). Instead: the MARKER BLOCK is the fixed, consistent container
+   (one standard size for signatures, one for initials), and the ink IMAGE scales to
+   FILL that block (width/height 100% + object-fit:contain) — a small drawn/typed
+   image scales UP to fill, a large one scales DOWN, both end at the block size, so
+   agent + recipient ink render the SAME size AT THE BLOCK LEVEL regardless of the
+   image's intrinsic pixels. overflow:hidden on the block guarantees ink NEVER bursts
+   its bounds (no collisions/overlap). Matches every ink node whether it lands in a
+   [data-marker-type] marker, a legacy .web-sig marker cell, or a class-less overlay
+   img (matched by its data-URI src; logos are URL-based, untouched). Same blocks on
+   ceremony, agent-review, print. Legal: a signature that renders tiny disappears on
+   print/scan — a filled block never does. */
+
+/* — SIGNATURE BLOCK (the fixed container) — */
+[data-marker-type="signature"],
+.web-sig-interactive[data-marker-type="signature"],
+.sig-inline-line,
+.sig-cell-line {
+    display: inline-block !important;
+    width: 200px !important;
+    max-width: 200px !important;
+    height: 54px !important;
+    max-height: 54px !important;
+    overflow: hidden !important;
+    vertical-align: bottom !important;
+    line-height: 0 !important;
+}
+/* — INITIAL BLOCK — */
+[data-marker-type="initial"] {
+    display: inline-block !important;
+    width: 84px !important;
+    max-width: 84px !important;
+    height: 40px !important;
+    max-height: 40px !important;
+    overflow: hidden !important;
+    vertical-align: bottom !important;
+    line-height: 0 !important;
+}
+/* — INK IMAGE fills its block, scaled, centered, never overflowing — */
+/* Scoped to imgs INSIDE a sized block (never a bare img[src^=data:] whose parent has
+   no fixed size — that would collapse or explode it). */
+[data-marker-type="signature"] img,
+[data-marker-type="initial"] img,
+.sig-inline-line img,
+.sig-cell-line img,
+[data-marker-type] img.web-sig-signed-img,
+[data-marker-type] img.corex-ink {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
     min-width: 0 !important;
-    max-width: 260px !important;
+    min-height: 0 !important;
     object-fit: contain !important;
     object-position: center !important;
-    flex: 0 0 auto !important;
-    transform: none !important;
-    display: inline-block !important;
-    vertical-align: bottom !important;
-    box-sizing: content-box !important;
+    display: block !important;
+    margin: 0 !important;
     padding: 0 !important;
-}
-/* Initials — placed AFTER + higher/equal specificity so they win the size cascade. */
-[data-marker-type="initial"] img,
-[data-marker-type="initial"] img[src^="data:image"],
-img.corex-ink--initial {
-    height: 38px !important;
-    min-height: 38px !important;
-    max-height: 38px !important;
-    max-width: 160px !important;
+    transform: none !important;
+    box-sizing: border-box !important;
 }
 </style>
 <script>
