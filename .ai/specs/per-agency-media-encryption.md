@@ -27,10 +27,22 @@ read paths distinguish ciphertext from legacy plaintext, so a half-migrated stor
 - **Communication media** — encrypt/decrypt seam in `CommunicationStorageService` (store/get).
   Content hash stays the PLAINTEXT sha256, so dedup + integrity are unchanged; ciphertext sits at
   the plaintext-addressed path.
-- **FICA documents** (ID copies, proof of address, FICA forms) — `App\Services\Compliance\FicaDocumentStorage`
-  writes encrypted to the PRIVATE disk (moved off the public disk) and serves via a decrypting
-  stream route `compliance.fica.documents.view` (replaces the direct `Storage::url`). Migration-safe
-  reads: legacy public/plaintext files still stream.
+- **FICA documents** — two stores:
+  - *Raw uploads* (`FicaDocument`) — `App\Services\Compliance\FicaDocumentStorage` writes encrypted to
+    the PRIVATE disk (moved off the public disk) and serves via a decrypting stream route
+    `compliance.fica.documents.view` (replaces the direct `Storage::url`). Migration-safe reads.
+  - *Filed copies* (the durable, openable client docs) — on approval, `FicaController::fileDocumentsToContact`
+    copies each doc to the contact document drive as a **`Document` with `source_type='fica'`**
+    (`contact-documents/{contact}/…`, `local` disk). These are encrypted on write, and read back through
+    `Document::downloadResponse()` / `decryptedContents()` (decrypt-if-encrypted; plaintext passes through).
+    **Precise scope by DB link (`source_type='fica'`), NOT filename** — the `properties/*/files/*fica*`
+    files are `source_type` upload/pdf_splitter (property/deal docs) and are deliberately NOT encrypted.
+
+  **Boundary flag:** `Document` is a shared model also read by ~10 path-based consumers (viewing packs,
+  deal distribution, presentations, DocuPerfect) that hand raw file paths to external PDF/image tools.
+  `source_type='fica'` Documents are contact-drive docs served only via `downloadResponse()` — they do
+  NOT flow through those path-readers, so encrypting them is safe. If a FICA doc is ever attached to a
+  viewing pack/deal in future, that consumer would need a decrypt-to-temp shim (use `decryptedContents()`).
 - **OUT:** public property/agent marketing photos (public by design). **Phase 2 (separate ticket):**
   DocuPerfect/e-sign working files (read by external PDF/image tools by raw path — need a decrypt-to-temp
   shim) and deal documents.
