@@ -2465,7 +2465,15 @@ class MarketIntelligenceController extends Controller
             ]));
         }
 
-        return view('prospecting.show', compact('listing', 'buyerMatches', 'demand'));
+        // The full-page legacy detail view (prospecting.show) was never built —
+        // the module's canonical listing detail is the slide-over served by
+        // details() via fetch, and nothing links to this full page. Rather than
+        // 500 on a missing view, redirect bookmark/direct-URL hits to the Market
+        // Intelligence surface, mirroring the bare /prospecting → /corex/market-
+        // intelligence 301 (web.php). Query string preserved. JSON callers above
+        // are unaffected.
+        $qs = request()->getQueryString();
+        return redirect('/corex/market-intelligence' . ($qs ? '?' . $qs : ''), 301);
     }
 
     public function thumbnail(ProspectingListing $listing)
