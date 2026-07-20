@@ -1015,6 +1015,14 @@
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
                 @endpermission
+                {{-- AT-229 — the DR2 pipeline salvaged tools live in the (retired) deals-v2 group
+                     which is `@if(false)`-hidden; surface the agency COC/service-type settings here,
+                     next to the DR2 register, so it is actually reachable from the sidebar. --}}
+                @permission('deals_v2.manage_pipeline')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.settings.service-types.index'))
+                <a href="{{ route('deals-v2.settings.service-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.settings.service-types.*') ? 'active' : '' }}">COC / Service Types</a>
+                @endif
+                @endpermission
                 @permission('view_listings')
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
                 @endpermission
@@ -1647,11 +1655,6 @@
                 @permission('deals_v2.manage_suppliers')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
                 <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
-                @endif
-                @endpermission
-                @permission('deals_v2.manage_pipeline')
-                @if(\Illuminate\Support\Facades\Route::has('deals-v2.settings.service-types.index'))
-                <a href="{{ route('deals-v2.settings.service-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.settings.service-types.*') ? 'active' : '' }}">COC / Service Types</a>
                 @endif
                 @endpermission
                 @permission('deals_v2.manage_distribution_rules')
