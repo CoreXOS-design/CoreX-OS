@@ -4,12 +4,13 @@
     PURE TRACKING OVERLAY: attaching a pipeline / completing a step never changes the
     DR1 deal's state — only the pipeline's own steps + the deal's pipeline pointer.
 
-    AT-305 — two-column redesign (layout/density only; all functionality preserved).
+    AT-305 — two-column redesign (layout/density only; ALL functionality preserved,
+    incl. AT-229 negative-outcome decision branch + the COC work-order panel).
     LEFT: pipeline steps as dense one-liner rows (status dot · step name · milestone ·
-    due date · status badge, with Edit due / Remove / Comments as compact inline
-    actions that expand in place). RIGHT: a sticky panel — Documents, Send documents
-    to a party, Proforma Invoices — modelled on the buyer viewing-pack screen. Two
-    columns on desktop with an independently-scrolling right rail; stacks on mobile.
+    due date · status badge, with Complete/N-A/Edit due/Remove/Comments/Work-orders as
+    compact inline actions that expand in place). RIGHT: a sticky, independently-
+    scrolling rail — Documents, Send documents to a party, Proforma Invoices — modelled
+    on the buyer viewing-pack screen. Two columns on desktop; stacks on mobile.
 --}}
 @extends('layouts.corex')
 
@@ -72,7 +73,7 @@
     {{-- AT-305 — two columns (stacks on mobile). Left: pipeline. Right: sticky docs/proforma rail. --}}
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start" style="margin-top:1rem;">
 
-        {{-- ── LEFT (60%): the pipeline step board ─────────────────────────────── --}}
+        {{-- ── LEFT (≈60%): the pipeline step board ────────────────────────────── --}}
         <div class="lg:col-span-3 space-y-4 min-w-0">
     @if($steps->isEmpty() && $locked)
         {{-- Declined and never worked: no pipeline to show, and none may be started. --}}
@@ -115,10 +116,10 @@
             @endif
         </div>
     @else
-        {{-- Step board — dense one-liner rows (AT-305). Per-step operations + comments
-             expand in place. AT-244: when the deal is not proceeding the board is MUTED
-             and every state-changing action is withdrawn (no dead buttons); comments
-             stay live (annotating why a deal fell through is history, not a transition). --}}
+        {{-- Step board — dense one-liner rows (AT-305). Per-step operations, COC work
+             orders and comments expand in place. AT-244: when the deal is not proceeding
+             the board is MUTED and every state-changing action is withdrawn (no dead
+             buttons); comments stay live (history-keeping, not a transition). --}}
         <div class="corex-card" style="padding:.25rem .5rem;{{ $locked ? 'opacity:.72;filter:grayscale(.35);' : '' }}">
             @foreach($steps as $row)
                 @php($s = $row['model'])
@@ -126,11 +127,11 @@
                 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
                 <div x-data="{ na:false, cm:false, due:false }" style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
 
-                    {{-- ONE-LINER: dot · name · milestone/custom · due · badge · compact actions --}}
-                    <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;">
+                    {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
+                    <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
                         <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;display:inline-block;width:.65rem;height:.65rem;border-radius:50%;background:{{ $row['colour'] }};"></span>
 
-                        <span style="flex:1 1 220px;min-width:0;{{ $row['na'] ? 'text-decoration:line-through;' : '' }}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        <span style="flex:1 1 200px;min-width:0;{{ $row['na'] ? 'text-decoration:line-through;' : '' }}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                             <strong style="font-size:.9rem;">{{ $s->name }}</strong>
                             @if($s->is_milestone)<span title="Milestone" style="font-size:.7rem;color:#b45309;margin-left:.35rem;">◆ milestone</span>@endif
                             @if($s->is_custom)<span title="Custom step" style="font-size:.7rem;color:#2563eb;margin-left:.35rem;">+ custom</span>@endif
@@ -140,52 +141,151 @@
 
                         <span style="flex:0 0 auto;display:inline-block;padding:.12rem .5rem;border-radius:1rem;font-size:.7rem;color:{{ $badge[1] }};background:{{ $badge[2] }};">{{ $badge[0] }}</span>
 
-                        {{-- Compact inline actions --}}
-                        <span style="flex:0 0 auto;display:inline-flex;gap:.3rem;flex-wrap:wrap;align-items:center;">
-                            @unless($locked)
-                            @if($s->status === 'active')
-                                @permission('view_deals')
-                                <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
-                                    <button type="submit" class="corex-btn-secondary" style="padding:.12rem .5rem;font-size:.72rem;">Complete</button>
-                                </form>
-                                @endpermission
-                            @endif
-                            @unless($terminal)
-                                @permission('view_deals')
-                                <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="na = !na">N/A</button>
-                                @endpermission
-                            @endunless
-                            @if($row['na'])
-                                @permission('view_deals')
-                                <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
-                                    <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Reinstate</button>
-                                </form>
-                                @endpermission
-                            @endif
+                        {{-- Compact inline actions (all functionality preserved) --}}
+                        <div style="flex:1 1 auto;display:inline-flex;gap:.3rem;flex-wrap:wrap;align-items:center;justify-content:flex-end;">
+                        @unless($locked)
+                        @if($s->status === 'active')
                             @permission('view_deals')
-                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="due = !due">Edit due</button>
+                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
+                                <button type="submit" class="corex-btn-secondary" style="padding:.12rem .5rem;font-size:.72rem;">{{ $s->negative_status_trigger ? 'Mark passed' : 'Mark complete' }}</button>
+                            </form>
+                            {{-- AT-229 6b — a DECISION step (has a negative branch) also offers the negative
+                                 outcome. It completes the step and drives the deal by its negative trigger,
+                                 but NEVER activates the positive-path successors. --}}
+                            @if($s->negative_status_trigger)
+                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}"
+                                  onsubmit="return confirm('Record the NEGATIVE outcome? This completes the step and applies its declined status, and does NOT start the next steps.');">@csrf
+                                <input type="hidden" name="outcome" value="negative">
+                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;border-color:#fca5a5;">{{ $s->negative_outcome_label ?: 'Mark declined' }}</button>
+                            </form>
+                            @endif
                             @endpermission
+                        @endif
+                        @unless($terminal)
                             @permission('view_deals')
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;">Remove</button>
+                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="na = !na">N/A</button>
+                            @endpermission
+                        @endunless
+                        @if($row['na'])
+                            @permission('view_deals')
+                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
+                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Reinstate</button>
                             </form>
                             @endpermission
-                            @endunless
+                        @endif
+                        @permission('view_deals')
+                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="due = !due">Edit due</button>
+                        @endpermission
+                        @permission('view_deals')
+                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
+                            <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;">Remove</button>
+                        </form>
+                        @endpermission
+                        @endunless
 
-                            {{-- Comments survive the lock (history-keeping, not a transition). --}}
-                            @permission('view_deals')
-                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
-                            @endpermission
+                        {{-- Comments survive the lock (history-keeping, not a transition). --}}
+                        @permission('view_deals')
+                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
+                        @endpermission
+
+                        {{-- AT-229 COC sub-process — per-deal work-order panel: select the COCs this
+                             deal needs, set each one's responsible party + recipient, and send
+                             (listing + selling agents CC'd, de-duped). Shows when the step offers COCs. --}}
+                        @php($canWo = ! $locked && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
+                        @php($offersCoc = $canWo && optional($s->pipelineStep)->workOrders && $s->pipelineStep->workOrders->isNotEmpty() && in_array($s->status, ['active','completed']))
+                        @if($offersCoc)
+                        @php($offeredTypes = $s->pipelineStep->workOrders->pluck('service_type')->filter()->unique()->values()->all())
+                        <span x-data="{
+                                open:false, loading:false, busy:false, err:'', msg:'',
+                                types: @js($offeredTypes), responsible:{}, suppliers:[], rows:[],
+                                sendBase: '{{ route('deals-dr2.pipeline.step.coc.send', [$deal, $s, '__WO__']) }}',
+                                async load(){
+                                    this.open=true; this.loading=true; this.err=''; this.msg='';
+                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.coc.panel', [$deal, $s]) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
+                                        this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[]; if(j.offered_types&&j.offered_types.length) this.types=j.offered_types;
+                                        this.rows=(j.work_orders||[]).map(w=>({id:w.id,service_type:w.service_type,responsible_party:w.responsible_party,service_provider_id:w.service_provider_id||'',status:w.status,recipient_email:w.recipient_email,cc_emails:w.cc_emails}));
+                                    } catch(e){ this.err='Could not load work orders.'; }
+                                    this.loading=false;
+                                },
+                                async save(){
+                                    this.busy=true; this.err='';
+                                    try { const r = await fetch('{{ route('deals-dr2.pipeline.step.coc.sync', [$deal, $s]) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({work_orders:this.rows})});
+                                        const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved.'; await this.load(); } else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
+                                    } catch(e){ this.err='Save failed.'; }
+                                    this.busy=false;
+                                },
+                                async send(w){
+                                    if(!w.id){ this.err='Save first, then send.'; return; }
+                                    this.busy=true; this.err='';
+                                    try { const r = await fetch(this.sendBase.replace('__WO__', w.id), {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({})});
+                                        const j = await r.json(); if(r.ok&&j.ok){ this.msg=j.message||'Sent.'; await this.load(); } else { this.err=j.message||'Send failed.'; }
+                                    } catch(e){ this.err='Send failed.'; }
+                                    this.busy=false;
+                                }
+                             }" style="display:inline;">
+                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#0f766e;border-color:#0f766e;" @click="load()">Work orders (COCs)</button>
+                            <div x-show="open" x-cloak @click.self="open=false" style="position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:1rem;">
+                                <div class="corex-card" style="width:100%;max-width:760px;max-height:90vh;display:flex;flex-direction:column;padding:0;" @click.stop>
+                                    <div style="padding:.75rem 1rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                                        <strong style="font-size:.9rem;">Work orders (COCs) — {{ $s->name }}</strong>
+                                        <button type="button" @click="open=false" style="font-size:1.2rem;line-height:1;color:#6b7280;">&times;</button>
+                                    </div>
+                                    <div style="padding:1rem;overflow-y:auto;flex:1;">
+                                        <div x-show="loading" style="color:#6b7280;font-size:.85rem;">Loading…</div>
+                                        <div x-show="!loading">
+                                            <p style="font-size:.72rem;color:#6b7280;margin-bottom:.5rem;">Pick the COCs this deal needs + who is responsible for each; Save, then Send. Listing &amp; selling agents are CC'd (de-duped, one email per address).</p>
+                                            <template x-for="(w,i) in rows" :key="i">
+                                              <div style="border-top:1px solid #eee;padding:.5rem 0;">
+                                                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:.4rem;align-items:end;">
+                                                  <div>
+                                                    <label style="font-size:.66rem;color:#6b7280;">COC / service</label>
+                                                    <select x-model="w.service_type" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
+                                                      <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
+                                                      <option value="Other">Other</option>
+                                                    </select>
+                                                  </div>
+                                                  <div>
+                                                    <label style="font-size:.66rem;color:#6b7280;">Responsible / recipient</label>
+                                                    <select x-model="w.responsible_party" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;">
+                                                      <template x-for="(lbl,val) in responsible" :key="val"><option :value="val" x-text="lbl"></option></template>
+                                                    </select>
+                                                    <select x-show="w.responsible_party==='supplier' || w.responsible_party==='transfer_attorney'" x-model="w.service_provider_id" :disabled="w.status==='sent'" class="corex-input" style="width:100%;font-size:.8rem;margin-top:.25rem;">
+                                                      <option value="">— pick supplier —</option>
+                                                      <template x-for="s in suppliers" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
+                                                    </select>
+                                                  </div>
+                                                  <div style="display:flex;gap:.35rem;align-items:center;">
+                                                    <span x-show="w.status==='sent'" style="font-size:.7rem;color:#047857;">✓ sent</span>
+                                                    <button type="button" x-show="w.status!=='sent' && w.id" @click="send(w)" :disabled="busy" class="corex-btn-secondary" style="font-size:.72rem;padding:.2rem .5rem;">Send</button>
+                                                    <button type="button" x-show="w.status!=='sent'" @click="rows.splice(i,1)" style="font-size:.85rem;color:#b91c1c;">✕</button>
+                                                  </div>
+                                                </div>
+                                                <div x-show="w.recipient_email" style="font-size:.66rem;color:#6b7280;margin-top:.2rem;" x-text="'→ ' + (w.recipient_email||'') + (w.cc_emails ? '  (cc ' + w.cc_emails + ')' : '')"></div>
+                                              </div>
+                                            </template>
+                                            <button type="button" @click="rows.push({service_type:(types[0]||'COC'), responsible_party:'supplier', service_provider_id:'', status:'pending', id:null})" style="font-size:.75rem;color:#0f766e;margin-top:.6rem;">+ Add COC</button>
+                                            <div x-show="err" x-text="err" style="color:#b91c1c;font-size:.78rem;margin-top:.5rem;"></div>
+                                            <div x-show="msg" x-text="msg" style="color:#047857;font-size:.78rem;margin-top:.5rem;"></div>
+                                        </div>
+                                    </div>
+                                    <div style="padding:.75rem 1rem;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:.5rem;">
+                                        <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;">Close</button>
+                                        <button type="button" @click="save()" :disabled="busy" class="corex-btn-primary" style="font-size:.8rem;" x-text="busy ? 'Working…' : 'Save selection'"></button>
+                                    </div>
+                                </div>
+                            </div>
                         </span>
-                    </div>
+                        @endif
+                        </div>{{-- /compact inline actions --}}
+                    </div>{{-- /one-liner --}}
 
                     {{-- Secondary context (blocked reason / excused note) — only when present --}}
-                    @if($row['blocked'])<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.2rem;">{{ $row['blocked'] }}</div>@endif
-                    @if($row['na'] && $s->na_reason)<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.2rem;">Excused: {{ $s->na_reason }}</div>@endif
+                    @if($row['blocked'])<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">{{ $row['blocked'] }}</div>@endif
+                    @if($row['na'] && $s->na_reason)<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">Excused: {{ $s->na_reason }}</div>@endif
 
                     {{-- N/A reason form --}}
                     @unless($terminal || $locked)
-                    <div x-show="na" x-cloak style="margin:.4rem 0 0 1.2rem;">
+                    <div x-show="na" x-cloak style="margin:.4rem 0 0 1.15rem;">
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
                             <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
                             <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Mark N/A</button>
@@ -196,7 +296,7 @@
                     {{-- R2 — inline due-date edit (RAG recalcs off the edited date) --}}
                     @unless($locked)
                     @permission('view_deals')
-                    <div x-show="due" x-cloak style="margin:.4rem 0 0 1.2rem;">
+                    <div x-show="due" x-cloak style="margin:.4rem 0 0 1.15rem;">
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
                             <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input" style="font-size:.8rem;">
                             <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save due date</button>
@@ -206,7 +306,7 @@
                     @endunless
 
                     {{-- Comment thread --}}
-                    <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.2rem;">
+                    <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.15rem;">
                         @forelse($s->comments as $c)
                             <div style="font-size:.8rem;margin-bottom:.35rem;">
                                 <span style="color:#374151;">{{ $c->body }}</span>
@@ -283,7 +383,7 @@
     @endif
         </div>{{-- /LEFT --}}
 
-        {{-- ── RIGHT (40%): sticky rail — Documents · Send to a party · Proforma ──── --}}
+        {{-- ── RIGHT (≈40%): sticky rail — Documents · Send to a party · Proforma ─── --}}
         <div class="lg:col-span-2 lg:sticky lg:top-4 self-start space-y-4 min-w-0">
             {{-- DR2 deal documents (AT-225/226) — upload + Send documents to a party --}}
             @include('dr2._deal-documents', ['deal' => $deal])
