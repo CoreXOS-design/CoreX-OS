@@ -433,3 +433,35 @@ all mutations rolled back (the SMTP send is synchronous, so Mailpit still captur
   = listing agent, CC shawn@hfcoastal.co.za). Deployed blade confirmed to carry no dropdown markup.
 - Self-cleaning: DB rolled back (0 `deal_step_work_orders` rows left, granting step back to
   `not_started`); orphan PDF + test Mailpit message deleted.
+
+## 20. Uniform responsible-party render — static `<option>`s, no per-COC branching (Johan 2026-07-20)
+
+**Rule:** the responsible-party selector on the Supplier Work Orders panel MUST render the **identical**
+control for every COC/service type — including agency-custom ones. There is NO per-COC branching of the
+responsible/recipient control; the only thing that varies per agency is the COC **type** list, never the
+responsible-party options.
+
+**Bug it fixes:** the responsible `<select x-model="it.responsible_party">` built its `<option>`s from a
+nested Alpine `<template x-for="(lbl,val) in responsible">`. Alpine binds `x-model` before the `x-for`
+injects the options, so the `<select>` fell back to its **first option ("Seller (self-handling)")** while
+the model kept its real value. A row whose value equalled the first option (`'seller'`) looked correct;
+a row with any other value (e.g. `'supplier'`) **displayed "Seller" yet still showed the supplier picker**
+(the picker gates off the real value) — the reported "Beetle shows Seller next to a supplier dropdown"
+artifact. It was never COC-type logic — the blade/controller were already uniform.
+
+**Fix (`dr2/_supplier-work-orders.blade.php`):** the responsible-party options are a **constant enum**
+(`CocWorkOrderService::responsibleLabels()` — seller / listing_agent / selling_agent / supplier /
+transfer_attorney), identical for all agencies. Render them as **real server-side `<option>`s** via
+`@foreach`, dropping the nested `x-for`. The options exist in the DOM before Alpine inits, so `x-model`
+binds the correct value on every row — default `'supplier'`, saved `'seller'`, or agency-custom alike.
+
+**Deliberately out of scope (flagged, NOT touched):** the supplier `<select>` (`x-for="s in suppliers"`)
+has the same dynamic-options desync, but its list is agency-directory data, not a constant enum — its fix
+belongs to the separate **AT-319** supplier-directory/filter work. Left as-is.
+
+### 20.1 On-site proof (deployed qa1 `d8f97177`, deal #153)
+Rendered the real panel partial: nested `x-for="(lbl,val) in responsible"` **gone**; the responsible
+`<select>` now carries all 5 static `<option value="…">` (seller/listing_agent/selling_agent/supplier/
+transfer_attorney) present at DOM-parse time. It is ONE `<select>` template inside the `x-for` item loop,
+so Beetle, Electrical, and any agency-custom COC render the **identical** control — no stray "Seller"
+beside a supplier picker. Supplier `<select>` (AT-319) confirmed untouched.
