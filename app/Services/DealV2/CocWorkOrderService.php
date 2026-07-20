@@ -93,6 +93,15 @@ class CocWorkOrderService
             throw new \DomainException('Work order is not linked to a deal.');
         }
 
+        // §17 — mint the DR2 twin BEFORE generating the PDF. On a deal with no twin
+        // yet, the document must be generated with the twin present or it lands
+        // outside the deal's document corpus and sendToParty rejects it ("select at
+        // least one document"). ensureTwin sets deal_v2_id on the model in place; do
+        // NOT refresh() the deal (that clears the property relation the corpus needs).
+        if (! $deal->deal_v2_id) {
+            app(DealSyncService::class)->ensureTwin($deal);
+        }
+
         $recipient = $this->resolveRecipient($deal, $wo);
         $label = self::responsibleLabels()[$wo->responsible_party] ?? $wo->responsible_party;
         if (empty($recipient['email'])) {
