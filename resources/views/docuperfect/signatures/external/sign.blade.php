@@ -3466,39 +3466,34 @@ function externalSign() {
                     this.showNotification('Please type your name.', 'warning');
                     return;
                 }
-                // ESIGN-WETINK — draw the typed glyphs to FILL the canvas.
-                // The old fixed 32px at (20,90) left a SHORT initial ("AS") as a
-                // tiny glyph in a 400x150 canvas → when the img is scaled to 38px it
-                // became an ~8px speck (the real root cause; baked into the PNG, not
-                // fixable in CSS). The agent path (generateTypedSignature) fills its
-                // canvas — match it: measure the text and size the font so it fills
-                // ~72% of the canvas HEIGHT, shrinking only if it would exceed ~90%
-                // of the WIDTH, then centre it. A short initial fills the height; a
-                // long name shrinks to fit the width. Either way the glyph fills the
-                // frame, so at 38px it renders full-size — same as the agent.
-                const ctx = canvas.getContext('2d');
-                const cw = canvas.width, chh = canvas.height;
-                ctx.clearRect(0, 0, cw, chh);
+                // ESIGN-WETINK — render the typed glyphs at a FIXED font size onto a
+                // DYNAMIC-width canvas that fits the text. A fixed font (not one that
+                // shrinks to fit the pad width) means EVERY name — short "AS" or long
+                // "Johan Reichel" — produces a glyph of the SAME height and the same
+                // resolution; only the WIDTH varies. Combined with the fixed-HEIGHT
+                // render CSS, every signatory's signature comes out the same size
+                // (fixes the "different size per signatory" bug). The tight crop below
+                // removes the empty frame so the glyph isn't a speck.
                 const text = this.webTypedSignature.trim();
                 const family = '"Dancing Script", cursive';
-                let fontSize = Math.max(12, Math.floor(chh * 0.72));
-                ctx.font = fontSize + 'px ' + family;
-                const maxW = cw * 0.9;
-                let tw = ctx.measureText(text).width;
-                if (tw > maxW && tw > 0) {
-                    fontSize = Math.max(12, Math.floor(fontSize * (maxW / tw)));
-                    ctx.font = fontSize + 'px ' + family;
-                }
+                const FONT = 96; // fixed → uniform glyph height + resolution for all names
+                const mctx = canvas.getContext('2d');
+                mctx.font = FONT + 'px ' + family;
+                const textW = Math.max(24, Math.ceil(mctx.measureText(text).width));
+                const out = document.createElement('canvas');
+                out.width = textW + Math.round(FONT * 0.5);
+                out.height = Math.round(FONT * 1.6);
+                const ctx = out.getContext('2d');
+                ctx.clearRect(0, 0, out.width, out.height);
+                ctx.font = FONT + 'px ' + family;
                 ctx.fillStyle = '#1e293b';
                 ctx.textBaseline = 'middle';
                 ctx.textAlign = 'center';
-                ctx.fillText(text, cw / 2, chh / 2);
-                // Crop the PNG TIGHTLY to the glyph's ink bounds so there is no
-                // empty padding around a short initial. The cropped image is just
-                // the glyph → object-contain fills the initial block at full size,
-                // regardless of the pad canvas's wide aspect. This is the definitive
-                // fix (the tininess was baked into the 400x150 PNG's empty space).
-                sigData = this._cropCanvasToInk(canvas) || canvas.toDataURL('image/png');
+                ctx.fillText(text, out.width / 2, out.height / 2);
+                // Crop TIGHTLY to the glyph's ink bounds → the PNG is just the glyph
+                // (consistent height, width = name length), so the fixed-height render
+                // makes every signatory's mark the same size.
+                sigData = this._cropCanvasToInk(out) || out.toDataURL('image/png');
             }
 
             const sigId = this.currentWebSigBlockId;
