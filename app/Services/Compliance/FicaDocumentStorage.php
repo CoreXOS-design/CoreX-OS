@@ -65,14 +65,20 @@ class FicaDocumentStorage
 
         $name = $doc->file_name ?: ('document.' . pathinfo($doc->file_path, PATHINFO_EXTENSION));
 
-        return response()->streamDownload(
+        // response()->stream() (NOT streamDownload) so the caller's $disposition is honoured —
+        // streamDownload() forces Content-Disposition: attachment when given a name, which turned
+        // "View"/"Open in new tab" into a download. Default 'inline' opens the doc VIEWABLE in the
+        // tab and lets <img>/<iframe> previews render; callers can still pass 'attachment' for a
+        // genuine download.
+        return response()->stream(
             function () use ($bytes) {
                 echo $bytes;
             },
-            $name,
+            200,
             [
                 'Content-Type' => $doc->mime_type ?: 'application/octet-stream',
                 'Content-Disposition' => $disposition . '; filename="' . addslashes($name) . '"',
+                'Content-Length' => (string) strlen($bytes),
             ]
         );
     }
