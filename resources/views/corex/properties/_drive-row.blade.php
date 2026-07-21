@@ -33,26 +33,15 @@
         <button type="button" @click="editing = !editing" class="text-xs px-1.5 py-1 rounded hover:bg-black/5" style="color:var(--text-muted);" title="Tag document">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
         </button>
-        {{-- AT-267 — an assistant with the "download documents" toggle off may not download at all.
-             Hide the affordance, incl. the direct public-disk URL the download middleware can't gate. --}}
+        {{-- AT-267 / POPIA — always download through the gated route (never a direct /storage URL,
+             even for legacy public-disk files). Hidden for an assistant with the download toggle off;
+             the route also carries deny_assistant_download. --}}
         @if(auth()->user()?->canDownloadDocuments())
-        @if($doc->disk === 'public')
-        <a href="{{ $doc->url() }}" target="_blank"
+        <a href="{{ route('corex.properties.files.download', [$property, $doc]) }}"
            class="text-xs font-semibold no-underline px-3 py-1.5 rounded-md"
            style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
             Download
         </a>
-        @else
-        {{-- Local disk files need a contact context for download --}}
-        @php $firstContact = $doc->contacts->first(); @endphp
-        @if($firstContact)
-        <a href="{{ route('corex.contacts.documents.download', [$firstContact, $doc]) }}"
-           class="text-xs font-semibold no-underline px-3 py-1.5 rounded-md"
-           style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
-            Download
-        </a>
-        @endif
-        @endif
         @endif
         @if(auth()->id() === $doc->uploaded_by || in_array(auth()->user()->effectiveRole(), ['super_admin', 'admin']))
         <form method="POST" action="{{ route('corex.properties.files.destroy', [$property, $doc]) }}"

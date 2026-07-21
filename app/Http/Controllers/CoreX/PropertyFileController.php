@@ -53,12 +53,16 @@ class PropertyFileController extends Controller
 
         DB::transaction(function () use ($files, $types, $contactId, $property) {
             foreach ($files as $i => $uploaded) {
-                $path = $uploaded->store("properties/{$property->id}/files", 'public');
+                // AT-267 / POPIA (audit 2026-07-21) — property Drive files were written to the PUBLIC
+                // disk and served via direct /storage URLs (world-readable, and the download toggle
+                // could never gate them). New files go to the LOCAL (private) disk and are served only
+                // through the gated download() route below.
+                $path = $uploaded->store("properties/{$property->id}/files", 'local');
 
                 $doc = Document::create([
                     'original_name'    => $uploaded->getClientOriginalName(),
                     'storage_path'     => $path,
-                    'disk'             => 'public',
+                    'disk'             => 'local',
                     'mime_type'        => $uploaded->getMimeType(),
                     'size'             => $uploaded->getSize(),
                     'document_type_id' => $types[$i] ?? null,
@@ -80,6 +84,23 @@ class PropertyFileController extends Controller
         $message = $count === 1 ? 'File uploaded.' : "{$count} files uploaded.";
 
         return back()->with('success', $message)->with('tab', 'drive');
+    }
+
+    /**
+     * Gated download of a property Drive file. Streams from whatever disk the file is on (local for
+     * new files, public for not-yet-backfilled legacy ones) so the UI never needs a direct /storage
+     * URL. Guarded by the per-record property VIEW scope + the assistant download toggle (route
+     * middleware), so it honours both data scope and the can_download_documents setting.
+     */
+    public function download(Property $property, Document $document)
+    {
+        $this->authorizeProperty($property, forEdit: false);
+        abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);
+
+        $disk = $document->disk ?: 'local';
+        abort_unless(\Illuminate\Support\Facades\Storage::disk($disk)->exists($document->storage_path), 404);
+
+        return \Illuminate\Support\Facades\Storage::disk($disk)->download($document->storage_path, $document->original_name);
     }
 
     public function destroy(Property $property, Document $document)

@@ -2957,6 +2957,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
         // Files (Drive) — now uses unified Document model
         Route::post('/{property}/files',                    [\App\Http\Controllers\CoreX\PropertyFileController::class, 'store'])->name('files.store');
+        // AT-267 / POPIA — gated download of a property Drive file (replaces direct /storage URLs).
+        Route::get('/{property}/files/{document}/download', [\App\Http\Controllers\CoreX\PropertyFileController::class, 'download'])->middleware('deny_assistant_download')->name('files.download');
         Route::put('/{property}/files/{document}/tag',      [\App\Http\Controllers\CoreX\PropertyFileController::class, 'updateTag'])->name('files.tag');
         Route::delete('/{property}/files/{document}',       [\App\Http\Controllers\CoreX\PropertyFileController::class, 'destroy'])->name('files.destroy');
         // Contacts
