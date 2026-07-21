@@ -118,95 +118,139 @@
             @endforeach
         </div>
 
-        @foreach($sections as $section => $rows)
-            <div class="rounded-md mb-4 overflow-hidden"
-                 style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
-                <div class="px-4 py-3 text-xs font-bold uppercase tracking-wide"
-                     style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">
-                    {{ $sectionLabels[$section] ?? \Illuminate\Support\Str::headline($section) }}
+        {{-- Two-column layout mirrors the Role Manager: searchable feature rail (left) +
+             detail panel for the selected feature (right). One tidy list, one panel at a time. --}}
+        <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start mb-4">
+
+            {{-- LEFT: searchable vertical feature rail --}}
+            <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4"
+                 style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); max-height:calc(100vh - 8rem);">
+                <div class="px-2 pt-2 pb-2 sticky top-0 z-10"
+                     style="background:var(--surface, #fff); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+                    <input type="text" x-model="featureSearch" placeholder="Search features…"
+                           class="w-full text-xs rounded-md px-2 py-1.5"
+                           style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827); outline:none;">
                 </div>
+                <div class="px-3 pt-3 pb-1">
+                    <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--brand-icon,#0ea5e9);">Features</p>
+                </div>
+                @foreach($sections as $section => $rows)
+                    @php $secLabel = $sectionLabels[$section] ?? \Illuminate\Support\Str::headline($section); @endphp
+                    <div class="px-2 pb-1" x-show="matchesFeature('{{ $section }}', '{{ addslashes($secLabel) }}')">
+                        <button type="button"
+                                @click="selectedSection = '{{ $section }}'"
+                                :style="selectedSection === '{{ $section }}' ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'color:var(--text-secondary);'"
+                                class="w-full text-left px-3 py-2 rounded-md text-xs font-medium transition-all duration-300"
+                                :class="selectedSection !== '{{ $section }}' ? 'hover:opacity-80' : ''">
+                            {{ $secLabel }}
+                        </button>
+                    </div>
+                @endforeach
+                <div class="h-2"></div>
+            </div>
 
-                @foreach($rows as $row)
-                    <div class="px-4 py-3 flex items-center justify-between gap-4"
-                         style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
-                        <div class="min-w-0">
-                            <div class="text-sm font-semibold flex items-center gap-2">
-                                {{ $row['label'] }}
-
-                                @if($row['is_locked'])
-                                    {{-- No Silent Locks: say WHY, on the page. An agent hunting for
-                                         "why can't my assistant upload a listing?" must find the answer
-                                         here rather than conclude the feature is broken. --}}
-                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
-                                          style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);"
-                                          title="CoreX switches property upload off for every assistant, at every agency. Nobody can turn this on — not you, not an admin. Only you can create a listing.">
-                                        LOCKED BY COREX
-                                    </span>
-                                @elseif($row['is_new'])
-                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
-                                          style="background:var(--surface-2, #f0f2f8); color:var(--ds-amber, #d97706);"
-                                          title="New since this assistant was set up. Off until you turn it on.">NEW</span>
-                                @endif
+            {{-- RIGHT: permission detail for the selected feature --}}
+            <div class="flex-1 min-w-0">
+                @foreach($sections as $section => $rows)
+                    <div x-show="selectedSection === '{{ $section }}'">
+                        <div class="rounded-md overflow-hidden"
+                             style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
+                            <div class="px-5 py-3 flex items-center justify-between"
+                                 style="background:var(--surface-2, #f0f2f8); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+                                <h3 class="font-semibold text-sm" style="color:var(--text-primary, #111827);">
+                                    {{ $sectionLabels[$section] ?? \Illuminate\Support\Str::headline($section) }}
+                                </h3>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs" style="color:var(--text-muted, #6b7280);" x-show="dirty" x-cloak>Unsaved…</span>
+                                    <span class="text-xs" style="color:var(--text-muted, #6b7280);" x-show="saved && !dirty" x-cloak>Saved</span>
+                                </div>
                             </div>
+                            <div>
+                                @foreach($rows as $row)
+                                    <div class="px-5 py-4 flex items-center justify-between gap-4"
+                                         style="border-bottom:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-medium flex items-center gap-2" style="color:var(--text-primary, #111827);">
+                                                {{ $row['label'] }}
 
-                            @if($row['is_locked'])
-                                <div class="text-xs mt-0.5" style="color:var(--text-secondary, #6b7280);">
-                                    Assistants can never create or import a listing. Only you can.
-                                </div>
-                            @endif
-                        </div>
+                                                @if($row['is_locked'])
+                                                    {{-- No Silent Locks: say WHY, on the page. An agent hunting for
+                                                         "why can't my assistant upload a listing?" must find the answer
+                                                         here rather than conclude the feature is broken. --}}
+                                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+                                                          style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);"
+                                                          title="CoreX switches property upload off for every assistant, at every agency. Nobody can turn this on — not you, not an admin. Only you can create a listing.">
+                                                        LOCKED BY COREX
+                                                    </span>
+                                                @elseif($row['is_new'])
+                                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
+                                                          style="background:var(--surface-2, #f0f2f8); color:var(--ds-amber, #d97706);"
+                                                          title="New since this assistant was set up. Off until you turn it on.">NEW</span>
+                                                @endif
+                                            </div>
 
-                        <div class="flex items-center gap-3 shrink-0">
-                            @if($row['is_view'] && !$row['is_locked'])
-                                {{-- Scope options are clamped to the agent's OWN breadth — an assistant
-                                     may never see more than the agent whose work they are doing.
-                                     Segmented control mirrors the Role Manager: the whole-agency ("all")
-                                     pill turns green, matching the "all permission" styling there. --}}
-                                @php
-                                    $scopeOptions = [['none','No access'], ['own','My records']];
-                                    if (in_array($row['scope_ceiling'], ['branch','all'], true)) $scopeOptions[] = ['branch','My branch'];
-                                    if ($row['scope_ceiling'] === 'all') $scopeOptions[] = ['all','Whole agency'];
-                                @endphp
-                                <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border, rgba(0,0,0,0.07));">
-                                    @foreach($scopeOptions as [$scopeVal, $scopeLabel])
-                                    <label class="rm-scope-btn inline-flex items-center cursor-pointer px-3 py-1.5 text-xs whitespace-nowrap"
-                                           style="border-right:1px solid var(--border, rgba(0,0,0,0.07));"
-                                           :data-active="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}' ? 'true' : 'false'"
-                                           data-scope="{{ $scopeVal }}"
-                                           :style="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}'
-                                               ? ''
-                                               : 'background:var(--surface, #fff);color:var(--text-muted, #6b7280);'">
-                                        <input type="radio"
-                                               name="scopes[{{ $row['key'] }}]"
-                                               value="{{ $scopeVal }}"
-                                               x-model="scopes['{{ $row['key'] }}']"
-                                               @change="dirty = true; scheduleSave()"
-                                               class="sr-only">
-                                        {{ $scopeLabel }}
-                                    </label>
-                                    @endforeach
-                                </div>
-                            @endif
+                                            @if($row['is_locked'])
+                                                <div class="text-xs mt-0.5" style="color:var(--text-muted, #6b7280);">
+                                                    Assistants can never create or import a listing. Only you can.
+                                                </div>
+                                            @endif
+                                        </div>
 
-                            <input type="hidden" name="permissions[{{ $row['key'] }}]"
-                                   :value="matrix['{{ $row['key'] }}'] ? '1' : '0'">
+                                        <div class="flex items-center gap-3 shrink-0">
+                                            @if($row['is_view'] && !$row['is_locked'])
+                                                {{-- Scope options are clamped to the agent's OWN breadth — an assistant
+                                                     may never see more than the agent whose work they are doing.
+                                                     Segmented control mirrors the Role Manager: the whole-agency ("all")
+                                                     pill turns green, matching the "all permission" styling there. --}}
+                                                @php
+                                                    $scopeOptions = [['none','No access'], ['own','My records']];
+                                                    if (in_array($row['scope_ceiling'], ['branch','all'], true)) $scopeOptions[] = ['branch','My branch'];
+                                                    if ($row['scope_ceiling'] === 'all') $scopeOptions[] = ['all','Whole agency'];
+                                                @endphp
+                                                <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border, rgba(0,0,0,0.07));">
+                                                    @foreach($scopeOptions as [$scopeVal, $scopeLabel])
+                                                    <label class="rm-scope-btn inline-flex items-center cursor-pointer px-3 py-1.5 text-xs whitespace-nowrap"
+                                                           style="border-right:1px solid var(--border, rgba(0,0,0,0.07));"
+                                                           :data-active="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}' ? 'true' : 'false'"
+                                                           data-scope="{{ $scopeVal }}"
+                                                           :style="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}'
+                                                               ? ''
+                                                               : 'background:var(--surface, #fff);color:var(--text-muted, #6b7280);'">
+                                                        <input type="radio"
+                                                               name="scopes[{{ $row['key'] }}]"
+                                                               value="{{ $scopeVal }}"
+                                                               x-model="scopes['{{ $row['key'] }}']"
+                                                               @change="dirty = true; scheduleSave()"
+                                                               class="sr-only">
+                                                        {{ $scopeLabel }}
+                                                    </label>
+                                                    @endforeach
+                                                </div>
+                                            @endif
 
-                            <label class="inline-flex items-center gap-2 {{ $row['is_locked'] ? '' : 'cursor-pointer' }}">
-                                <input type="checkbox"
-                                       x-model="matrix['{{ $row['key'] }}']"
-                                       @change="dirty = true; scheduleSave()"
-                                       @disabled($row['is_locked'])
-                                       @if($row['is_locked']) title="Locked by CoreX — assistants can never create or import a listing." @endif
-                                       class="w-5 h-5 rounded-md {{ $row['is_locked'] ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer' }}"
-                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border, rgba(0,0,0,0.07));">
-                                <span class="text-xs" style="color:var(--text-muted, #6b7280);"
-                                      x-text="matrix['{{ $row['key'] }}'] ? 'Enabled' : 'Disabled'"></span>
-                            </label>
+                                            <input type="hidden" name="permissions[{{ $row['key'] }}]"
+                                                   :value="matrix['{{ $row['key'] }}'] ? '1' : '0'">
+
+                                            <label class="inline-flex items-center gap-2 {{ $row['is_locked'] ? '' : 'cursor-pointer' }}">
+                                                <input type="checkbox"
+                                                       x-model="matrix['{{ $row['key'] }}']"
+                                                       @change="dirty = true; scheduleSave()"
+                                                       @disabled($row['is_locked'])
+                                                       @if($row['is_locked']) title="Locked by CoreX — assistants can never create or import a listing." @endif
+                                                       class="w-5 h-5 rounded-md {{ $row['is_locked'] ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer' }}"
+                                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border, rgba(0,0,0,0.07));">
+                                                <span class="text-xs" style="color:var(--text-muted, #6b7280);"
+                                                      x-text="matrix['{{ $row['key'] }}'] ? 'Enabled' : 'Disabled'"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
                         </div>
                     </div>
                 @endforeach
             </div>
-        @endforeach
+        </div>
 
         <div class="flex items-center justify-end gap-3">
             <a href="{{ route('agent.assistants.index') }}" class="corex-btn-outline">Done</a>
@@ -224,6 +268,8 @@ function assistantMatrix() {
              array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
         scopes: @json(collect($sections)->flatten(1)->filter(fn ($r) => $r['is_view'] && !$r['is_locked'])->mapWithKeys(fn ($r) => [$r['key'] => ($r['granted'] ? $r['scope'] : 'none')])),
         settings: @json(['can_manage_my_records' => (bool) $assignment->can_manage_my_records, 'show_attribution' => (bool) $assignment->show_attribution, 'notify_on_action' => (bool) $assignment->notify_on_action]),
+        featureSearch: '',
+        selectedSection: @json((string) (collect($sections)->keys()->first() ?? '')),
         dirty: false,
         saved: false,
         timer: null,
@@ -233,6 +279,13 @@ function assistantMatrix() {
             window.addEventListener('beforeunload', (e) => {
                 if (this.dirty) { e.preventDefault(); e.returnValue = ''; }
             });
+        },
+
+        // Filters the left feature rail; matches on the section key or its label.
+        matchesFeature(key, label) {
+            const q = this.featureSearch.trim().toLowerCase();
+            if (!q) return true;
+            return String(key).toLowerCase().includes(q) || String(label).toLowerCase().includes(q);
         },
 
         scheduleSave() {
