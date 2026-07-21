@@ -25,6 +25,8 @@
         isSupplierFallback(it){ return this.suppliers.length>0 && this.matchingSuppliers(it).length===0; },
         async load(){
             this.loading=true; this.err='';
+            // Surface the post-save confirmation carried across the reload (item 1).
+            try { const saved = sessionStorage.getItem('coc_saved_msg'); if(saved){ this.msg=saved; sessionStorage.removeItem('coc_saved_msg'); } } catch(e){}
             try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.panel', $deal) }}', {headers:{'Accept':'application/json'},credentials:'same-origin'}); const j = await r.json();
                 this.responsible=j.responsible_labels||{}; this.suppliers=j.suppliers||[];
                 this.items=(j.items||[]).map(i=>({...i}));
@@ -34,7 +36,15 @@
         async save(){
             this.busy=true; this.err=''; this.msg='';
             try { const r = await fetch('{{ route('deals-dr2.pipeline.coc-config.save', $deal) }}', {method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin',body:JSON.stringify({items:this.items.map(i=>({code:i.code, applies:!!i.applies, responsible_party:i.responsible_party, service_provider_id:i.service_provider_id||null}))})});
-                const j = await r.json(); if(r.ok&&j.ok){ this.msg='Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'; await this.load(); }
+                const j = await r.json(); if(r.ok&&j.ok){
+                    // Reflect the save across the WHOLE pipeline without a manual browser refresh.
+                    // load() re-renders THIS panel, but the pipeline step board (server-rendered,
+                    // left column) shows the step N/A changes and is stale — so reload the page and
+                    // carry the confirmation across so the agent still sees "Saved".
+                    try { sessionStorage.setItem('coc_saved_msg','Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'); } catch(e){}
+                    window.location.reload();
+                    return;
+                }
                 else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
             } catch(e){ this.err='Save failed.'; }
             this.busy=false;

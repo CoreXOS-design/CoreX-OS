@@ -324,6 +324,11 @@ configures every COC up front; the sends fire automatically off a trigger step.
 - **Auto-N/A cascade:** on Save, every COC/service type that is NOT ticked → its matching pipeline step
   is marked **N/A** (existing `markNotApplicable`, reason "not required — supplier work orders"). Re-tick
   → reinstate. Ticked ones stay live.
+- **Save reflects on the whole screen (no manual refresh).** `save()` re-renders the COC panel via
+  `load()`, but the **pipeline step board** (server-rendered, left column of `dr2/pipeline.blade.php`)
+  shows the N/A cascade and is stale after a save — so on a successful save the panel **reloads the
+  pipeline page** and carries the "Saved" confirmation across via `sessionStorage['coc_saved_msg']`
+  (read back in `load()`). The agent sees the step-board change immediately, no manual browser refresh.
 - **Trigger-driven send:** when the configured trigger step (e.g. "Bond Granted") COMPLETES, every ticked
   work order is sent — PDF generated, filed via AT-228, emailed to the recipient. Fires from
   `Dr1PipelineService::completeStep` after the step completes (positive outcome only).
