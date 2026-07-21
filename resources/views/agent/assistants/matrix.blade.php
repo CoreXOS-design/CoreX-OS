@@ -14,7 +14,17 @@
     ];
 @endphp
 
-<div class="w-full max-w-5xl space-y-5"
+<style>
+/* ── Assistant Matrix: scope segmented control (mirrors Role Manager) ── */
+#am-root .rm-scope-btn { transition: all 300ms; }
+#am-root .rm-scope-btn[data-active="true"] { color: #fff; font-weight: 600; }
+#am-root .rm-scope-btn[data-scope="none"][data-active="true"]   { background: var(--text-secondary); }
+#am-root .rm-scope-btn[data-scope="own"][data-active="true"]    { background: var(--brand-button, #0ea5e9); }
+#am-root .rm-scope-btn[data-scope="branch"][data-active="true"] { background: var(--ds-amber, #f59e0b); }
+#am-root .rm-scope-btn[data-scope="all"][data-active="true"]    { background: var(--ds-green, #059669); }
+</style>
+
+<div id="am-root" class="w-full max-w-5xl space-y-5"
      x-data="assistantMatrix()"
      x-init="init()">
 
@@ -94,10 +104,15 @@
                     </div>
                     <div class="shrink-0">
                         <input type="hidden" name="settings[{{ $t['key'] }}]" :value="settings['{{ $t['key'] }}'] ? '1' : '0'">
-                        <input type="checkbox"
-                               x-model="settings['{{ $t['key'] }}']"
-                               @change="dirty = true; scheduleSave()"
-                               class="h-5 w-5 rounded-md">
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox"
+                                   x-model="settings['{{ $t['key'] }}']"
+                                   @change="dirty = true; scheduleSave()"
+                                   class="w-5 h-5 rounded-md cursor-pointer"
+                                   style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border, rgba(0,0,0,0.07));">
+                            <span class="text-xs" style="color:var(--text-muted, #6b7280);"
+                                  x-text="settings['{{ $t['key'] }}'] ? 'On' : 'Off'"></span>
+                        </label>
                     </div>
                 </div>
             @endforeach
@@ -144,32 +159,49 @@
                         <div class="flex items-center gap-3 shrink-0">
                             @if($row['is_view'] && !$row['is_locked'])
                                 {{-- Scope options are clamped to the agent's OWN breadth — an assistant
-                                     may never see more than the agent whose work they are doing. --}}
-                                <select name="scopes[{{ $row['key'] }}]"
-                                        @change="dirty = true; scheduleSave()"
-                                        class="rounded-md px-2 py-1 text-xs"
-                                        style="background:var(--surface-2, #f0f2f8); color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
-                                    <option value="none" @selected(!$row['granted'])>No access</option>
-                                    <option value="own"    @selected($row['granted'] && $row['scope'] === 'own')>My records</option>
-                                    @if(in_array($row['scope_ceiling'], ['branch','all'], true))
-                                        <option value="branch" @selected($row['granted'] && $row['scope'] === 'branch')>My branch</option>
-                                    @endif
-                                    @if($row['scope_ceiling'] === 'all')
-                                        <option value="all" @selected($row['granted'] && $row['scope'] === 'all')>Whole agency</option>
-                                    @endif
-                                </select>
+                                     may never see more than the agent whose work they are doing.
+                                     Segmented control mirrors the Role Manager: the whole-agency ("all")
+                                     pill turns green, matching the "all permission" styling there. --}}
+                                @php
+                                    $scopeOptions = [['none','No access'], ['own','My records']];
+                                    if (in_array($row['scope_ceiling'], ['branch','all'], true)) $scopeOptions[] = ['branch','My branch'];
+                                    if ($row['scope_ceiling'] === 'all') $scopeOptions[] = ['all','Whole agency'];
+                                @endphp
+                                <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border, rgba(0,0,0,0.07));">
+                                    @foreach($scopeOptions as [$scopeVal, $scopeLabel])
+                                    <label class="rm-scope-btn inline-flex items-center cursor-pointer px-3 py-1.5 text-xs whitespace-nowrap"
+                                           style="border-right:1px solid var(--border, rgba(0,0,0,0.07));"
+                                           :data-active="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}' ? 'true' : 'false'"
+                                           data-scope="{{ $scopeVal }}"
+                                           :style="scopes['{{ $row['key'] }}'] === '{{ $scopeVal }}'
+                                               ? ''
+                                               : 'background:var(--surface, #fff);color:var(--text-muted, #6b7280);'">
+                                        <input type="radio"
+                                               name="scopes[{{ $row['key'] }}]"
+                                               value="{{ $scopeVal }}"
+                                               x-model="scopes['{{ $row['key'] }}']"
+                                               @change="dirty = true; scheduleSave()"
+                                               class="sr-only">
+                                        {{ $scopeLabel }}
+                                    </label>
+                                    @endforeach
+                                </div>
                             @endif
 
                             <input type="hidden" name="permissions[{{ $row['key'] }}]"
                                    :value="matrix['{{ $row['key'] }}'] ? '1' : '0'">
 
-                            <input type="checkbox"
-                                   x-model="matrix['{{ $row['key'] }}']"
-                                   @change="dirty = true; scheduleSave()"
-                                   @disabled($row['is_locked'])
-                                   @if($row['is_locked']) title="Locked by CoreX — assistants can never create or import a listing." @endif
-                                   class="h-5 w-5 rounded-md"
-                                   style="{{ $row['is_locked'] ? 'opacity:0.4; cursor:not-allowed;' : '' }}">
+                            <label class="inline-flex items-center gap-2 {{ $row['is_locked'] ? '' : 'cursor-pointer' }}">
+                                <input type="checkbox"
+                                       x-model="matrix['{{ $row['key'] }}']"
+                                       @change="dirty = true; scheduleSave()"
+                                       @disabled($row['is_locked'])
+                                       @if($row['is_locked']) title="Locked by CoreX — assistants can never create or import a listing." @endif
+                                       class="w-5 h-5 rounded-md {{ $row['is_locked'] ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer' }}"
+                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border, rgba(0,0,0,0.07));">
+                                <span class="text-xs" style="color:var(--text-muted, #6b7280);"
+                                      x-text="matrix['{{ $row['key'] }}'] ? 'Enabled' : 'Disabled'"></span>
+                            </label>
                         </div>
                     </div>
                 @endforeach
@@ -190,6 +222,7 @@ function assistantMatrix() {
         matrix: @json(collect($sections)->flatten(1)->mapWithKeys(fn ($r) => [$r['key'] => $r['granted'] && !$r['is_locked']])),
         {{-- @json must stay on ONE line: Blade's directive parser mishandles a multi-line
              array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
+        scopes: @json(collect($sections)->flatten(1)->filter(fn ($r) => $r['is_view'] && !$r['is_locked'])->mapWithKeys(fn ($r) => [$r['key'] => ($r['granted'] ? $r['scope'] : 'none')])),
         settings: @json(['can_manage_my_records' => (bool) $assignment->can_manage_my_records, 'show_attribution' => (bool) $assignment->show_attribution, 'notify_on_action' => (bool) $assignment->notify_on_action]),
         dirty: false,
         saved: false,
