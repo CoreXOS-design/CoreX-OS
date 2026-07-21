@@ -108,7 +108,7 @@ class PresentationGeneratorController extends Controller
 
             $version = $this->generator->generateForProperty(
                 propertyId:  $property->id,
-                agentUserId: $user->id,
+                agentUserId: $user->ownershipUserId(), // AT-267 — file an assistant's presentation as the agent
                 agencyId:    (int) $property->agency_id,
                 options:     $options,
             );

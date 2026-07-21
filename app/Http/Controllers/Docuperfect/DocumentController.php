@@ -88,7 +88,7 @@ class DocumentController extends Controller
             'name' => $request->input('name'),
             'template_id' => $template->id,
             'fields_json' => $template->fields_json ?? [],
-            'owner_id' => $user->id,
+            'owner_id' => $user->ownershipUserId(), // AT-267 — file an assistant's document as the agent
             'branch_id' => $user->effectiveBranchId(),
         ]);
 

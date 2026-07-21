@@ -560,7 +560,10 @@ class CommandCenterApiController extends Controller
         ]);
 
         $data = $request->all();
-        $data['assigned_to']   = $request->user()->id;
+        // AT-267 — an assistant's work is filed as the AGENT. ownershipUserId() = the assigned agent
+        // for an assistant, and $user->id for everyone else, so a task an assistant creates lands on
+        // the agent's board (never the assistant's).
+        $data['assigned_to']   = $request->user()->ownershipUserId();
         $data['task_type']     = $data['task_type'] ?? 'custom';
         $data['send_reminder'] = $request->boolean('send_reminder', true);
 

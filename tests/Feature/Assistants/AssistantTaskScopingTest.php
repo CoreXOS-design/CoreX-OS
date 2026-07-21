@@ -75,6 +75,27 @@ final class AssistantTaskScopingTest extends TestCase
             ->put(route('command-center.tasks.update', $mine->id), ['title' => 'Updated by assistant'])->status());
     }
 
+    /**
+     * AT-267 ownership attribution — a task an assistant creates is filed under the AGENT, never the
+     * assistant (and never a caller-supplied assigned_to).
+     */
+    public function test_a_task_an_assistant_creates_is_filed_under_the_agent(): void
+    {
+        $this->grant('command_center.tasks.view', 'own');
+        $this->grant('command_center.tasks.create');
+        $this->reset();
+
+        $this->actingAs($this->assistant)
+            ->post(route('command-center.tasks.store'), [
+                'title' => 'Follow up seller', 'task_type' => 'custom',
+                'assigned_to' => $this->agentB->id, // a hostile attempt to file it elsewhere
+            ]);
+
+        $this->assertDatabaseHas('command_tasks', ['title' => 'Follow up seller', 'assigned_to' => $this->agentA->id]);
+        $this->assertDatabaseMissing('command_tasks', ['title' => 'Follow up seller', 'assigned_to' => $this->assistant->id]);
+        $this->assertDatabaseMissing('command_tasks', ['title' => 'Follow up seller', 'assigned_to' => $this->agentB->id]);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private function makeUser(string $name, string $role, bool $isAssistant = false): User
