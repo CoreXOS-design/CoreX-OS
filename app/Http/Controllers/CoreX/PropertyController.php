@@ -2496,6 +2496,10 @@ class PropertyController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('properties.edit'), 403);
         $record = Property::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — restore is on the DenyAssistantPropertyWrite allow-list (reversible, no new
+        // stock), but it lacked a per-record guard: a properties.edit holder / an assistant could
+        // un-archive ANY agent's listing by id. Pin it to the acting user's own book.
+        $this->authorizeProperty($record);
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

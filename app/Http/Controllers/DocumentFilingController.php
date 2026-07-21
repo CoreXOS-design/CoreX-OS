@@ -360,6 +360,12 @@ class DocumentFilingController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('filing.edit'), 403);
         $record = DocumentFiling::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — per-record: only restore within the acting user's data scope (an assistant is
+        // confined to the assigned agent's book), never any agent's filing by id.
+        abort_unless(
+            DocumentFiling::onlyTrashed()->visibleTo(auth()->user())->whereKey($record->getKey())->exists(),
+            403
+        );
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

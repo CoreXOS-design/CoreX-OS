@@ -139,6 +139,31 @@ final class AssistantPropertyViewScopingTest extends TestCase
     }
 
     /**
+     * AT-267 H4 — restore is on the DenyAssistantPropertyWrite allow-list but lacked a per-record
+     * guard. An assistant may un-archive their agent's own listing, never another agent's.
+     */
+    public function test_an_assistant_cannot_restore_another_agents_archived_listing(): void
+    {
+        $this->grantAssistant('access_properties');
+        $this->grantAssistant('properties.view', 'branch');
+        $this->grantAssistant('properties.edit');
+        $this->reset();
+
+        $this->propB->delete(); // archived (soft delete)
+        $this->propA->delete();
+
+        // agentB's listing — refused.
+        $this->actingAs($this->assistant)
+            ->post(route('corex.properties.restore', $this->propB->id))
+            ->assertForbidden();
+        $this->assertSoftDeleted('properties', ['id' => $this->propB->id]);
+
+        // the assigned agent's own listing — allowed.
+        $this->assertNotSame(403, $this->actingAs($this->assistant)
+            ->post(route('corex.properties.restore', $this->propA->id))->status());
+    }
+
+    /**
      * The assistant is strictly narrower than the agent: the AGENT (branch scope) CAN edit the
      * colleague's listing the assistant cannot. Proves the pin is on the assistant, not the module.
      */
