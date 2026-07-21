@@ -438,3 +438,15 @@ render into, so it vanished.
      before printing. Fail-open (try/catch) — the PDF always at least renders the canonical.
 - **Proof (doc 452, real Chromium):** the PDF-input HTML paginates and fills agent + seller_2 boxes,
   seller (captured none) empty — both recipients' initials in-position, correctly attributed.
+- **Write-side integrity (the upstream half — why a genuinely-initialed co-seller was blank):**
+  `SigningController::completeWeb()` stored `signed_initials` as
+  `$existingInitials[$partyRole] = $initials` — keyed by the **bare** `party_role` and **overwritten**
+  per completion. Two same-role co-signers share one base role, so the 2nd seller's completion
+  **clobbered** the 1st's captured initials: the ink survived in `web_template_data['signatures']`
+  but vanished from `signed_initials` (the store the review + PDF read), so a genuinely-initialed
+  co-seller rendered a blank box. This was NOT an enforcement gap — the ceremony did require and
+  capture her initials. Fixed: keyed by `$signingRequest->canonicalPartyKey()` (seller vs seller_2)
+  and **merged** (`array_merge`), so every co-signer keeps their own group. Sub-keys are already
+  recipient-distinct, so the render fix then places each in its own box. Regression guard:
+  `tests/Feature/Docuperfect/SigningView/CoSignerInitialsPersistTest.php` (two sellers both initial →
+  both persist under their own canonical keys after the 2nd completes).
