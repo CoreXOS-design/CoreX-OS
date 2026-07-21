@@ -2311,21 +2311,14 @@ class SignatureController extends Controller
         // (no editability overlay — review is an approval gate, not a fill step).
         $isWebTemplate = false;
         $webTemplateHtml = null;
-        $canonicalRenderer = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class);
-        $reviewCanonical = $canonicalRenderer->forDisplay($template);
+        $reviewCanonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->forDisplay($template);
         if (trim($reviewCanonical) !== '') {
             $isWebTemplate = true;
             $webTemplateHtml = $reviewCanonical;
         } elseif (!empty($webTemplateData['merged_html'])) {
             $isWebTemplate = true;
             $webTemplateHtml = $webTemplateData['merged_html'];
-        }
-        // AT-324/AT-325 / doc-452 — page-break initials are a pagination artifact
-        // absent from the un-paginated canonical the review renders, so captured
-        // initials never showed. Append them (read-only; canonical is not mutated)
-        // so the approver sees the completed document with every initial present.
-        if ($isWebTemplate) {
-            $webTemplateHtml .= $canonicalRenderer->renderCapturedInitials($template);
         }
 
         if (!$isWebTemplate) {

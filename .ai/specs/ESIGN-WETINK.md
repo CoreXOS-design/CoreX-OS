@@ -417,7 +417,9 @@ the un-paginated `canonical_html` that both the review and the PDF render. The c
 in `web_template_data['signed_initials']` keyed `"{recipientKey}-init-{page}"`, but had no slot to
 render into, so it vanished.
 
-- **Fix:** `CanonicalDocumentRenderer::renderCapturedInitials($template)` returns a labelled block
-  of every captured initial image, attributed to the signer (name via `partyProgress()`'s canonical
-  keys). `review()` and `SignaturePdfService` APPEND it to the display HTML — read-only; the stored
-  canonical is never mutated. Captured initials always show.
+- **Requirement:** the captured initials must render IN THEIR CORRECT PAGE-BREAK SLOTS on the
+  document pages (where the signer placed them) on the review/approval surface AND the PDF — exactly
+  like the signatures do. A separate "initials captured" summary block is NOT acceptable.
+- **Fix:** UNDER INVESTIGATION (a summary-block attempt was reverted). The direction is to render
+  the in-position paginated signed artifact (or inject each captured initial at its page-break slot)
+  on both surfaces.
