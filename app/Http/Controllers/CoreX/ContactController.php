@@ -130,6 +130,24 @@ class ContactController extends Controller
             ]);
         }
 
+        // AT-321-C — unlimited CSV export of the contact audit trail (History tab).
+        if ($request->get('export') === 'csv' && $request->get('tab') === 'history') {
+            $rows = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
+                ->with('user')->orderByDesc('created_at')->get();
+            $csv = "Timestamp,Actor,Source,Category,Event Type,Summary,Before,After\n";
+            foreach ($rows as $r) {
+                $actor = $r->user?->name ?? ($r->actor_label ?? 'System');
+                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($actor) . '","'
+                    . addslashes($r->source ?? '') . '","' . $r->event_category . '","' . $r->event_type . '","'
+                    . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->old_values ?? [])) . '","'
+                    . addslashes(json_encode($r->new_values ?? [])) . "\"\n";
+            }
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="contact-' . $contact->id . '-audit-log.csv"',
+            ]);
+        }
+
         $contact->load(['type', 'parentTypes', 'createdBy', 'agent', 'secondAgent', 'contactNotes.user', 'testimonials.user', 'testimonials.agent', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags', 'communications', 'phones', 'emails']);
 
         // Agents in this contact's agency — for the "agent this testimonial is
@@ -481,7 +499,15 @@ class ContactController extends Controller
                 ->where('agent_user_id', $viewer->id)->where('contact_id', $contact->id)->first())->status
             : null;
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent'));
+        // AT-321-C — FULL contact audit trail for the History tab, paginated (no
+        // cap). CSV export above is the unlimited one-shot. Page links keep tab=history.
+        $fullAuditLog = \App\Models\ContactAuditLog::where('contact_id', $contact->id)
+            ->with('user')
+            ->orderByDesc('created_at')
+            ->paginate(50, ['*'], 'history')
+            ->appends(['tab' => 'history']);
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog'));
     }
 
     public function checkDuplicate(Request $request)

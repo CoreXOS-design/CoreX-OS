@@ -92,6 +92,52 @@ class Contact extends Model
             || $this->preapproval_expires_at->isFuture();
     }
 
+    /**
+     * AT-321-C — the SANCTIONED way to make a "quiet" contact write and still keep
+     * the audit trail. It suppresses the observer (updateQuietly) — so no side
+     * effects — but records a rich, attributed audit row itself, and de-dupes the
+     * DB backstop trigger. Use this instead of a raw ->updateQuietly() / DB::table
+     * update whenever the change is meaningful. The dev-check gate points call sites
+     * here.
+     *
+     * @param array<string, mixed> $attrs  column => new value
+     */
+    public function auditedQuietUpdate(
+        array $attrs,
+        string $eventType = 'contact_updated',
+        ?string $summary = null,
+        ?array $metadata = null,
+        ?\App\Models\User $actor = null,
+    ): bool {
+        $old = [];
+        foreach (array_keys($attrs) as $col) {
+            $old[$col] = $this->getOriginal($col) ?? $this->{$col};
+        }
+
+        \App\Support\Audit\AuditContext::markHandled();
+        try {
+            $result = $this->updateQuietly($attrs);
+        } finally {
+            \App\Support\Audit\AuditContext::clearHandled();
+        }
+
+        app(\App\Services\Audit\ContactAuditService::class)->log(
+            $this, 'contact', $eventType, $actor,
+            oldValues: $old,
+            newValues: $attrs,
+            metadata: $metadata ?? ['fields' => array_keys($attrs)],
+            humanSummary: $summary ?? ('Updated ' . implode(', ', array_map(fn ($f) => str_replace('_', ' ', $f), array_keys($attrs)))),
+        );
+
+        return $result;
+    }
+
+    /** AT-321-C — the contact's audit trail (newest first for the History tab). */
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(ContactAuditLog::class)->orderByDesc('created_at');
+    }
+
     public function type(): BelongsTo
     {
         return $this->belongsTo(ContactType::class, 'contact_type_id');
