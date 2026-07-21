@@ -90,6 +90,21 @@ final class AssistantDocumentDownloadGateTest extends TestCase
     }
 
     /**
+     * The view-layer helper (used to hide download affordances the middleware can't gate, e.g.
+     * direct public-disk URLs) mirrors the gate exactly.
+     */
+    public function test_can_download_documents_helper_mirrors_the_toggle(): void
+    {
+        $this->assertTrue($this->agent->canDownloadDocuments(), 'A non-assistant may always download.');
+
+        $this->assignment->forceFill(['can_download_documents' => true])->save();
+        $this->assertTrue($this->freshAssistant()->canDownloadDocuments(), 'Toggle on → helper true.');
+
+        $this->assignment->forceFill(['can_download_documents' => false])->save();
+        $this->assertFalse($this->freshAssistant()->canDownloadDocuments(), 'Toggle off → helper false.');
+    }
+
+    /**
      * The wiring half: the middleware alias is actually attached to the real download routes, not
      * merely defined. If someone adds a new download route without the alias, that is a separate
      * gap — this proves the ones we gated stayed gated.

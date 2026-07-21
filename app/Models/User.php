@@ -853,6 +853,23 @@ class User extends Authenticatable
         return $this->assignedAgent()?->id ?? $this->id;
     }
 
+    /**
+     * AT-267 — may this user download document files?
+     *
+     * True for everyone except an assistant whose assignment has the "download documents" toggle
+     * off (or who has no active assignment — fail closed). Mirrors the DenyAssistantDownload
+     * middleware for the VIEW layer, so download affordances the middleware cannot gate — direct
+     * public-disk storage URLs ($doc->url(), which never hit the app) — are hidden too.
+     */
+    public function canDownloadDocuments(): bool
+    {
+        if (! $this->is_assistant) {
+            return true;
+        }
+
+        return (bool) ($this->activeAssistantAssignment()?->can_download_documents);
+    }
+
     // --- Permission helpers (delegate to PermissionService) ---
 
     public function hasPermission(string $key): bool

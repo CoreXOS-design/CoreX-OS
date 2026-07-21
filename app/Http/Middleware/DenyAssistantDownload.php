@@ -35,16 +35,10 @@ class DenyAssistantDownload
     {
         $user = $request->user();
 
-        // Not an assistant → unaffected. A non-assistant download behaves exactly as before.
-        if (!$user || !$user->is_assistant) {
-            return $next($request);
-        }
-
-        $assignment = $user->activeAssistantAssignment();
-
-        // Toggle ON with a live assignment → allowed. Everything else (no assignment, toggle off)
-        // fails closed to a denial.
-        if ($assignment && $assignment->can_download_documents === true) {
+        // canDownloadDocuments() is true for everyone except an assistant whose toggle is off (or
+        // who has no active assignment — fail closed). Same helper the view layer uses to hide
+        // download affordances, so middleware and UI can never drift.
+        if (!$user || $user->canDownloadDocuments()) {
             return $next($request);
         }
 
