@@ -2564,20 +2564,26 @@ class SignatureController extends Controller
 
     private function authorizeDocument($user, Document $document): void
     {
-        $scope = PermissionService::getDataScope($user, 'documents');
+        // AT-267 H5 — this guards the ENTIRE signing pipeline. It used VIEW scope + owner_id===$user->id
+        // (not dataIdentityIds), which (a) let an assistant of a branch-manager sign/mutate ANY branch
+        // document, and (b) wrongly 403'd an assistant on the assigned agent's OWN document. Use the
+        // MUTATION scope (clamps assistants to 'own') keyed on dataIdentityIds — so an assistant may
+        // sign exactly the assigned agent's own documents and no other. NON-assistant behaviour is
+        // unchanged: mutationScope == getDataScope and dataIdentityIds() == [$user->id] for them.
+        $scope = PermissionService::mutationScope($user, 'documents');
 
         if ($scope === 'all') {
             return;
         }
 
         if ($scope === 'branch') {
-            if ($document->branch_id !== $user->effectiveBranchId()) {
+            if ((int) $document->branch_id !== (int) $user->effectiveBranchId()) {
                 abort(403);
             }
             return;
         }
 
-        if ((int) $document->owner_id !== (int) $user->id) {
+        if (! in_array((int) $document->owner_id, $user->dataIdentityIds(), true)) {
             abort(403);
         }
     }
