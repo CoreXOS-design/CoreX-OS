@@ -186,6 +186,7 @@ class CommissionController extends Controller
         // ── Agent performance table ──
         $agents = User::agencyMembers()
             ->where('is_active', true)
+            ->where('is_assistant', false) // AT-267: assistants earn no commission — never in the agent list
             ->whereNotNull('agency_id')
             ->orderBy('name')
             ->get()

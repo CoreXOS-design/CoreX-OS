@@ -32,6 +32,9 @@ class PropertyController extends Controller
         $user           = auth()->user();
         $dataScope      = PermissionService::getDataScope($user, 'properties');
         $canPickAgent   = in_array($dataScope, ['all', 'branch']);
+        // AT-267 — an assistant owns NO listings of their own; the list defaults to the agent they
+        // work under. $ownerId is the assigned agent for an assistant, else the user themselves.
+        $ownerId        = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
 
         // Agency-wide default ordering (Settings → Properties). 'status_priority'
         // orders by the admin-defined status sequence; otherwise newest first.
@@ -118,7 +121,7 @@ class PropertyController extends Controller
                 $saved = (array) $request->session()->get($SESSION_KEY, []);
                 $filterAgentIds = array_key_exists('agent_ids', $saved)
                     ? $this->parseAgentIds((string) $saved['agent_ids'])
-                    : [(string) $user->id];
+                    : [(string) $ownerId];
             }
         }
 
@@ -144,13 +147,16 @@ class PropertyController extends Controller
             }
             // dataScope 'all' ⇒ no restriction
         } else {
-            // Agent: 'my' = own listings only; 'branch' = all branch listings
+            // Agent: 'my' = own listings only; 'branch' = all branch listings. For an ASSISTANT
+            // "own" is the assigned agent's book (dataIdentityIds() = [agentId, selfId]), never the
+            // assistant's own empty id — so their list loads the agent's listings.
             if ($viewScope === 'branch' && $user->branch_id) {
                 $query->where('branch_id', $user->branch_id);
             } else {
-                $query->where(function ($q) use ($user) {
-                    $q->where('agent_id', $user->id)
-                      ->orWhere('pp_second_agent_id', $user->id);
+                $ids = $user->dataIdentityIds();
+                $query->where(function ($q) use ($ids) {
+                    $q->whereIn('agent_id', $ids)
+                      ->orWhereIn('pp_second_agent_id', $ids);
                 });
             }
         }
@@ -2337,7 +2343,9 @@ class PropertyController extends Controller
             $property?->pp_second_agent_id,
         ]);
 
-        $query = User::agencyMembers()->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
+        // AT-267 — an assistant is never a selectable AGENT (they own no listings). Top-level so the
+        // orWhereIn(assignedIds) below can never re-admit one.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
             $q->where('is_active', 1);
 
             if ($scope === 'branch') {

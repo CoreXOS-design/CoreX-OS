@@ -21,6 +21,7 @@ class AgentComplianceController extends Controller
         // Get all active agents
         $agents = User::agencyMembers()
             ->where('is_active', true)
+            ->where('is_assistant', false) // AT-267: assistants are not agents in the compliance roster
             ->whereNull('deleted_at')
             ->orderBy('name')
             ->get();

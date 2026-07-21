@@ -27,13 +27,19 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter: always default to the current user's own contacts on a
-        // fresh visit. An explicit ?agent_id= (e.g. "All", or another agent)
-        // applies for that browse only and is NOT persisted across visits.
+        // AT-267 — an assistant owns NO contacts of their own; every list defaults to the agent
+        // they work under. $ownerId is the assigned agent for an assistant, and the user
+        // themselves for everyone else, so the page loads the agent's book rather than an empty
+        // "my records" view.
+        $ownerId = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
+
+        // Agent filter: default to the owner's own contacts on a fresh visit (the assigned agent
+        // for an assistant). An explicit ?agent_id= (e.g. "All", or another agent) applies for that
+        // browse only and is NOT persisted across visits.
         if ($request->has('agent_id')) {
             $filterAgentId = $request->query('agent_id', '');
         } elseif ($canPickAgent) {
-            $filterAgentId = (string) $user->id;
+            $filterAgentId = (string) $ownerId;
         } else {
             $filterAgentId = '';
         }
@@ -58,8 +64,10 @@ class ContactController extends Controller
             }
             // 'all' scope with no filter = show all contacts
         } else {
-            // 'own' scope: agents see only their own (ContactScope also enforces this)
-            $query->where('created_by_user_id', $user->id);
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book — dataIdentityIds() = [agentId, selfId] —
+            // never the assistant's own empty id.
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
         }
 
         // AT-91 — WhatsApp Outreach Summary drill-through. ?channel=whatsapp
@@ -252,10 +260,13 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
+        // AT-267 — assistant defaults to the agent they work under (see index()).
+        $ownerId = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
+
         if ($request->has('agent_id')) {
             $filterAgentId = (string) $request->query('agent_id', '');
         } elseif ($canPickAgent) {
-            $filterAgentId = (string) $user->id;
+            $filterAgentId = (string) $ownerId;
         } else {
             $filterAgentId = '';
         }
@@ -271,8 +282,9 @@ class ContactController extends Controller
                 $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $user->branch_id));
             }
         } else {
-            // 'own' scope: agents see only their own (ContactScope also enforces this).
-            $query->where('created_by_user_id', $user->id);
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book via dataIdentityIds().
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
         }
 
         return $query;
@@ -371,6 +383,7 @@ class ContactController extends Controller
         $agencyAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('agency_id', $contact->agency_id)
             ->where('is_active', true)
+            ->where('is_assistant', false) // AT-267 — an assistant is never a responsible agent
             ->orderBy('name')
             ->get(['id', 'name']);
         $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
@@ -1608,7 +1621,9 @@ class ContactController extends Controller
         $user      = auth()->user();
         $dataScope = PermissionService::getDataScope($user, 'contacts');
 
-        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
+        // AT-267 — an assistant is never a selectable AGENT (they own no data). Exclude them from
+        // the picker on every scope.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where('is_active', 1);
 
         if ($dataScope === 'branch') {
             $branchId = $user->effectiveBranchId();

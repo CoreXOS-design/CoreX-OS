@@ -219,7 +219,7 @@ class SettingsController extends Controller
         // the settings rail.
 
         // Agents list for email signature preview selector
-        $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $data['agents'] = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(['id', 'name']); // AT-267: exclude assistants
 
         // Feature Settings tab: Dashboard — settings mode + agency dashboard settings
         $data['dashboardSettingsMode'] = $data['agency']->dashboard_settings_mode ?? 'user';

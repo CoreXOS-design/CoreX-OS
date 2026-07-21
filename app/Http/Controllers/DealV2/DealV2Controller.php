@@ -220,7 +220,7 @@ class DealV2Controller extends Controller
             ->groupBy('deal_type');
 
         $branches = Branch::orderBy('name')->get();
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
 
         // Pre-build template data for JS (avoid Blade closures in @json)
         $templatesJson = DealPipelineTemplate::active()
@@ -596,7 +596,7 @@ class DealV2Controller extends Controller
         $deal->load(['property', 'contacts', 'agents', 'listingAgent', 'sellingAgent', 'branch',
             'stepInstances' => fn ($q) => $q->orderBy('position')]);
 
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
         $branches = Branch::orderBy('name')->get();
         $locked = $deal->isFinanciallyLocked();
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
