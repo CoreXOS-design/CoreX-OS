@@ -243,6 +243,25 @@ class User extends Authenticatable
             }
         });
 
+        // AT-267 E1 (audit 2026-07-21) — persist the assistant FREEZE when an agent is deactivated.
+        // Fail-closed already holds (the resolver denies live on !$agent->is_active), but persisting
+        // the assignment status gives a user-facing state and defence-in-depth. Reversible: the
+        // auto-suspend is undone when the agent is reactivated (only the ones WE froze).
+        static::updated(function (self $user) {
+            if (! $user->wasChanged('is_active')) {
+                return;
+            }
+            $assignments = \App\Models\AssistantAssignment::where('agent_user_id', $user->id);
+            if (! $user->is_active) {
+                (clone $assignments)->where('status', \App\Models\AssistantAssignment::STATUS_ACTIVE)
+                    ->update(['status' => \App\Models\AssistantAssignment::STATUS_SUSPENDED, 'suspend_reason' => 'agent_deactivated']);
+            } else {
+                (clone $assignments)->where('status', \App\Models\AssistantAssignment::STATUS_SUSPENDED)
+                    ->where('suspend_reason', 'agent_deactivated')
+                    ->update(['status' => \App\Models\AssistantAssignment::STATUS_ACTIVE, 'suspend_reason' => null]);
+            }
+        });
+
         static::updating(function (self $user) {
             if (!$user->getOriginal('agency_id') || $user->getOriginal('role') !== 'admin') {
                 return;

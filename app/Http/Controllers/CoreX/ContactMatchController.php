@@ -50,7 +50,10 @@ class ContactMatchController extends Controller
 
         $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
-            ->where('created_by_user_id', $user->id)
+            // AT-267 — an assistant works the assigned agent's book (dataIdentityIds() = [agentId,
+            // selfId]); everyone else is [$user->id]. Keying on $user->id alone left this page inert
+            // for assistants (they own no matches).
+            ->whereIn('created_by_user_id', $user->dataIdentityIds())
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
             ->get();
