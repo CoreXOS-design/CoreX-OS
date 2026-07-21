@@ -609,9 +609,27 @@ Each per-supplier tick auto-saves immediately via AJAX to `deals-v2.suppliers.ty
 the pivot link, un-tick **soft-deletes** it (`syncServiceTypes`). Survives refresh; per-supplier
 isolated; a "✓ saved" / "save failed — retry" indicator replaces the old manual "Save types" button.
 
-### 22.4 (item 2) Inline "＋ Add supplier" on the COC-panel picker
-`dr2/_supplier-work-orders.blade.php` — the supplier `<select>` gains a "＋ Add supplier" inline
-mini-form (name + optional email). On submit it POSTs `deals-dr2.suppliers.inline`
-(`SupplierDirectoryController::createInline`, `permission:create_deals` — DR2's own perm) tagged with
-**THIS row's AgencyServiceType code** (`service_types:[it.code]`, `specialty:'other'`), then pushes the
-new supplier into the picker and selects it. No navigating away to the Suppliers page.
+### 22.4 (item 2) Inline "＋ Add supplier" on the COC-panel picker — FULL field set
+`dr2/_supplier-work-orders.blade.php` — the supplier `<select>` gains a "＋ Add supplier" inline form
+that captures the **SAME full set as the Suppliers directory add-form**, so ANY supplier type can be
+added from the pipeline (incl. a **transferring attorney** — attorneys are a supplier type):
+**Name\*, Supplier type/specialty\*** (dropdown of `SupplierDirectoryController::SPECIALTIES` — incl.
+`transfer_attorney`/`bond_attorney`/`conveyancer`), **Company, Email, Phone, Preferred, Service types**
+(AgencyServiceType COC checkboxes, the row's type pre-ticked). On an attorney row the specialty
+pre-selects `transfer_attorney`.
+- The list source: `WorkOrderController::cocConfigPanel` now returns `specialties`
+  (`SupplierDirectoryController::SPECIALTIES`, made public) alongside `items` (the service types); the
+  panel's Alpine `load()` reads both.
+- Submit POSTs `deals-dr2.suppliers.inline` (`createInline`, `permission:create_deals`) with the full
+  payload → `createInline` runs `validated()` (name/specialty/company/email/phone/is_preferred) +
+  `syncServiceTypes()` for the ticked COC codes → returns the row (with `types`); the panel pushes it
+  into the picker and selects it. No navigating away; persists (a real directory supplier).
+- **Regression guard:** the panel's `x-data` attribute MUST stay free of literal double-quotes — a
+  double-quote there truncates the double-quoted HTML attribute and breaks the whole panel (fixed once;
+  see §22.5). This inline form uses single quotes only.
+
+### 22.5 COC-list regression (fixed)
+A comment inside the panel's `save()` contained a double-quoted word (`"Saved"`) **inside the
+double-quoted `x-data` attribute** → the browser truncated the attribute → Alpine failed to init → the
+COC tick-list + dropdowns never rendered (header/description only). Fixed by removing the double-quotes.
+Lesson encoded in §22.4's regression guard.

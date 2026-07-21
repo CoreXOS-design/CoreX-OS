@@ -304,6 +304,10 @@ class WorkOrderController extends Controller
             'items'              => $items,
             'responsible_labels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
             'suppliers'          => $this->supplierPayload(),
+            // Supplier-type list for the inline "＋ Add supplier" — the SAME set the Suppliers
+            // directory add-form offers (incl. transfer_attorney), so any supplier type can be
+            // added inline from the pipeline.
+            'specialties'        => \App\Http\Controllers\DealV2\SupplierDirectoryController::SPECIALTIES,
         ]);
     }
 
