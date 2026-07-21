@@ -1,7 +1,10 @@
 # AT-321 — Property Audit Trail: log EVERY change, always attributable, never bypassable
 
-> **Status:** SPEC — awaiting Johan's sign-off. **NO code until approved.** QA1 only when built.
-> **Author:** cc1. **Date:** 2026-07-20.
+> **Status:** BUILT — QA1 only (branch `QA1`, feat commit `e67fde87`). Johan-approved (Option 3 hybrid).
+> **NEVER promote to Staging/live without Johan's explicit go** — the unbypassable DB-trigger backstop
+> needs a privileged out-of-band creation step per environment (§3.2/§3.5; same caveat carried into the
+> contact mirror `.ai/specs/contact-audit.md`).
+> **Author:** cc1. **Date:** 2026-07-20. **Header updated:** 2026-07-21 (cc6 — marked BUILT/QA1).
 > **Mandate (Johan):** the property audit trail must log *any and every* change on a property,
 > always with WHO (or a clear system/source label) and WHEN. No event allow-list, no observer
 > bypass, no silent "System".
