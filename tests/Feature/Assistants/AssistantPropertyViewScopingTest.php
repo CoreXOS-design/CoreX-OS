@@ -85,10 +85,12 @@ final class AssistantPropertyViewScopingTest extends TestCase
         $this->grantAssistant('properties.view', 'branch');
         $this->reset();
 
-        // VIEW agentB's listing — allowed (was wrongly 403 before the fix).
+        // VIEW agentB's listing — allowed (was wrongly 403 before the fix), and rendered read-only:
+        // the page carries the "View only" lock so no edit affordance is shown.
         $this->actingAs($this->assistant)
             ->get(route('corex.properties.show', $this->propB))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('View only');
 
         // EDIT agentB's listing — refused: an assistant edits only the agent's own listings.
         $this->actingAs($this->assistant)
@@ -96,10 +98,11 @@ final class AssistantPropertyViewScopingTest extends TestCase
             ->assertForbidden();
 
         // The agent's OWN listing — the assistant's whole job: view AND edit both pass authorization
-        // (the update may 302 back on validation, but it is never a 403).
+        // (the update may 302 back on validation, but it is never a 403). No read-only lock here.
         $this->actingAs($this->assistant)
             ->get(route('corex.properties.show', $this->propA))
-            ->assertOk();
+            ->assertOk()
+            ->assertDontSee('View only');
         $this->assertNotSame(
             403,
             $this->actingAs($this->assistant)->put(route('corex.properties.update', $this->propA), [])->status(),

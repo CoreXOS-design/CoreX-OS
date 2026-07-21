@@ -15,6 +15,13 @@
     </x-slot>
 
     <div class="space-y-6">
+        {{-- AT-267 — view-only lock when the current user may not edit this deal (an assistant
+             viewing a colleague's deal at their agent's breadth). --}}
+        @include('partials._readonly-lock', [
+            'canEdit'         => $canEdit ?? true,
+            'readonlyMessage' => 'You can view this deal, but only its agent can change it. Ask your agent if something needs updating.',
+        ])
+
         <div>
             <h2 class="ds-section-header">Timeline</h2>
             <div class="ds-section-sub mb-4">System-created events + user actions.</div>

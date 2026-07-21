@@ -550,10 +550,15 @@ class PropertyController extends Controller
                 ->get();
         }
 
+        // AT-267 — may the current user actually EDIT this listing? An assistant may VIEW a
+        // colleague's listing (above) but not change it; the view renders read-only when false so
+        // no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateProperty($property);
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms'
+            'aiImageSuggestions', 'propertyComms', 'canEdit'
         ));
     }
 
@@ -632,8 +637,11 @@ class PropertyController extends Controller
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
+        // This path is the just-created listing shown to its creator — always editable. (Assistants
+        // cannot reach property creation at all, so this never renders read-only.)
+        $canEdit   = true;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit'));
     }
 
     /**

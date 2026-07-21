@@ -38,16 +38,34 @@ trait AuthorizesDealAccess
      */
     protected function authorizeDeal(Deal $deal, bool $forEdit = true): void
     {
+        abort_unless($this->dealAccessAllowed($deal, $forEdit), 403);
+    }
+
+    /**
+     * The non-aborting boolean the VIEW layer needs: may the current user MUTATE this deal?
+     *
+     * Used to render the deal detail page read-only for an assistant who can see but not edit it,
+     * so no edit affordances are shown that would only 403 on save.
+     */
+    protected function canMutateDeal(Deal $deal): bool
+    {
+        return $this->dealAccessAllowed($deal, true);
+    }
+
+    private function dealAccessAllowed(Deal $deal, bool $forEdit): bool
+    {
         /** @var User|null $user */
         $user = auth()->user();
-        abort_unless($user !== null, 403);
+        if ($user === null) {
+            return false;
+        }
 
         $scope = $forEdit
             ? PermissionService::mutationScope($user, 'deals')
             : PermissionService::getDataScope($user, 'deals');
 
         if ($scope === 'all') {
-            return;
+            return true;
         }
 
         if ($scope === 'branch') {
@@ -57,7 +75,7 @@ trait AuthorizesDealAccess
                 ->where('users.branch_id', $user->effectiveBranchId())
                 ->exists();
             if ($inBranch) {
-                return;
+                return true;
             }
         }
 
@@ -67,10 +85,10 @@ trait AuthorizesDealAccess
                 ->whereIn('user_id', $user->dataIdentityIds())
                 ->exists();
             if ($isOwn) {
-                return;
+                return true;
             }
         }
 
-        abort(403);
+        return false;
     }
 }

@@ -27,6 +27,30 @@ trait AuthorizesPropertyAccess
      */
     protected function authorizeProperty(Property $property, bool $forEdit = true): void
     {
+        abort_unless($this->propertyAccessAllowed($property, $forEdit), 403);
+    }
+
+    /**
+     * The non-aborting boolean the VIEW layer needs: may the current user MUTATE this property?
+     *
+     * Used to render the detail page read-only for an assistant who can see a colleague's listing
+     * but not edit it — so the page never shows edit affordances that would only 403 on save. The
+     * server-side authorizeProperty() remains the real guard; this only decides what UI to show.
+     */
+    protected function canMutateProperty(Property $property): bool
+    {
+        return $this->propertyAccessAllowed($property, true);
+    }
+
+    /**
+     * @param bool $forEdit  A write path (edit/update/destroy/notes/files) pins an assistant to
+     *                       the assigned agent's OWN listings; a pure read (the property show
+     *                       page) lets them view at the agent's full breadth. An assistant SEES
+     *                       what their agent sees but only EDITS the agent's own listings
+     *                       (spec §7.2) — mirrors AuthorizesDealAccess::authorizeDeal().
+     */
+    private function propertyAccessAllowed(Property $property, bool $forEdit): bool
+    {
         /** @var User $user */
         $user = auth()->user();
         // Write path → MUTATION scope (an assistant is capped to 'own' = their agent's own
@@ -38,19 +62,19 @@ trait AuthorizesPropertyAccess
             : PermissionService::getDataScope($user, 'properties');
 
         if ($scope === 'all') {
-            return;
+            return true;
         }
         if ($scope === 'branch' && (int) $property->branch_id === (int) $user->effectiveBranchId()) {
-            return;
+            return true;
         }
         // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their Assigned
         // Agent's book (dataIdentityIds()), so an assistant may act on the listings their agent
         // owns — which is the entire job — and NO other agent's, even a branch colleague's the
         // assistant can see. For everyone else this is exactly [$user->id], unchanged.
         if ($scope === 'own' && in_array((int) $property->agent_id, $user->dataIdentityIds(), true)) {
-            return;
+            return true;
         }
 
-        abort(403);
+        return false;
     }
 }

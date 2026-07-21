@@ -715,7 +715,12 @@ class ContactController extends Controller
                 ->where('agent_user_id', $viewer->id)->where('contact_id', $contact->id)->first())->status
             : null;
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent'));
+        // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
+        // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
+        // renders read-only when false so no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateContact($contact);
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)

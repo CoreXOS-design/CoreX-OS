@@ -86,7 +86,11 @@ public function log(Deal $deal)
 
         $actors = User::whereIn('id', $logs->pluck('actor_user_id')->filter()->unique()->values())->get()->keyBy('id');
 
-        return view('admin.deals.log', compact('deal', 'logs', 'actors'));
+        // AT-267 — may the current user EDIT this deal? An assistant may VIEW a colleague's deal at
+        // the agent's breadth but only EDIT the agent's own; the page renders read-only when false.
+        $canEdit = $this->canMutateDeal($deal);
+
+        return view('admin.deals.log', compact('deal', 'logs', 'actors', 'canEdit'));
     }
 
 

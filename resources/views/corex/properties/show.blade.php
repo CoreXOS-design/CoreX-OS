@@ -49,6 +49,14 @@
         @endif
     </div>
 
+    {{-- AT-267 — view-only lock when the current user may not edit this listing (e.g. an assistant
+         looking at a colleague's listing their agent can see). Banner + enforcer disable every edit
+         control on the page so no misleading affordance is shown. --}}
+    @include('partials._readonly-lock', [
+        'canEdit'         => $canEdit ?? true,
+        'readonlyMessage' => 'You can view this listing, but only its agent can change it. Ask your agent if something needs updating.',
+    ])
+
     {{-- AT-262 (Johan's ruling): a duplicated / switched-type listing is a completable
          DRAFT — the matching fields were copied onto the new type; the rest is the agent's
          to finish. Save is lenient here; full requirements bite at completion / syndication.
@@ -223,6 +231,7 @@
                 </button>
 
                 <button type="button"
+                        @unless($canEdit ?? true) data-edit-only @endunless
                         @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
                         title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication' }}">
@@ -239,7 +248,7 @@
                 </button>
 
                 @if($isMarketable)
-                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand">
+                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand" @unless($canEdit ?? true) data-edit-only @endunless>
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </a>
@@ -256,7 +265,8 @@
                     @if($isMarketable)
                     <a href="{{ route('corex.properties.marketing.index', $property) }}"
                        class="prop-action-btn prop-action-btn-fb"
-                       title="Social media marketing">
+                       title="Social media marketing"
+                       @unless($canEdit ?? true) data-edit-only @endunless>
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
                         Market Property
                     </a>
@@ -951,7 +961,9 @@
                     </div>
 
                 {{-- Steps: main + preview. ONE syndication surface, shared with the Properties index. --}}
+                <div @unless($canEdit ?? true) data-edit-only @endunless>
                 @include("corex.properties.partials.syndication-panel", ["property" => $property])
+                </div>
                 </div>{{-- /modal card --}}
             </div>{{-- /fixed inset --}}
             </template>
@@ -1327,7 +1339,7 @@
                          (corex.properties.sg.*) require a real {property} id, so it must
                          not render on the create / new-property form. --}}
                     @if($property->exists)
-                        <div style="margin-top:14px;">
+                        <div style="margin-top:14px;" @unless($canEdit ?? true) data-edit-only @endunless>
                             @include('corex.properties.partials._sg-documents-panel', ['property' => $property])
                         </div>
                     @endif
@@ -1844,7 +1856,7 @@
                     $initSpaces     = $spacesData['spaces']   ?? [];
                     $initFeatures   = $spacesData['features'] ?? new \stdClass();
                 @endphp
-                <div x-data="spacesAndFeaturesManager(
+                <div @unless($canEdit ?? true) data-edit-only @endunless x-data="spacesAndFeaturesManager(
                     {{ json_encode($initSpaces) }},
                     {{ json_encode($initFeatures) }},
                     {{ (int)($property->beds  ?? 0) }},
@@ -3216,7 +3228,7 @@
         @else
 
             {{-- Upload new images --}}
-            <div x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
+            <div @unless($canEdit ?? true) data-edit-only @endunless x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
 
                 <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
@@ -4133,6 +4145,7 @@
             $defaultLinkRole = (((isset($property) ? ($property->listing_type ?? 'sale') : 'sale')) === 'rental') ? 'landlord' : 'seller';
         @endphp
         <div x-show="activeTab === 'contacts'" x-cloak class="p-6 space-y-6"
+             @unless($canEdit ?? true) data-edit-only @endunless
              @if($isNew)
              x-data="pendingContactsManager('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from(isset($preLinkedContact) && $preLinkedContact ? [['id' => $preLinkedContact->id, 'name' => trim($preLinkedContact->full_name), 'phone' => $preLinkedContact->phone ?? '', 'email' => $preLinkedContact->email ?? '']] : []) }})"
              @else

@@ -91,6 +91,57 @@ final class AssistantContactEditScopingTest extends TestCase
         $this->assertSoftDeleted('contacts', ['id' => $this->contactA->id]);
     }
 
+    /**
+     * AT-267 (Johan 2026-07-21) — an UNOWNED contact (no primary AND no secondary agent) is fair
+     * game: an assistant may edit a contact nobody is responsible for. In practice these are
+     * non-auth imports/webhooks — ContactObserver backfills agent_id from the creator on any
+     * app-captured contact, so a genuine orphan has no creator either (created_by null keeps
+     * agent_id null past the observer).
+     */
+    public function test_assistant_can_edit_an_unowned_contact_with_no_linked_agent(): void
+    {
+        $orphan = Contact::create([
+            'agency_id'          => $this->agency->id,
+            'branch_id'          => $this->branch->id,
+            'created_by_user_id' => null, // no creator → observer leaves agent_id null
+            'agent_id'           => null, // ...no agent is linked
+            'second_agent_id'    => null,
+            'first_name'         => 'Nomsa',
+            'last_name'          => 'Unassigned',
+            'email'              => 'nomsa.unassigned@example.co.za',
+        ]);
+        // Guard the premise: the row really is agentless (observer did not backfill it).
+        $this->assertNull($orphan->fresh()->agent_id);
+
+        $this->actingAs($this->assistant)
+            ->delete(route('corex.contacts.destroy', $orphan))
+            ->assertRedirect();
+        $this->assertSoftDeleted('contacts', ['id' => $orphan->id]);
+    }
+
+    /**
+     * "No linked agent" means BOTH slots empty. A contact co-listed to another agent (second agent
+     * only) still HAS a linked agent, so the assistant stays blocked.
+     */
+    public function test_a_contact_with_only_a_second_agent_is_still_protected(): void
+    {
+        $coListed = Contact::create([
+            'agency_id'          => $this->agency->id,
+            'branch_id'          => $this->branch->id,
+            'created_by_user_id' => null,               // avoid the observer's agent_id backfill
+            'agent_id'           => null,
+            'second_agent_id'    => $this->agentB->id,  // a linked agent exists
+            'first_name'         => 'Sipho',
+            'last_name'          => 'Colisted',
+            'email'              => 'sipho.colisted@example.co.za',
+        ]);
+
+        $this->actingAs($this->assistant)
+            ->delete(route('corex.contacts.destroy', $coListed))
+            ->assertForbidden();
+        $this->assertNotSoftDeleted('contacts', ['id' => $coListed->id]);
+    }
+
     public function test_a_non_assistant_with_wide_scope_is_unaffected(): void
     {
         // A plain agency-wide user (the agent) may delete any contact — the guard returns early

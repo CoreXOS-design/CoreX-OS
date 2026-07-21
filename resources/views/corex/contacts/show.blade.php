@@ -25,6 +25,13 @@
         Back to Contacts
     </a>
 
+    {{-- AT-267 — view-only lock when the current user may not edit this contact (an assistant
+         looking at a colleague's contact). An UNOWNED contact stays editable — see canMutateContact. --}}
+    @include('partials._readonly-lock', [
+        'canEdit'         => $canEdit ?? true,
+        'readonlyMessage' => 'You can view this contact, but only its agent can change it. Ask your agent if something needs updating.',
+    ])
+
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
