@@ -164,6 +164,35 @@ final class AssistantPropertyViewScopingTest extends TestCase
     }
 
     /**
+     * AT-267 H3 — ownership-column injection. An assistant editing the agent's own listing may NOT
+     * reassign it to another agent by posting agent_id — the agent columns are pinned.
+     */
+    public function test_an_assistant_cannot_reassign_a_listing_to_another_agent(): void
+    {
+        $this->grantAssistant('access_properties');
+        $this->grantAssistant('properties.view', 'branch');
+        $this->reset();
+
+        // A draft owned by the assigned agent — the assistant may legitimately edit it.
+        $draft = Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agent_id' => $this->agentA->id, 'title' => 'Draft', 'street_name' => 'Draft St',
+            'street_number' => '1', 'suburb' => 'Margate', 'city' => 'Margate', 'status' => 'draft',
+        ]);
+
+        $this->actingAs($this->assistant)
+            ->put(route('corex.properties.update', $draft), [
+                'title' => 'Edited by assistant', 'agent_id' => $this->agentB->id,
+            ]);
+
+        $this->assertSame(
+            $this->agentA->id,
+            (int) $draft->fresh()->agent_id,
+            'An assistant must never reassign a listing to another agent.'
+        );
+    }
+
+    /**
      * The assistant is strictly narrower than the agent: the AGENT (branch scope) CAN edit the
      * colleague's listing the assistant cannot. Proves the pin is on the assistant, not the module.
      */

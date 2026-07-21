@@ -1146,6 +1146,23 @@ class PropertyController extends Controller
             'gallery_images.*' => 'image|max:204800',
         ]);
 
+        // AT-267 H3 — ownership-column injection. agent_id / pp_second_agent_id validate only
+        // exists:users,id (NOT agency-scoped) and there is no reassign gate. So:
+        //   (a) an ASSISTANT may NEVER reassign a listing (ownership change / theft) — pin the
+        //       agent columns to the listing's current values, whatever the payload says;
+        //   (b) for EVERYONE, a reassignment target must belong to THIS listing's agency, so no
+        //       user can move a listing to another agency's practitioner.
+        if ($request->user()?->is_assistant) {
+            unset($data['agent_id'], $data['pp_second_agent_id']);
+        }
+        foreach (['agent_id', 'pp_second_agent_id'] as $agentCol) {
+            if (!empty($data[$agentCol])
+                && (int) $data[$agentCol] !== (int) ($property->{$agentCol} ?? 0)
+                && !User::where('id', $data[$agentCol])->where('agency_id', $property->agency_id)->exists()) {
+                abort(422, 'The selected agent must belong to this agency.');
+            }
+        }
+
         // AT-221 — Layer 1: prevent at capture (see store()).
         $this->guardPortalContent($data['description'] ?? null);
 
