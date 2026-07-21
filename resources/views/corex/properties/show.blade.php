@@ -860,7 +860,7 @@
                         R {{ number_format($pm->price) }} &middot; {{ $pm->last_seen_at?->format('d M Y') }}
                     </div>
                     @if($pm->portal_url)
-                    <a href="{{ $pm->portal_url }}" target="_blank" class="text-[0.6875rem] no-underline mt-0.5 inline-block" style="color:var(--brand-default);">View listing &rarr;</a>
+                    <a href="{{ $pm->portal_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" class="text-[0.6875rem] no-underline mt-0.5 inline-block" style="color:var(--brand-default);">View listing &rarr;</a>
                     @endif
                 </div>
                 @endforeach

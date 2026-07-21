@@ -6,7 +6,7 @@
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-triage-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Message Triage</h1>
+                <h1 class="text-xl font-bold text-white leading-tight">Review Incoming Messages</h1>
                 <p class="text-sm text-white/60">Unknown-contact messages awaiting your decision. Add the contact to archive the conversation, or mark it not real-estate related to remove it from your list.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -14,6 +14,19 @@
             </div>
         </div>
     </div>
+
+    @include('communications.partials._consent-crosslinks', ['current' => 'triage'])
+
+    {{-- AT-274 guard-first / never-blank: an owner or null-agency actor reaches this
+         per-agent queue with no resolved agency context. Explain it — never a blank
+         screen or a bare 403. --}}
+    @if($noContext ?? false)
+    <div class="rounded-md px-6 py-10 text-center" style="background: var(--surface); border:1px solid var(--border);">
+        <p class="text-sm max-w-xl mx-auto" style="color: var(--text-secondary);">
+            You're viewing as <strong>System Owner</strong> with no single agency selected, so there is no personal message queue to show here. This screen is a <strong>per-agent</strong> queue of unknown-contact messages. Pick an agency from the switcher (or sign in as an agent) to review that agent's incoming messages.
+        </p>
+    </div>
+    @else
 
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
@@ -62,6 +75,8 @@
             </table>
         </div>
     </div>
+
+    @endif
 
     {{-- Add-contact modal (reuses the standard contact-create fields, prefilled from the identifier) --}}
     <div x-show="showAdd" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

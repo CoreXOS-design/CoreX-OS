@@ -155,6 +155,16 @@ class CalendarEvent extends Model
         return $this->hasMany(CalendarEventLink::class, 'calendar_event_id');
     }
 
+    /**
+     * AT-111 — the reverse side of viewing_packs.calendar_event_id, so an event
+     * can surface its linked pack (launch / download-from-event). One pack per
+     * event; latest wins if a stale link ever lingered.
+     */
+    public function viewingPack(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\App\Models\ViewingPack::class, 'calendar_event_id')->latestOfMany();
+    }
+
     public function linkedProperties(): MorphToMany
     {
         return $this->morphedByMany(Property::class, 'linkable', 'calendar_event_links', 'calendar_event_id')

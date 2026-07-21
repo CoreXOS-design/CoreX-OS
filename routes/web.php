@@ -1659,34 +1659,42 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Viewing Packs (AT-XX) — buyer-facing pack CRUD. Tenancy via AgencyScope
     //    on the model; {viewingPack} 404s across agencies. Archive = soft delete. ──
-    Route::prefix('viewing-packs')->name('corex.viewing-packs.')->group(function () {
-        Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->name('index');
-        Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->name('store');
-        Route::get('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'show'])->name('show');
-        Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->name('update');
-        Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->name('destroy');
-        Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->name('restore')->withTrashed();
+    Route::prefix('viewing-packs')->name('corex.viewing-packs.')
+        ->middleware('permission:access_viewing_packs')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->middleware('permission:viewing_packs.view')->name('index');
+        Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->middleware('permission:viewing_packs.create')->name('store');
+        // AT-111 direction 2 — REVERSE link: launch/open a pack FROM an existing
+        // calendar appointment (schedule-now-prep-later). Launching creates a pack,
+        // so it is gated like store. Static prefix — never collides with {viewingPack}.
+        Route::post('/from-event/{calendarEvent}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'launchFromEvent'])->middleware('permission:viewing_packs.create')->name('from-event');
+        Route::get('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'show'])->middleware('permission:viewing_packs.view')->name('show');
+        Route::put('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'update'])->middleware('permission:viewing_packs.edit')->name('update');
+        Route::delete('/{viewingPack}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'destroy'])->middleware('permission:viewing_packs.archive')->name('destroy');
+        Route::post('/{viewingPack}/restore', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'restore'])->middleware('permission:viewing_packs.archive')->name('restore')->withTrashed();
+        // AT-111 direction 3 — push the pack's ordered properties onto the LINKED
+        // calendar event, in place (reuses CalendarEventService::syncManualEventLinks).
+        Route::post('/{viewingPack}/update-appointment', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'updateAppointment'])->middleware('permission:viewing_packs.edit')->name('update-appointment');
         // AT-XX — scheduling reuses the calendar prefill handoff (link built in
         // show.blade), not a pack-side scheduler. The old POST schedule route +
         // ViewingPackCalendarService were removed (no parallel scheduling logic).
         // Step 6 — the single buyer-facing PDF (cover + per-property + comparison).
-        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->name('buyer-pack');
+        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->middleware('permission:viewing_packs.view')->name('buyer-pack');
         // Step 7 — the SEPARATE agent sheet PDF (eyes-only; never merged with the buyer pack).
-        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->name('agent-sheet');
+        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->middleware('permission:viewing_packs.view')->name('agent-sheet');
 
         // Step 3 — property selection (Core Match + ad-hoc) + ad-hoc typeahead.
-        Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->name('properties.add');
-        Route::delete('/{viewingPack}/properties/{viewingPackProperty}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeProperty'])->name('properties.remove');
-        Route::get('/{viewingPack}/search-properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'searchProperties'])->name('properties.search');
+        Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->middleware('permission:viewing_packs.edit')->name('properties.add');
+        Route::delete('/{viewingPack}/properties/{viewingPackProperty}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeProperty'])->middleware('permission:viewing_packs.edit')->name('properties.remove');
+        Route::get('/{viewingPack}/search-properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'searchProperties'])->middleware('permission:viewing_packs.view')->name('properties.search');
         // Step 4 — manual drag order (no auto-routing). Body: { order: [rowId, …] }.
-        Route::post('/{viewingPack}/properties/reorder', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'reorderProperties'])->name('properties.reorder');
+        Route::post('/{viewingPack}/properties/reorder', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'reorderProperties'])->middleware('permission:viewing_packs.edit')->name('properties.reorder');
         // Step 5a — per-property buyer-pack document selection (eligible types only).
-        Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addDocument'])->name('properties.documents.add');
-        Route::delete('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeDocument'])->name('properties.documents.remove');
+        Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addDocument'])->middleware('permission:viewing_packs.edit')->name('properties.documents.add');
+        Route::delete('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'removeDocument'])->middleware('permission:viewing_packs.edit')->name('properties.documents.remove');
         // Step 5b — on-screen redaction → flattened image-only artifact.
-        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redaction-data', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactionData'])->name('properties.documents.redaction-data');
-        Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redact', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactDocument'])->name('properties.documents.redact');
-        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redacted-file', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactedFile'])->name('properties.documents.redacted-file');
+        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redaction-data', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactionData'])->middleware('permission:viewing_packs.view')->name('properties.documents.redaction-data');
+        Route::post('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redact', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactDocument'])->middleware('permission:viewing_packs.edit')->name('properties.documents.redact');
+        Route::get('/{viewingPack}/properties/{viewingPackProperty}/documents/{viewingPackDocument}/redacted-file', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'redactedFile'])->middleware('permission:viewing_packs.view')->name('properties.documents.redacted-file');
     });
 
     // ── Agent Portal ──

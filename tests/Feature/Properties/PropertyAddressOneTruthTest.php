@@ -82,6 +82,26 @@ final class PropertyAddressOneTruthTest extends TestCase
         $this->assertSame('Unit 6, Arista', $p->address);
     }
 
+    /**
+     * The number must never be prepended a SECOND time when street_name already
+     * opens with it — the "21 21 Crown Road" / "16 16 Lilliecrona Boulevard" junk
+     * that machine-written parts carried and that reached the seller-outreach
+     * merge field (3 live qa1 rows: #1900, #5114, #3748).
+     */
+    public function test_a_number_already_in_the_street_name_is_not_prepended_twice(): void
+    {
+        $p = $this->property(['street_number' => '21', 'street_name' => '21 Crown Road']);
+
+        $this->assertSame('21 Crown Road', $p->address,
+            'the derived address must not double the house number');
+        $this->assertSame('21 Crown Road', $p->composeStreetLine());
+        $this->assertSame('21 Crown Road, Uvongo', $p->buildDisplayAddress());
+
+        // A clean row is untouched by the guard.
+        $clean = $this->property(['street_number' => '614', 'street_name' => 'Piet Uys Road']);
+        $this->assertSame('614 Piet Uys Road', $clean->address);
+    }
+
     /** A save that touches nothing address-shaped must not rewrite the address. */
     public function test_an_unrelated_save_leaves_the_address_alone(): void
     {

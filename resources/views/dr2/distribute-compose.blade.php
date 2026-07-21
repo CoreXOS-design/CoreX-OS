@@ -5,7 +5,11 @@
 @php
     $money = fn ($v) => number_format((float) $v, 0);
     $defaultIds = $party['default_documents']->pluck('id')->all();
-    $recipient  = $party['recipients'][0] ?? null;
+    // AT-280 — a party can link 2+ contacts (co-owners / spouses). Default to the
+    // first recipient WITH an email so an email-less first contact never strands the
+    // send; fall back to the first overall when none has an email.
+    $recipients = $party['recipients'] ?? [];
+    $recipient  = collect($recipients)->first(fn ($r) => ! empty($r['email'])) ?? ($recipients[0] ?? null);
     $limitBytes = $sizeLimitMb * 1024 * 1024;
 @endphp
 <div style="max-width: 860px; margin: 0 auto; padding: 1rem;"
@@ -38,16 +42,26 @@
     <form method="POST" action="{{ route('deals-dr2.distribute.send', $deal) }}">
         @csrf
         <input type="hidden" name="party_role" value="{{ $party['role'] }}">
-        <input type="hidden" name="recipient_id" value="{{ $recipient['id'] ?? '' }}">
 
         {{-- Recipient --}}
         <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
             <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem;">Recipient</h3>
-            <div style="font-weight:600;">{{ $recipient['name'] }}</div>
-            <div style="color:#6b7280;font-size:.85rem;">
-                @if($recipient['email'])✉ {{ $recipient['email'] }}@endif
-                @if($recipient['phone']) &nbsp; ☎ {{ $recipient['phone'] }}@endif
-            </div>
+            @if(count($recipients) > 1)
+                {{-- AT-280 — multiple linked contacts: let the agent pick who receives the docs, defaulted to the first emailable one. --}}
+                <div style="color:#6b7280;font-size:.8rem;margin-bottom:.4rem;">Multiple contacts are linked to this party — choose who receives the documents:</div>
+                <select name="recipient_id" class="corex-input" style="width:100%;padding:.5rem;border:1px solid var(--border,#d1d5db);border-radius:.4rem;font-size:.9rem;">
+                    @foreach($recipients as $r)
+                        <option value="{{ $r['id'] }}" @selected((int)($r['id'] ?? 0) === (int)($recipient['id'] ?? 0))>{{ $r['name'] }} — {{ $r['email'] ?: 'no email on file' }}@if($r['phone']) · ☎ {{ $r['phone'] }}@endif</option>
+                    @endforeach
+                </select>
+            @else
+                <input type="hidden" name="recipient_id" value="{{ $recipient['id'] ?? '' }}">
+                <div style="font-weight:600;">{{ $recipient['name'] }}</div>
+                <div style="color:#6b7280;font-size:.85rem;">
+                    @if($recipient['email'])✉ {{ $recipient['email'] }}@endif
+                    @if($recipient['phone']) &nbsp; ☎ {{ $recipient['phone'] }}@endif
+                </div>
+            @endif
             @if($party['note'])<div style="color:#b45309;font-size:.8rem;margin-top:.35rem;">{{ $party['note'] }}</div>@endif
         </div>
 

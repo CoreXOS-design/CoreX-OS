@@ -2109,13 +2109,27 @@
             </template>
         </div>
 
-        {{-- Linked property --}}
-        <template x-if="panelData.linked_property">
+        {{-- Linked propert(ies) — AT-111: the TOP block lists ALL linked properties
+             (viewing order), matching the bottom "Properties (N)" section. Falls back
+             to the scalar primary for events that only carry linked_property. --}}
+        <template x-if="(panelData.linked_properties && panelData.linked_properties.length > 0) || panelData.linked_property">
             <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
-                <a :href="'/corex/properties/' + panelData.linked_property.id"
-                   class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
-                   x-text="panelData.linked_property.address"></a>
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);"
+                     x-text="(panelData.linked_properties && panelData.linked_properties.length > 1) ? ('Properties (' + panelData.linked_properties.length + ')') : 'Property'"></div>
+                <template x-if="panelData.linked_properties && panelData.linked_properties.length > 0">
+                    <div class="space-y-1">
+                        <template x-for="p in panelData.linked_properties" :key="p.id">
+                            <a :href="'/corex/properties/' + p.id"
+                               class="block text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                               x-text="p.address"></a>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="(!panelData.linked_properties || panelData.linked_properties.length === 0) && panelData.linked_property">
+                    <a :href="'/corex/properties/' + panelData.linked_property.id"
+                       class="block text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                       x-text="panelData.linked_property.address"></a>
+                </template>
             </div>
         </template>
 
@@ -2222,6 +2236,48 @@
                 Edit
             </button>
         </template>
+
+        {{-- AT-111 — Viewing pack ↔ appointment. Linked pack → Open + (when prepared)
+             download buttons, straight from the event. No pack yet → launch one from
+             this appointment (schedule-now-prep-later). --}}
+        <template x-if="panelData.linked_viewing_pack">
+            <span class="inline-flex items-center gap-4">
+                <a :href="panelData.linked_viewing_pack.url"
+                   class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                   style="color: var(--text-primary); text-decoration:none;">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/></svg>
+                    Open pack
+                </a>
+                <template x-if="panelData.linked_viewing_pack.property_count > 0">
+                    <span class="inline-flex items-center gap-4">
+                        <a :href="panelData.linked_viewing_pack.buyer_pack_url"
+                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                           style="color: var(--brand-button); text-decoration:none;">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                            Download Buyer Pack
+                        </a>
+                        <a :href="panelData.linked_viewing_pack.agent_sheet_url"
+                           class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                           style="color: var(--text-secondary); text-decoration:none;">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                            Download Agent Sheet
+                        </a>
+                    </span>
+                </template>
+            </span>
+        </template>
+        <template x-if="!panelData.linked_viewing_pack && panelData.is_editable">
+            <form :action="panelData.viewing_pack_launch_url" method="POST" class="inline">
+                @csrf
+                <button type="submit"
+                        class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--brand-button); background:none; border:none; cursor:pointer;">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                    Prepare viewing pack
+                </button>
+            </form>
+        </template>
+
         <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
             <button type="button" @click="openFeedbackModal(panelData.id)"
                     class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"

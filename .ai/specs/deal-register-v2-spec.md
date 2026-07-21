@@ -58,6 +58,35 @@ v1.1 was written **before** the code existed and before the 4 decisions. Three t
 10. Overview board/kanban, dashboard cards, CSV, scope switcher; per-user iCal.
 11. **Zero automated tests for the DR2 engine** — the highest-priority gap.
 
+### 2.3 Party auto-offer from the linked property — LISTING-TYPE-AWARE (AT-262/boboni fix)
+When a property is picked on the capture screen, `DealRegisterController::propertyContacts()`
+splits the property's `contact_property` links into a seller-side auto-fill and a buyer-side
+tick-list. **The split is listing-type-aware**, because the same physical party is named
+differently per type:
+
+| Listing type | Seller-side pivot roles | Buyer-side pivot roles |
+|---|---|---|
+| `sale` (and any unknown/legacy) | `seller`, `owner` | `buyer` |
+| `rental` | `landlord`, `lessor` | `tenant`, `lessee` |
+
+The membership lives in **one canonical place** — `Property::sellerSidePivotRolesForListingType()`
+/ `Property::buyerSidePivotRolesForListingType()` — sharing the role vocabulary of
+`Property::remapPivotRoleForListingType()` (the cross-type duplicate fix, §below), so the
+offer and the duplicate-remap can never drift. A `lead` (portal enquirer) is never a party
+and is excluded from both sets by omission.
+
+**Why:** the historical fixed `['seller','owner']` set was blind to a rental's `landlord`, so a
+genuine **rental deal could never pull its seller-side party through** (surfaced by Johan on the
+"651 Boboni road" property). The related root cause — a cross-type `duplicate()`/`changeType()`
+carrying the pivot role verbatim so a rental's `landlord` stayed `landlord` on the new **sale** —
+is fixed at the clone points by `Property::remapPivotRoleForListingType()` (rental
+landlord/lessor ⇄ sale seller; buyer ⇄ tenant; idempotent for same-type clones).
+
+**Verification gate:** a rental property with a linked `landlord` returns that contact in
+`sellers[]` (and a `tenant` in `buyers[]`); a sale still returns `seller`/`owner` in `sellers[]`;
+a cross-type duplicate produces a target-type-correct pivot role. Covered by
+`tests/Feature/Dr2/Dr2CaptureTest.php` + `tests/Feature/Properties/PropertyDuplicateTest.php`.
+
 ---
 
 ## 3. Locked decisions (AT-158)
@@ -330,3 +359,15 @@ Each WS closes with the CLAUDE.md done-checklist (`php -l`, view/route/cache cle
 
 ## 18. What this replaces (unchanged from v1.1 — the human wins)
 Spreadsheet tracking → visual pipeline + RAG. BM chasing agents → real-time dashboard + escalation. Forgotten bond deadline → phone-calendar reminder. Unknown deal status → company-wide view. Late addendum → RED alert days early. Manual commission → auto-linked settlement. **Hand-filled COC request → one-tick auto-generated + distributed.** "Where is the COC?" emails → step status visible to all. A deal falling through the cracks → impossible; every step, document, and distribution tracked.
+## 19. AT-305 — DR2 pipeline screen two-column redesign (layout/density only)
+`resources/views/dr2/pipeline.blade.php` (`Dr2\PipelineController@show`). Presentational only — no controller/route/model/DB change; all functionality preserved.
+
+- **Left column (≈60%, `lg:col-span-3`):** the pipeline step board condensed to **dense one-liner rows** — `status dot · step name (· ◆ milestone / · + custom) · due date · status badge`, with **Complete / N-A / Reinstate / Edit due / Remove / Comments(n)** as **compact inline actions** that expand their forms **in place** (N/A reason, due-date edit, comment thread + post + attach-document-to-step). Removed-steps and Add-custom-step blocks unchanged. Blocked/excused notes render as a thin sub-line only when present.
+- **Right column (≈40%, `lg:col-span-2 lg:sticky lg:top-4 self-start`):** a **sticky, independently-scrolling rail** modelled on the buyer viewing-pack screen (`command-center/viewing-packs/show.blade.php` — `grid grid-cols-1 lg:grid-cols-5 gap-4 items-start`). Holds the relocated **Documents** + **Send documents to a party** (unchanged `@include('dr2._deal-documents')`) and **Proforma Invoices** (`@include('proforma._deal-section')`). **Stacks to one column on mobile** (`grid-cols-1`).
+- **Preserved:** every route, `@csrf`, `@permission('view_deals')` gate, confirm dialog, AT-244 lock-mute, and the empty/attach/declined states.
+- **Acceptance (on-site, deal 156):** two columns render; steps read as one-liners with working inline actions; the right rail shows Documents/Send/Proforma and scrolls independently; mobile stacks.
+
+### AT-305b — Johan re-test fixes (independent scroll + hide-completed)
+- **True dual-pane independent scroll (fix).** The first cut used `lg:sticky` — still one page scroll (scrolling the pipeline moved the docs rail off-screen). Replaced with a scoped `<style>` (desktop `@media (min-width:1024px)`): the grid gets a bounded height `calc(100vh - 9.5rem)` (class `dr2-pipe-grid`) and **each column** (`dr2-pipe-col`) is its own `overflow-y:auto; max-height:100%; overscroll-behavior:contain` region. Scrolling the left (steps) never moves the right (docs/parties/proforma) and vice-versa; the page does not scroll the columns off. Scoped CSS (not arbitrary Tailwind) so it applies on qa1 without a CSS rebuild. On mobile the media query is inert → columns stack and scroll with the page.
+- **Hide-completed toggle (enhancement).** A "Hide completed steps" checkbox at the top of the step board hides completed/terminal (`completed`/`skipped`) step rows so the user sees only outstanding/pending entries. Default **off** (show all). The choice **persists per user** via `localStorage['dr2_hide_completed']` (survives revisits, no migration; a per-browser user preference). Terminal rows carry `x-show="!hideDone"`; the toggle only appears when there are completed steps to hide, with an "(N hidden)" hint when active.
+- **Acceptance (deal 156):** left and right columns each scroll independently (scroll the steps → docs rail stays put; scroll the rail → steps stay put); ticking Hide-completed removes the done rows leaving only outstanding ones; the preference persists on reload.

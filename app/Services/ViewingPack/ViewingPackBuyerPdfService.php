@@ -55,12 +55,25 @@ class ViewingPackBuyerPdfService
                 ));
 
                 foreach ($vpp->viewingPackDocuments as $vpd) {
-                    $rel = $vpd->redacted_file_path;
-                    // INCLUSION RULE — redacted artifact required + must exist on disk.
-                    if (! $vpd->included || ! $rel || ! Storage::disk('local')->exists($rel)) {
+                    // AT-111 (Johan's ruling) — NO merge gate beyond selection: if a doc
+                    // was added to the pack it is IN. Redaction is the agent's option, not
+                    // an obligation — the agent who added it already owns the call (and the
+                    // pack records its creator). Embed the redacted artifact when one
+                    // exists, otherwise the ORIGINAL document as-is.
+                    if (! $vpd->included) {
                         continue;
                     }
-                    $segments[] = Storage::disk('local')->path($rel);
+                    $rel = $vpd->redacted_file_path;
+                    if ($rel && Storage::disk('local')->exists($rel)) {
+                        $segments[] = Storage::disk('local')->path($rel);
+                        continue;
+                    }
+                    // No redaction → the original file (buyer-pack-eligible types are PDFs).
+                    $doc  = $vpd->document;
+                    $disk = $doc?->disk ?: 'local';
+                    if ($doc && $doc->storage_path && Storage::disk($disk)->exists($doc->storage_path)) {
+                        $segments[] = Storage::disk($disk)->path($doc->storage_path);
+                    }
                 }
             }
 

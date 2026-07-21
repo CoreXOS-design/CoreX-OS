@@ -32,7 +32,7 @@
                             <td style="padding: 5px 10px; color: var(--text-muted);">{{ optional($c->change_date)->format('Y-m-d') ?? '—' }}</td>
                             <td style="padding: 5px 10px;">
                                 @if($c->listing && $c->listing->p24_url)
-                                    <a href="{{ $c->listing->p24_url }}" target="_blank" rel="noopener" style="color: var(--brand-button); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.6875rem;">{{ $c->listing->p24_listing_number ?? '—' }}</a>
+                                    <a href="{{ $c->listing->p24_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" style="color: var(--brand-button); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.6875rem;">{{ $c->listing->p24_listing_number ?? '—' }}</a>
                                 @else
                                     <span style="font-family: ui-monospace, monospace; font-size: 0.6875rem; color: var(--text-secondary);">{{ $c->listing->p24_listing_number ?? '—' }}</span>
                                 @endif

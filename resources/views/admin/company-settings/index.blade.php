@@ -114,6 +114,14 @@
                         <p class="text-[11px] mt-1" style="color:var(--text-muted);">The agency's per-entity registration with the Property Practitioners Regulatory Authority (separate from individual practitioner FFCs).</p>
                     </div>
                     <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">NCC Registration Number</label>
+                        <input type="text" name="ncc_registration_number" value="{{ old('ncc_registration_number', $agency->ncc_registration_number) }}"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. NCRCP1234">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">The agency's National Consumer Commission registration. Appears on the letterhead, proforma invoices and payslips once captured.</p>
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FFC No</label>
                         <input type="text" name="ffc_no" value="{{ old('ffc_no', $agency->ffc_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"

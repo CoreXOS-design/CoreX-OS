@@ -632,6 +632,77 @@ class Property extends Model
     }
 
     /**
+     * AT-262/DR2 — the pivot roles that are the SELLER-SIDE party for a property of a
+     * given listing type. On a SALE the seller-side is seller/owner; on a RENTAL it is
+     * the landlord/lessor (same physical party, the "seller" column of a rental deal).
+     *
+     * This is why the DR2 capture offer must be listing-type-aware: the fixed
+     * ['seller','owner'] set is blind to a rental's landlord, so a genuine rental deal
+     * could never pull its seller-side party through. The role vocabulary is the same
+     * canon as remapPivotRoleForListingType(); this method is the one place the
+     * per-type membership lives, so the offer and the remap never drift.
+     *
+     * @return string[]
+     */
+    public static function sellerSidePivotRolesForListingType(?string $listingType): array
+    {
+        return match (strtolower(trim((string) $listingType))) {
+            'rental' => ['landlord', 'lessor'],
+            default  => ['seller', 'owner'],   // sale (and any unknown/legacy) — historical default
+        };
+    }
+
+    /**
+     * The BUYER-SIDE counterpart of sellerSidePivotRolesForListingType(): a sale's buyer,
+     * a rental's tenant/lessee. A 'lead' (portal enquirer) is never a party and is
+     * excluded by omission from both sets.
+     *
+     * @return string[]
+     */
+    public static function buyerSidePivotRolesForListingType(?string $listingType): array
+    {
+        return match (strtolower(trim((string) $listingType))) {
+            'rental' => ['tenant', 'lessee'],
+            default  => ['buyer'],
+        };
+    }
+
+    /**
+     * AT-262 fix — translate a property-link (`contact_property.role`) to the role it
+     * must hold on a clone of the OTHER listing type.
+     *
+     * A cross-type duplicate/change-type (rental⇄sale) used to carry the pivot role
+     * verbatim, so a rental's `landlord` stayed `landlord` on the new SALE — where the
+     * seller-side canon is `seller`. The DR2 capture's seller offer (correctly scoped to
+     * ['seller','owner']) then could not see the owner, so "the seller did not pull
+     * through". Same party, one physical asset, two names per side; this is the one map
+     * that keeps the role consistent with what the property now IS.
+     *
+     * Only the party roles that are DIFFERENT between the two types are flipped
+     * (owner-side and buyer-side); a `lead`, a blank, or an unknown role is returned
+     * unchanged. Idempotent for same-type clones (an already-correct role has no target
+     * in the map), so it is safe to apply unconditionally at every clone point.
+     */
+    public static function remapPivotRoleForListingType(?string $pivotRole, ?string $targetListingType): ?string
+    {
+        $role = strtolower(trim((string) $pivotRole));
+        if ($role === '') {
+            return $pivotRole;
+        }
+
+        // rental-side role => its sale-side equivalent.
+        $toSale = ['landlord' => 'seller', 'lessor' => 'seller', 'tenant' => 'buyer', 'lessee' => 'buyer'];
+        // sale-side role => its rental-side equivalent.
+        $toRental = ['seller' => 'landlord', 'owner' => 'landlord', 'buyer' => 'tenant'];
+
+        return match ($targetListingType) {
+            'sale'   => $toSale[$role]   ?? $pivotRole,
+            'rental' => $toRental[$role] ?? $pivotRole,
+            default  => $pivotRole,
+        };
+    }
+
+    /**
      * AT-105 enhancement — ALL contacts attached to this property in a given
      * routing role, in pivot order. Unlike sellerOwnerContact() this is
      * multi-valued (joint sellers / joint buyers) and never collapses to a

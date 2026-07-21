@@ -1356,7 +1356,12 @@ class PropertyController extends Controller
         DB::transaction(function () use ($clone, $property) {
             $clone->save();
             foreach ($property->contacts as $contact) {
-                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+                // AT-262 fix — remap the party role to the clone's listing type so a
+                // rental's landlord becomes the sale's seller (and vice-versa); else the
+                // seller never pulls through on the new listing's deal capture.
+                $clone->contacts()->attach($contact->id, [
+                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                ]);
             }
         });
 
@@ -1397,7 +1402,10 @@ class PropertyController extends Controller
         DB::transaction(function () use ($clone, $property) {
             $clone->save();
             foreach ($property->contacts as $contact) {
-                $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+                // AT-262 fix — remap the party role to the clone's listing type (see duplicate()).
+                $clone->contacts()->attach($contact->id, [
+                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                ]);
             }
             // Archive the original — de-list syndication (the syndication path withdraws
             // it from the portals) and soft-delete so history is preserved. saveQuietly so
