@@ -373,7 +373,10 @@ class PropertyController extends Controller
 
     public function show(Property $property)
     {
-        $this->authorizeProperty($property);
+        // Read path: an assistant may VIEW any listing their assigned agent can see (branch/all),
+        // but not edit it. forEdit:false selects view breadth; all write actions keep the default
+        // mutation pin to the agent's own listings. Spec §7.2 (AT-267).
+        $this->authorizeProperty($property, forEdit: false);
         $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
 
         $settingItems = [

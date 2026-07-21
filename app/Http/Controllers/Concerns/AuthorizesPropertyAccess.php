@@ -18,14 +18,24 @@ use App\Services\PermissionService;
  */
 trait AuthorizesPropertyAccess
 {
-    protected function authorizeProperty(Property $property): void
+    /**
+     * @param bool $forEdit  A write path (edit/update/destroy/notes/files) pins an assistant to
+     *                       the assigned agent's OWN listings; a pure read (the property show
+     *                       page) lets them view at the agent's full breadth. An assistant SEES
+     *                       what their agent sees but only EDITS the agent's own listings
+     *                       (spec §7.2) — mirrors AuthorizesDealAccess::authorizeDeal().
+     */
+    protected function authorizeProperty(Property $property, bool $forEdit = true): void
     {
         /** @var User $user */
         $user = auth()->user();
-        // MUTATION scope, not view scope: an assistant may LIST their agent's full breadth
-        // (branch/all) but may only EDIT the agent's own listings — mutationScope() caps them
-        // to 'own'. For everyone else this equals getDataScope() and behaviour is unchanged.
-        $scope = PermissionService::mutationScope($user, 'properties');
+        // Write path → MUTATION scope (an assistant is capped to 'own' = their agent's own
+        // listings). Read path → VIEW scope (getDataScope: the agent's full branch/all breadth),
+        // so an assistant may OPEN a colleague's listing their agent can see, but not edit it.
+        // For everyone else the two are identical and behaviour is unchanged.
+        $scope = $forEdit
+            ? PermissionService::mutationScope($user, 'properties')
+            : PermissionService::getDataScope($user, 'properties');
 
         if ($scope === 'all') {
             return;
