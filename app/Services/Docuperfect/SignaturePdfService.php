@@ -128,6 +128,15 @@ class SignaturePdfService
     {
         $signingController = app(\App\Http\Controllers\Docuperfect\SigningController::class);
 
+        // AT-324/AT-325 — the PDF renders the UN-paginated canonical, which has no
+        // page-break initial slots (those are created only by the client
+        // paginateDocument() during signing). Run the SAME shared pagination +
+        // signed_initials restore inside Puppeteer so every captured initial
+        // renders IN its real page-break slot on the PDF — exactly as the review
+        // and the ceremony show it. Fail-open: on any error the PDF still renders
+        // the canonical unchanged.
+        $mergedHtml = $this->injectInitialsPagination($template, $document, $mergedHtml);
+
         // Per-step timing (the ~83s gap between copy 1 finishing and copy 2
         // starting was unexplained — measure each step, do not assume).
         $step = function (string $label, callable $fn) use ($template, $document) {
@@ -196,6 +205,71 @@ class SignaturePdfService
             'internal' => $internalStoragePath,
             'client' => $clientStoragePath,
         ];
+    }
+
+    /**
+     * AT-324/AT-325 — wrap the canonical body and append the SHARED pagination JS
+     * (paginateDocument + restoreStoredInitials, lifted verbatim from the
+     * a4-page-styles partial the ceremony/review use) plus a bootstrap that runs
+     * them against signed_initials. Puppeteer executes this before print, so the
+     * PDF gets the same paginated document with every recipient's initials in their
+     * own page-break box. No-op when there are no captured initials; fail-open in
+     * the browser (try/catch) so the PDF always at least renders the canonical.
+     */
+    private function injectInitialsPagination(SignatureTemplate $template, $document, string $html): string
+    {
+        $webData = $document->web_template_data ?? [];
+        $signed = $webData['signed_initials'] ?? [];
+        if (!is_array($signed) || $signed === []) {
+            return $html; // nothing captured — leave the canonical untouched
+        }
+
+        $js = $this->esignPaginationJs();
+        if (trim($js) === '') {
+            return $html; // could not read the shared JS — do not risk the PDF
+        }
+
+        // Same party set the review passes to paginateDocument().
+        $parties = collect($template->parties_json ?? [])
+            ->filter(fn ($p) => ($p['role'] ?? '') !== 'supervisor_final')
+            ->map(fn ($p) => [
+                'role'  => $p['role'] ?? '',
+                'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? '')),
+            ])
+            ->unique('role')->values()->all();
+
+        // Default json_encode escapes '/', so any "</script>" inside a data: URI is
+        // emitted as "<\/script>" and cannot break out of the script context.
+        $partiesJson = json_encode($parties);
+        $storedJson  = json_encode($signed);
+
+        $boot = '<script>(function(){function run(){var c=document.getElementById("pdfDocContent")||document.body;'
+            . 'try{paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');}catch(e){}}'
+            . 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
+
+        return '<div id="pdfDocContent">' . $html . '</div>'
+            . '<script>' . $js . '</script>'
+            . $boot;
+    }
+
+    /**
+     * The shared page-break pagination + initial-restore JS, lifted verbatim from
+     * the ONE partial the ceremony and agent-review already use
+     * (resources/views/docuperfect/signatures/partials/a4-page-styles.blade.php).
+     * The <script> body is pure JS (no Blade), so a straight read is safe and keeps
+     * a single source of truth — the PDF cannot drift from what signers saw.
+     */
+    private function esignPaginationJs(): string
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $path = resource_path('views/docuperfect/signatures/partials/a4-page-styles.blade.php');
+        $content = is_file($path) ? (string) file_get_contents($path) : '';
+        $cached = preg_match('/<script\b[^>]*>(.*)<\/script>/is', $content, $m) ? $m[1] : '';
+
+        return $cached;
     }
 
     /**

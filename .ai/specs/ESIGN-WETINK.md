@@ -420,6 +420,21 @@ render into, so it vanished.
 - **Requirement:** the captured initials must render IN THEIR CORRECT PAGE-BREAK SLOTS on the
   document pages (where the signer placed them) on the review/approval surface AND the PDF — exactly
   like the signatures do. A separate "initials captured" summary block is NOT acceptable.
-- **Fix:** UNDER INVESTIGATION (a summary-block attempt was reverted). The direction is to render
-  the in-position paginated signed artifact (or inject each captured initial at its page-break slot)
-  on both surfaces.
+- **Fix — the ONE renderer, everywhere.** Page-break initial slots are created by the shared
+  `paginateDocument()` and filled by `restoreStoredInitials()` in
+  `resources/views/docuperfect/signatures/partials/a4-page-styles.blade.php` — the exact code the
+  ceremony uses so a later signer sees earlier signers' initials. Two gaps closed:
+  1. **Keying (review + everywhere):** `restoreStoredInitials()` matched only the base-role
+     top-level group of `signed_initials`, so the 2nd co-seller's initials (nested as
+     `{ seller: { "seller_2-init-0": … } }`) landed in the 1st seller's page-break box and the 2nd's
+     stayed empty. It now keys each initial by the CANONICAL RECIPIENT KEY embedded in its sub-key
+     (`seller_2-init-0` → `seller_2`) and matches each box by its own `data-marker-party` — so every
+     signer's initials land in THEIR box. (Same canonical-key root as Bug A.)
+  2. **PDF (was rendering nothing):** the PDF renders the un-paginated canonical via Puppeteer and
+     never ran the pagination JS. `SignaturePdfService::injectInitialsPagination()` now wraps the
+     canonical in `#pdfDocContent` and appends the SAME shared JS (read verbatim from the partial via
+     `esignPaginationJs()`) plus a bootstrap that runs `paginateDocument()` + `restoreStoredInitials()`
+     with `parties_json` + `signed_initials`, so Chromium paginates and places every initial in-position
+     before printing. Fail-open (try/catch) — the PDF always at least renders the canonical.
+- **Proof (doc 452, real Chromium):** the PDF-input HTML paginates and fills agent + seller_2 boxes,
+  seller (captured none) empty — both recipients' initials in-position, correctly attributed.

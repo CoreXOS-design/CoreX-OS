@@ -487,39 +487,41 @@ function restoreStoredInitials(container, storedInitials) {
     var allInitialEls = container.querySelectorAll('[data-marker-type="initial"]');
     if (allInitialEls.length === 0) return;
 
-    // Flatten all party initials into a lookup by party role
-    Object.keys(storedInitials).forEach(function(partyRole) {
-        var partyInitials = storedInitials[partyRole];
-        if (!partyInitials || typeof partyInitials !== 'object') return;
-
-        // Find all initial elements for this party
-        allInitialEls.forEach(function(el) {
-            var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
-            if (elParty !== partyRole) return;
-
-            // Check if any stored initial data exists for this party
-            // Use the first available initial image (they're all the same for a party)
-            var firstInitialData = null;
-            for (var key in partyInitials) {
-                if (partyInitials[key]) {
-                    firstInitialData = partyInitials[key];
-                    break;
-                }
-            }
-
-            if (firstInitialData && !el.getAttribute('data-signed')) {
-                el.setAttribute('data-signed', 'true');
-                el.style.cursor = 'default';
-                el.style.opacity = '1';
-                // ESIGN-WETINK — render restored initials at the SAME uniform
-                // initial size as the baked canonical (was max-height:26px — the
-                // tiny-recipient-initial bug). No emerald box either (BUG6 lineage:
-                // green rectangles). The .corex-ink--initial class also picks up the
-                // enforced ink spec above.
-                el.innerHTML = '<img src="' + firstInitialData + '" class="corex-ink corex-ink--initial" '
-                    + 'style="height:38px;max-height:38px;width:auto;object-fit:contain;" alt="Initial">';
-            }
+    // AT-324/AT-325 — key each captured initial by the CANONICAL RECIPIENT KEY
+    // embedded in its sub-key ("seller_2-init-0" -> "seller_2"), NOT the base-role
+    // top-level group. signed_initials nests N same-role signers' initials under a
+    // base-role group ({ seller: { "seller_2-init-0": img } }); matching only the
+    // top-level role put the 2nd co-seller's ink in the 1st seller's page-break box
+    // (and left the 2nd's box empty). Building a per-recipient map and matching each
+    // box by its own data-marker-party places every signer's initials in THEIR box.
+    var byRecipient = {}; // recipientKey -> first captured image for that recipient
+    Object.keys(storedInitials).forEach(function (topKey) {
+        var group = storedInitials[topKey];
+        if (!group || typeof group !== 'object') return;
+        Object.keys(group).forEach(function (subKey) {
+            var img = group[subKey];
+            if (!img) return;
+            var m = /^(.*)-init-\d+$/.exec(subKey);
+            var recipientKey = (m ? m[1] : (topKey || '')).toLowerCase();
+            if (!byRecipient[recipientKey]) byRecipient[recipientKey] = img; // first per recipient
         });
+    });
+
+    allInitialEls.forEach(function (el) {
+        if (el.getAttribute('data-signed')) return;
+        var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
+        var img = byRecipient[elParty];
+        if (!img) return; // this recipient captured no initial — leave their box empty
+
+        el.setAttribute('data-signed', 'true');
+        el.style.cursor = 'default';
+        el.style.opacity = '1';
+        // ESIGN-WETINK — render restored initials at the SAME uniform initial size
+        // as the baked canonical (was max-height:26px — the tiny-recipient-initial
+        // bug). No emerald box (BUG6 lineage). The .corex-ink--initial class also
+        // picks up the enforced ink spec above.
+        el.innerHTML = '<img src="' + img + '" class="corex-ink corex-ink--initial" '
+            + 'style="height:38px;max-height:38px;width:auto;object-fit:contain;" alt="Initial">';
     });
 }
 
