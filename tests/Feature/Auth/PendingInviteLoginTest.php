@@ -15,7 +15,14 @@ use Tests\TestCase;
  * THE DEFECT: invited users were created with password = 'INVITE_PENDING' (a public constant), which
  * the `hashed` cast turned into a real bcrypt hash of that constant — so anyone typing it authenticated
  * as any un-accepted invite. Two independent fixes are proven here: the invite password is now unusable
- * and unguessable, AND the login gate refuses a pending invite regardless of the password supplied.
+ * and unguessable, AND the login gate refuses a genuine unredeemed invite.
+ *
+ * AT-268 follow-up (production login outage): the gate originally fired on the bare
+ * email_verified_at IS NULL predicate, which also caught established accounts created outside the
+ * invite flow (CoreX never enforced MustVerifyEmail) — the two super_admin owner accounts carried a
+ * NULL marker with real passwords and were locked out of live. The gate now additionally requires the
+ * account to still hold the public 'INVITE_PENDING' constant, so it can only ever fire on the exact
+ * hole it closes. These tests pin the corrected behaviour on both sides.
  */
 final class PendingInviteLoginTest extends TestCase
 {
@@ -53,22 +60,44 @@ final class PendingInviteLoginTest extends TestCase
     }
 
     /**
-     * BELT-AND-BRACES: even if a pending account somehow held a KNOWN, correct password, the gate
-     * refuses it with the honest message — a pending invite can never hold a session.
+     * BELT-AND-BRACES, correctly scoped: a genuine unredeemed invite that still holds the public
+     * 'INVITE_PENDING' constant is refused by the gate even though the supplied password is correct —
+     * the security intent of AT-268 stays intact.
      */
-    public function test_the_gate_refuses_a_pending_invite_even_with_a_correct_password(): void
+    public function test_the_gate_still_blocks_a_pending_invite_holding_the_constant(): void
     {
         $user = User::factory()->create([
             'email'             => 'pending@example.co.za',
-            'password'          => 'a-real-known-password-123',   // hashed by the cast
-            'email_verified_at' => null,                          // ...but still not accepted
+            'password'          => 'INVITE_PENDING',   // the cast hashes the public constant
+            'email_verified_at' => null,               // ...never accepted
             'is_active'         => true,
         ]);
 
-        $this->post('/login', ['email' => $user->email, 'password' => 'a-real-known-password-123'])
+        $this->post('/login', ['email' => $user->email, 'password' => 'INVITE_PENDING'])
             ->assertSessionHasErrors('email');
 
         $this->assertGuest();
+    }
+
+    /**
+     * REGRESSION (production login outage): a null-verified account with a REAL bcrypt password — e.g.
+     * a super_admin owner account created outside the invite flow — logs in normally. The narrowed gate
+     * must NOT fire for it (it does not hold the constant), even though isPendingInvite() is true.
+     */
+    public function test_a_null_verified_account_with_a_real_password_logs_in(): void
+    {
+        $user = User::factory()->create([
+            'email'             => 'owner@example.co.za',
+            'password'          => 'a-real-owner-password-789',   // NOT the constant
+            'email_verified_at' => null,                          // established, but never "accepted"
+            'is_active'         => true,
+        ]);
+
+        $this->assertTrue($user->isPendingInvite(), 'predicate is still email_verified_at IS NULL');
+
+        $this->post('/login', ['email' => $user->email, 'password' => 'a-real-owner-password-789']);
+
+        $this->assertAuthenticatedAs($user);
     }
 
     /** An accepted user (verified) with a real password logs in normally — no regression. */
