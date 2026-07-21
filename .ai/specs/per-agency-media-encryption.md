@@ -43,6 +43,12 @@ read paths distinguish ciphertext from legacy plaintext, so a half-migrated stor
   `source_type='fica'` Documents are contact-drive docs served only via `downloadResponse()` — they do
   NOT flow through those path-readers, so encrypting them is safe. If a FICA doc is ever attached to a
   viewing pack/deal in future, that consumer would need a decrypt-to-temp shim (use `decryptedContents()`).
+
+  **Every FICA viewing surface serves through the decrypting route** (AT-173 Phase-1b) — the
+  compliance-review partial (`partials/submitted-data.blade.php`) AND the FICA verification page
+  (`compliance/fica/show.blade.php`) inline `<img>`/`<iframe>` preview + "Open in new tab". Phase-1b gap
+  closed: `show.blade.php` had still used the public `asset('storage/'.$doc->file_path)` URL, which 404s
+  once the file is private/encrypted — the box-wide FICA-preview regression fix.
 - **OUT:** public property/agent marketing photos (public by design). **Phase 2 (separate ticket):**
   DocuPerfect/e-sign working files (read by external PDF/image tools by raw path — need a decrypt-to-temp
   shim) and deal documents.
