@@ -10,7 +10,7 @@
         'dashboard' => 'Dashboard', 'agency-tracker' => 'Agency Tracker', 'deals-v2' => 'Deal Register',
         'properties' => 'Properties', 'contacts' => 'Contacts', 'presentations' => 'Presentations',
         'docuperfect' => 'DocuPerfect', 'compliance' => 'Compliance', 'communication' => 'Communication',
-        'command-center' => 'Command Centre', 'sidebar' => 'Menu visibility', 'assistants' => 'Assistants',
+        'command-center' => 'Command Centre', 'sidebar' => 'Sidebar', 'assistants' => 'Assistants',
     ];
 @endphp
 
