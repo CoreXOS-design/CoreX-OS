@@ -863,9 +863,17 @@ class Property extends Model
 
         $street = $this->composeStreetLine();
 
+        // AT-266 — the complex piece with any baked-in unit removed ("26 Stafford
+        // Close" + unit 26 → "Stafford Close"), so the address never says the unit
+        // twice. Same cleaner the street line uses; the two never diverge.
+        $complex = \App\Services\Properties\PropertyAddressReconciler::cleanComplexPiece(
+            $this->complex_name,
+            $this->unit_number,
+        );
+
         $parts = array_filter([
             $unit,
-            trim((string) ($this->complex_name ?? '')) !== '' ? trim((string) $this->complex_name) : null,
+            $complex !== '' ? $complex : null,
             $street !== '' ? $street : null,
         ]);
 
@@ -898,17 +906,17 @@ class Property extends Model
      */
     public function composeStreetLine(): string
     {
-        $number = trim((string) ($this->street_number ?? ''));
-        $name   = trim((string) ($this->street_name ?? ''));
-
-        if ($name === '') {
-            return $number;
-        }
-        if ($number === '' || preg_match('/^' . preg_quote($number, '/') . '(?![0-9A-Za-z])/u', $name)) {
-            return $name;
-        }
-
-        return $number . ' ' . $name;
+        // AT-266 — one clean street line, reusing PropertyAddressReconciler's own
+        // junk-class detection (scheme-in-street + unit-as-number, not just the
+        // double-number guard). The complex + unit are rendered separately by every
+        // caller (composeAddressFromParts, buildDisplayAddress), so anything the
+        // cleaner removes from the street reappears there — no address token is lost.
+        return \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece(
+            $this->street_number,
+            $this->street_name,
+            $this->complex_name,
+            $this->unit_number,
+        );
     }
 
     // ── Scopes ──

@@ -132,6 +132,54 @@ final class OutreachAddressReconciliationTest extends TestCase
         $this->assertSame('7 73 Marine Drive, Uvongo', $address->displayAddress());
     }
 
+    // ── Compose-time junk-class fix: the fallback columns are cleaned too ─
+
+    /**
+     * AT-266 compose-time — NO address of record, and the scheme bled into
+     * street_name and was duplicated in the complex column ("26 Stafford Close
+     * Marine Drive" + complex "26 Stafford Close"). The seller must be pitched
+     * "73 Marine Drive", not "73 26 Stafford Close Marine Drive".
+     */
+    public function test_a_scheme_bled_into_the_street_is_de_duplicated_in_the_fallback(): void
+    {
+        $p = $this->property(address: null, streetNumber: '73',
+            streetName: '26 Stafford Close Marine Drive', suburb: 'Uvongo');
+        $p->complex_name = '26 Stafford Close';
+        $p->unit_number  = '26';
+
+        $address = OutreachAddress::fromProperty($p);
+
+        $this->assertSame('Unit 26, Stafford Close, 73 Marine Drive, Uvongo', $address->displayAddress());
+        $this->assertStringNotContainsString('Stafford Close Marine Drive', $address->displayAddress());
+    }
+
+    /** AT-266 compose-time — a unit masquerading as the house number ("9 Casa Montana", unit 9). */
+    public function test_a_unit_as_house_number_is_dropped_from_the_fallback_street(): void
+    {
+        $p = $this->property(address: null, streetNumber: '9', streetName: 'Casa Montana', suburb: 'Uvongo');
+        $p->unit_number = '9';
+
+        $address = OutreachAddress::fromProperty($p);
+
+        $this->assertSame('Unit 9, Casa Montana, Uvongo', $address->displayAddress());
+        $this->assertStringNotContainsString('9 Casa Montana', $address->displayAddress());
+    }
+
+    /**
+     * AT-266 compose-time — the conservative guard. A house number that happens to
+     * equal the unit on a REAL street ("6 Marine Drive", unit 6) is NEVER dropped:
+     * a redundant number is fine, a deleted house number would be a wrong address.
+     */
+    public function test_a_real_house_number_equal_to_the_unit_is_never_dropped(): void
+    {
+        $p = $this->property(address: null, streetNumber: '6', streetName: 'Marine Drive', suburb: 'Margate');
+        $p->unit_number = '6';
+
+        $address = OutreachAddress::fromProperty($p);
+
+        $this->assertSame('Unit 6, 6 Marine Drive, Margate', $address->displayAddress());
+    }
+
     // ── The gate now requires a street ───────────────────────────────────
 
     /** 46 live properties: a suburb but no street → "your property at Uvongo". Now blocked. */

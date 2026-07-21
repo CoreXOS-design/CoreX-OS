@@ -601,6 +601,50 @@ The `{property_address}` (and every address-derived) merge field resolves throug
 - **Backfill:** 3 live rows carried the doubled number (#1900, #5114, #3748 — all `withdrawn`). A reversible backfill re-derives their `address` from the guarded composer, snapshotting before/after to `storage/app/private/at266/double-number-backfill.json`. Applied on QA1; **report-first for live** (Johan's word).
 - **Test:** `PropertyAddressOneTruthTest::test_a_number_already_in_the_street_name_is_not_prepended_twice`.
 
+### 11.3b-ii — compose-time cleaning of the remaining junk classes (2026-07-21, QA1)
+
+The guard above only covered the **double-number** class. Two more junk classes the
+imports/parsers write still reached `{property_address}` and the on-screen outreach address
+(both read the derived `address`): **scheme-in-street** (the complex duplicated into
+`street_name`, e.g. `street_name="26 Stafford Close Marine Drive"` with `complex="26 Stafford
+Close"` → the seller was pitched `"73 26 Stafford Close Marine Drive"`) and **unit-as-number**
+(`street_number` holds the unit, e.g. `9 / "Casa Montana"` unit 9 → `"Unit 9, 9 Casa Montana"`).
+Those were only ever repaired by the **manual, unscheduled** `corex:reconcile-property-addresses`
+command (`PropertyAddressReconciler`), so any un-reconciled or freshly-imported row rendered junk.
+
+- **Fix (class-level, reuses the reconciler's own logic):** the reconciler now exposes two pure,
+  static composers — `PropertyAddressReconciler::cleanStreetPiece($number,$name,$complex,$unit)`
+  and `cleanComplexPiece($complex,$unit)` — built from its existing junk-class helpers
+  (`stripLeading` / `stripTrailingSegment` / `stripUnitWord` / `isHouseNumber` /
+  `opensWithHouseNumber`). `Property::composeStreetLine()`,
+  `Property::composeAddressFromParts()` (complex piece) and
+  `OutreachAddress::composeStreetFromColumns()` / `streetLine()` (fallback) all now call these,
+  so the derived `address` is **clean the moment it is composed** and a fresh import self-heals —
+  no manual reconcile needed. The compose path and the reconciler command can never diverge
+  because they share this code.
+- **Lossless by contract:** the complex and unit are always rendered separately by the callers,
+  so anything `cleanStreetPiece` removes from the street reappears there — no address token is
+  lost. **Conservative:** a house number is dropped only when it cannot be one (non-numeric like
+  `"The"`, or a bare repeat of the unit on a name with **no street-type word** of its own —
+  `looksLikeStreet()`). A real street such as `"6 Marine Drive"` (unit 6) keeps its number: a
+  redundant number is never a wrong address, a deleted house number would be. Deep, ambiguous
+  relocations (scheme lifted into an empty complex, token-loss shapes) remain the human-reviewed
+  reconciler command's job — the compose path only applies the provably-safe subset.
+- **Both surfaces verified:** the outreach merge field (`OutreachAddress::displayAddress()`) and
+  the on-screen outreach address both read the same derived `address`; the tests assert both.
+- **Files:** `PropertyAddressReconciler.php` (`cleanStreetPiece`/`cleanComplexPiece`/`looksLikeStreet`/`opensWithNumber`),
+  `Property.php` (`composeStreetLine`/`composeAddressFromParts`), `OutreachAddress.php`
+  (`composeStreetFromColumns`/`streetLine`).
+- **Tests:** `PropertyAddressOneTruthTest::test_a_scheme_in_street_row_derives_a_clean_address_on_save`,
+  `…test_a_unit_as_number_scheme_derives_a_clean_address_on_save`,
+  `…test_a_house_number_equal_to_the_unit_on_a_real_street_is_kept`;
+  `OutreachAddressReconciliationTest::test_a_scheme_bled_into_the_street_is_de_duplicated_in_the_fallback`,
+  `…test_a_unit_as_house_number_is_dropped_from_the_fallback_street`,
+  `…test_a_real_house_number_equal_to_the_unit_is_never_dropped`.
+- **Report-only (not touched):** `corex:reconcile-property-addresses` is still not scheduled in
+  `routes/console.php` — the compose-time fix heals rows as they are saved, but a one-off run/schedule
+  would clean already-stored rows that are never re-saved. Johan's call.
+
 ## 11.4 `restrict_consent_outreach_to_full_status` agency toggle
 Column on `agencies` (default `false`). When on, and a template uses `{agent_designation}` with a non-blank designation, `SellerOutreachComposerService::agencyRestrictsToFullStatus()` + `agentMayClaimFullStatus()` (delegating to the canonical `CandidatePractitionerService::isFullStatus() || isPrincipal()`) gate the send with `designation_not_full_status` — a candidate/intern practitioner cannot broadcast a full-status designation claim.
 

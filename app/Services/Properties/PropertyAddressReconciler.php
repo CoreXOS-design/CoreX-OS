@@ -255,6 +255,107 @@ final class PropertyAddressReconciler
         return $lost;
     }
 
+    // ── Compose-time reuse (AT-266) ───────────────────────────────────────
+
+    /**
+     * AT-266 (compose-time) — the CLEAN street piece for a display address, given the
+     * structured parts. It reuses this class's own junk-class detection so the
+     * composers that feed `properties.address` and the seller-outreach merge field
+     * (Property::composeStreetLine / composeAddressFromParts,
+     * OutreachAddress::composeStreetFromColumns) stop rendering the scheme-in-street
+     * and unit-as-number junk the plain concat missed — and never diverge from the
+     * reconciler command, because they all call THIS.
+     *
+     * LOSSLESS BY CONTRACT: the caller MUST render the complex (via cleanComplexPiece)
+     * and the unit separately — every current caller does. Anything removed from the
+     * street here reappears in one of those pieces, so no address token is ever lost.
+     *
+     * CONSERVATIVE: a number is dropped only when it cannot be a house number for this
+     * street (non-numeric like "The", or a bare repeat of the unit on a name with no
+     * street-type word of its own). A redundant number is never a WRONG address; a
+     * dropped house number would be — so when in doubt the number is KEPT.
+     */
+    public static function cleanStreetPiece(?string $number, ?string $name, ?string $complex, ?string $unit): string
+    {
+        $number  = self::s($number);
+        $name    = self::s($name);
+        $complex = self::s($complex);
+        $unit    = self::s($unit);
+
+        // SCHEME-IN-STREET, complex populated — the scheme name is duplicated into
+        // street_name ("26 Stafford Close Marine Drive" with complex "26 Stafford
+        // Close"). Strip it from the street; the caller shows the complex separately.
+        if ($complex !== '' && $name !== '') {
+            foreach ([$complex, self::stripUnitWord($complex, $unit)] as $candidate) {
+                if ($candidate === '') {
+                    continue;
+                }
+                $stripped = self::stripLeading($name, $candidate)
+                    ?? self::stripTrailingSegment($name, $candidate, $unit);
+                if ($stripped !== null) {
+                    $name = $stripped;
+                    break;
+                }
+            }
+        }
+
+        // UNIT-AS-NUMBER — a street_number that is not a house number at all folds
+        // into the street ("The" + "Farm Estates"); a number that merely repeats the
+        // unit on a scheme name (no street-type word, no house number of its own) is
+        // the unit, not a house number — drop it so the address does not say it twice.
+        if ($number !== '' && ! self::isHouseNumber($number)) {
+            $name   = trim($number . ' ' . $name);
+            $number = '';
+        } elseif ($number !== '' && $unit !== '' && $number === $unit
+            && ! self::opensWithHouseNumber($name) && ! self::looksLikeStreet($name)) {
+            $number = '';
+        }
+
+        // Assemble with the double-number guard — never prepend the number twice.
+        if ($name === '') {
+            return $number;
+        }
+        if ($number === '' || self::opensWithNumber($name, $number)) {
+            return $name;
+        }
+
+        return trim($number . ' ' . $name);
+    }
+
+    /** AT-266 (compose-time) — the CLEAN complex piece: the scheme with any baked-in unit removed. */
+    public static function cleanComplexPiece(?string $complex, ?string $unit): string
+    {
+        return self::stripUnitWord(self::s($complex), self::s($unit));
+    }
+
+    /** Does $name already open with the street number (as a whole token)? Mirrors Property/OutreachAddress. */
+    private static function opensWithNumber(string $name, string $number): bool
+    {
+        if ($number === '') {
+            return true;
+        }
+        return (bool) preg_match(
+            '/^' . preg_quote(trim($number), '/') . '(?![0-9A-Za-z])/u',
+            trim($name)
+        );
+    }
+
+    /**
+     * A conservative "this reads like a real street, not a scheme name" test — used
+     * only to KEEP a house number we would otherwise treat as a duplicated unit.
+     * It errs toward "street" (keep the number): a false positive leaves a redundant
+     * number, a false negative would delete a house number.
+     */
+    private static function looksLikeStreet(string $name): bool
+    {
+        return (bool) preg_match(
+            '/\b(road|rd|street|st|drive|dr|avenue|ave|lane|ln|close|crescent|cres|'
+            . 'boulevard|blvd|way|place|pl|terrace|rise|circle|row|highway|hwy|main|'
+            . 'parade|esplanade|promenade|walk|mews|grove|park|link|bend|view|heights)\b/iu',
+            $name
+        );
+    }
+
     // ── String helpers ───────────────────────────────────────────────────
 
     /** Strip "<complex> " from the FRONT of a street, preserving the remainder verbatim. */
