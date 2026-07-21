@@ -138,6 +138,7 @@ class CocWorkOrderService
 
         $wo->forceFill([
             'status'          => 'sent',
+            'send_error'      => null, // AT-329 — clear any prior failure on a successful (re)send
             'document_id'     => $document->id,
             'recipient_name'  => $recipient['name'] ?: $label,
             'recipient_email' => $recipient['email'],

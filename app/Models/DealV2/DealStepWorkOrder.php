@@ -25,6 +25,7 @@ class DealStepWorkOrder extends Model
         'service_type', 'responsible_party', 'service_provider_id',
         'recipient_name', 'recipient_email', 'cc_emails',
         'status', 'document_id', 'sent_at', 'sent_by_id',
+        'send_error', // AT-329 — reason a trigger-fired send failed (surfaced to the agent)
     ];
 
     protected $casts = [
@@ -49,5 +50,11 @@ class DealStepWorkOrder extends Model
     public function isSent(): bool
     {
         return $this->status === 'sent';
+    }
+
+    /** AT-329 — a trigger-fired send that failed (e.g. recipient has no email). */
+    public function isFailed(): bool
+    {
+        return $this->status === 'failed';
     }
 }

@@ -301,8 +301,11 @@ class Dr1PipelineService
     /** §17 — send every pending work order whose trigger step is the one just completed. */
     private function fireSupplierWorkOrders(DealStepInstance $step, ?int $userId): void
     {
+        // AT-329 — retry a previously-FAILED order too (e.g. once its supplier's email is
+        // added and the trigger fires again), not just untouched 'pending' ones. 'sent' orders
+        // are never re-sent.
         $orders = \App\Models\DealV2\DealStepWorkOrder::where('trigger_step_instance_id', $step->id)
-            ->where('status', 'pending')->get();
+            ->whereIn('status', ['pending', 'failed'])->get();
         if ($orders->isEmpty()) {
             return;
         }
@@ -310,8 +313,16 @@ class Dr1PipelineService
         $user = $userId ? \App\Models\User::withoutGlobalScopes()->find($userId) : null;
         foreach ($orders as $order) {
             try {
+                // send() sets status='sent' + clears send_error on success.
                 $coc->send($order, $user);
             } catch (\Throwable $e) {
+                // AT-329 — NEVER swallow: record the failure ON this order (status='failed' +
+                // the reason, surfaced to the agent in the COC panel) and continue, so one
+                // order failing does NOT skip or abort the rest.
+                $order->forceFill([
+                    'status'     => 'failed',
+                    'send_error' => $e->getMessage(),
+                ])->save();
                 \Log::warning('AT-229 §17 trigger send failed', [
                     'work_order_id' => $order->id, 'deal' => $step->dr1_deal_id, 'error' => $e->getMessage(),
                 ]);

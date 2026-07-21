@@ -633,3 +633,29 @@ A comment inside the panel's `save()` contained a double-quoted word (`"Saved"`)
 double-quoted `x-data` attribute** → the browser truncated the attribute → Alpine failed to init → the
 COC tick-list + dropdowns never rendered (header/description only). Fixed by removing the double-quotes.
 Lesson encoded in §22.4's regression guard.
+
+## 23. AT-329 — trigger-fired work-order send failures are surfaced, never swallowed
+
+When the trigger step (Bond Granted/Approved) completes, `Dr1PipelineService::fireSupplierWorkOrders()`
+sends every pending work order (COCs + attorney + bond-originator, all sharing the trigger step). It
+wrapped each `CocWorkOrderService::send()` in a try/catch that only **logged** a failure and moved on —
+so if one order's recipient had no email (its `send()` throws "No email on file…"), that order was
+**silently skipped**: it stayed `pending`, no error reached the agent, and it looked like the rest
+never sent (real case: deal 158 — Electrical sent, Entomologist supplier had no email → swallowed).
+
+**Fix (BUILD_STANDARD §4 — no silent failures):**
+- New column `deal_step_work_orders.send_error` (text, nullable); `status` gains a **`failed`** value
+  alongside `pending`|`sent`.
+- The trigger loop **records each failure ON the order** (`status='failed'`, `send_error=<reason>`) and
+  logs it — never swallowed. One order failing does **not** skip or abort the others (the loop
+  continues; a `try` per order).
+- **Missing-email** is the common case: `send()` throws a clear "No email on file for the {party}…";
+  the loop records it, and the COC panel shows the row as **"⚠ not sent — no email…"** (amber) instead
+  of invisibly skipping it.
+- A **successful (re)send clears** `send_error` (`send()` sets `status='sent', send_error=null`). The
+  trigger loop now also re-attempts previously-**failed** orders (`whereIn status ['pending','failed']`),
+  so once the agent adds the missing email and the trigger fires again, the order re-sends. `sent`
+  orders are never re-sent.
+- Surfaced in `WorkOrderController::cocConfigPanel` (`send_error` in the item payload) →
+  `dr2/_supplier-work-orders.blade.php` (per-row "⚠ not sent" badge + the reason).
+- The subject line is **out of scope** (AT-330).

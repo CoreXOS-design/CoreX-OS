@@ -293,6 +293,7 @@ class WorkOrderController extends Controller
                 'responsible_party' => $wo->responsible_party ?? 'supplier',
                 'service_provider_id' => $wo->service_provider_id ?? '',
                 'status'            => $wo->status ?? null,
+                'send_error'        => $wo->send_error ?? null, // AT-329 — reason a send failed
                 'recipient_email'   => $wo->recipient_email ?? null,
                 'cc_emails'         => $wo->cc_emails ?? null,
             ];

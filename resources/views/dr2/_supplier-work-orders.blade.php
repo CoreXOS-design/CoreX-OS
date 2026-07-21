@@ -91,10 +91,12 @@
         {{-- Tick-list — one clean vertical row per COC; responsible/recipient appears under a ticked row --}}
         <template x-for="(it,i) in items" :key="it.code">
             <div style="border-top:1px solid #eee;padding:.5rem 0;">
-                <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : ''">
+                <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : '')">
                     <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
                     <span x-text="it.label"></span>
                     <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">✓ sent</span>
+                    {{-- AT-329 — a trigger-fired send that failed is shown, never silently dropped. --}}
+                    <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">⚠ not sent</span>
                 </label>
 
                 <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-direction:column;gap:.3rem;">
@@ -155,8 +157,10 @@
                     </div>
                     <div style="font-size:.66rem;color:#6b7280;">
                         <span x-show="it.status==='sent'" x-cloak>→ <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-cloak x-text="' (cc ' + it.cc_emails + ')'"></span></span>
-                        <span x-show="it.status!=='sent' && !it.step_name" x-cloak style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
-                        <span x-show="it.status!=='sent' && it.step_name" x-cloak x-text="'step: ' + it.step_name"></span>
+                        {{-- AT-329 — surface WHY a trigger send failed (e.g. no email); fix + it re-sends on the next trigger fire. --}}
+                        <span x-show="it.status==='failed'" x-cloak style="color:#b45309;font-weight:600;" x-text="'not sent — ' + (it.send_error || 'send failed')"></span>
+                        <span x-show="it.status!=='sent' && it.status!=='failed' && !it.step_name" x-cloak style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
+                        <span x-show="it.status!=='sent' && it.status!=='failed' && it.step_name" x-cloak x-text="'step: ' + it.step_name"></span>
                     </div>
                 </div>
             </div>
