@@ -1553,8 +1553,21 @@ class SigningController extends Controller
             $initials = array_merge($initials, $pageBreakInitials);
         }
         if (!empty($initials)) {
+            // AT-324/AT-325 — key signed_initials by the CANONICAL per-recipient
+            // key (seller vs seller_2), NOT the bare party_role, and MERGE rather
+            // than overwrite. N same-role co-signers share one base party_role, so
+            // `$existingInitials[$partyRole] = $initials` let the 2nd co-seller's
+            // completion CLOBBER the 1st's captured initials — present in
+            // web_template_data['signatures'] but dropped from signed_initials, the
+            // store the review/PDF read. Each recipient now keeps their own group;
+            // the initial sub-keys are already recipient-distinct so a merge is safe
+            // and a re-sign only tops up the same recipient's group.
+            $recipientKey = $signingRequest->canonicalPartyKey();
             $existingInitials = $webData['signed_initials'] ?? [];
-            $existingInitials[$partyRole] = $initials;
+            $existingInitials[$recipientKey] = array_merge(
+                $existingInitials[$recipientKey] ?? [],
+                $initials
+            );
             $webData['signed_initials'] = $existingInitials;
         }
 
