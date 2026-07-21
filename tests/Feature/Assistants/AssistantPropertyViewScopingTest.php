@@ -111,6 +111,34 @@ final class AssistantPropertyViewScopingTest extends TestCase
     }
 
     /**
+     * AT-267 hard rule — an assistant may NEVER delete a listing's photos, on ANY listing, including
+     * their assigned agent's OWN (which they may otherwise edit). Deleting marketing photos is
+     * destructive and reserved to the agent.
+     */
+    public function test_an_assistant_can_never_delete_listing_photos(): void
+    {
+        $this->grantAssistant('access_properties');
+        $this->grantAssistant('properties.view', 'branch');
+        $this->reset();
+
+        // propA is the assigned agent's OWN listing — the assistant can edit it, but not delete photos.
+        $this->actingAs($this->assistant)
+            ->post(route('corex.properties.deleteImage', $this->propA), [
+                'group' => 'gallery_images_json', 'index' => 0,
+            ])
+            ->assertForbidden();
+
+        // The agent themselves is NOT hard-blocked (no 403 from the assistant guard).
+        $this->assertNotSame(
+            403,
+            $this->actingAs($this->agentA)->post(route('corex.properties.deleteImage', $this->propA), [
+                'group' => 'gallery_images_json', 'index' => 0,
+            ])->status(),
+            'The agent must not be blocked from deleting their own listing photos.'
+        );
+    }
+
+    /**
      * The assistant is strictly narrower than the agent: the AGENT (branch scope) CAN edit the
      * colleague's listing the assistant cannot. Proves the pin is on the assistant, not the module.
      */

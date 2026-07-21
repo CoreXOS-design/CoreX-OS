@@ -1564,6 +1564,12 @@ class PropertyController extends Controller
 
     public function deleteImage(Request $request, Property $property)
     {
+        // AT-267 — an assistant may NEVER delete a listing's photos, on ANY listing (including their
+        // assigned agent's own). A hard capability rule, not a data-scope one — deleting marketing
+        // photos is destructive and is reserved to the agent. Belt to the deny_assistant_property_write
+        // middleware, and unambiguous at the point of action.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $request->validate([
@@ -1725,6 +1731,9 @@ class PropertyController extends Controller
      */
     public function deleteRentalImage(Request $request, Property $property)
     {
+        // AT-267 — assistants may never delete listing images (see deleteImage()).
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $data = $request->validate([
