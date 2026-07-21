@@ -11,9 +11,14 @@ use Illuminate\Http\Request;
 
 class DealV2SettlementController extends Controller
 {
+    // AT-267 C3 — per-record deal guard (settlement is money; bound a DealV2 by id and checked only
+    // the deals_v2.edit key). Pins an assistant to the assigned agent's own deals.
+    use \App\Http\Controllers\Concerns\AuthorizesDealV2Access;
+
     public function settle(DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $this->authorizeDealV2($deal);
 
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent', 'branch']);
 
@@ -25,6 +30,7 @@ class DealV2SettlementController extends Controller
     public function saveSettlement(Request $request, DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $this->authorizeDealV2($deal);
 
         if ($deal->isFinanciallyLocked()) {
             return back()->with('error', 'This deal is already marked as Paid and cannot be edited.');

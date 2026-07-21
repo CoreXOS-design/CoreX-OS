@@ -18,6 +18,9 @@ use Illuminate\Http\Request;
 
 class DealV2Controller extends Controller
 {
+    // AT-267 C3 — per-record deal guard for the write paths (edit price/commission by id).
+    use \App\Http\Controllers\Concerns\AuthorizesDealV2Access;
+
     public function __construct(private DealPipelineService $pipelineService)
     {
     }
@@ -621,6 +624,7 @@ class DealV2Controller extends Controller
     public function update(Request $request, DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $this->authorizeDealV2($deal);
 
         $locked = $deal->isFinanciallyLocked();
 

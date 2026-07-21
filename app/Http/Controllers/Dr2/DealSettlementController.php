@@ -13,6 +13,12 @@ use App\Services\DealMoneyLineRebuilder;
 
 class DealSettlementController extends Controller
 {
+    // AT-267 C3 — per-record deal guard. Settlement mutators bound a Deal by id and checked only
+    // the permission KEY (settle_deals), never that the deal is the acting user's. Admin\DealController
+    // got this guard; its live Dr2 settlement twin did not — so a settle_deals holder (or an
+    // assistant of one) could rewrite commission splits / mark Paid on ANY agency deal by id.
+    use \App\Http\Controllers\Concerns\AuthorizesDealAccess;
+
     private function isLocked(Deal $deal): bool
     {
         return (string)($deal->commission_status ?? '') === 'Paid';
@@ -39,6 +45,7 @@ class DealSettlementController extends Controller
 
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal); // per-record: only the deal's own agent (branch/all per scope)
 
         $deal->load('agents');
 
@@ -72,6 +79,7 @@ class DealSettlementController extends Controller
 
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal); // per-record: rewrite settlement only on the acting user's own deals
 
         // Allow settlement save if marking paid (needed to populate paid_at)
         if ($this->isLocked($deal) && !$request->boolean('mark_paid')) {
@@ -343,6 +351,7 @@ class DealSettlementController extends Controller
     {
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal, forEdit: false); // read: view breadth, never another agent's
 
         $deal->load('agents');
 
@@ -393,6 +402,7 @@ class DealSettlementController extends Controller
     {
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal, forEdit: false); // read: view breadth, never another agent's
 
         $deal->load('agents');
 
