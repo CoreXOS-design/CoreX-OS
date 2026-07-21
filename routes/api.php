@@ -587,11 +587,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('legacy.mobile.visibility');
 
     // LEGACY: remove after 2026-08-21
-    Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->name('legacy.prospecting.import');
+    Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('legacy.prospecting.import'); // AT-267 C2
     Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('legacy.prospecting.check-search');
 
     // LEGACY: remove after 2026-08-21
-    Route::post('/properties/pull-from-portal',        [PropertyPullController::class, 'pullFromPortal'])->name('legacy.properties.pull-from-portal');
+    Route::post('/properties/pull-from-portal',        [PropertyPullController::class, 'pullFromPortal'])->middleware('deny_assistant_property_write')->name('legacy.properties.pull-from-portal'); // AT-267 C2
     Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus'])->name('legacy.properties.pull-status');
 
     // LEGACY: remove after 2026-08-21
@@ -604,7 +604,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // LEGACY: remove after 2026-08-21
     Route::prefix('mobile/properties')->group(function () {
         Route::get('/',         [MobilePropertyController::class, 'index'])->name('legacy.mobile.properties.index');
-        Route::post('/',        [MobilePropertyController::class, 'store'])->name('legacy.mobile.properties.store');
+        Route::post('/',        [MobilePropertyController::class, 'store'])->middleware('deny_assistant_property_write')->name('legacy.mobile.properties.store'); // AT-267 C2
         Route::get('/options',        [MobilePropertyController::class, 'options'])->name('legacy.mobile.properties.options');
         Route::get('/spaces/catalog', [MobilePropertyController::class, 'spacesCatalog'])->name('legacy.mobile.properties.spaces.catalog');
         Route::get('/{property}',  [MobilePropertyController::class, 'show'])->name('legacy.mobile.properties.show');

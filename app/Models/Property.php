@@ -487,6 +487,17 @@ class Property extends Model
         parent::boot();
 
         static::creating(function (Property $property) {
+            // AT-267 — the model-level backstop of the property-upload lock. An assistant may NEVER
+            // bring a listing onto the agency's books, on ANY path. Route middleware + the resolver
+            // locked-set cover the KNOWN entry points, but new create paths (promote-to-stock,
+            // outreach compose, legacy mobile create, future ingress) keep appearing and slipping
+            // the hand-maintained route list. This closes the CLASS: any Property::create fired
+            // while an assistant is the acting user is refused. Non-auth ingress (webhooks, imports,
+            // seeders, queued jobs) has no assistant and is unaffected. Spec §9 (make it structural).
+            if ((bool) (auth()->user()?->is_assistant)) {
+                abort(403, 'Assistants cannot create or import listings. Ask the agent to create it.');
+            }
+
             if (empty($property->external_id)) {
                 $property->external_id = (string) Str::uuid();
             }

@@ -2518,6 +2518,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->name('from-tracked-property');
             Route::post('/tracked-properties/{trackedProperty}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromTrackedProperty'])
+                ->middleware('deny_assistant_property_write') // AT-267 C2 — this path promotes a TP to a Property
                 ->name('store-from-tracked-property');
         });
 
@@ -3970,7 +3971,7 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::get('/{trackedProperty}', function ($trackedProperty) {
             return redirect('/corex/market-intelligence/opportunities/' . $trackedProperty, 301);
         })->where('trackedProperty', '[0-9]+')->name('show');
-        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->middleware('deny_assistant_property_write')->name('promote'); // AT-267 C2 — promote() creates agency stock
 
         // Phase C3 — address management on the TP detail page.
         Route::post('/{trackedProperty}/address/edit',
