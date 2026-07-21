@@ -18,6 +18,18 @@ class TaskController extends Controller
     }
 
     /**
+     * AT-267 H1 — per-record guard. update/destroy/complete/updateStatus bound a task by id with no
+     * owner check → any user could edit/delete/reassign any task in the agency. Gate through the same
+     * scope the list uses; an assistant is clamped to 'own' (the assigned agent's task list).
+     */
+    private function authorizeTask(CommandTask $task): void
+    {
+        $user  = $task ? auth()->user() : null;
+        $scope = $user?->is_assistant ? 'own' : PermissionService::taskScope($user);
+        abort_unless(CommandTask::visibleTo($user, $scope)->whereKey($task->getKey())->exists(), 403);
+    }
+
+    /**
      * Task board page (kanban + list).
      */
     public function index(Request $request)
@@ -71,6 +83,7 @@ class TaskController extends Controller
      */
     public function update(Request $request, CommandTask $task)
     {
+        $this->authorizeTask($task);
         $request->validate([
             'title'    => 'sometimes|required|string|max:255',
             'status'   => 'nullable|in:todo,in_progress,awaiting,done,dismissed',
@@ -96,6 +109,7 @@ class TaskController extends Controller
      */
     public function destroy(Request $request, CommandTask $task)
     {
+        $this->authorizeTask($task);
         $this->service->delete($task);
 
         if ($request->wantsJson()) {
@@ -110,6 +124,7 @@ class TaskController extends Controller
      */
     public function complete(CommandTask $task)
     {
+        $this->authorizeTask($task);
         // Missed-feedback tasks: redirect to calendar feedback modal instead of just marking done
         if ($task->source_type === 'calendar:missed_feedback' && $task->calendar_event_id) {
             return redirect()
@@ -131,6 +146,7 @@ class TaskController extends Controller
      */
     public function updateStatus(Request $request, CommandTask $task)
     {
+        $this->authorizeTask($task);
         $request->validate(['status' => 'required|in:todo,in_progress,awaiting,done,dismissed']);
 
         $task = $this->service->updateStatus($task, $request->status);
