@@ -168,7 +168,7 @@
                                         <span class="text-[10px]" style="color:var(--text-muted);">{{ $doc->file_name }}</span>
                                     </div>
                                     <div class="flex items-center gap-3">
-                                        <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon,#0ea5e9); text-decoration:none;">Open in new tab</a>
+                                        <a href="{{ route('compliance.fica.documents.view', [$submission, $doc]) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon,#0ea5e9); text-decoration:none;">Open in new tab</a>
                                         @if($canRemove)
                                         <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
                                             @csrf
@@ -180,9 +180,9 @@
                                 @php $isImage = in_array($doc->mime_type, ['image/jpeg', 'image/png', 'image/jpg']); @endphp
                                 <div style="max-height:400px; overflow:auto;">
                                     @if($isImage)
-                                        <img src="{{ asset('storage/' . $doc->file_path) }}" alt="{{ $doc->document_type_label }}" style="width:100%; display:block;">
+                                        <img src="{{ route('compliance.fica.documents.view', [$submission, $doc]) }}" alt="{{ $doc->document_type_label }}" style="width:100%; display:block;">
                                     @else
-                                        <iframe src="{{ asset('storage/' . $doc->file_path) }}" style="width:100%; height:350px; border:none;"></iframe>
+                                        <iframe src="{{ route('compliance.fica.documents.view', [$submission, $doc]) }}" style="width:100%; height:350px; border:none;"></iframe>
                                     @endif
                                 </div>
                             </div>
