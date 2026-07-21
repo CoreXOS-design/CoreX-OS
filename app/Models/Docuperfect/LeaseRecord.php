@@ -86,7 +86,20 @@ class LeaseRecord extends Model
     {
         $scope = \App\Services\PermissionService::getDataScope($user, 'rentals');
 
-        if ($scope === 'all') return $query;
+        // SECURITY (audit 2026-07-21): lease_records has no agency_id and no global AgencyScope, so
+        // even an 'all'-scope user must be bounded to THEIR agency here or the list (and the
+        // per-record guard built on it) leaks every agency's leases. Isolation is derived through
+        // the document's owner agency.
+        if ($scope === 'all') {
+            $agencyId = $user->effectiveAgencyId();
+            // A platform owner in global context (no effective agency) is legitimately cross-agency.
+            if (!$agencyId) {
+                return $query;
+            }
+            return $query->whereHas('document', function ($q) use ($agencyId) {
+                $q->whereHas('owner', fn ($o) => $o->where('agency_id', $agencyId));
+            });
+        }
 
         if ($scope === 'branch') {
             $branchId = $user->effectiveBranchId();
