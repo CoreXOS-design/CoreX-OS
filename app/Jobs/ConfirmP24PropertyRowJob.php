@@ -27,6 +27,9 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
 
     public function handle(): void
     {
+        // AT-321 — attribute audit rows written while applying this import.
+        \App\Support\Audit\PropertyAuditContext::setSource('P24 import', 'import');
+
         $row = P24ImportRow::with(['run' => fn ($q) => $q->withTrashed()])->find($this->rowId);
         if (!$row || $row->row_type !== 'listing') return;
         if (in_array($row->status, ['confirmed', 'excluded'], true)) return;

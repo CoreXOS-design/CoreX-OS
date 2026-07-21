@@ -4608,7 +4608,15 @@
                                 <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">{{ $entry->created_at->format('j M Y, H:i') }}</div>
                             </div>
                             <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">
-                                @if($entry->user) {{ $entry->user->name }} @else System @endif
+                                {{-- AT-321 — always attributable: user name, else the source/actor label, never a bare blank "System". --}}
+                                @if($entry->user)
+                                    {{ $entry->user->name }}
+                                @else
+                                    {{ $entry->actor_label ?? 'System' }}
+                                @endif
+                                @if($entry->source)
+                                    <span class="ml-1 px-1 py-0.5 rounded" style="background:var(--surface); border:1px solid var(--border);">{{ $entry->source }}</span>
+                                @endif
                             </div>
                             @if($entry->old_values || $entry->new_values || $entry->metadata)
                                 <button type="button" @click="showDetail = !showDetail" class="text-[10px] mt-1 underline" style="color:var(--text-muted);" x-text="showDetail ? 'Hide details' : 'Show details'"></button>
@@ -4625,6 +4633,11 @@
                         <p class="text-sm" style="color:var(--text-muted);">No audit history recorded yet.</p>
                     </div>
                 @endforelse
+
+                {{-- AT-321 — the FULL trail is paginated (no 50-row cap). --}}
+                @if(method_exists($fullAuditLog, 'hasPages') && $fullAuditLog->hasPages())
+                    <div class="pt-2">{{ $fullAuditLog->links() }}</div>
+                @endif
             @endif
         </div>
 

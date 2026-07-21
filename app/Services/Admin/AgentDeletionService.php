@@ -116,6 +116,16 @@ class AgentDeletionService
      */
     public function reassignAndCleanup(User $source, User $target, string $secondaryHandling, int $actorId): array
     {
+        // AT-321 — these are raw DB::table('properties') writes that bypass the
+        // Eloquent observer. The unbypassable audit trigger records each agent_id
+        // change; stamp a clear source so those rows read "agent-merge …" and carry
+        // the acting user, never a blank/"System".
+        $actorName = optional(User::find($actorId))->name ?? ("User #{$actorId}");
+        \App\Support\Audit\PropertyAuditContext::setSource(
+            "agent-merge: {$source->name} (#{$source->id}) → {$target->name} (#{$target->id}) by {$actorName}",
+            'system'
+        );
+
         return DB::transaction(function () use ($source, $target, $secondaryHandling, $actorId) {
             $now = now();
 

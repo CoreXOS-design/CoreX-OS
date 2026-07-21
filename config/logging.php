@@ -191,6 +191,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // AT-321 — swallowed property-audit write failures land here (never silent).
+        'property_audit' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/property_audit.log'),
+            'level' => 'debug',
+            'days' => 60,
+            'replace_placeholders' => true,
+        ],
+
         'feedback' => [
             'driver' => 'daily',
             'path' => storage_path('logs/feedback.log'),

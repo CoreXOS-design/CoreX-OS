@@ -127,6 +127,46 @@ class Property extends Model
     }
 
     /**
+     * AT-321 — the SANCTIONED way to make a "quiet" property write and still keep
+     * the audit trail. It suppresses the observer (updateQuietly) — so no side
+     * effects — but records a rich, attributed audit row itself, and de-dupes the
+     * DB backstop trigger. Use this instead of a raw ->updateQuietly() / DB::table
+     * update whenever the change is meaningful (agent, status, address, price…).
+     * The dev-check gate points call sites here.
+     *
+     * @param array<string, mixed> $attrs        column => new value
+     */
+    public function auditedQuietUpdate(
+        array $attrs,
+        string $eventType = 'property_updated',
+        ?string $summary = null,
+        ?array $metadata = null,
+        ?\App\Models\User $actor = null,
+    ): bool {
+        $old = [];
+        foreach (array_keys($attrs) as $col) {
+            $old[$col] = $this->getOriginal($col) ?? $this->{$col};
+        }
+
+        \App\Support\Audit\PropertyAuditContext::markHandled();
+        try {
+            $result = $this->updateQuietly($attrs);
+        } finally {
+            \App\Support\Audit\PropertyAuditContext::clearHandled();
+        }
+
+        app(\App\Services\Audit\PropertyAuditService::class)->log(
+            $this, 'property', $eventType, $actor,
+            oldValues: $old,
+            newValues: $attrs,
+            metadata: $metadata ?? ['fields' => array_keys($attrs)],
+            humanSummary: $summary ?? ('Updated ' . implode(', ', array_map(fn ($f) => str_replace('_', ' ', $f), array_keys($attrs)))),
+        );
+
+        return $result;
+    }
+
+    /**
      * True when this property is still an unpublished draft. A draft is never
      * ready to be pushed to any portal/website — it must be set Active first.
      * Case-insensitive so 'Draft'/'DRAFT' are caught alongside the canonical

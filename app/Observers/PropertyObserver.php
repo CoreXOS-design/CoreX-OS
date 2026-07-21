@@ -68,21 +68,46 @@ class PropertyObserver
     /** AT-68 — renewal re-syndication reminders captured in saving(), fired in saved() (keyed by property ID). */
     private static array $renewalResyndicateReminders = [];
 
+    /**
+     * AT-321 — NOISE columns excluded from the audit trail everywhere: pure
+     * timestamps, derived/normalised mirrors, portal sync stamps, signatures and
+     * transient status/errors. (Approved exclusion list, spec §3.1.) Everything
+     * NOT in this list is "meaningful" and is logged by the generic diff.
+     */
+    private const AUDIT_NOISE_COLUMNS = [
+        'updated_at', 'created_at', 'deleted_at', 'last_activity_at', 'last_cma_at',
+        'last_cma_presentation_id', 'sg_last_searched_at', 'geo_resolved_at', 'first_marketed_at',
+        'p24_last_submitted_at', 'p24_activated_at', 'p24_images_last_synced_at',
+        'p24_listing_last_synced_at', 'p24_stats_synced_at', 'p24_image_signature',
+        'p24_last_error', 'p24_syndication_status',
+        'pp_last_submitted_at', 'pp_activated_at', 'pp_images_last_synced_at',
+        'pp_listing_last_synced_at', 'pp_last_error', 'pp_listing_feed_ref', 'pp_syndication_status',
+        'slug', 'suburb_normalised', 'street_name_normalised', 'geo_source', 'geo_confidence',
+    ];
+
+    /**
+     * AT-321 — columns that get their OWN rich, human-readable events below. They
+     * are still captured (needed by those events) but are excluded from the
+     * generic consolidated 'property_updated' row so they are never double-logged.
+     */
+    private const AUDIT_DEDICATED_COLUMNS = [
+        'price', 'status', 'agent_id', 'compliance_snapshot_at', 'published_at',
+    ];
+
+    /** A column is captured/audited unless it is pure noise. */
+    private static function isAuditableColumn(string $column): bool
+    {
+        return !in_array($column, self::AUDIT_NOISE_COLUMNS, true);
+    }
+
     public function saving(Property $property): void
     {
-        // Capture originals in static registry for audit diffing in saved()
-        if ($property->exists && !$property->wasRecentlyCreated) {
-            $auditFields = ['price', 'status', 'agent_id', 'compliance_snapshot_at', 'published_at', 'mandate_type'];
-            $captured = [];
-            foreach ($auditFields as $f) {
-                if ($property->isDirty($f)) {
-                    $captured[$f] = $property->getOriginal($f);
-                }
-            }
-            if (!empty($captured)) {
-                self::$auditOriginals[$property->id] = $captured;
-            }
-        }
+        // AT-321 — the app layer records this Eloquent write richly (saved()/
+        // created()), so suppress the unbypassable DB trigger for it to avoid a
+        // duplicate backstop row. Fires before BOTH insert and update; released at
+        // the top of saved(). Generic originals are captured further down — after
+        // the in-hook address/title derivations — so the diff is complete.
+        \App\Support\Audit\PropertyAuditContext::markHandled();
 
         // AT-68 — renewal reminder trigger. When an agent extends a lapsed
         // mandate's expiry_date into the future (today-or-later) on a listing that
@@ -152,6 +177,22 @@ class PropertyObserver
                 ]);
             }
             $property->title_type = $derived;
+        }
+
+        // AT-321 — capture originals for EVERY auditable dirty column (generic diff
+        // replaces the old 5-field allow-list). After derivations so derived
+        // address/title changes are audited too. Placed before the early returns
+        // below so it always runs. Noise columns are skipped.
+        if ($property->exists && !$property->wasRecentlyCreated) {
+            $captured = [];
+            foreach (array_keys($property->getDirty()) as $col) {
+                if (self::isAuditableColumn($col)) {
+                    $captured[$col] = $property->getOriginal($col);
+                }
+            }
+            if (!empty($captured)) {
+                self::$auditOriginals[$property->id] = $captured;
+            }
         }
 
         if (!$property->agent_id) {
@@ -266,6 +307,11 @@ class PropertyObserver
      */
     public function saved(Property $property): void
     {
+        // AT-321 — release the trigger suppression set in saving() now that the
+        // Eloquent UPDATE/INSERT (and its trigger evaluation) has passed. Any
+        // subsequent quiet/raw write on this connection is then caught by the trigger.
+        \App\Support\Audit\PropertyAuditContext::clearHandled();
+
         // AT-108 — stock changed → buyers' canonical Core Match counts may shift.
         // Queue an ASYNC, COALESCED recompute (Freshness Option B). Never sync —
         // bulk imports must stay fast; ShouldBeUnique + delay collapse a burst into
@@ -354,8 +400,32 @@ class PropertyObserver
                 if (isset($changes['published_at']) && $changes['published_at'] === null && ($pre['published_at'] ?? null) !== null) {
                     $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Listing unpublished');
                 }
+
+                // AT-321 — generic diff: log EVERY other changed (non-noise,
+                // non-dedicated) column as ONE consolidated 'property_updated' row,
+                // old->new. This is the end of the event allow-list: nothing
+                // meaningful is silently dropped any more.
+                $genericOld = [];
+                $genericNew = [];
+                foreach ($changes as $col => $newVal) {
+                    if (!self::isAuditableColumn($col)
+                        || in_array($col, self::AUDIT_DEDICATED_COLUMNS, true)
+                        || !array_key_exists($col, $pre)) {
+                        continue;
+                    }
+                    $genericOld[$col] = $pre[$col];
+                    $genericNew[$col] = $newVal;
+                }
+                if (!empty($genericNew)) {
+                    $auditSvc->logFieldChanges($property, $genericOld, $genericNew);
+                }
             } catch (\Throwable $e) {
                 Log::warning("Audit log failed on property save #{$property->id}: {$e->getMessage()}");
+                try {
+                    event(new \App\Events\Property\PropertyAuditWriteFailed((int) $property->id, 'observer', $e->getMessage()));
+                } catch (\Throwable) {
+                    // never let audit reporting break the save
+                }
             }
         }
 
