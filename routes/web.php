@@ -1743,9 +1743,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // show.blade), not a pack-side scheduler. The old POST schedule route +
         // ViewingPackCalendarService were removed (no parallel scheduling logic).
         // Step 6 — the single buyer-facing PDF (cover + per-property + comparison).
-        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->middleware('permission:viewing_packs.view')->name('buyer-pack');
+        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->middleware(['permission:viewing_packs.view', 'deny_assistant_download'])->name('buyer-pack'); // AT-267 H7
         // Step 7 — the SEPARATE agent sheet PDF (eyes-only; never merged with the buyer pack).
-        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->middleware('permission:viewing_packs.view')->name('agent-sheet');
+        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->middleware(['permission:viewing_packs.view', 'deny_assistant_download'])->name('agent-sheet'); // AT-267 H7
 
         // Step 3 — property selection (Core Match + ad-hoc) + ad-hoc typeahead.
         Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->middleware('permission:viewing_packs.edit')->name('properties.add');
@@ -2101,7 +2101,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
         // AT-148 — authenticated media serve (WhatsApp voice notes). Streamed from
         // the mounted volume through Laravel; per-thread gated in the controller.
-        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->middleware('deny_assistant_download')->name('attachment'); // AT-267 H7 — streams a stored comms attachment file
         // AT-148 — manual retry for a pending/failed media download.
         Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
         // AT-163 — on-demand voice-note transcription (gated + consent-checked in the controller).
@@ -3434,8 +3434,10 @@ Route::middleware(['auth', 'permission:access_presentations', 'feature:presentat
 
     // PDF pack download (P18) — feature-flagged via config('features.presentation_pdf_v1')
     Route::get('/{presentation}/versions/{version}/pdf', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'download'])
+        ->middleware('deny_assistant_download') // AT-267 H7
         ->name('versions.pdf');
     Route::get('/{presentation}/versions/{version}/complete-pack', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'downloadCompletePack'])
+        ->middleware('deny_assistant_download') // AT-267 H7 — ZIP of private evidence PDFs + doc-library files
         ->name('versions.complete-pack');
 
     // Portal captures (extension-based ingestion)

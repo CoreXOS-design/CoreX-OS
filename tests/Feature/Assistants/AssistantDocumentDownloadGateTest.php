@@ -116,6 +116,11 @@ final class AssistantDocumentDownloadGateTest extends TestCase
             'documents.shared-drive.files.download',
             'docuperfect.signatures.download',
             'corex.contacts.documents.download',
+            // AT-267 H7 — newly gated download surfaces.
+            'presentations.versions.complete-pack',
+            'corex.viewing-packs.buyer-pack',
+            'corex.viewing-packs.agent-sheet',
+            'compliance.comm-archive.attachment',
         ];
 
         foreach ($names as $name) {
