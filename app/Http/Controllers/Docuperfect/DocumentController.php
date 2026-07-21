@@ -13,6 +13,11 @@ use Illuminate\Http\Request;
 
 class DocumentController extends Controller
 {
+    // AT-267 H5 — the key-OR-self access checks below let a documents.edit holder (or an assistant
+    // of one) mutate ANY agent's document by id. guardDocument() adds the per-record data-scope pin
+    // (an assistant is clamped to the assigned agent's OWN documents) on top of the existing checks.
+    use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -148,6 +153,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $data = [];
 
@@ -260,6 +266,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -282,6 +289,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         // Block archiving for documents in active signing workflows or active leases
         $sigTemplate = $document->signatureTemplate;
@@ -325,6 +333,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $document->update(['archived_at' => null]);
 
@@ -340,6 +349,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $name = $document->name;
         $document->delete();
@@ -359,6 +369,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $request->validate([
             'document_type' => 'required|string',
