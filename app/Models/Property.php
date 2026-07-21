@@ -837,12 +837,14 @@ class Property extends Model
             $parts[] = $this->complex_name;
         }
 
+        // AT-266 — route the street through the ONE guarded, junk-cleaned composer
+        // (double-number + scheme-in-street + unit-as-number), never the naive concat.
+        // The unit/complex above and the suburb/city below are unchanged, so floor
+        // and city handling is preserved; only the street segment is now clean.
         $usedStructuredStreet = false;
-        if (!empty($this->street_number) && !empty($this->street_name)) {
-            $parts[] = $this->street_number . ' ' . $this->street_name;
-            $usedStructuredStreet = true;
-        } elseif (!empty($this->street_name)) {
-            $parts[] = $this->street_name;
+        $street = $this->composeStreetLine();
+        if ($street !== '') {
+            $parts[] = $street;
             $usedStructuredStreet = true;
         }
 
@@ -918,13 +920,20 @@ class Property extends Model
                 ? trim((string) $this->unit_section_block)
                 : null);
 
-        $street = trim(
-            trim((string) ($this->street_number ?? '')) . ' ' . trim((string) ($this->street_name ?? ''))
+        // AT-266 — the guarded, junk-cleaned street line (never the naive concat).
+        $street = $this->composeStreetLine();
+
+        // AT-266 — the complex piece with any baked-in unit removed ("26 Stafford
+        // Close" + unit 26 → "Stafford Close"), so the address never says the unit
+        // twice. Same cleaner the street line uses; the two never diverge.
+        $complex = \App\Services\Properties\PropertyAddressReconciler::cleanComplexPiece(
+            $this->complex_name,
+            $this->unit_number,
         );
 
         $parts = array_filter([
             $unit,
-            trim((string) ($this->complex_name ?? '')) !== '' ? trim((string) $this->complex_name) : null,
+            $complex !== '' ? $complex : null,
             $street !== '' ? $street : null,
         ]);
 
@@ -939,6 +948,29 @@ class Property extends Model
         }
 
         return implode(', ', $cleaned);
+    }
+
+    /**
+     * AT-266 — the ONE guarded street line, shared by every Property address
+     * composer (buildDisplayAddress + composeAddressFromParts, which in turn
+     * feeds the derived `address` column via PropertyObserver::saving()).
+     *
+     * Reuses PropertyAddressReconciler's own junk-class detection: the double-number
+     * guard (never prepend "21" onto "21 Crown Road"), scheme-in-street (the complex
+     * duplicated into street_name), and unit-as-number (street_number holds the unit).
+     * Machine-written parts (P24 import, parsers) carry all three, and because
+     * `address` is derived from this composer that junk reached the seller-outreach
+     * merge field. Mirrors OutreachAddress::composeStreetFromColumns() exactly — both
+     * call cleanStreetPiece() — so the two never diverge. Clean rows are unchanged.
+     */
+    public function composeStreetLine(): string
+    {
+        return \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece(
+            $this->street_number,
+            $this->street_name,
+            $this->complex_name,
+            $this->unit_number,
+        );
     }
 
     // ── Scopes ──
