@@ -58,7 +58,9 @@
                     // Reflect the save across the WHOLE pipeline without a manual browser refresh.
                     // load() re-renders THIS panel, but the pipeline step board (server-rendered,
                     // left column) shows the step N/A changes and is stale — so reload the page and
-                    // carry the confirmation across so the agent still sees "Saved".
+                    // carry the confirmation across so the agent still sees the saved message.
+                    // NB: keep this x-data attribute free of double-quotes — a literal double-quote
+                    // here truncates the double-quoted HTML attribute and breaks the whole panel.
                     try { sessionStorage.setItem('coc_saved_msg','Saved. Un-ticked COCs marked N/A; ticked ones send when the trigger step completes.'); } catch(e){}
                     window.location.reload();
                     return;
