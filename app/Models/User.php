@@ -230,6 +230,19 @@ class User extends Authenticatable
      */
     protected static function booted(): void
     {
+        // AT-267 (audit 2026-07-21) — pin an assistant's identity. The assistant's authority is
+        // matrix ∩ agent, resolved through AssistantPermissionResolver, but ~20 sites still read
+        // users.role / is_admin DIRECTLY (bypassing the resolver). If an assistant's role ever drifted
+        // to admin (e.g. an admin editing them in User Management), they would silently gain
+        // agency-wide authority far beyond their agent. An assistant is ALWAYS role='assistant' and
+        // never an admin — enforced structurally here so no write path can escalate them.
+        static::saving(function (self $user) {
+            if ($user->is_assistant) {
+                $user->role = 'assistant';
+                $user->is_admin = false;
+            }
+        });
+
         static::updating(function (self $user) {
             if (!$user->getOriginal('agency_id') || $user->getOriginal('role') !== 'admin') {
                 return;
