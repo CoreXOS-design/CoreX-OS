@@ -388,3 +388,36 @@ document. Concretely:
 
 Result: agent-review is byte-identical to the ceremony's document render — same ink size,
 same per-recipient scoping, same accumulated signatures.
+
+---
+
+## AT-324 / AT-325 — canonical per-recipient key + captured page-break initials (doc 452)
+
+Two faults surfaced on the agent-review/approval screen of a 2-seller document (452):
+
+**Bug A — a signed 2nd co-seller misread as the next signer ("Send to Andre" after Andre had
+signed).** N same-role recipients are stored as N `signature_requests` rows sharing the base
+`party_role` ("seller") but carrying a distinct `role_index` (1..N). Every OTHER surface —
+`signing_order_json`, `parties_json`, `partyProgress()`, `signed_initials` — identifies them by
+the COMPOSITE key ("seller", "seller_2", …; bare = index 1). `review()` built its
+`completedParties` set from a raw `pluck('party_role')`, so `seller_2` was never in the completed
+set and the next-party loop resolved to it.
+
+- **THE key, one place:** `SignatureRequest::canonicalPartyKey()` = `role_index > 1 ? party_role .
+  '_' . role_index : party_role`. Any surface comparing a request against the signing order MUST
+  key through this, never raw `party_role`.
+- **Fix:** `SignatureController::review()` builds `completedParties` via `canonicalPartyKey()`.
+  The ACTION side (`SignatureService::approveAndAdvance` / `advanceToNextParty`) already advances
+  by `signing_order` (next WAITING request), so it was correct — only the DISPLAY was wrong.
+- Closes AT-324/AT-325 (same root: two representations of one recipient identity that disagreed).
+
+**Bug B — the previous recipient's INITIALS missing from the rendered document (review + PDF).**
+Page-break initials are a PAGINATION-time artifact (a per-page-boundary row); they are absent from
+the un-paginated `canonical_html` that both the review and the PDF render. The captured ink lives
+in `web_template_data['signed_initials']` keyed `"{recipientKey}-init-{page}"`, but had no slot to
+render into, so it vanished.
+
+- **Fix:** `CanonicalDocumentRenderer::renderCapturedInitials($template)` returns a labelled block
+  of every captured initial image, attributed to the signer (name via `partyProgress()`'s canonical
+  keys). `review()` and `SignaturePdfService` APPEND it to the display HTML — read-only; the stored
+  canonical is never mutated. Captured initials always show.

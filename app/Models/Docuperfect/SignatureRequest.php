@@ -169,6 +169,27 @@ class SignatureRequest extends Model
         return $this->status === self::STATUS_COMPLETED;
     }
 
+    /**
+     * AT-324/AT-325 — the ONE canonical per-recipient key.
+     *
+     * N same-role recipients are stored as N SignatureRequest rows sharing the
+     * base party_role ("seller") but carrying a distinct role_index (1..N). Every
+     * OTHER surface — signing_order_json, parties_json, partyProgress(),
+     * signed_initials — identifies them by the composite key ("seller",
+     * "seller_2", "seller_3", …: bare = index 1). This method is the single place
+     * that maps a request back to that key, so a completed 2nd-same-role recipient
+     * is never misread as the next signer. Consumers comparing a request against
+     * the signing order MUST key through this, never raw party_role.
+     */
+    public function canonicalPartyKey(): string
+    {
+        $index = (int) ($this->role_index ?? 1);
+
+        return $index > 1
+            ? $this->party_role . '_' . $index
+            : (string) $this->party_role;
+    }
+
     public function isWetInk(): bool
     {
         return $this->signing_method === 'wet_ink';

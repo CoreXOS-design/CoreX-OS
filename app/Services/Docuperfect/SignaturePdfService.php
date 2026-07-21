@@ -56,6 +56,12 @@ class SignaturePdfService
 
             // Web templates with merged_html: use Puppeteer (Chromium) for pixel-perfect rendering
             if ($isWebTemplate && $hasMergedHtml) {
+                // AT-324/AT-325 / doc-452 — page-break initials live only in the
+                // paginated DOM, so the un-paginated canonical the PDF renders was
+                // missing them. Append the captured initials so the signed PDF
+                // shows every initial (read-only; canonical is not mutated).
+                $renderHtml .= app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+                    ->renderCapturedInitials($template);
                 return $this->generateFromHtml($template, $document, $renderHtml);
             }
 

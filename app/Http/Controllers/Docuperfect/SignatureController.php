@@ -2273,9 +2273,15 @@ class SignatureController extends Controller
 
         // Determine the next party — fallback to dynamic order from document template
         $order = $template->signing_order_json ?? $this->buildDefaultSigningOrder($document->template);
+        // AT-324/AT-325 — key completed requests by their CANONICAL per-recipient
+        // key (role + role_index → "seller_2"), NOT raw party_role. The signing
+        // order uses those composite keys, so a bare-role pluck left "seller_2"
+        // out of the completed set and a signed 2nd co-seller was misread as the
+        // next signer ("Send to Andre" after Andre had signed). One key, both sides.
         $completedParties = $template->requests
             ->where('status', SignatureRequest::STATUS_COMPLETED)
-            ->pluck('party_role')
+            ->map(fn ($r) => $r->canonicalPartyKey())
+            ->values()
             ->toArray();
 
         $nextParty = null;
@@ -2305,14 +2311,21 @@ class SignatureController extends Controller
         // (no editability overlay — review is an approval gate, not a fill step).
         $isWebTemplate = false;
         $webTemplateHtml = null;
-        $reviewCanonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
-            ->forDisplay($template);
+        $canonicalRenderer = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class);
+        $reviewCanonical = $canonicalRenderer->forDisplay($template);
         if (trim($reviewCanonical) !== '') {
             $isWebTemplate = true;
             $webTemplateHtml = $reviewCanonical;
         } elseif (!empty($webTemplateData['merged_html'])) {
             $isWebTemplate = true;
             $webTemplateHtml = $webTemplateData['merged_html'];
+        }
+        // AT-324/AT-325 / doc-452 — page-break initials are a pagination artifact
+        // absent from the un-paginated canonical the review renders, so captured
+        // initials never showed. Append them (read-only; canonical is not mutated)
+        // so the approver sees the completed document with every initial present.
+        if ($isWebTemplate) {
+            $webTemplateHtml .= $canonicalRenderer->renderCapturedInitials($template);
         }
 
         if (!$isWebTemplate) {
