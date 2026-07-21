@@ -93,6 +93,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 // AT-267 — hard block on agent-personal surfaces (e.g. /my-earnings) an assistant
                 // must never see, regardless of matrix. The route-level half of the nav @unless.
                 'deny_assistant' => \App\Http\Middleware\DenyAssistant::class,
+                // AT-267 — the "download documents" toggle. Applied to every document-download
+                // route; 403s an assistant whose assignment has can_download_documents off.
+                'deny_assistant_download' => \App\Http\Middleware\DenyAssistantDownload::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,

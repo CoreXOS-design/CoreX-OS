@@ -442,7 +442,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{contact}/drive',                       [MobileContactComplianceController::class, 'driveIndex'])->name('v1.mobile.contacts.drive.index');
             Route::post('/{contact}/drive',                      [MobileContactComplianceController::class, 'driveStore'])->name('v1.mobile.contacts.drive.store');
             Route::put('/{contact}/drive/{document}',            [MobileContactComplianceController::class, 'driveUpdate'])->name('v1.mobile.contacts.drive.update');
-            Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->name('v1.mobile.contacts.drive.download');
+            Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->middleware('deny_assistant_download')->name('v1.mobile.contacts.drive.download');
             Route::delete('/{contact}/drive/{document}',         [MobileContactComplianceController::class, 'driveDestroy'])->name('v1.mobile.contacts.drive.destroy');
 
             Route::get('/{contact}/fica', [MobileContactComplianceController::class, 'ficaIndex'])->name('v1.mobile.contacts.fica.index');
@@ -641,7 +641,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{contact}/drive',                       [MobileContactComplianceController::class, 'driveIndex'])->name('mobile.contacts.drive.index');
         Route::post('/{contact}/drive',                      [MobileContactComplianceController::class, 'driveStore'])->name('mobile.contacts.drive.store');
         Route::put('/{contact}/drive/{document}',            [MobileContactComplianceController::class, 'driveUpdate'])->name('mobile.contacts.drive.update');
-        Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->name('mobile.contacts.drive.download');
+        Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->middleware('deny_assistant_download')->name('mobile.contacts.drive.download');
         Route::delete('/{contact}/drive/{document}',         [MobileContactComplianceController::class, 'driveDestroy'])->name('mobile.contacts.drive.destroy');
 
         Route::get('/{contact}/fica', [MobileContactComplianceController::class, 'ficaIndex'])->name('mobile.contacts.fica.index');

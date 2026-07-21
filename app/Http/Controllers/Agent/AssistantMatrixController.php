@@ -137,9 +137,10 @@ class AssistantMatrixController extends Controller
         if ($request->has('settings')) {
             $settings = (array) $request->input('settings', []);
             $assignment->forceFill([
-                'can_manage_my_records' => (string) ($settings['can_manage_my_records'] ?? '0') === '1',
-                'show_attribution'      => (string) ($settings['show_attribution'] ?? '0') === '1',
-                'notify_on_action'      => (string) ($settings['notify_on_action'] ?? '0') === '1',
+                'can_manage_my_records'  => (string) ($settings['can_manage_my_records'] ?? '0') === '1',
+                'show_attribution'       => (string) ($settings['show_attribution'] ?? '0') === '1',
+                'notify_on_action'       => (string) ($settings['notify_on_action'] ?? '0') === '1',
+                'can_download_documents' => (string) ($settings['can_download_documents'] ?? '0') === '1',
             ])->save();
         }
 

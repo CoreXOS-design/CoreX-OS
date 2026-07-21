@@ -42,6 +42,7 @@ class AssistantAssignment extends Model
         'can_manage_my_records',
         'show_attribution',
         'notify_on_action',
+        'can_download_documents',
         'suspend_reason',
         'snapshot_taken_at',
         'created_by_user_id',
@@ -53,9 +54,10 @@ class AssistantAssignment extends Model
     protected $casts = [
         'snapshot_taken_at'     => 'datetime',
         'revoked_at'            => 'datetime',
-        'can_manage_my_records' => 'boolean',
-        'show_attribution'      => 'boolean',
-        'notify_on_action'      => 'boolean',
+        'can_manage_my_records'  => 'boolean',
+        'show_attribution'       => 'boolean',
+        'notify_on_action'       => 'boolean',
+        'can_download_documents' => 'boolean',
     ];
 
     /**
@@ -63,9 +65,10 @@ class AssistantAssignment extends Model
      * same values the DB default would give, without a refresh() — the DB columns default the same.
      */
     protected $attributes = [
-        'can_manage_my_records' => true,
-        'show_attribution'      => true,
-        'notify_on_action'      => false,
+        'can_manage_my_records'  => true,
+        'show_attribution'       => true,
+        'notify_on_action'       => false,
+        'can_download_documents' => true,
     ];
 
     /**

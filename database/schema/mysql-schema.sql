@@ -1405,6 +1405,7 @@ CREATE TABLE `assistant_assignments` (
   `can_manage_my_records` tinyint(1) NOT NULL DEFAULT '1',
   `show_attribution` tinyint(1) NOT NULL DEFAULT '1',
   `notify_on_action` tinyint(1) NOT NULL DEFAULT '0',
+  `can_download_documents` tinyint(1) NOT NULL DEFAULT '1',
   `suspend_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `snapshot_taken_at` timestamp NULL DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13745,3 +13746,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1024,'2026_07_14_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1025,'2026_07_14_200005_seed_assistant_role',185);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1026,'2026_07_19_000006_add_on_behalf_of_user_id_to_audit_tables',186);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1027,'2026_07_19_000007_add_assistant_control_settings',187);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1028,'2026_07_21_000001_add_can_download_documents_to_assistant_assignments',188);

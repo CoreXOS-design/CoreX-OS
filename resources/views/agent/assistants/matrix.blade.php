@@ -12,6 +12,15 @@
         'docuperfect' => 'DocuPerfect', 'compliance' => 'Compliance', 'communication' => 'Communication',
         'command-center' => 'Command Centre', 'sidebar' => 'Sidebar', 'assistants' => 'Assistants',
     ];
+
+    // Prepared as a variable so @json takes a SINGLE symbol: inline (bool) casts inside @json(...)
+    // confuse Blade's paren-matcher and silently truncate the object (see the one-line rule below).
+    $assistantSettings = [
+        'can_manage_my_records'  => (bool) $assignment->can_manage_my_records,
+        'show_attribution'       => (bool) $assignment->show_attribution,
+        'notify_on_action'       => (bool) $assignment->notify_on_action,
+        'can_download_documents' => (bool) $assignment->can_download_documents,
+    ];
 @endphp
 
 <style>
@@ -70,6 +79,8 @@
                  'desc' => 'A small tag on your calendar and records so you can see at a glance what ' . $assistant?->name . ' handled.'],
                 ['key' => 'notify_on_action', 'label' => 'Notify me when ' . $assistant?->name . ' adds or changes something',
                  'desc' => 'An in-app notification each time ' . $assistant?->name . ' acts on your behalf. Off by default to keep things quiet.'],
+                ['key' => 'can_download_documents', 'label' => $assistant?->name . ' can download documents',
+                 'desc' => 'When on, ' . $assistant?->name . ' can download document files anywhere they can reach them. When off, they can still open and view documents on screen, but cannot download the files.'],
             ];
         @endphp
         <div class="rounded-md mb-4 overflow-hidden"
@@ -267,7 +278,7 @@ function assistantMatrix() {
         {{-- @json must stay on ONE line: Blade's directive parser mishandles a multi-line
              array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
         scopes: @json(collect($sections)->flatten(1)->filter(fn ($r) => $r['is_view'] && !$r['is_locked'])->mapWithKeys(fn ($r) => [$r['key'] => ($r['granted'] ? $r['scope'] : 'none')])),
-        settings: @json(['can_manage_my_records' => (bool) $assignment->can_manage_my_records, 'show_attribution' => (bool) $assignment->show_attribution, 'notify_on_action' => (bool) $assignment->notify_on_action]),
+        settings: @json($assistantSettings),
         featureSearch: '',
         selectedSection: @json((string) (collect($sections)->keys()->first() ?? '')),
         dirty: false,
