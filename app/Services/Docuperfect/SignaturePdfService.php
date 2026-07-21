@@ -25,26 +25,34 @@ class SignaturePdfService
             $docTemplate = $document->template;
 
             $webTemplateData = $document->web_template_data ?? [];
-            // §19 Option 2 — generate the PDF from the EXACT signed-and-
-            // paginated DOM the signer saw (per-document .corex-a4-page +
-            // per-page initials). Fall back to canonical merged_html for
-            // legacy / never-web-signed documents. No server re-pagination.
-            // ESIGN-WETINK — read precedence for the final signed render:
-            //   1. canonical_html WHEN it carries baked ink (canonical_version
-            //      >= 1) — this is vN, the ONE artifact bearing every party's
-            //      identity-scoped ink (doctrine: "the signed PDF is generated
-            //      from vN"). Un-paginated; Chromium paginates via CSS.
-            //   2. signed_paginated_html — the exact paginated DOM the last
-            //      signer saw (pre-1c documents that never baked into canonical).
+            // AT-332 — the generated/emailed PDF must render the EXACT pages the
+            // signer saw. Read precedence for the final signed render:
+            //   1. signed_paginated_html — the exact per-document .corex-a4-page
+            //      DOM the last signer submitted, with every party's ink AND the
+            //      page-break initials already IN POSITION. This is what the
+            //      on-screen signed document shows (correct page count, per-page
+            //      footers, no spurious inline signature rows).
+            //   2. canonical_html WHEN it carries baked ink (canonical_version >= 1)
+            //      — the un-paginated vN artifact; used only when no signed
+            //      paginated DOM was captured (e.g. agent-only or older docs).
+            //      Chromium paginates it via CSS (see injectInitialsPagination).
             //   3. canonical_html at v0 (structure only) if that is all we have.
             //   4. merged_html — legacy / pre-canonical documents only.
+            //
+            // Why signed_paginated_html FIRST (was canonical-first): the ink baker
+            // stamps a "Signed by {name}" caption into EVERY role-block signature
+            // cell of the canonical — including inline clause cells the signer's
+            // paginated document collapsed away — so a canonical-rendered PDF
+            // showed extra mid-document signature rows and re-flowed to a different
+            // page count than the 3 pages on screen. The signer's own paginated
+            // DOM is the faithful source. (AT-332 — PDF ≠ on-screen divergence.)
             $canonicalHtml    = (string) ($webTemplateData['canonical_html'] ?? '');
             $canonicalVersion = (int) ($webTemplateData['canonical_version'] ?? 0);
             $signedPaginated  = $document->signed_paginated_html;
-            if ($canonicalVersion >= 1 && trim($canonicalHtml) !== '') {
-                $renderHtml = $canonicalHtml;
-            } elseif (is_string($signedPaginated) && trim($signedPaginated) !== '') {
+            if (is_string($signedPaginated) && trim($signedPaginated) !== '') {
                 $renderHtml = $signedPaginated;
+            } elseif ($canonicalVersion >= 1 && trim($canonicalHtml) !== '') {
+                $renderHtml = $canonicalHtml;
             } elseif (trim($canonicalHtml) !== '') {
                 $renderHtml = $canonicalHtml;
             } else {
@@ -218,6 +226,15 @@ class SignaturePdfService
      */
     private function injectInitialsPagination(SignatureTemplate $template, $document, string $html): string
     {
+        // AT-332 — only the UN-paginated canonical needs this. When the render
+        // source is signed_paginated_html (the signer's exact DOM, already split
+        // into .corex-a4-page with the initials placed in-position), re-running
+        // paginateDocument would re-flow it and defeat the whole point — render it
+        // verbatim so the PDF matches the on-screen pages.
+        if (str_contains($html, 'corex-a4-page')) {
+            return $html;
+        }
+
         $webData = $document->web_template_data ?? [];
         $signed = $webData['signed_initials'] ?? [];
         if (!is_array($signed) || $signed === []) {

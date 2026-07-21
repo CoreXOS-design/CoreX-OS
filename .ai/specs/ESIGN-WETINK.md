@@ -450,3 +450,36 @@ render into, so it vanished.
   recipient-distinct, so the render fix then places each in its own box. Regression guard:
   `tests/Feature/Docuperfect/SigningView/CoSignerInitialsPersistTest.php` (two sellers both initial →
   both persist under their own canonical keys after the 2nd completes).
+
+---
+
+## AT-332 — generated/emailed PDF must match the on-screen signed pages
+
+Two production defects on a filed Exclusive-Authority-to-Sell (doc 452):
+
+**(1) Filed doc not tagged "Mandate".** `SignatureService::fileSingleDocument()`
+(`:2115`) files with `document_type_id => $docTemplate?->document_type_id` — the
+filed document inherits its type from the SOURCE TEMPLATE. The mandate templates
+already carry `document_type_id = 1` (Mandate) and the DocuPerfect editor already
+exposes "Document Type" (edit / edit-web / cds-builder → `saveFields`/`cdsGenerate`
+persist it), so real mandate docs already file as Mandate. The one gap was the
+"monday morning test" CDS template (#67, behind doc 452) had it NULL — set to 1.
+Every doc filed from a mandate template files as Mandate; the setting is a real,
+editor-exposed field, not a DB poke.
+
+**(2) Emailed PDF ≠ on-screen signed document.** The single-doc PDF rendered
+`canonical_html`, but the ink baker stamps a "Signed by {name}" caption into EVERY
+role-block signature cell of the canonical — including inline clause cells the
+signer's paginated document collapsed — so the PDF showed 12 signature captions
+(4 extra mid-document, around clauses 2.6/2.7/2.7.4) vs the 8 the signer saw, and
+being un-paginated it re-flowed under A4/`zoom:0.82` to a different page count with
+mismatched "Page X of Y" footers. Fix: `SignaturePdfService` render precedence now
+prefers **`signed_paginated_html`** (the exact per-document `.corex-a4-page` DOM the
+last signer submitted, with all ink + page-break initials in position) over the
+canonical; `injectInitialsPagination()` is a no-op when the source is already
+paginated (contains `corex-a4-page`) so it renders verbatim. Canonical stays the
+fallback for docs with no captured paginated DOM.
+
+**Proof (doc 452, real Chromium):** PDF-input now = signed_paginated_html →
+**3 pages**, **8 "Signed by"** (no extra inline rows), **6/6 initials in position**,
+footers **"Page 1 of 3 / 2 of 3 / 3 of 3"** — matches the on-screen signed document.
