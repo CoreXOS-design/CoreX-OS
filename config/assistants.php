@@ -87,6 +87,7 @@ return [
     */
     'admin_default_off_sections' => [
         'admin',           // soft-delete register, backups, server health, API keys, testimonials
+        'assistants',      // AT-267 H2 — an assistant must never manage assistants (reassign = self-escalation)
         'role-manager',    // viewing/editing roles + permissions
         'settings',        // agency settings
         'agencies',        // agency management

@@ -522,7 +522,11 @@ Route::middleware('auth')->group(function () {
      | Full CRUD is the floor (BUILD_STANDARD §1): list, view, create, reassign, revoke,
      | restore. Revoke is a soft delete — no hard deletes, ever.
      */
-    Route::prefix('admin/assistants')->name('admin.assistants.')->middleware('agency.required')->group(function () {
+    // AT-267 H2 — an assistant may NEVER manage assistants (create/reassign/revoke). The controller
+    // gates on hasPermission('assistants.*'), but those keys can seed ON for an assistant of an
+    // admin/BM agent, so an assistant could reassign THEMSELVES to a higher agent and widen their
+    // ceiling. deny_assistant blocks the whole surface regardless of matrix.
+    Route::prefix('admin/assistants')->name('admin.assistants.')->middleware(['agency.required', 'deny_assistant'])->group(function () {
         Route::get('/',                             [\App\Http\Controllers\Admin\AssistantController::class, 'index'])->name('index');
         Route::get('/create',                       [\App\Http\Controllers\Admin\AssistantController::class, 'create'])->name('create');
         Route::post('/',                            [\App\Http\Controllers\Admin\AssistantController::class, 'store'])->name('store');
