@@ -650,7 +650,9 @@ return [
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
                 'access_rental_signatures',
-                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'settle_deals', 'proforma.generate',
+                // AT-283 (Johan's ruling): settlement is admin-only — "not even bm can
+                // access settlements". BM keeps the deal register, loses settle_deals.
+                'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
@@ -806,7 +808,9 @@ return [
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'view_own_stats',
-                'access_deal_register_v2',
+                // AT-283 (Johan's ruling): agents have NO deal-register access — their
+                // "my deals" live on the agency tracker only, never the deal register.
+                // (access_deal_register / _v2 and settle_deals are stripped from agents.)
                 // AT-158 WS-V3 (Ruling b): capture defaults to BM/admin. Agents get
                 // view + edit (to feed back on their own deals); they do NOT get
                 // 'deals_v2.create' by default. An agency can additionally grant
@@ -880,6 +884,10 @@ return [
         // an agency can widen it to branch/all or remove it entirely. The default
         // is deliberately minimal (own), not broad.
         'office_admin' => [
+            // AT-283 (Johan's final ruling): "settlement is payslips — only admin can do
+            // this." office_admin gets NO deal register and NO settlement — already
+            // excluded here, so the reconcile strips its stale access_deal_register /
+            // _v2 / settle_deals grants as over-grants.
             'include' => [
                 'communications.view',
             ],

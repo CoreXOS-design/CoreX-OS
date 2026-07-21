@@ -2,6 +2,7 @@
 
 namespace App\Services\Communications;
 
+use App\Services\Security\MediaCipher;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -12,9 +13,19 @@ use Illuminate\Support\Facades\Storage;
  *
  * Destination is swappable by config (`communications.disk`, default 'local' =
  * storage/app/private) without changing callers.
+ *
+ * AT-173 — this is the single encrypt-on-write / decrypt-on-read seam for all
+ * communication media. The content hash is ALWAYS computed on the PLAINTEXT
+ * (before encryption), so dedup and `content_hash` verification are unchanged and
+ * ciphertext is simply what sits at that plaintext-addressed path. Reads decrypt
+ * transparently; legacy plaintext files (pre-migration) pass through untouched.
  */
 class CommunicationStorageService
 {
+    public function __construct(private readonly MediaCipher $cipher)
+    {
+    }
+
     public function disk(): string
     {
         return config('communications.disk', 'local');
@@ -29,12 +40,14 @@ class CommunicationStorageService
      */
     public function store(int $agencyId, string $kind, string $bytes): array
     {
-        $hash = hash('sha256', $bytes);
+        $hash = hash('sha256', $bytes); // PLAINTEXT hash — dedup + content_hash unchanged
         $path = $this->pathFor($agencyId, $kind, $hash);
         $disk = Storage::disk($this->disk());
 
         if (! $disk->exists($path)) {
-            $disk->put($path, $bytes);
+            // AT-173 — encrypt before writing when encryption is on; the ciphertext
+            // sits at the plaintext-addressed path. When off, bytes are stored plain.
+            $disk->put($path, $this->cipher->enabled() ? $this->cipher->encrypt($bytes) : $bytes);
         }
 
         return ['path' => $path, 'content_hash' => $hash];
@@ -44,7 +57,13 @@ class CommunicationStorageService
     {
         $disk = Storage::disk($this->disk());
 
-        return $disk->exists($path) ? $disk->get($path) : null;
+        if (! $disk->exists($path)) {
+            return null;
+        }
+
+        // AT-173 — decrypt on read. Enveloped bytes decrypt; legacy plaintext
+        // (pre-migration) passes through unchanged.
+        return $this->cipher->decrypt($disk->get($path));
     }
 
     public function exists(string $path): bool

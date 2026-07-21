@@ -136,7 +136,7 @@
                 <p class="text-sm break-words" style="color:var(--text-primary);">{{ $doc->file_name }}</p>
                 <p class="text-xs" style="color:var(--text-muted);">{{ number_format($doc->file_size / 1024) }} KB</p>
             </div>
-            <a href="{{ Storage::url($doc->file_path) }}" target="_blank" rel="noopener"
+            <a href="{{ route('compliance.fica.documents.view', [$submission, $doc]) }}" target="_blank" rel="noopener"
                class="shrink-0 inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold text-white transition-colors"
                style="background:var(--brand-button,#0ea5e9);"
                aria-label="View {{ $doc->document_type_label }} document">

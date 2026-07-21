@@ -798,7 +798,8 @@ class FicaController extends Controller
             if (! $type) {
                 continue;
             }
-            $path = $file->store("fica/{$submission->id}", 'public');
+            // AT-173 — encrypt on write to the PRIVATE disk (was the public disk).
+            $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, "fica/{$submission->id}");
 
             $doc = FicaDocument::create([
                 'fica_submission_id' => $submission->id,
@@ -860,6 +861,20 @@ class FicaController extends Controller
     }
 
     /**
+     * AT-173 — stream a FICA document decrypted, through PHP (never a direct disk
+     * URL). Gated by the route (access_compliance + agency.required), the agency
+     * authorisation, and the document-belongs-to-submission check. Reads legacy
+     * plaintext / public-disk files transparently during migration.
+     */
+    public function viewDocument(Request $request, FicaSubmission $submission, FicaDocument $document)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless((int) $document->fica_submission_id === (int) $submission->id, 404);
+
+        return app(\App\Services\Compliance\FicaDocumentStorage::class)->stream($document);
+    }
+
+    /**
      * File approved FICA documents to the contact's document drive.
      */
     private function fileDocumentsToContact(FicaSubmission $submission): void
@@ -916,7 +931,11 @@ class FicaController extends Controller
 
             $ext = pathinfo($ficaDoc->file_name, PATHINFO_EXTENSION) ?: 'pdf';
             $newPath = "contact-documents/{$contact->id}/" . Str::uuid() . ".{$ext}";
-            $localDisk->put($newPath, $sourceDisk->get($ficaDoc->file_path));
+            // AT-173 — the filed FICA copy (the durable, openable client document) is
+            // encrypted at rest. Read back via Document::downloadResponse/decryptedContents.
+            $plainBytes = $sourceDisk->get($ficaDoc->file_path);
+            $mediaCipher = app(\App\Services\Security\MediaCipher::class);
+            $localDisk->put($newPath, $mediaCipher->enabled() ? $mediaCipher->encrypt($plainBytes) : $plainBytes);
 
             $document = Document::create([
                 'agency_id'        => $submission->agency_id,
