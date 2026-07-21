@@ -129,6 +129,52 @@ final class PropertyAddressOneTruthTest extends TestCase
         $this->assertSame('19A Clarendon road', $p->fresh()->address);
     }
 
+    // ── Compose-time junk-class fix: new imports self-heal on save ───────
+
+    /**
+     * AT-266 compose-time — a scheme-in-street junk row (the complex duplicated
+     * into street_name) now DERIVES a clean `address` on save. This is what makes
+     * the seller-outreach merge field and the on-screen address correct without a
+     * manual reconcile run.
+     */
+    public function test_a_scheme_in_street_row_derives_a_clean_address_on_save(): void
+    {
+        $p = $this->property([
+            'street_number' => '73',
+            'street_name'   => '26 Stafford Close Marine Drive',
+            'complex_name'  => '26 Stafford Close',
+            'unit_number'   => '26',
+        ]); // through the observer — address is derived from the (junk) parts
+
+        $this->assertSame('Unit 26, Stafford Close, 73 Marine Drive', $p->address);
+        $this->assertStringNotContainsString('Stafford Close Marine Drive', $p->address);
+        $this->assertSame('73 Marine Drive', $p->composeStreetLine());
+    }
+
+    /** AT-266 compose-time — a unit-as-house-number scheme composes with no doubled number. */
+    public function test_a_unit_as_number_scheme_derives_a_clean_address_on_save(): void
+    {
+        $p = $this->property([
+            'street_number' => '9',
+            'street_name'   => 'Casa Montana',
+            'unit_number'   => '9',
+        ]);
+
+        $this->assertSame('Unit 9, Casa Montana', $p->address);
+    }
+
+    /** AT-266 compose-time — the conservative guard: a real house number == the unit is KEPT. */
+    public function test_a_house_number_equal_to_the_unit_on_a_real_street_is_kept(): void
+    {
+        $p = $this->property([
+            'street_number' => '6',
+            'street_name'   => 'Marine Drive',
+            'unit_number'   => '6',
+        ]);
+
+        $this->assertSame('Unit 6, 6 Marine Drive', $p->address);
+    }
+
     // ── The reconciler: the real live corruption shapes ──────────────────
 
     /** Live property 3719 — the complex was typed into the street-name box. */

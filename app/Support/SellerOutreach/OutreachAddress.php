@@ -117,7 +117,7 @@ final class OutreachAddress
 
         $parts = array_filter([
             $this->unitNumber !== null ? 'Unit ' . $this->unitNumber : null,
-            $this->complexName,
+            \App\Services\Properties\PropertyAddressReconciler::cleanComplexPiece($this->complexName, $this->unitNumber) ?: null,
             $this->composeStreetFromColumns() ?: null,
         ]);
 
@@ -209,25 +209,15 @@ final class OutreachAddress
      */
     private function composeStreetFromColumns(): string
     {
-        $number = (string) ($this->streetNumber ?? '');
-        $name   = (string) ($this->streetName ?? '');
-
-        if ($name === '') {
-            return trim($number);
-        }
-        if ($number === '' || self::startsWithNumber($name, $number)) {
-            return trim($name);
-        }
-
-        return trim($number . ' ' . $name);
-    }
-
-    /** Does $name already open with the street number (as a whole token)? */
-    private static function startsWithNumber(string $name, string $number): bool
-    {
-        return (bool) preg_match(
-            '/^' . preg_quote(trim($number), '/') . '(?![0-9A-Za-z])/u',
-            trim($name)
+        // AT-266 — the SAME cleaner Property::composeStreetLine() uses (scheme-in-
+        // street + unit-as-number + double-number guard), so the outreach fallback
+        // and the on-screen property address can never diverge again. The complex +
+        // unit are rendered separately by streetLine(), so nothing is lost.
+        return \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece(
+            $this->streetNumber,
+            $this->streetName,
+            $this->complexName,
+            $this->unitNumber,
         );
     }
 
