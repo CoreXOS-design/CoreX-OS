@@ -576,3 +576,42 @@ this lane: the `hfc_dash_test_6` test DB fails `RefreshDatabase` bootstrap (sche
 test-DB gotcha (CLAUDE.md #13). All 6 error at 0 assertions in setUp, before any assertion runs — a
 pre-existing infra baseline, not this change. Every path is instead proven on QA1 through the real
 controllers (§21.7).
+
+## 22. Supplier-directory follow-ups (items 1–3, 2026-07-21)
+
+Three directed fixes on the supplier / COC-config surfaces.
+
+### 22.1 (item 1) COC-config Save reflects on the pipeline board (no manual refresh)
+`dr2/_supplier-work-orders.blade.php` `save()` re-rendered the panel via `load()` but the
+server-rendered **pipeline step board** (left column) showed the N/A cascade and stayed stale.
+On a successful save the panel now **reloads the pipeline page**, carrying the "Saved"
+confirmation across via `sessionStorage['coc_saved_msg']` (read in `load()`). See §18.
+
+### 22.2 (item 3) Per-supplier service-type tick boxes read the Settings list — resolved correctly
+`SupplierDirectoryController::index` resolved the agency as `effectiveAgencyId() ?? 0`, which is
+**0 for owner / no-agency users** → every `AgencyServiceType where agency_id=0` read was empty →
+the tick boxes rendered nothing (fell back to the supplier's stored codes as "(archived)", looking
+hard-coded) **and** a save validated against an empty set and **wiped the ticks**.
+- **Fix:** the tick list resolves the SAME way Settings → COC/Service Types does — `AgencyServiceType::active()`
+  (AgencyScope / acting-agency session switcher) — so it is **guaranteed identical to what the agency
+  configured**, for every user incl. an un-switched owner. `postedTypeCodes` validates via
+  `withoutGlobalScope(AgencyScope::class)` (SoftDeletes KEPT → archived never treated as valid), keyed
+  on the provider's authoritative `agency_id`.
+- **Archived-but-tagged, no silent drop:** `syncTypes` unions the posted active codes with the
+  supplier's currently-tagged **archived** codes before reconciling, so a save never drops them; they
+  render read-only "(archived)".
+- **`specialty` is untouched** — attorney matching (`attorneySpecialties` vs `s.specialty`) and dedup
+  (`findOrCreate` by specialty) key off `specialty` and are unaffected. The tick boxes are the separate
+  `service_types` pivot.
+
+### 22.3 (item 3b) Persist-on-toggle — no manual Save button
+Each per-supplier tick auto-saves immediately via AJAX to `deals-v2.suppliers.types` (JSON): tick adds
+the pivot link, un-tick **soft-deletes** it (`syncServiceTypes`). Survives refresh; per-supplier
+isolated; a "✓ saved" / "save failed — retry" indicator replaces the old manual "Save types" button.
+
+### 22.4 (item 2) Inline "＋ Add supplier" on the COC-panel picker
+`dr2/_supplier-work-orders.blade.php` — the supplier `<select>` gains a "＋ Add supplier" inline
+mini-form (name + optional email). On submit it POSTs `deals-dr2.suppliers.inline`
+(`SupplierDirectoryController::createInline`, `permission:create_deals` — DR2's own perm) tagged with
+**THIS row's AgencyServiceType code** (`service_types:[it.code]`, `specialty:'other'`), then pushes the
+new supplier into the picker and selects it. No navigating away to the Suppliers page.

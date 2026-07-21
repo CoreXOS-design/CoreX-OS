@@ -172,32 +172,50 @@
                                      silently drops them (marked "archived"). --}}
                                 @php($ownCodes = $p->typeCodes())
                                 @php($archivedOwn = array_values(array_diff($ownCodes, $serviceTypes->pluck('code')->all())))
-                                <div class="mb-4">
-                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Service types</div>
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.types', $p) }}">
-                                        @csrf
-                                        <div class="flex flex-wrap gap-x-4 gap-y-1 mb-2">
-                                            @forelse($serviceTypes as $t)
-                                                <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
-                                                    <input type="checkbox" name="service_types[]" value="{{ $t->code }}"
-                                                           @checked(in_array($t->code, $ownCodes, true))
-                                                           style="accent-color: var(--brand-button, #0ea5e9);">
-                                                    {{ $t->label }}
-                                                </label>
-                                            @empty
-                                                <span class="text-xs" style="color: var(--text-muted);">No service types configured — add them under Settings → COC / Service Types.</span>
-                                            @endforelse
-                                            @foreach($archivedOwn as $code)
-                                                <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-muted);">
-                                                    <input type="checkbox" name="service_types[]" value="{{ $code }}" checked style="accent-color: var(--brand-button, #0ea5e9);">
-                                                    {{ $code }} <span class="text-[10px]">(archived)</span>
-                                                </label>
-                                            @endforeach
-                                        </div>
-                                        @if($serviceTypes->isNotEmpty() || !empty($archivedOwn))
-                                            <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">Save types</button>
-                                        @endif
-                                    </form>
+                                @php($activeCodes = $serviceTypes->pluck('code')->all())
+                                @php($ownActive = array_values(array_intersect($ownCodes, $activeCodes)))
+                                {{-- 3b — persist-on-toggle: each tick auto-saves the supplier↔type pivot
+                                     immediately (tick adds, un-tick soft-deletes); no manual Save button;
+                                     survives refresh; per-supplier isolated. Archived-but-tagged codes are
+                                     read-only info, preserved server-side (never silently dropped). --}}
+                                <div class="mb-4"
+                                     x-data="{
+                                        codes: {{ \Illuminate\Support\Js::from($ownActive) }},
+                                        saving:false, saved:false, err:false,
+                                        async persist(){
+                                            this.saving=true; this.saved=false; this.err=false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.types', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({service_types: this.codes})});
+                                                const j = await r.json();
+                                                if(r.ok && j.ok){ this.saved=true; setTimeout(()=>{ this.saved=false; }, 1600); }
+                                                else { this.err=true; }
+                                            } catch(e){ this.err=true; }
+                                            this.saving=false;
+                                        }
+                                     }">
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Service types</span>
+                                        <span x-show="saving" x-cloak class="text-[10px] normal-case" style="color:#6b7280;">saving…</span>
+                                        <span x-show="saved" x-cloak x-transition class="text-[10px] normal-case" style="color:#059669;">✓ saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
+                                    </div>
+                                    <div class="flex flex-wrap gap-x-4 gap-y-1 mb-2">
+                                        @forelse($serviceTypes as $t)
+                                            <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-secondary);">
+                                                <input type="checkbox" value="{{ $t->code }}" x-model="codes" @change="persist()"
+                                                       style="accent-color: var(--brand-button, #0ea5e9);">
+                                                {{ $t->label }}
+                                            </label>
+                                        @empty
+                                            <span class="text-xs" style="color: var(--text-muted);">No service types configured — add them under Settings → COC / Service Types.</span>
+                                        @endforelse
+                                        @foreach($archivedOwn as $code)
+                                            <label class="inline-flex items-center gap-1.5 text-xs" style="color: var(--text-muted);" title="Archived in Settings — stays tagged, never dropped.">
+                                                <input type="checkbox" checked disabled style="accent-color: var(--brand-button, #0ea5e9);">
+                                                {{ $code }} <span class="text-[10px]">(archived)</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
                                 </div>
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)

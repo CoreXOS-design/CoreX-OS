@@ -8,6 +8,7 @@ use App\Models\DealV2\AgencyServiceProviderContact;
 use App\Models\DealV2\AgencyServiceProviderServiceType;
 use App\Models\DealV2\AgencyServiceType;
 use App\Models\DealV2\DealV2;
+use App\Models\Scopes\AgencyScope;
 use App\Services\DealV2\AgencyServiceProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,9 +45,13 @@ class SupplierDirectoryController extends Controller
             ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
             ->get();
 
-        // AT-319 — the agency's active, configurable service types drive the multi-select.
-        $serviceTypes = AgencyServiceType::query()->withoutGlobalScopes()
-            ->where('agency_id', $agencyId)->where('is_active', true)
+        // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes.
+        // Resolve the SAME way Settings → COC/Service Types does (AgencyScope / acting-agency session
+        // switcher) so the tick list is guaranteed identical to what the agency configured — for every
+        // user, including an un-switched owner. (The old `effectiveAgencyId() ?? 0` resolved to agency 0
+        // for owner/no-agency users → empty list → the ticks looked hard-coded AND a save validated
+        // against an empty set and wiped them.)
+        $serviceTypes = AgencyServiceType::active()
             ->orderBy('sort_order')->orderBy('id')->get(['code', 'label']);
 
         return view('deals-v2.suppliers.index', [
@@ -75,8 +80,22 @@ class SupplierDirectoryController extends Controller
     public function syncTypes(Request $request, AgencyServiceProvider $provider)
     {
         $this->authorizeAgency($request, $provider);
-        $this->syncServiceTypes($provider, $this->postedTypeCodes($request, (int) $provider->agency_id));
 
+        $codes = $this->postedTypeCodes($request, (int) $provider->agency_id);
+        // "No silent drop": preserve any code this supplier already holds that is no longer an
+        // ACTIVE type (shown "(archived)"). The tick UI only manages active codes; archived-tagged
+        // codes ride through every save untouched until the type is restored/managed in Settings.
+        $activeCodes = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', (int) $provider->agency_id)->where('is_active', true)->pluck('code')->all();
+        $archivedTagged = array_values(array_diff($provider->typeCodes(), $activeCodes));
+        $codes = array_values(array_unique(array_merge($codes, $archivedTagged)));
+
+        $this->syncServiceTypes($provider, $codes);
+
+        // 3b — persist-on-toggle: the tick boxes auto-save each change via AJAX (no manual button).
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'codes' => $provider->fresh()->typeCodes()]);
+        }
         return back()->with('success', "Updated the service types for {$provider->name}.");
     }
 
@@ -119,7 +138,15 @@ class SupplierDirectoryController extends Controller
         $data = $this->validated($request);
         $provider = $this->service->findOrCreate((int) $request->user()?->effectiveAgencyId(), $data, $request->user()->id);
 
-        return response()->json(['provider' => $this->row($provider)], 201);
+        // Item 2 — tag the new supplier with the posted AgencyServiceType code(s) so it appears in
+        // the type-filtered work-order picker straight away. (`specialty` — which attorney matching
+        // and dedup key off — is set by validated() and untouched here.)
+        $codes = $this->postedTypeCodes($request, (int) $provider->agency_id);
+        if (! empty($codes)) {
+            $this->syncServiceTypes($provider, $codes);
+        }
+
+        return response()->json(['provider' => $this->row($provider->fresh())], 201);
     }
 
     /** Attach a directory provider to a deal under a provider role. */
@@ -165,7 +192,10 @@ class SupplierDirectoryController extends Controller
         if (empty($posted)) {
             return [];
         }
-        $valid = AgencyServiceType::query()->withoutGlobalScopes()
+        // Validate against the agency's real ACTIVE, non-archived types — via the provider's
+        // authoritative agency_id, bypassing ONLY AgencyScope (SoftDeletes kept, so an archived
+        // type is never treated as valid).
+        $valid = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)->where('is_active', true)->pluck('code')->all();
 
         return array_values(array_unique(array_intersect($posted, $valid)));
@@ -253,6 +283,8 @@ class SupplierDirectoryController extends Controller
             'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,
+            // AT-319 — the AgencyServiceType codes this supplier handles (drives the picker filter).
+            'types' => $p->typeCodes(),
         ];
     }
 }

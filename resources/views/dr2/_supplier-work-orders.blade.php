@@ -23,6 +23,24 @@
         },
         suppliersFor(it){ const m=this.matchingSuppliers(it); return m.length ? m : this.suppliers; },
         isSupplierFallback(it){ return this.suppliers.length>0 && this.matchingSuppliers(it).length===0; },
+        {{-- Item 2 — inline add-supplier (no navigating away). Creates the supplier TAGGED with THIS
+             row's AgencyServiceType code so it appears in the type-filtered picker immediately, then
+             selects it. `specialty` defaults to 'other' (attorney matching keys off specialty and is
+             unaffected). --}}
+        addingFor:null, newSup:{name:'',email:''}, addBusy:false, addErr:'',
+        openAdd(it){ this.addingFor=it.code; this.newSup={name:'',email:''}; this.addErr=''; },
+        cancelAdd(){ this.addingFor=null; this.addErr=''; },
+        async submitAdd(it){
+            if(!this.newSup.name.trim()){ this.addErr='Supplier name is required.'; return; }
+            this.addBusy=true; this.addErr='';
+            try {
+                const r = await fetch('{{ route('deals-dr2.suppliers.inline') }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({name:this.newSup.name.trim(), email:(this.newSup.email.trim()||null), specialty:'other', service_types:[it.code]})});
+                const j = await r.json();
+                if(r.ok && j.provider){ this.suppliers.push(j.provider); it.service_provider_id = j.provider.id; this.addingFor=null; }
+                else { this.addErr=(j.errors?Object.values(j.errors).flat().join(' '):'Could not add supplier.'); }
+            } catch(e){ this.addErr='Could not add supplier.'; }
+            this.addBusy=false;
+        },
         async load(){
             this.loading=true; this.err='';
             // Surface the post-save confirmation carried across the reload (item 1).
@@ -89,7 +107,19 @@
                             <option value="">— pick supplier —</option>
                             <template x-for="s in suppliersFor(it)" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
                         </select>
-                        <span x-show="isSupplierFallback(it)" x-cloak style="font-size:.66rem;color:#b45309;display:block;margin-top:.15rem;">No supplier of this type — showing all. Add one in the Supplier Directory.</span>
+                        {{-- Item 2 — inline add-supplier, no navigating away. --}}
+                        <button type="button" x-show="it.status!=='sent' && addingFor!==it.code" @click="openAdd(it)"
+                                style="margin-top:.2rem;background:none;border:none;padding:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);font-size:.68rem;font-weight:600;">＋ Add supplier</button>
+                        <div x-show="addingFor===it.code" x-cloak style="margin-top:.25rem;border:1px solid #e5e7eb;border-radius:.4rem;padding:.4rem;display:flex;flex-direction:column;gap:.25rem;">
+                            <input type="text" x-model="newSup.name" placeholder="Supplier name *" class="corex-input" style="font-size:.72rem;">
+                            <input type="email" x-model="newSup.email" placeholder="Email (optional)" class="corex-input" style="font-size:.72rem;">
+                            <div style="display:flex;gap:.4rem;align-items:center;">
+                                <button type="button" @click="submitAdd(it)" :disabled="addBusy" class="corex-btn" style="font-size:.7rem;padding:.2rem .55rem;" x-text="addBusy ? 'Adding…' : 'Add & select'"></button>
+                                <button type="button" @click="cancelAdd()" style="font-size:.7rem;background:none;border:none;color:#6b7280;cursor:pointer;">Cancel</button>
+                                <span x-show="addErr" x-cloak x-text="addErr" style="font-size:.66rem;color:#b45309;"></span>
+                            </div>
+                        </div>
+                        <span x-show="isSupplierFallback(it)" x-cloak style="font-size:.66rem;color:#b45309;display:block;margin-top:.15rem;">No supplier of this type — showing all, or add one above.</span>
                     </div>
                     <div style="font-size:.66rem;color:#6b7280;">
                         <span x-show="it.status==='sent'" x-cloak>→ <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-cloak x-text="' (cc ' + it.cc_emails + ')'"></span></span>
