@@ -2567,34 +2567,34 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 {$cleanupCss}
 CSS;
 
-        // AT-328/AT-332 — when the render input is the signer's ALREADY-paginated
-        // DOM (signed_paginated_html: a sequence of fixed 210x297mm .corex-a4-page
-        // boxes, each carrying its own padding and its own .page-number footer),
-        // the default PDF CSS above (@page 18/20mm margins + counter(pages) footer,
-        // .corex-document-wrapper zoom:0.82, and .corex-a4-page reset to
-        // min-height:auto/padding:0) RE-FLOWS those boxes: 3 on-screen pages
-        // rendered as 4 physical PDF pages with a mismatched "Page X of Y" @page
-        // footer (counting physical pages) stacked on top of the DOM's own footer.
-        // Map each .corex-a4-page to EXACTLY one physical A4 page instead: zero the
-        // @page margins + blank its counter (the DOM footer is authoritative), drop
-        // the wrapper zoom, and restore the page box to its captured geometry with a
-        // hard page break after each. Appended last so it wins the cascade.
+        // AT-332 / LEGAL WYSIWYG — render each captured .corex-a4-page as one physical
+        // A4 sheet, wrapped at TRUE A4 (a4-page-styles now breaks at the real printable
+        // height), with the @page margins zeroed and the counter blanked (the DOM's own
+        // .page-number footer is authoritative) and no wrapper zoom.
+        //
+        // The box is sized by MIN-HEIGHT (grows to fit) with overflow VISIBLE and NO
+        // fixed height — never a fixed height + overflow:hidden, which CLIPPED ~40% of a
+        // page's content below the 297mm cut. A NEW doc's page now fits exactly one A4
+        // sheet; a LEGACY doc captured at the old (taller) breaks reproduces EXACTLY what
+        // was signed — every element present, uncut — flowing onto extra A4 sheets rather
+        // than being clipped. NEVER hide signed content.
         if (str_contains($mergedHtml, 'corex-a4-page')) {
             $pdfStyles .= <<<CSS
 
-/* === AT-328/AT-332 — pre-paginated DOM: one .corex-a4-page = one physical page === */
+/* === AT-332 / legal WYSIWYG — each captured .corex-a4-page renders FULLY, never clipped === */
 @page { size: A4; margin: 0; @bottom-center { content: ""; } }
 .corex-document-wrapper { zoom: 1 !important; }
 .corex-a4-page {
     width: 210mm !important;
-    height: 297mm !important;
-    min-height: 297mm !important;
+    min-height: 297mm !important;       /* at least one A4 sheet; grows for a legacy tall page */
+    height: auto !important;            /* NEVER a fixed height — that is what clipped content */
     padding: 20mm 18mm 25mm 18mm !important;
     margin: 0 !important;
     box-sizing: border-box !important;
-    overflow: hidden !important;
+    overflow: visible !important;       /* never clip — no signed content may be hidden */
     page-break-after: always !important;
     break-after: page !important;
+    page-break-inside: auto !important; /* a >A4 element / legacy tall page may span sheets, uncut */
 }
 .corex-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
 CSS;

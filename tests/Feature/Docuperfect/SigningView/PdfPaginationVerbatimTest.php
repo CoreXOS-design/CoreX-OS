@@ -36,7 +36,13 @@ final class PdfPaginationVerbatimTest extends TestCase
         $this->assertStringContainsString('@page { size: A4; margin: 0;', $out, 'pre-paginated render must zero the @page margins');
         $this->assertStringContainsString('page-break-after: always', $out, 'each .corex-a4-page must hard-break onto its own page');
         $this->assertStringContainsString('.corex-document-wrapper { zoom: 1', $out, 'the 0.82 fit-scale must be dropped for pre-paginated input');
-        $this->assertStringContainsString('height: 297mm', $out, 'each page box must be a full A4 height (no re-flow)');
+        $this->assertStringContainsString('min-height: 297mm', $out, 'each page box is at least a full A4 sheet');
+
+        // LEGAL WYSIWYG (Johan): the emailed PDF must NEVER hide signed content. The
+        // page box grows to fit (min-height + height:auto + overflow:visible); a fixed
+        // height with overflow:hidden clipped ~40% of a page below the 297mm cut.
+        $this->assertStringContainsString('height: auto !important', $out, 'no fixed height — a fixed height is what clipped content');
+        $this->assertStringContainsString('overflow: visible !important', $out, 'content must never be clipped (override wins the cascade, appended last)');
     }
 
     public function test_canonical_unpaginated_input_keeps_default_flow_css(): void

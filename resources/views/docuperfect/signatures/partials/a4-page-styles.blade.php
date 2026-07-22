@@ -335,9 +335,18 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     });
     if (children.length === 0) return;
 
-    // A4 content area: 210x297mm minus 20/25/18/18mm padding ≈ 658x ~1500px.
-    var PAGE_CONTENT_HEIGHT = 1500;
-    var PAGE_CONTENT_WIDTH = 658;
+    // TRUE A4 content area — MUST match the .corex-a4-page CSS (210x297mm, padding
+    // 20mm top / 25mm bottom / 18mm sides) so the SIGNING view breaks at real A4
+    // boundaries and the emailed PDF is a page-for-page copy. Legal requirement:
+    // you sign the exact layout you receive — no clipping, no reflow.
+    //
+    // The width is already A4-correct (658px == 210-2*18 = 174mm content width), so we
+    // pin px/mm to THAT scale and derive the height from the SAME padding — height and
+    // width stay consistently calibrated (was hardcoded 1500px ≈ 1.6x too tall, which
+    // let the signing page grow past A4 and the PDF then clipped it).
+    var PAGE_CONTENT_WIDTH = 658;                          // 210mm - 2*18mm = 174mm
+    var PX_PER_MM = PAGE_CONTENT_WIDTH / 174;              // 3.7816 px/mm — same scale as the width
+    var PAGE_CONTENT_HEIGHT = Math.floor((297 - 20 - 25) * PX_PER_MM); // 252mm printable -> ~952px (true A4)
     var MIN_CLAUSE_VISIBLE = 100;
 
     var origW = wrapper.style.width, origMW = wrapper.style.maxWidth;
