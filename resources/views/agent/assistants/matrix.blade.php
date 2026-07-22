@@ -33,7 +33,7 @@
 #am-root .rm-scope-btn[data-scope="all"][data-active="true"]    { background: var(--ds-green, #059669); }
 </style>
 
-<div id="am-root" class="w-full max-w-5xl space-y-5"
+<div id="am-root" class="w-full space-y-5"
      x-data="assistantMatrix()"
      x-init="init()">
 
@@ -83,11 +83,18 @@
     <div x-show="tab === 'permissions'" x-cloak class="space-y-5">
 
     @if($pendingDrift > 0)
-        <div class="rounded-md px-4 py-3 text-sm"
-             style="background:var(--surface, #fff); color:var(--text-primary, #111827); border:1px solid var(--ds-amber, #d97706);">
-            <strong>{{ $pendingDrift }} new {{ \Illuminate\Support\Str::plural('permission', $pendingDrift) }} available.</strong>
-            You've been given access to something you didn't have before. {{ $assistant?->name }} does
-            <em>not</em> get it automatically — the new items are switched off below until you turn them on.
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background:color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent);
+                    border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);
+                    color:var(--text-primary, #111827);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:var(--ds-amber, #d97706);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <div class="flex-1">
+                <strong>{{ $pendingDrift }} new {{ \Illuminate\Support\Str::plural('permission', $pendingDrift) }} available.</strong>
+                You've been given access to something you didn't have before. {{ $assistant?->name }} does
+                <em>not</em> get it automatically — the new items are switched off below until you turn them on.
+            </div>
         </div>
     @endif
 
