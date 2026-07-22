@@ -100,7 +100,7 @@
             });
         }
 
-        $switchUsers = $query->orderBy('name')->get(['id','name','email','role']);
+        $switchUsers = $query->orderBy('name')->get(['id','name','email','role','is_assistant','assistant_title']);
     }
 
     // ── Active group detection (ONE mechanism: routeIs) ──
@@ -2219,7 +2219,13 @@
                     <form method="POST" action="{{ route('impersonate.start', ['user' => $su->id]) }}">
                         @csrf
                         <button type="submit" class="corex-switch-item">
-                            <div class="text-xs" style="color:var(--text-primary);">{{ $su->name }}</div>
+                            <div class="text-xs" style="color:var(--text-primary);">
+                                {{ $su->name }}
+                                @if($su->is_assistant ?? false)
+                                    <span class="ml-1 px-1 py-0.5 rounded text-[0.625rem] font-semibold align-middle"
+                                          style="background:var(--surface-2); color:var(--text-secondary);">{{ trim($su->assistant_title ?? '') !== '' ? $su->assistant_title : 'Assistant' }}</span>
+                                @endif
+                            </div>
                             <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $su->email }} · {{ $su->role }}</div>
                         </button>
                     </form>
