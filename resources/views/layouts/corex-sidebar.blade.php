@@ -215,6 +215,7 @@
     } elseif (request()->routeIs(
         'admin.company-settings*',
         'corex.role-manager*',
+        'admin.assistants.*',
         'admin.soft-deletes.*',
         'staff-take-on.*',
         'billing.*'

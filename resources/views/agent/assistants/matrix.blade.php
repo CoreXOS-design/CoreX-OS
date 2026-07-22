@@ -37,7 +37,7 @@
      x-data="assistantMatrix()"
      x-init="init()">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default, #0b2a4a);">
+    <div data-tour="assist-matrix-intro" class="rounded-md px-6 py-5" style="background:var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">
@@ -49,6 +49,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-3">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'navy'])
                 <span class="text-xs text-white/60" x-show="dirty" x-cloak>Unsaved changes…</span>
                 <span class="text-xs text-white/60" x-show="saved && !dirty" x-cloak>Saved</span>
                 <button type="button" class="corex-btn-primary" @click="save()">Save now</button>
@@ -83,7 +84,7 @@
                  'desc' => 'When on, ' . $assistant?->name . ' can download document files anywhere they can reach them. When off, they can still open and view documents on screen, but cannot download the files.'],
             ];
         @endphp
-        <div class="rounded-md mb-4 overflow-hidden"
+        <div data-tour="assist-matrix-behaviour" class="rounded-md mb-4 overflow-hidden"
              style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
             <div class="px-4 py-3 text-xs font-bold uppercase tracking-wide"
                  style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">
@@ -91,7 +92,7 @@
             </div>
 
             {{-- Always-on: an assistant's work is filed as the agent's. Stated, never toggleable. --}}
-            <div class="px-4 py-3 flex items-start gap-3"
+            <div data-tour="assist-matrix-attribution" class="px-4 py-3 flex items-start gap-3"
                  style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
                      style="width:18px; height:18px; margin-top:1px; color:var(--ds-green, #16a34a);">
@@ -134,7 +135,7 @@
         <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start mb-4">
 
             {{-- LEFT: searchable vertical feature rail --}}
-            <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4"
+            <div data-tour="assist-matrix-features" class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4"
                  style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); max-height:calc(100vh - 8rem);">
                 <div class="px-2 pt-2 pb-2 sticky top-0 z-10"
                      style="background:var(--surface, #fff); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
@@ -161,7 +162,7 @@
             </div>
 
             {{-- RIGHT: permission detail for the selected feature --}}
-            <div class="flex-1 min-w-0">
+            <div data-tour="assist-matrix-detail" class="flex-1 min-w-0">
                 @foreach($sections as $section => $rows)
                     <div x-show="selectedSection === '{{ $section }}'">
                         <div class="rounded-md overflow-hidden"
@@ -263,7 +264,7 @@
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-3">
+        <div data-tour="assist-matrix-save" class="flex items-center justify-end gap-3">
             <a href="{{ route('agent.assistants.index') }}" class="corex-btn-outline">Done</a>
             <button type="button" class="corex-btn-primary" @click="save()">Save</button>
         </div>
