@@ -41,6 +41,23 @@
        the other, and the page does not scroll the columns off. */
     .dr2-pipe-col { height: calc(100vh - 9.5rem); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: .35rem; }
 }
+/* AT-331 — tabbed right panel. Scoped here (no Tailwind, no CSS rebuild on qa1). */
+.dr2-tabbar { display:flex; gap:.25rem; padding:.3rem; background:var(--surface-2,#f0f2f8);
+    border:1px solid var(--border,rgba(0,0,0,.08)); border-radius:12px; margin-bottom:.85rem;
+    position:sticky; top:0; z-index:3; }
+.dr2-tab { flex:1; border:0; background:transparent; color:var(--text-muted,#6b7280);
+    font-family:inherit; font-size:.76rem; font-weight:600; line-height:1.15; padding:.5rem .3rem;
+    border-radius:9px; cursor:pointer; transition:background .15s,color .15s;
+    display:flex; align-items:center; justify-content:center; gap:.35rem; text-align:center; }
+.dr2-tab:hover { color:var(--text-primary,#111827); }
+.dr2-tab.corex-tab-active { background:var(--brand-button,#0ea5e9); color:#fff; box-shadow:0 1px 3px rgba(2,20,40,.18); }
+.dr2-tab:focus-visible { outline:2px solid var(--brand-button,#0ea5e9); outline-offset:2px; }
+/* Standard collapse/expand section header. */
+.dr2-sect-head { display:flex; align-items:center; gap:.5rem; width:100%; border:0; background:transparent;
+    color:var(--text-primary,#111827); font-family:inherit; cursor:pointer; padding:0; text-align:left; }
+.dr2-sect-title { font-size:.9rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted,#6b7280); }
+.dr2-chev { transition:transform .2s; color:var(--text-muted,#9ca3af); font-size:.85rem; line-height:1; }
+.dr2-chev.dr2-chev-closed { transform:rotate(-90deg); }
 </style>
 <div class="corex-page">
     <div class="corex-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
@@ -325,14 +342,38 @@
     @endif
         </div>{{-- /LEFT --}}
 
-        {{-- ── RIGHT (≈40%): own scroll region — Supplier Work Orders · Documents · Send to a party · Proforma --}}
-        <div class="lg:col-span-2 space-y-4 min-w-0 dr2-pipe-col">
-            {{-- AT-229 §17 — Supplier Work Orders config, inline in the right column (NOT a modal) --}}
-            @include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])
-            {{-- DR2 deal documents (AT-225/226) — upload + Send documents to a party --}}
-            @include('dr2._deal-documents', ['deal' => $deal])
-            {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward --}}
-            @include('proforma._deal-section', ['deal' => $deal])
+        {{-- ── RIGHT (≈40%): own scroll region. AT-331 — the four sections are now TABS
+             (one visible at a time) instead of a single tall stack, so nothing (esp. the
+             "Email Parties" send action) is ever pushed off-screen. Layout-only: each pane
+             just holds the SAME partial as before; no controller/route/permission change.
+             Active tab persists per user via localStorage. --}}
+        <div class="lg:col-span-2 min-w-0 dr2-pipe-col"
+             x-data="{ tab: (window.localStorage.getItem('dr2_right_tab') || 'wo') }"
+             x-init="$watch('tab', v => window.localStorage.setItem('dr2_right_tab', v))">
+
+            <div class="dr2-tabbar" role="tablist" aria-label="Deal right panel">
+                <button type="button" class="dr2-tab" :class="tab==='wo'    ? 'corex-tab-active' : ''" @click="tab='wo'"    role="tab" :aria-selected="tab==='wo'">Supplier Work Orders</button>
+                <button type="button" class="dr2-tab" :class="tab==='docs'  ? 'corex-tab-active' : ''" @click="tab='docs'"  role="tab" :aria-selected="tab==='docs'">Documents</button>
+                <button type="button" class="dr2-tab" :class="tab==='email' ? 'corex-tab-active' : ''" @click="tab='email'" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+                <button type="button" class="dr2-tab" :class="tab==='pi'    ? 'corex-tab-active' : ''" @click="tab='pi'"    role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
+            </div>
+
+            {{-- AT-229 §17 — Supplier Work Orders config (NOT a modal). Wrapped as a pane; no logic change. --}}
+            <div x-show="tab==='wo'" x-cloak role="tabpanel">
+                @include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])
+            </div>
+            {{-- DR2 deal documents (AT-225/226) — list + upload. --}}
+            <div x-show="tab==='docs'" x-cloak role="tabpanel">
+                @include('dr2._deal-documents', ['deal' => $deal])
+            </div>
+            {{-- AT-331 — Email Parties: the AT-228 party-first distribution block, now its own tab. --}}
+            <div x-show="tab==='email'" x-cloak role="tabpanel">
+                @include('dr2._email-parties', ['deal' => $deal])
+            </div>
+            {{-- Proforma Invoices (Accounting pillar) — generate from Granted onward. Wrapped as a pane; no logic change. --}}
+            <div x-show="tab==='pi'" x-cloak role="tabpanel">
+                @include('proforma._deal-section', ['deal' => $deal])
+            </div>
         </div>
     </div>{{-- /grid --}}
 </div>
