@@ -78,11 +78,37 @@ class Dr2DistributionComposer
 
     private function contactRecipients(Deal $deal, string $contactRole): array
     {
-        $property = $deal->property;
-        if (! $property) {
-            return [];
+        // AT-334 — the DEAL owns its transaction parties (AT-243, deal_contacts), synced on
+        // every save (syncDealParties add/remove). Resolve buyers/sellers from the DEAL, NOT
+        // the property: a property accumulates buyers across offers (and syncPartyLinks is
+        // append-only), so reading the property showed unselected/removed buyers on Email
+        // Parties. Reading deal_contacts means Email Parties reflects EXACTLY this deal's
+        // current parties — an unselected buyer never appears, a removed buyer drops off.
+        $dealRole = $contactRole === 'seller_owner' ? 'seller' : $contactRole;
+
+        // A "party-managed" deal owns its parties on deal_contacts — a DR2 deal (has a
+        // twin or a deal_type) or any deal that has ever recorded a party. For these,
+        // deal_contacts is AUTHORITATIVE: an empty role = no recipient (so a buyer removed
+        // on edit truly drops off — never a property fallback that resurrects it). Only a
+        // genuinely-legacy DR1 deal (no twin, no deal_type, no recorded parties) falls back
+        // to the property, where its parties historically lived.
+        $hasDealParties = \Illuminate\Support\Facades\DB::table('deal_contacts')
+            ->where('deal_id', $deal->id)->exists();
+        $partyManaged = $hasDealParties || $deal->deal_v2_id !== null || $deal->deal_type !== null;
+
+        if ($partyManaged) {
+            $ids = \Illuminate\Support\Facades\DB::table('deal_contacts')
+                ->where('deal_id', $deal->id)->where('role', $dealRole)->pluck('contact_id');
+            $contacts = $ids->isEmpty()
+                ? collect()
+                : \App\Models\Contact::withoutGlobalScopes()->whereIn('id', $ids)->get();
+        } else {
+            // Legacy pre-AT-243 DR1 deal: parties were recorded only on the property.
+            $property = $deal->property;
+            $contacts = $property ? $property->contactsForRole($contactRole) : collect();
         }
-        return $property->contactsForRole($contactRole)
+
+        return $contacts
             ->map(fn ($c) => [
                 'type'  => 'contact',
                 'id'    => $c->id,
