@@ -73,11 +73,23 @@ class AssistantMatrixController extends Controller
             ->limit(200)
             ->get();
 
+        // Build the view data from the CURRENT state (so this render shows the "N new
+        // permissions available" banner + NEW badges once)...
+        $sections     = $this->matrixSections($agent, $assignment);
+        $pendingDrift = $this->snapshots->pendingDriftCount($assignment);
+
+        // ...then acknowledge it: the agent has now seen the new items, so the banner and
+        // badges don't reappear on the next visit. The rows stay off until the agent turns
+        // them on. (The $sections array + $pendingDrift are already materialised above.)
+        if ($pendingDrift > 0) {
+            $this->snapshots->acknowledgeDrift($assignment);
+        }
+
         return view('agent.assistants.matrix', [
             'assignment'   => $assignment,
             'assistant'    => $assignment->assistant,
-            'sections'     => $this->matrixSections($agent, $assignment),
-            'pendingDrift' => $this->snapshots->pendingDriftCount($assignment),
+            'sections'     => $sections,
+            'pendingDrift' => $pendingDrift,
             'activity'     => $activity,
         ]);
     }
@@ -211,7 +223,7 @@ class AssistantMatrixController extends Controller
                 'scope'         => $row?->scope,
                 'scope_ceiling' => $scopeCeiling,
                 'is_view'       => str_ends_with($def->key, '.view'),
-                'is_new'        => $row && !$row->granted && !$locked,
+                'is_new'        => (bool) ($row?->is_new),
             ];
         }
 

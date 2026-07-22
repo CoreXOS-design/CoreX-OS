@@ -1414,13 +1414,13 @@ CREATE TABLE `assistant_activity_log` (
   `assistant_assignment_id` bigint unsigned NOT NULL,
   `assistant_user_id` bigint unsigned NOT NULL,
   `agent_user_id` bigint unsigned DEFAULT NULL,
-  `action` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `subject_type` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject_type` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `subject_id` bigint unsigned DEFAULT NULL,
-  `subject_label` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `route_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `url` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `method` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_label` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `route_name` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `url` varchar(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `method` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `assistant_activity_log_agency_id_foreign` (`agency_id`),
@@ -1445,6 +1445,7 @@ CREATE TABLE `assistant_assignment_permissions` (
   `granted` tinyint(1) NOT NULL DEFAULT '0',
   `scope` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_locked` tinyint(1) NOT NULL DEFAULT '0',
+  `is_new` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -13901,3 +13902,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1027,'2026_07_19_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1028,'2026_07_21_000001_add_can_download_documents_to_assistant_assignments',188);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1029,'2026_07_22_120000_add_assistant_title_to_users_table',189);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1030,'2026_07_22_130000_create_assistant_activity_log_table',190);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1031,'2026_07_22_140000_add_is_new_to_assistant_assignment_permissions',191);

@@ -984,4 +984,21 @@ safely: widening the pool cannot misattribute a listing.
 
 ---
 
+## 25. "N new permissions available" — show once, then clear (fix, 2026-07-22)
+
+The E4 drift banner (§14) counted **every** off, non-locked matrix row as "new", so an assistant
+seeded with admin-default-off or agent-trimmed permissions showed a large, permanent count (e.g. "81
+new") that never went away. Fixed:
+
+- New `assistant_assignment_permissions.is_new` boolean (default false). Set `true` **only** by a
+  drift top-up (`syncDrift` — the agent gained a permission after setup); the initial snapshot and
+  locked rows are never `is_new`.
+- `pendingDriftCount()` and the per-row NEW badge now read `is_new`, not "any off row".
+- `AssistantMatrixController::edit()` builds the view (so the banner + badges render **once**), then
+  calls `AssistantMatrixSnapshotService::acknowledgeDrift()` to clear `is_new` — so the next visit is
+  clean. The rows stay **off** until the agent turns them on; only the *notice* clears.
+- Existing rows backfill to `false`, so any stale banner clears on deploy.
+
+---
+
 End of spec.

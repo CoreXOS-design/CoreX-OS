@@ -80,14 +80,26 @@ class AssistantMatrixSnapshotService
 
     /**
      * How many rows are sitting available-but-off because of drift — i.e. the agent gained
-     * something and has not yet decided whether to hand it over.
+     * something NEW and has not yet seen it. Counts only rows flagged `is_new` (set by a drift
+     * top-up), NOT every off row — an admin-default-off or deliberately-trimmed permission is a
+     * settled decision, not a pending notification. Cleared when the agent visits the matrix.
      */
     public function pendingDriftCount(AssistantAssignment $assignment): int
     {
         return $assignment->permissions()
-            ->where('granted', false)
+            ->where('is_new', true)
             ->where('is_locked', false)
             ->count();
+    }
+
+    /**
+     * Acknowledge the "N new permissions available" notice: the agent has now SEEN the new
+     * items. The rows stay OFF (the agent still chooses whether to hand each over) — only the
+     * NEW flag clears, so the banner and NEW badges show once and then go away.
+     */
+    public function acknowledgeDrift(AssistantAssignment $assignment): void
+    {
+        $assignment->permissions()->where('is_new', true)->update(['is_new' => false]);
     }
 
     /**
@@ -159,6 +171,10 @@ class AssistantMatrixSnapshotService
                 // admin-default-off) stores null so the matrix editor opens showing the truth.
                 'scope'                   => $granted ? $this->scopeFor($agent, $key, true) : null,
                 'is_locked'               => $locked,
+                // NEW only when this is a drift top-up (the agent gained a permission after
+                // setup). The initial snapshot is never "new" — it's the baseline. Locked rows
+                // are never new. Cleared once the agent visits the matrix.
+                'is_new'                  => (!$grantedByDefault && !$locked),
                 'created_at'              => $now,
                 'updated_at'              => $now,
             ];

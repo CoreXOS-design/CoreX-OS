@@ -353,6 +353,33 @@ final class AssistantLifecycleTest extends TestCase
         $this->assertTrue($assignment->assistant->fresh()->hasPermission('access_presentations'));
     }
 
+    public function test_the_new_permissions_banner_shows_once_then_clears_on_visit(): void
+    {
+        $this->createAssistant();
+        $assignment = AssistantAssignment::firstOrFail();
+        $snapshots  = app(AssistantMatrixSnapshotService::class);
+
+        // The INITIAL snapshot is never "new" — admin-default-off / trimmed rows are a
+        // settled baseline, not a pending notification. (This is the 81-count bug.)
+        $this->assertSame(0, $snapshots->pendingDriftCount($assignment),
+            'A freshly-seeded matrix must not report pending "new" permissions.');
+
+        // The agent gains something new later → it arrives flagged NEW.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'access_presentations', 'agency_id' => $this->agency->id]);
+        $this->reset();
+        $snapshots->syncDrift($assignment);
+        $this->assertSame(1, $snapshots->pendingDriftCount($assignment),
+            'A newly-gained permission must show as one pending "new" item.');
+
+        // First visit: the banner is shown (pendingDrift > 0 reaches the view)...
+        $this->reset();
+        $this->actingAs($this->agent)->get(route('agent.assistants.matrix', $assignment))->assertSuccessful();
+
+        // ...and is acknowledged, so the next visit reports zero — show once, then gone.
+        $this->assertSame(0, $snapshots->pendingDriftCount($assignment->fresh()),
+            'The "new" notice must clear once the agent has visited the matrix.');
+    }
+
     // ── Reassign / revoke / restore ────────────────────────────────
 
     public function test_reassignment_archives_the_old_matrix_and_copies_the_new_agents(): void

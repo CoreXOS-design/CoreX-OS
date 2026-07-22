@@ -31,11 +31,13 @@ class AssistantAssignmentPermission extends Model
         'granted',
         'scope',
         'is_locked',
+        'is_new',
     ];
 
     protected $casts = [
         'granted'   => 'boolean',
         'is_locked' => 'boolean',
+        'is_new'    => 'boolean',
     ];
 
     protected static function booted(): void
