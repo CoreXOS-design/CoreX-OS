@@ -57,13 +57,38 @@ class CocWorkOrderService
 
             case 'transfer_attorney':
                 $p = $this->transferAttorney($deal) ?? ($wo->service_provider_id ? AgencyServiceProvider::find($wo->service_provider_id) : null);
-                return ['type' => 'provider', 'id' => $p?->id, 'name' => $p?->name, 'email' => $p?->email];
+                return ['type' => 'provider', 'id' => $p?->id, 'name' => $p?->name, 'email' => $this->providerEmail($p)];
 
             case 'supplier':
             default:
                 $p = $wo->service_provider_id ? AgencyServiceProvider::find($wo->service_provider_id) : null;
-                return ['type' => 'provider', 'id' => $p?->id, 'name' => $p?->name, 'email' => $p?->email];
+                return ['type' => 'provider', 'id' => $p?->id, 'name' => $p?->name, 'email' => $this->providerEmail($p)];
         }
+    }
+
+    /**
+     * AT-329 — the address for a supplier/attorney firm. The firm-level `email` wins when set,
+     * but a firm is commonly captured with the email on its CONTACT PERSON (spec Q5 — "addresses
+     * the supplier's primary contact"), not on the firm row. Without this fallback a COC whose
+     * supplier carries its email on the contact resolves to no address, so the trigger loop sends
+     * the firm-email COCs but silently drops the contact-email ones (deal 1806: Electrical firm
+     * email sent, Entomologist contact email dropped → "2 COCs, 1 email"). We fall back to the
+     * first active contact that has an email so every reachable COC sends.
+     */
+    private function providerEmail(?AgencyServiceProvider $p): ?string
+    {
+        if (! $p) {
+            return null;
+        }
+        $firm = trim((string) $p->email);
+        if ($firm !== '') {
+            return $firm;
+        }
+        $contact = $p->serviceContacts()
+            ->whereNotNull('email')->where('email', '!=', '')
+            ->first();
+        $email = trim((string) $contact?->email);
+        return $email !== '' ? $email : null;
     }
 
     /** Listing + selling agents (item 4), de-duped and MINUS the primary recipient (item 5). */

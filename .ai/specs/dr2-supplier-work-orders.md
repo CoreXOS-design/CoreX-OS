@@ -659,3 +659,23 @@ never sent (real case: deal 158 — Electrical sent, Entomologist supplier had n
 - Surfaced in `WorkOrderController::cocConfigPanel` (`send_error` in the item payload) →
   `dr2/_supplier-work-orders.blade.php` (per-row "⚠ not sent" badge + the reason).
 - The subject line is **out of scope** (AT-330).
+
+### 23.1 ROOT of "2 COCs → 1 email" — supplier email resolves from the CONTACT too (spec Q5)
+
+Surfacing the swallow (above) exposed the actual reason deal 1806 sent only one of two: the recipient
+resolver read the supplier's address from the **firm-level** `agency_service_providers.email` ONLY.
+A firm is very commonly captured with the email on its **contact person**
+(`agency_service_provider_contacts.email`) and no firm-level email — which is exactly **spec Q5**:
+"the send addresses the supplier's **primary contact**." So the Electrical supplier (firm email set)
+sent, while the Entomologist supplier (email on its contact, firm blank) resolved to *no address* and
+was correctly-but-invisibly dropped.
+
+**Fix — `CocWorkOrderService::resolveRecipient()` via new `providerEmail()` helper** (for both
+`supplier` and `transfer_attorney`): the firm-level `email` wins when present (no change to any
+already-working send); when it is blank, fall back to the first active contact
+(`serviceContacts()`) that carries an email. Only when **both** are blank does the order stay
+unsendable — then §23's clear "No email on file…" reason is recorded, never swallowed. Additive and
+firm-first, so no existing recipient changes; it only *adds* reachability for the contact-email shape.
+
+Test: `tests/Feature/Dr2/WorkOrderRecipientResolutionTest.php` (firm-wins · contact-fallback ·
+both-blank-unsendable). Proven end-to-end on QA1 deal 1806 — two COCs, two Mailpit emails.
