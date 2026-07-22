@@ -911,9 +911,12 @@ class SignatureService
             return;
         }
 
+        // AT-294 — sent_at is written by sendSigningRequestEmail AFTER a
+        // successful send (was set here BEFORE the send, so a swallowed failure
+        // still read "sent"). Status + expiry are set now; delivery outcome is
+        // recorded honestly on invite_send_status.
         $request->update([
             'status' => SignatureRequest::STATUS_PENDING,
-            'sent_at' => now(),
             'token_expires_at' => now()->addDays(14),
         ]);
 
@@ -3007,11 +3010,80 @@ class SignatureService
                     expiresAt: $request->token_expires_at,
                 ))->fromAgent($agent)
             );
+
+            // AT-294 — record the honest outcome: sent_at only now (after success),
+            // status 'sent', clear any prior failure.
+            $request->update([
+                'sent_at' => now(),
+                'invite_send_status' => 'sent',
+                'invite_send_error' => null,
+            ]);
         } catch (\Throwable $e) {
+            // AT-294 — surface the failure instead of swallowing it: the agent sees
+            // "Send failed — {reason}" on the document/party view and can Resend.
             Log::error('Failed to send signing request email', [
                 'request_id' => $request->id,
                 'signer_email' => $request->signer_email,
                 'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'invite_send_status' => 'failed',
+                'invite_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+            ]);
+        }
+    }
+
+    /**
+     * AT-294 — RESEND the signing INVITATION to one recipient.
+     * Re-delivers the SAME invitation with the SAME token (no regeneration/churn);
+     * sendSigningRequestEmail records the outcome on invite_send_status.
+     */
+    public function resendInvitationEmail(SignatureRequest $request): void
+    {
+        $this->sendSigningRequestEmail($request);
+    }
+
+    /**
+     * AT-294 — RESEND the completed signed-document email to one recipient.
+     * Re-sends the SAME stored client PDF (template->signed_pdf_client_path); records
+     * the outcome on completion_send_status. Never throws — the controller reads the
+     * refreshed status to tell the agent whether the resend went out.
+     */
+    public function resendCompletionEmail(SignatureRequest $request): void
+    {
+        $template = $request->template;
+        $template->loadMissing(['document', 'creator']);
+        $agent = $template->creator;
+        $documentName = $template->document->name ?? 'Document';
+        $progress = $template->partyProgress();
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $clientRel = $template->signed_pdf_client_path;
+        $clientPdfPath = ($clientRel && $disk->exists($clientRel)) ? $disk->path($clientRel) : null;
+        $pdfFilename = "Signed - {$documentName}.pdf";
+
+        try {
+            $mail = (new SignedDocumentMail(
+                recipientName: $request->signer_name,
+                documentName: $documentName,
+                envelopeUrl: null,
+                progress: $progress,
+                pdfPath: $clientPdfPath,
+                pdfFilename: $clientPdfPath ? $pdfFilename : null,
+                documents: $clientPdfPath ? [['path' => $clientPdfPath, 'name' => $pdfFilename]] : [],
+            ))->fromAgent($agent);
+
+            Mail::to($request->signer_email)->send($mail);
+            $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to resend completion email', [
+                'request_id' => $request->id,
+                'signer_email' => $request->signer_email,
+                'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'completion_send_status' => 'failed',
+                'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
             ]);
         }
     }
@@ -3261,7 +3333,25 @@ class SignatureService
                     documents: $attachments,
                 ))->fromAgent($agent);
 
-                Mail::to($request->signer_email)->send($mail);
+                // AT-294 — per-recipient try/catch: a single failed send records
+                // 'failed' + reason on THAT recipient and moves on; it never aborts
+                // the remaining recipients (the whole loop used to sit under one
+                // catch, so the first failure silently dropped everyone after it).
+                try {
+                    Mail::to($request->signer_email)->send($mail);
+                    $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send completion email to recipient', [
+                        'request_id' => $request->id,
+                        'signer_email' => $request->signer_email,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $request->update([
+                        'completion_send_status' => 'failed',
+                        'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+                    ]);
+                    continue;
+                }
 
                 // HD-7 — one audit row PER DOCUMENT per recipient, so the evidence timeline can answer
                 // "was the Disclosure sent to the purchaser?" and not merely "was something sent?".
