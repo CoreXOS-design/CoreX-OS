@@ -84,4 +84,61 @@ class DealDistributionController extends Controller
         return redirect()->route('deals-dr2.pipeline', $deal)
             ->with('success', "Sent {$result['rows']} document(s) to " . ($recipient['name'] ?? 'the recipient') . " via {$result['channel']}{$parts}.");
     }
+
+    /**
+     * AT-334 quick win — inline email capture for a party that is linked but has
+     * NO email on file. Saves STRAIGHT to the underlying record so the row flips to
+     * "Send to <party>" without navigating away. The target record is re-resolved
+     * server-side from (deal, role) — never a client-supplied id — mirroring send().
+     * A seller/buyer recipient is a Contact (AT-125 canonical email + mirror); an
+     * attorney/bond recipient is a provider firm/contact (simple email column).
+     */
+    public function savePartyEmail(Deal $deal, string $role, Request $request, Dr2DistributionComposer $composer)
+    {
+        $this->guard($request);
+        $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        $email = trim($data['email']);
+
+        $recipients = $composer->recipientsFor($deal, $role);
+        abort_if(empty($recipients), 422, 'No linked recipient for this party — link one on the deal first.');
+
+        $missing = array_values(array_filter($recipients, fn ($r) => empty($r['email'])));
+        if (count($missing) === 0) {
+            return response()->json(['ok' => false, 'message' => 'This party already has an email on file.'], 409);
+        }
+        if (count($missing) > 1) {
+            return response()->json(['ok' => false, 'message' => 'This party has several recipients missing an email — open the contact to add it there.'], 409);
+        }
+        $target = $missing[0];
+
+        if (($target['type'] ?? null) === 'contact') {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($target['id']);
+            abort_if(! $contact, 404, 'Contact not found.');
+            $ce = \App\Models\ContactEmail::create([
+                'agency_id'  => $contact->agency_id,
+                'contact_id' => $contact->id,
+                'email'      => $email,
+                'is_primary' => true,
+            ]);
+            app(\App\Services\Contacts\ContactIdentifierService::class)->setPrimaryEmail($ce);
+        } else { // provider — set on the provider CONTACT if present, else the firm
+            if (! empty($target['contact_id'])) {
+                $pc = \App\Models\DealV2\AgencyServiceProviderContact::withoutGlobalScopes()->find($target['contact_id']);
+                abort_if(! $pc, 404, 'Provider contact not found.');
+                $pc->email = $email;
+                $pc->save();
+            } else {
+                $firm = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find($target['id']);
+                abort_if(! $firm, 404, 'Provider not found.');
+                $firm->email = $email;
+                $firm->save();
+            }
+        }
+
+        return response()->json([
+            'ok'          => true,
+            'email'       => $email,
+            'compose_url' => route('deals-dr2.distribute.compose', ['deal' => $deal, 'party' => $role]),
+        ]);
+    }
 }

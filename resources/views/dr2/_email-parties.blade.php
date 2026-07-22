@@ -17,7 +17,23 @@
             : collect();
     @endphp
     <div class="corex-card" style="padding:1rem;" data-tour="dr2-email-parties"
-         x-data="{ openSend: true, openSent: true }">
+         x-data="{
+            openSend: true, openSent: true,
+            modalOpen: false, mRole: '', mLabel: '', mUrl: '', mEmail: '', mBusy: false, mErr: '',
+            fixed: {}, composeUrls: {},
+            openEmail(role, label, url){ this.mRole=role; this.mLabel=label; this.mUrl=url; this.mEmail=''; this.mErr=''; this.modalOpen=true; },
+            async saveEmail(){
+                if(!this.mEmail.trim()){ this.mErr='Enter an email address.'; return; }
+                this.mBusy=true; this.mErr='';
+                try {
+                    const r = await fetch(this.mUrl, {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({email:this.mEmail.trim()})});
+                    const j = await r.json();
+                    if(r.ok && j.ok){ this.fixed[this.mRole]=true; this.composeUrls[this.mRole]=j.compose_url; this.modalOpen=false; }
+                    else { this.mErr=(j.message || 'Could not save the email.'); }
+                } catch(e){ this.mErr='Could not save the email.'; }
+                this.mBusy=false;
+            }
+         }">
 
         {{-- Standard collapse/expand section header (house convention). --}}
         <button type="button" @click="openSend = !openSend" class="dr2-sect-head">
@@ -46,6 +62,19 @@
                         <a href="{{ route('deals-dr2.distribute.compose', ['deal'=>$deal,'party'=>$p['role']]) }}" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">
                             Send to {{ $p['label'] }}{{ count($p['default_documents']) ? ' · '.count($p['default_documents']).' default' : '' }}
                         </a>
+                    @elseif(! empty($p['recipients']))
+                        {{-- Linked party but NO email on file → inline "Add email" (AT-334 quick win).
+                             On save the row flips to "Send to <party>" with no navigation. --}}
+                        <span x-show="!fixed['{{ $p['role'] }}']" style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;gap:.45rem;align-items:center;">
+                            <span>{{ $p['label'] }} — no email on file</span>
+                            @if($canEditDeal)
+                                <button type="button" class="corex-btn-outline" style="font-size:.7rem;padding:.15rem .5rem;"
+                                        @click="openEmail('{{ $p['role'] }}', '{{ addslashes($p['label']) }}', '{{ route('deals-dr2.distribute.party-email', ['deal'=>$deal, 'role'=>$p['role']]) }}')">Add email</button>
+                            @endif
+                        </span>
+                        <a x-show="fixed['{{ $p['role'] }}']" x-cloak :href="composeUrls['{{ $p['role'] }}']" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">
+                            Send to {{ $p['label'] }}
+                        </a>
                     @else
                         <span style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;gap:.4rem;align-items:center;">
                             <span>{{ $p['label'] }} — {{ $p['note'] ?? 'not linked yet' }}</span>
@@ -70,6 +99,27 @@
                 @endforeach
             </div>
         @endif
+
+        {{-- AT-334 quick win — inline email-capture modal. Fixed overlay (escapes the
+             right-panel scroll region). Saves straight to the contact, then the row flips. --}}
+        <div x-show="modalOpen" x-cloak @keydown.escape.window="modalOpen=false"
+             x-effect="modalOpen && $nextTick(() => $refs.mInput && $refs.mInput.focus())"
+             style="position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(2,10,20,.45);padding:1rem;"
+             @click.self="modalOpen=false">
+            <div style="background:var(--surface,#fff);border:1px solid var(--border,rgba(0,0,0,.1));border-radius:12px;max-width:420px;width:100%;padding:1.1rem 1.15rem;box-shadow:0 12px 40px rgba(2,10,20,.35);">
+                <h4 style="margin:0 0 .3rem;font-size:.95rem;font-weight:700;color:var(--text-primary,#111827);">Add email — <span x-text="mLabel"></span></h4>
+                <p style="margin:0 0 .7rem;font-size:.78rem;color:var(--text-muted,#6b7280);">Saved to the contact so you can email them documents — no navigating away.</p>
+                <form @submit.prevent="saveEmail()">
+                    <input type="email" x-model="mEmail" x-ref="mInput" required placeholder="name@example.com"
+                           class="corex-input" style="width:100%;font-size:.85rem;" :disabled="mBusy">
+                    <p x-show="mErr" x-cloak x-text="mErr" style="color:#b91c1c;font-size:.75rem;margin:.4rem 0 0;"></p>
+                    <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.9rem;">
+                        <button type="button" @click="modalOpen=false" class="corex-btn-outline" style="font-size:.8rem;padding:.35rem .8rem;" :disabled="mBusy">Cancel</button>
+                        <button type="submit" class="corex-btn-primary" style="font-size:.8rem;padding:.35rem .9rem;" :disabled="mBusy" x-text="mBusy ? 'Saving…' : 'Save email'"></button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 @else
     {{-- No distribute permission: same as before (this block simply did not render).
