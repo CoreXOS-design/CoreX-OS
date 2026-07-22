@@ -56,6 +56,12 @@ class DealStepInstance extends Model
         'approved_at',
         'approval_notes',
         'notes',
+        // AT-334 composable-condition model
+        'condition_key',
+        'is_grant_marker',
+        'actual_date',
+        'waived_reason',
+        'addendum_ref',
     ];
 
     protected $casts = [
@@ -74,6 +80,9 @@ class DealStepInstance extends Model
         'activated_at' => 'datetime',
         'completed_at' => 'datetime',
         'approved_at' => 'datetime',
+        // AT-334
+        'is_grant_marker' => 'boolean',
+        'actual_date' => 'date',
     ];
 
     // ── Relationships ──
