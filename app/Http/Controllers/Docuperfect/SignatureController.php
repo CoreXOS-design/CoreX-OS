@@ -1960,6 +1960,44 @@ class SignatureController extends Controller
         return redirect()->back()->with('status', "Reminder sent to {$signatureRequest->signer_name}.");
     }
 
+    /**
+     * AT-294 — RESEND a recipient's e-sign email (invitation or completed document).
+     * Safe/idempotent: the invitation re-delivers with the SAME token (no
+     * regeneration); the completion re-sends the SAME stored signed PDF. The send
+     * outcome is recorded on the request, so a failed resend surfaces honestly.
+     */
+    public function resendEmail(Request $request, Document $document, SignatureRequest $signatureRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        if ($signatureRequest->party_role === 'agent') {
+            return redirect()->back()->with('error', 'The agent is notified in-app and does not receive a signing email.');
+        }
+        if (trim((string) $signatureRequest->signer_email) === '') {
+            return redirect()->back()->with('error', "Cannot resend — {$signatureRequest->signer_name} has no email address. Add an email first.");
+        }
+
+        if ($signatureRequest->status === SignatureRequest::STATUS_COMPLETED) {
+            $this->signatureService->resendCompletionEmail($signatureRequest);
+            $kind = 'signed document';
+            $fresh = $signatureRequest->fresh();
+            $failed = $fresh->completion_send_status === 'failed';
+            $error = $fresh->completion_send_error;
+        } else {
+            $this->signatureService->resendInvitationEmail($signatureRequest);
+            $kind = 'signing invitation';
+            $fresh = $signatureRequest->fresh();
+            $failed = $fresh->invite_send_status === 'failed';
+            $error = $fresh->invite_send_error;
+        }
+
+        if ($failed) {
+            return redirect()->back()->with('error', "Resend failed for {$signatureRequest->signer_name} — {$error}");
+        }
+
+        return redirect()->back()->with('status', "Re-sent the {$kind} to {$signatureRequest->signer_name}.");
+    }
+
     // ──────────────────────────────────────────────
     // Audit & download
     // ──────────────────────────────────────────────
