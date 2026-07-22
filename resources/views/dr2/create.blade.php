@@ -212,7 +212,7 @@
                  property↔contact SELLER link (one action, both records). --}}
             <div id="dr2-seller">
                 <label class="ds-label block mb-1">Seller</label>
-                <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids') }}">
+                <input type="hidden" name="seller_contact_ids" id="dr2_seller_ids" value="{{ old('seller_contact_ids', collect($sellerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="seller_name" id="dr2_seller_name" value="{{ old('seller_name', $deal->seller_name) }}" placeholder="Seller name(s)">
                 <div id="dr2_seller_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
@@ -229,7 +229,7 @@
                  creates the property↔contact BUYER link. --}}
             <div id="dr2-buyer">
                 <label class="ds-label block mb-1">Buyer</label>
-                <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids') }}">
+                <input type="hidden" name="buyer_contact_ids" id="dr2_buyer_ids" value="{{ old('buyer_contact_ids', collect($buyerParties ?? [])->pluck('id')->implode(',')) }}">
                 <input type="text" name="buyer_name" id="dr2_buyer_name" value="{{ old('buyer_name', $deal->buyer_name) }}" placeholder="Buyer name(s)">
                 <div id="dr2_buyer_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
@@ -720,6 +720,14 @@
     const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
     const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
 
+    // AT-334 — mode + the deal's saved parties (edit), so the picker seeds tokens/hidden ids
+    // from deal_contacts and a create-deal auto-tokenizes the property's seller.
+    const DR2 = {
+        mode: @json($mode ?? 'create'),
+        sellerParties: @json($sellerParties ?? []),
+        buyerParties: @json($buyerParties ?? []),
+    };
+
     // ---------- Enhancement 1: property picker (splitter-parity rich rows) ----------
     const pSearch = document.getElementById('dr2_property_search');
     const pResults = document.getElementById('dr2_property_results');
@@ -861,6 +869,17 @@
         let tokens = [];   // [{id, name}] — contacts to link on save
         let offered = [];  // [{id, name}] — property's already-linked party (fast path)
 
+        // AT-334 — seed tokens from the hidden input's server value (old() ?? the saved deal's
+        // party ids). Names come from the saved party list; unknown ids (e.g. a search-picked
+        // contact on a validation-fail re-render) degrade to "Contact #id" but the id — the
+        // thing that drives the save — is always preserved. This is what stops an untouched
+        // edit save from posting empty ids and wiping deal_contacts.
+        const seedNames = {};
+        (DR2[kind + 'Parties'] || []).forEach(p => { seedNames[parseInt(p.id, 10)] = p.name; });
+        (idsEl.value || '').split(',').map(s => parseInt(s, 10)).filter(Boolean).forEach(id => {
+            if (!tokens.some(t => t.id === id)) tokens.push({ id, name: seedNames[id] || ('Contact #' + id) });
+        });
+
         const syncIds  = () => { idsEl.value = tokens.map(t => t.id).join(','); };
         const parts    = () => { const c = nameEl.value.trim(); return c ? c.split(/\s*,\s*/).filter(Boolean) : []; };
         const addName  = n => { const p = parts(); if (n && !p.includes(n)) { p.push(n); nameEl.value = p.join(', '); } };
@@ -979,8 +998,13 @@
             }).catch(() => { if (show) show('Network error — please retry.'); });
         }
 
+        // AT-334 — reflect any seeded tokens (edit-path) on load.
+        renderTokens();
+
         return {
             setOffer(list) { offered = (list || []).filter(o => o && o.id && o.name); renderOffer(); },
+            // AT-334 create-path: capture the property's seller id so "looks linked" == "is linked".
+            autoPickAll(list) { (list || []).forEach(o => { if (o && o.id && o.name) addToken(o.id, o.name); }); },
             openNew() { if (!formBuilt) buildForm(); newFormEl.style.display = newFormEl.style.display === 'none' ? '' : 'none'; },
         };
     }
@@ -1000,6 +1024,13 @@
                 if (sellers.length && !sName.value.trim()) sName.value = sellers.map(s => s.name).filter(Boolean).join(', ');
                 sellerField.setOffer(sellers.map(s => ({ id: s.id, name: s.name })));
                 buyerField.setOffer(buyers.map(b => ({ id: b.id, name: b.name })));
+                // AT-334 create-path: auto-tokenize the property's SELLER so its id is captured
+                // on save (the "name auto-fills but id never posts" drop). Seller only — a seller
+                // is singular, so this is safe; BUYERS stay click-to-pick to preserve the
+                // 25c2d4a8 multi-offer phantom fix (never resurrect unpicked buyers).
+                if (DR2.mode === 'create') {
+                    sellerField.autoPickAll(sellers.map(s => ({ id: s.id, name: s.name })));
+                }
             }).catch(() => {});
     }
     if (pId.value) loadPropContacts(pId.value);

@@ -311,6 +311,10 @@ class DealRegisterController extends Controller
             'branches'           => $branches,
             'availableTemplates' => $templates,
             'defaultByType'      => $defaultByType,
+            // AT-334 — no saved parties on a new deal; the picker seeds empty (create-path
+            // auto-tokenizes the property's seller client-side once a property is picked).
+            'sellerParties'      => [],
+            'buyerParties'       => [],
         ]);
     }
 
@@ -323,11 +327,32 @@ class DealRegisterController extends Controller
         $branches = Branch::orderBy('name')->get();
 
         return view('dr2.create', [
-            'mode'     => 'edit',
-            'deal'     => $deal,
-            'agents'   => $agents,
-            'branches' => $branches,
+            'mode'          => 'edit',
+            'deal'          => $deal,
+            'agents'        => $agents,
+            'branches'      => $branches,
+            // AT-334 — seed the picker from the deal's CURRENT parties so an untouched edit
+            // save re-posts the existing ids (syncDealParties no-op = parties preserved).
+            // Without this the hidden ids start empty and the save DELETES deal_contacts rows.
+            'sellerParties' => $this->dealPartyList($deal, 'seller'),
+            'buyerParties'  => $this->dealPartyList($deal, 'buyer'),
         ]);
+    }
+
+    /**
+     * AT-334 — the deal's currently-linked parties for a role, as [{id,name}], so the edit
+     * form seeds its picker tokens + hidden `*_contact_ids` from deal_contacts (not just
+     * old()). Prevents the silent party-wipe on an untouched edit save.
+     *
+     * @return array<int,array{id:int,name:string}>
+     */
+    private function dealPartyList(Deal $deal, string $role): array
+    {
+        return $deal->contacts()->wherePivot('role', $role)->get()
+            ->map(fn ($c) => [
+                'id'   => (int) $c->id,
+                'name' => trim((string) ($c->full_name ?? ($c->first_name . ' ' . $c->last_name))) ?: ('Contact #' . $c->id),
+            ])->values()->all();
     }
 
     /**
