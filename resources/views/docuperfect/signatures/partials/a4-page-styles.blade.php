@@ -346,7 +346,17 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     // let the signing page grow past A4 and the PDF then clipped it).
     var PAGE_CONTENT_WIDTH = 658;                          // 210mm - 2*18mm = 174mm
     var PX_PER_MM = PAGE_CONTENT_WIDTH / 174;              // 3.7816 px/mm — same scale as the width
-    var PAGE_CONTENT_HEIGHT = Math.floor((297 - 20 - 25) * PX_PER_MM); // 252mm printable -> ~952px (true A4)
+    // Reserve room INSIDE the content area for the page furniture the assembler appends
+    // to EVERY page below its content: the bottom initials strip (_buildInitialsRow — a
+    // 40px box + 2px border + 16px vertical padding ≈ 58px, IN-FLOW) plus a little
+    // clearance above the absolute .page-number footer. Without this reserve the
+    // paginator packed content to the FULL printable height, so content + strip pushed
+    // each box PAST one physical A4 sheet and the strip+footer spilled onto a near-blank
+    // next page (the "8 physical pages for a 4-logical-page doc" artifact). Reserving it
+    // makes the paginator break earlier so content + strip + footer all fit one A4 sheet.
+    var INITIALS_STRIP_PX = 58;                           // .corex-page-initials-row height
+    var FOOTER_CLEARANCE_PX = 16;                          // clearance above the bottom footer
+    var PAGE_CONTENT_HEIGHT = Math.floor((297 - 20 - 25) * PX_PER_MM) - INITIALS_STRIP_PX - FOOTER_CLEARANCE_PX; // 252mm printable minus furniture -> ~878px
     var MIN_CLAUSE_VISIBLE = 100;
 
     var origW = wrapper.style.width, origMW = wrapper.style.maxWidth;
