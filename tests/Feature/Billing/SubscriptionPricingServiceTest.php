@@ -209,6 +209,12 @@ class SubscriptionPricingServiceTest extends TestCase
 
         $this->assertSame(3, $this->pricing->billableSeats($agency));
         $this->assertSame(3 * 450.00, $this->total($agency));
+
+        // The "who you are paying for" list must match the seat count exactly — no
+        // assistant appears as a billed user, and the list length == the seats.
+        $rows = $this->pricing->billableUserRows($agency);
+        $this->assertCount(3, $rows);
+        $this->assertEmpty(array_filter($rows, fn ($r) => strtolower($r['role']) === 'assistant'));
     }
 
     /** System Owners carry a NULL agency_id and must never land on anyone's bill. */

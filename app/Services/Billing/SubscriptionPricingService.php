@@ -275,6 +275,7 @@ class SubscriptionPricingService
         return DB::table('users')
             ->where('agency_id', $agency->id)
             ->where('is_active', 1)
+            ->where('is_assistant', 0)   // assistants are not billable seats (matches billableSeats())
             ->whereNull('deleted_at')
             ->orderBy('name')
             ->get(['name', 'role', 'email'])
