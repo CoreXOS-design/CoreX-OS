@@ -470,7 +470,9 @@ return [
         // Agency Billing (AT-11) — what THIS agency pays CoreX. Read-only page; the
         // amounts themselves are set by CoreX on the owner-only developer page, which
         // deliberately has NO permission key. Spec: .ai/specs/agency-billing.md §9.
-        ['key' => 'billing.view',                'label' => 'View Agency Billing',         'section' => 'settings',         'type' => 'view',    'module' => 'settings',         'sort_order' => 7],
+        // Lives in its OWN "Billing" section (not "Settings") so Role Manager surfaces
+        // it as a first-class group an admin can grant/revoke per role.
+        ['key' => 'billing.view',                'label' => 'View Agency Billing',         'section' => 'billing',          'type' => 'view',    'module' => 'billing',          'sort_order' => 1],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],

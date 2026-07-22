@@ -86,9 +86,16 @@ class SubscriptionPricingService
     }
 
     /**
-     * A billable seat is ANY active, non-archived user on the agency —
-     * agent, admin, principal, secretary alike (spec §3 D1). Role is
-     * irrelevant: a login is a seat.
+     * A billable seat is any active, non-archived user on the agency —
+     * agent, admin, principal, secretary alike. Role is otherwise irrelevant:
+     * a login is a seat.
+     *
+     * EXCEPTION (Johan, 2026-07-22 — amends spec §3 D1): an ASSISTANT
+     * (`users.is_assistant = 1`) is NOT a billable seat. An assistant is an
+     * extension of one agent — they act on behalf of that agent and their work
+     * lands on the agent's book — so charging the agency a second seat for them
+     * would bill the same "practitioner slot" twice. They keep their own login;
+     * they just don't add to the headcount CoreX charges for.
      *
      * Deactivated (is_active = 0) and archived (deleted_at) users do NOT count.
      * CoreX System Owners carry agency_id = NULL and so never fall into any
@@ -103,6 +110,7 @@ class SubscriptionPricingService
         return (int) DB::table('users')
             ->where('agency_id', $agency->id)
             ->where('is_active', 1)
+            ->where('is_assistant', 0)
             ->whereNull('deleted_at')
             ->count();
     }

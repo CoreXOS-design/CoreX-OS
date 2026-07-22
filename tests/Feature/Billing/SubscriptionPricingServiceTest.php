@@ -195,6 +195,22 @@ class SubscriptionPricingServiceTest extends TestCase
         $this->assertSame(4, $this->pricing->billableSeats($agency));
     }
 
+    /**
+     * Assistants are NOT billable seats (amends spec §3 D1, Johan 2026-07-22).
+     * An assistant is an extension of one agent — active, with a login, but
+     * never a separately-charged seat.
+     */
+    public function test_assistants_do_not_occupy_a_billable_seat(): void
+    {
+        $agency = $this->makeAgency('Uvongo Realty');
+
+        $this->seatUsers($agency, 3, ['role' => 'agent']);                          // 3 billable
+        $this->seatUsers($agency, 2, ['role' => 'assistant', 'is_assistant' => 1]); // active, but not billed
+
+        $this->assertSame(3, $this->pricing->billableSeats($agency));
+        $this->assertSame(3 * 450.00, $this->total($agency));
+    }
+
     /** System Owners carry a NULL agency_id and must never land on anyone's bill. */
     public function test_system_owners_do_not_count_against_any_agency(): void
     {

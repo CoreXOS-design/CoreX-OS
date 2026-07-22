@@ -307,8 +307,9 @@
         <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">What counts as a billable user</div>
         <p class="text-sm" style="color:var(--text-secondary);">
             You have <span class="font-semibold" style="color:var(--text-primary);">{{ $quote->seats }} active {{ Str::plural('user', $quote->seats) }}</span>.
-            Every person who can log in counts as one user, whatever their role.
-            <span class="font-semibold" style="color:var(--text-primary);">Deactivated and archived users are not billed</span>,
+            Every person who can log in counts as one user, whatever their role —
+            <span class="font-semibold" style="color:var(--text-primary);">except assistants</span>, who work on behalf of an agent and are never billed as a separate seat.
+            <span class="font-semibold" style="color:var(--text-primary);">Deactivated and archived users are not billed</span> either,
             so if someone leaves, deactivate them and they drop off your next bill.
             @if($quote->branches > 1)
                 Your first branch is included; the other {{ $quote->branches - 1 }} {{ Str::plural('branch', $quote->branches - 1) }}

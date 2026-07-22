@@ -28,7 +28,12 @@ class UserManagementController extends Controller
 
         $agencyId = auth()->user()?->effectiveAgencyId();
 
+        // Assistants (users.is_assistant) are managed on their own screen
+        // (Company → Assistants), not here. They are an extension of an agent,
+        // not a standalone staff member, so they never appear in the user
+        // directory. (Johan, 2026-07-22.)
         $users = User::agencyMembers()
+            ->where('is_assistant', 0)
             ->when($agencyId, function ($q) use ($agencyId) {
                 $q->where(function ($q2) use ($agencyId) {
                     $q2->where('agency_id', $agencyId)
@@ -53,6 +58,7 @@ class UserManagementController extends Controller
 
         // PPRA verification due count (never verified or >12 months)
         $ppraDueCount = User::agencyMembers()
+            ->where('is_assistant', 0)   // assistants are not PPRA practitioners
             ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
             ->where(function ($q) {
                 $q->whereNull('ppra_last_verified_at')
