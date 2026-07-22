@@ -707,3 +707,26 @@ Every DR2 document email went out with the generic, meaningless subject **"Docum
 Test: `tests/Feature/Dr2/WorkOrderSubjectComposerTest.php` (meaningful base + token · generic fallback ·
 part label). Proven on QA1 deal 1806. **Wording is Johan's call** — the format follows the ticket's own
 examples; the token is retained deliberately (AT-231) and can be hidden later if Johan wants.
+
+## 25. AT-320 — an un-ticked COC REMOVES its step (supersedes the §17/§18 auto-N/A)
+
+**Supersedes the "un-ticked COC → auto-N/A" behaviour of §17/§18 (Johan, AT-320).** The rule is now:
+an un-ticked COC has **no pipeline step at all** — the step is *removed*, not shown as N/A; a ticked
+COC's step *appears*. Reversible (no hard delete): re-ticking restores the exact same step.
+
+`WorkOrderController::cocConfigSave`:
+- **Un-ticked** → `Dr1PipelineService::removeStep($step)` (soft-delete, audited `step_removed`) instead
+  of `markNotApplicable`. The pending work order is soft-deleted in the same pass, so no row is orphaned
+  against the vanished step (the `deal_step_instance_id` FK cascade is a *hard*-delete cascade — soft
+  delete is an UPDATE, so it never fires; the WO simply carries its own `deleted_at`). A **completed**
+  step is kept (audit integrity); an already-removed step is left alone.
+- **Ticked** → if the COC's step was previously soft-removed it is **restored** via
+  `restoreRemovedStep($deal, $step->id)` (same row, original position); a soft-deleted work order is
+  `restore()`d rather than duplicated. Backward-compat: a step still in the *old* auto-N/A state
+  (`skipped` + our `na_reason`) is `reinstateStep`d.
+- The config lookups now read `withTrashed()` for both steps and work orders so a re-tick can find and
+  revive the removed rows. `cocConfigPanel` still reads the live scope only, so a removed COC renders
+  un-ticked with no step — exactly the board state the rule intends.
+
+Test: `tests/Feature/Dr2/WorkOrderStepRemovalTest.php` — tick → un-tick (step + WO soft-removed, gone
+from the live board, NOT `skipped`) → re-tick (same step row + WO restored). QA1 only.

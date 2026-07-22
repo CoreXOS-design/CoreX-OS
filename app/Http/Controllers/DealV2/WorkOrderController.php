@@ -327,7 +327,10 @@ class WorkOrderController extends Controller
             'items.*.service_provider_id' => ['nullable', 'integer'],
         ]);
 
-        $steps   = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)->get();
+        // AT-320 — include soft-removed steps so re-ticking a COC can RESTORE its removed step
+        // (un-ticking now removes the step, not N/As it — see below). matchStep tolerates the
+        // extra trashed rows; a live step always outscores nothing, and there is one step per COC.
+        $steps   = \App\Models\DealV2\DealStepInstance::withTrashed()->where('dr1_deal_id', $deal->id)->get();
         $types   = \App\Models\DealV2\AgencyServiceType::active()->get()->keyBy('code');
         // The trigger step is defined in PIPELINE SETUP (the granting step), never re-selected on
         // the deal panel — derive it here, ignore any client-posted trigger (Johan 2026-07-20).
@@ -340,7 +343,8 @@ class WorkOrderController extends Controller
             $type = $types->get($item['code']);
             if (! $type) { continue; }
             $step = $type->matchStep($steps);                     // the COC's own step (may be null)
-            $wo   = \App\Models\DealV2\DealStepWorkOrder::where('dr1_deal_id', $deal->id)
+            $wo   = \App\Models\DealV2\DealStepWorkOrder::withTrashed()
+                        ->where('dr1_deal_id', $deal->id)
                         ->where('service_type', $item['code'])->first();
 
             if ($item['applies']) {
@@ -353,6 +357,10 @@ class WorkOrderController extends Controller
                 ];
                 if ($wo && $wo->isSent()) {
                     // keep — audit integrity; do not rewrite a sent row
+                } elseif ($wo && $wo->trashed()) {
+                    // AT-320 — a WO soft-deleted when the COC was un-ticked; re-ticking revives it.
+                    $wo->restore();
+                    $wo->update($attrs);
                 } elseif ($wo) {
                     $wo->update($attrs);
                 } else {
@@ -362,15 +370,21 @@ class WorkOrderController extends Controller
                         'status'       => 'pending',
                     ]);
                 }
-                // Ticked → the COC's step is live; undo an auto-N/A we set earlier.
-                if ($step && $step->status === 'skipped' && $step->na_reason === $naReason) {
+                // AT-320 — ticked → the COC's step must APPEAR. Restore it if it was soft-removed
+                // by a previous un-tick; else (backward-compat) un-do an older auto-N/A.
+                if ($step && $step->trashed()) {
+                    $pipelines->restoreRemovedStep($deal, $step->id, $userId);
+                } elseif ($step && $step->status === 'skipped' && $step->na_reason === $naReason) {
                     $pipelines->reinstateStep($step, $userId);
                 }
             } else {
-                // Un-ticked → drop the pending work order and N/A its pipeline step.
-                if ($wo && ! $wo->isSent()) { $wo->delete(); }
-                if ($step && ! in_array($step->status, ['completed', 'skipped'], true)) {
-                    $pipelines->markNotApplicable($step, $userId, $naReason);
+                // AT-320 — un-ticked → REMOVE the COC's pipeline step entirely (soft-delete,
+                // reversible), not N/A it. Also soft-delete the pending work order so no row is
+                // orphaned against a vanished step. A completed step is kept (audit integrity);
+                // an already-removed step is left alone.
+                if ($wo && ! $wo->isSent() && ! $wo->trashed()) { $wo->delete(); }
+                if ($step && ! $step->trashed() && $step->status !== 'completed') {
+                    $pipelines->removeStep($step, $userId);
                 }
             }
         }
