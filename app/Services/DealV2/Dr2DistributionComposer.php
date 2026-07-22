@@ -102,6 +102,18 @@ class Dr2DistributionComposer
             $contacts = $ids->isEmpty()
                 ? collect()
                 : \App\Models\Contact::withoutGlobalScopes()->whereIn('id', $ids)->get();
+
+            // AT-334 seller-only fallback. A buyer accumulates on the property across offers, so
+            // an empty buyer role on deal_contacts genuinely means "none" — the 25c2d4a8 read is
+            // authoritative and MUST NOT fall back (a property fallback would resurrect unselected
+            // buyers). A seller is different: singular, and frequently linked only on the PROPERTY
+            // + deals.seller_name (captured as a name, never picked as a seller_contact_id), so it
+            // never reached deal_contacts. For the SELLER role ONLY, when the deal records no
+            // seller, fall back to the property's seller so the party surfaces. Buyer path untouched.
+            if ($contacts->isEmpty() && $dealRole === 'seller') {
+                $property = $deal->property;
+                $contacts = $property ? $property->contactsForRole($contactRole) : collect();
+            }
         } else {
             // Legacy pre-AT-243 DR1 deal: parties were recorded only on the property.
             $property = $deal->property;
