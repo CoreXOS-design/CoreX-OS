@@ -34,6 +34,14 @@
     // Portal feed readiness — drives the "fields need attention" lists.
     $ppMissingFields  = $ppMissingFields  ?? app(\App\Services\PrivateProperty\PrivatePropertyListingMapper::class)->checkReadiness($property);
     $p24MissingFields = $p24MissingFields ?? app(\App\Services\Syndication\Property24\Property24ListingMapper::class)->checkReadiness($property);
+
+    // AT-267 — an assistant gets a READ-ONLY syndication panel: portal status,
+    // portal links, and a live preview (listing agent's info only). Every control
+    // that changes syndication (enable/disable toggles, Submit, Deactivate,
+    // Reactivate, Refresh, Refresh-all) is omitted. These POSTs are already denied
+    // server-side by `deny_assistant_property_write`, so hiding them just removes a
+    // button that would 403 — it never removes a capability the assistant had.
+    $synReadOnly = (bool) auth()->user()?->is_assistant;
 @endphp
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
@@ -75,9 +83,9 @@
                              x-effect="announceSyndicationState()"
                              @corex-syndication-census-request.window="announceSyndicationState()"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
-                            {{-- Header card — click toggles active/deactivated (enable = active). --}}
-                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
-                                 @click="toggleEnabled()"
+            {{-- Header card — click toggles active/deactivated (enable = active). Read-only for assistants. --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md {{ $synReadOnly ? '' : 'cursor-pointer' }}"
+                                 @unless($synReadOnly) @click="toggleEnabled()" @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border:1px solid var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -86,6 +94,7 @@
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="name"></span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
@@ -93,6 +102,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
                                 </div>
@@ -129,6 +139,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="post(urls.refresh)" :disabled="loading"
                                         :class="publicUrl ? '' : 'flex-1'"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -142,6 +153,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
@@ -199,10 +211,10 @@
                              @corex-syndication-census-request.window="announceSyndicationState()"
                              @corex-syndication-refresh-all.window="onSyndicationRefreshAll($event)">
 
-                            {{-- Private Property toggle row --}}
-                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                            {{-- Private Property toggle row (read-only for assistants) --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md {{ $synReadOnly ? '' : 'cursor-pointer' }}"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
-                                 @click="toggleEnabled()"
+                                 @unless($synReadOnly) @click="toggleEnabled()" @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -212,6 +224,7 @@
                                 </div>
                                 <div class="flex items-center gap-2">
                                     {{-- Toggle switch --}}
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch"
@@ -220,6 +233,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     {{-- Status badge --}}
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
@@ -282,6 +296,7 @@
                             @endif
 
                             {{-- Submit button — only shown before first successful submission --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && !ppRef && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
@@ -301,6 +316,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
@@ -319,6 +335,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
                                         style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
@@ -331,10 +348,12 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
                             {{-- Deactivated listing actions: Reactivate --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && ppRef && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -343,6 +362,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Last submitted timestamp --}}
                             <div x-show="lastSubmitted" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">
@@ -421,8 +441,10 @@
                             </div>
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
+                                 @unless($synReadOnly)
                                  :class="isPpExclusiveLocked() ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
                                  @click="!isPpExclusiveLocked() && toggleEnabled()"
+                                 @endunless
                                  :style="enabled ? 'background:color-mix(in srgb, var(--brand-button) 8%, transparent); border-color:color-mix(in srgb, var(--brand-button) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--brand-button)' : 'color:var(--text-muted)'">
@@ -431,6 +453,7 @@
                                     <span class="text-xs font-semibold" style="color:var(--text-primary);">Property24</span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @unless($synReadOnly)
                                     <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
                                          :style="enabled ? 'background:var(--brand-button)' : 'background:var(--border)'"
                                          role="switch" :aria-checked="enabled">
@@ -438,6 +461,7 @@
                                               style="background:#fff; margin-top:2px;"
                                               :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </div>
+                                    @endunless
                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase tracking-wide"
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
                                 </div>
@@ -480,6 +504,7 @@
                             </div>
 
                             {{-- Submit button — only shown before first successful submission --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && !p24Ref && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
@@ -499,6 +524,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- Active listing actions: View · Refresh · Deactivate.
                                  Same predicate the "Refresh all portals" census reads. --}}
@@ -517,6 +543,7 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!copied"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"/></svg><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" x-show="copied" x-cloak><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </button>
+                                @unless($synReadOnly)
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
                                         style="background:color-mix(in srgb, var(--brand-button) 10%, transparent); color:var(--brand-button); border:1px solid color-mix(in srgb, var(--brand-button) 25%, transparent);"
@@ -529,10 +556,12 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                                @endunless
                                 <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                             </div>
 
                             {{-- Deactivated listing actions: Reactivate --}}
+                            @unless($synReadOnly)
                             <div x-show="enabled && p24Ref && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold transition-opacity"
@@ -541,6 +570,7 @@
                                     Reactivate
                                 </button>
                             </div>
+                            @endunless
 
                             {{-- The P24 listing number is NOT repeated here: the status
                                  line above already reads "P24 Ref: {ref} — {status}". --}}
@@ -587,6 +617,7 @@
                          Hidden entirely when nothing is live (no dead buttons — STANDARDS,
                          UX rules). The census keeps that reactive, so toggling the last
                          portal off inside this panel hides the button without a reload. --}}
+                    @unless($synReadOnly)
                     <div x-data="syndicationRefreshAll()"
                          @corex-syndication-portal-state.window="onPortalState($event.detail)"
                          x-show="liveCount() > 0"
@@ -620,6 +651,7 @@
                              style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
                              x-text="note"></div>
                     </div>
+                    @endunless
 
                     {{-- Live preview — see the listing exactly as the public does.
                          In the panel itself so every caller gets it, not just the
@@ -661,6 +693,10 @@
                         $synMyAgentParam = 'agent=' . auth()->id();
                     @endphp
 
+                    {{-- AT-267 — an assistant may only ever preview with the LISTING agent's
+                         info, never their own. The "Show my info" option (which bakes the
+                         viewer's id into the URL) is omitted for assistants. --}}
+                    @unless($synReadOnly)
                     <div class="flex items-center gap-2 flex-wrap" x-data="corexCopyLinkMixin()">
                         <a href="{{ $synPreviewBase }}?{{ $synMyAgentParam }}"
                            target="_blank"
@@ -681,6 +717,7 @@
                         </button>
                         <div x-show="copyError" x-cloak class="w-full text-[11px]" style="color:var(--ds-crimson);" x-text="copyError"></div>
                     </div>
+                    @endunless
                     <div class="flex items-center gap-2 flex-wrap" x-data="corexCopyLinkMixin()">
                         <a href="{{ $synPreviewBase }}?agent=listing"
                            target="_blank"
