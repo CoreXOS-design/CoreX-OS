@@ -57,7 +57,11 @@
                 @endphp
                 <tr style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
                     <td class="px-4 py-3">
-                        <div class="font-semibold">{{ $assistant?->name }}</div>
+                        <div class="font-semibold">
+                            {{ $assistant?->name }}
+                            <span class="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium align-middle"
+                                  style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">{{ $assistant?->assistantTitle() ?? 'Assistant' }}</span>
+                        </div>
                         <div class="text-xs" style="color:var(--text-secondary, #6b7280);">{{ $assistant?->email }}</div>
                     </td>
                     <td class="px-4 py-3">{{ $assignment->assignedAgent?->name ?? '—' }}</td>

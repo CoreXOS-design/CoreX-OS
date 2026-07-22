@@ -69,6 +69,9 @@ class AssistantController extends Controller
             'phone'         => ['nullable', 'string', 'max:50'],
             'agent_user_id' => ['required', 'integer', 'exists:users,id'],
             'fica_required' => ['nullable', 'in:0,1'],
+            // A custom label for how this person is known — "PA", "Receptionist",
+            // etc. Optional; blank falls back to "Assistant" on display.
+            'title'         => ['nullable', 'string', 'max:60'],
         ], [
             'agent_user_id.required' => 'Choose the agent this assistant will work for.',
         ]);
@@ -106,6 +109,9 @@ class AssistantController extends Controller
                 // and we would create a full agent with a full agent's permissions.
                 'role'         => 'assistant',
                 'is_assistant' => true,
+
+                // Display title only ("PA", "Receptionist", …) — the role stays 'assistant'.
+                'assistant_title' => trim($data['title'] ?? '') !== '' ? trim($data['title']) : null,
 
                 'fica_required' => $request->has('fica_required')
                     ? (bool) $data['fica_required']

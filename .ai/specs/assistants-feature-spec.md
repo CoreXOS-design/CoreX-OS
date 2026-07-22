@@ -158,13 +158,18 @@ The word **"Sponsor" is banned from this feature** — it already means *commiss
 
 ## 6. Data model
 
-### 6.1 `users` — two new columns
+### 6.1 `users` — new columns
 
 ```php
 Schema::table('users', function (Blueprint $table) {
     $table->boolean('is_assistant')->default(false)->after('role');
     $table->boolean('fica_required')->default(true)->after('is_assistant');
     $table->index('is_assistant');
+});
+
+// Later add (Johan, 2026-07-22):
+Schema::table('users', function (Blueprint $table) {
+    $table->string('assistant_title', 60)->nullable()->after('fica_required');
 });
 ```
 
@@ -173,6 +178,13 @@ Schema::table('users', function (Blueprint $table) {
 - `fica_required` — see §10. Note: `signature_requests.fica_required` already exists and means
   something unrelated (the per-recipient e-sign gate). Different table, no conflict — but the model
   docblock must say so.
+- `assistant_title` — a per-assistant **display label** ("PA", "Receptionist", "Secretary", …),
+  entered in the optional **Title** box on the create form. It is a label ONLY: `role` stays pinned
+  to `assistant` (H6), so the title never affects permissions. Null falls back to "Assistant" via
+  `User::assistantTitle()`. It lives on `users` (not `assistant_assignments`) so it survives
+  reassignment. Rendered on the admin Assistants list, the assignment detail header ("PA to \<Agent\>"),
+  and anywhere the person's role word is shown. Distinct from `users.designation`, which is the PPRA
+  practitioner designation (Candidate / Property Practitioner / Principal) and must not be reused.
 
 ### 6.2 `roles` — one seeded row, zero grants
 

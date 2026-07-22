@@ -18,7 +18,7 @@
                     {{ $assistant?->name }}
                 </h1>
                 <p class="text-sm text-white/60">
-                    Assistant to <strong class="text-white/90">{{ $agent?->name ?? '—' }}</strong>
+                    {{ $assistant?->assistantTitle() ?? 'Assistant' }} to <strong class="text-white/90">{{ $agent?->name ?? '—' }}</strong>
                 </p>
             </div>
             <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline">Back to Assistants</a>

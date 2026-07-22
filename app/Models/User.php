@@ -44,6 +44,9 @@ class User extends Authenticatable
         // AT-267 — gates the Compliance tab on My Portal for assistants. Unrelated to
         // signature_requests.fica_required (the per-recipient e-sign gate).
         'fica_required',
+        // AT-267 — a per-assistant display title ("PA", "Receptionist", …). A LABEL
+        // only: `role` stays pinned to 'assistant'. Null falls back to "Assistant".
+        'assistant_title',
         'designation',
         'supervised_by',
         'branch_id',
@@ -844,6 +847,18 @@ class User extends Authenticatable
     public function assignedAgent(): ?self
     {
         return $this->activeAssistantAssignment()?->assignedAgent;
+    }
+
+    /**
+     * How this assistant is labelled in the UI — their custom title ("PA",
+     * "Receptionist", …) or "Assistant" when none was set. A display label
+     * only; never a permission or role decision.
+     */
+    public function assistantTitle(): string
+    {
+        return trim((string) $this->assistant_title) !== ''
+            ? trim($this->assistant_title)
+            : 'Assistant';
     }
 
     /** True when this user has at least one assistant — drives the sidebar entry. */

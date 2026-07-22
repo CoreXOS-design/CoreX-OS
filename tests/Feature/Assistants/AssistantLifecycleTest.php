@@ -158,6 +158,30 @@ final class AssistantLifecycleTest extends TestCase
         $this->assertTrue($assistant->fica_required);
     }
 
+    public function test_a_custom_title_is_stored_and_falls_back_to_assistant_when_blank(): void
+    {
+        // A title given at creation is stored as a LABEL — the role stays 'assistant'.
+        $this->actingAs($this->admin)->post(route('admin.assistants.store'), [
+            'name'          => 'Precious',
+            'surname'       => 'Ndlovu',
+            'email'         => 'precious.ndlovu@hfcoastal.co.za',
+            'cell'          => '083 555 0199',
+            'agent_user_id' => $this->agent->id,
+            'title'         => 'Receptionist',
+        ])->assertRedirect();
+
+        $withTitle = User::where('email', 'precious.ndlovu@hfcoastal.co.za')->firstOrFail();
+        $this->assertSame('Receptionist', $withTitle->assistant_title);
+        $this->assertSame('Receptionist', $withTitle->assistantTitle());
+        $this->assertSame('assistant', $withTitle->role, 'The title is a label — it must never change the role.');
+
+        // No title given → the column is null and the display falls back to "Assistant".
+        $this->createAssistant();
+        $noTitle = User::where('email', 'thandi.mokoena@hfcoastal.co.za')->firstOrFail();
+        $this->assertNull($noTitle->assistant_title);
+        $this->assertSame('Assistant', $noTitle->assistantTitle());
+    }
+
     public function test_creating_an_assistant_sends_the_existing_invite_email(): void
     {
         $this->createAssistant();
@@ -420,6 +444,11 @@ final class AssistantLifecycleTest extends TestCase
 
         $this->actingAs($this->agent)->get(route('agent.assistants.index'))->assertSuccessful();
         $this->actingAs($this->admin)->get(route('admin.assistants.index'))->assertSuccessful();
+
+        // The create form (with the sidebar it renders inside) must render for an admin.
+        $this->actingAs($this->admin)->get(route('admin.assistants.create'))
+            ->assertSuccessful()
+            ->assertSee('Add Assistant');
 
         $assignment = AssistantAssignment::firstOrFail();
         $this->actingAs($this->agent)->get(route('agent.assistants.matrix', $assignment))->assertSuccessful();
