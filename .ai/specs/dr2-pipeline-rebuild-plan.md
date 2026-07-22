@@ -1,5 +1,15 @@
 # DR2 Pipeline Rebuild — Phased Implementation Plan (AT-334)
 > Roadmap for building `.ai/specs/dr2-pipeline-suspensive-conditions.md`. QA1 only.
+
+## PROGRESS (resume here)
+- ✅ Phase 0 — spec `a29a868c`; email-parties inline email modal `c5087d69`.
+- ✅ Phase 1 — condition data model (3 tables + nullable cols) `0ffcb169` (additive).
+- ✅ Phase 2+3 — DealStructureAssembler + Dr2ConditionCatalog + DealDateCascade `4a35f59c`.
+- ✅ Phase 4 — Deal Structure tab + empty-state `85638384` (TESTABLE: empty deal → pick conditions → Build → pipeline assembles).
+- ⏳ **NEXT: Phase 5** — Granted step + follows-selector (per-deal overrides). Then 6 (Restructure), 7 (trigger decoupling — FLAG F3), 8 (overdue flags).
+- Side fix (not a phase): Email Parties resolves buyers/sellers from the DEAL's deal_contacts not the property `25c2d4a8`.
+- Key facts to reload: new-model instances are DR1-anchored (`dr1_deal_id`, `deal_id`/deals_v2 null); assembler refuses if a pipeline exists (guardrail); cascade gated to new-model deals (is_grant_marker/condition_key). All on QA1 branch, pushed to origin/QA1. cc1's AT-294 also on origin/QA1 tip + migrated on /corex-qa1.
+
 > **Migration guardrail:** additive changes (new tables, new nullable columns with safe
 > defaults) proceed. Anything that ALTERs or risks EXISTING deal data —
 > `deals` rows/status, `deal_money_lines`, existing `deal_step_instances` /
