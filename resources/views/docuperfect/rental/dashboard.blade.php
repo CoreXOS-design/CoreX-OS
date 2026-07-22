@@ -379,25 +379,8 @@
                                             </button>
                                         </form>
                                     @endif
-                                    {{-- AT-294 — per-recipient email send status + resend (invitation or completed doc) --}}
-                                    @foreach($sigTemplate->requests->where('party_role', '!=', 'agent') as $rr)
-                                        @php
-                                            $rrFailed = ($rr->invite_send_status ?? null) === 'failed' || ($rr->completion_send_status ?? null) === 'failed';
-                                            $rrErr = ($rr->invite_send_status ?? null) === 'failed' ? $rr->invite_send_error : $rr->completion_send_error;
-                                        @endphp
-                                        @if($rrFailed)
-                                            <span class="text-red-600 text-[10px] font-medium text-right" title="{{ $rrErr }}">&#9888; {{ $rr->signer_name }} — send failed</span>
-                                        @endif
-                                        @if($rr->signer_email && in_array($rr->status, ['pending', 'viewed', 'partially_signed', 'completed']))
-                                            <form method="POST" action="{{ route('docuperfect.signatures.resendEmail', ['document' => $doc->id, 'signatureRequest' => $rr->id]) }}" class="inline">
-                                                @csrf
-                                                <button type="submit" class="{{ $rrFailed ? 'text-red-600' : 'text-blue-600' }} hover:underline text-xs"
-                                                        onclick="return confirm('Resend the {{ $rr->status === 'completed' ? 'signed document' : 'signing invitation' }} to {{ $rr->signer_name }}?')">
-                                                    {{ $rrFailed ? 'Resend (failed)' : 'Resend' }} &#8594; {{ \Illuminate\Support\Str::limit($rr->signer_name, 14) }}
-                                                </button>
-                                            </form>
-                                        @endif
-                                    @endforeach
+                                    {{-- AT-294 — per-recipient email send status + resend (shared partial) --}}
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $sigTemplate->requests])
                                     @php $deferredReq = $sigTemplate->requests->first(fn($r) => $r->status === 'deferred'); @endphp
                                     @if($deferredReq && in_array($sigTemplate->status, ['awaiting_deferred', 'partial']))
                                         <button type="button"

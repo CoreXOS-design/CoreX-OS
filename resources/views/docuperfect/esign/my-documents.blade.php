@@ -396,27 +396,9 @@
                                         </button>
                                     </form>
                                 @endif
-                                {{-- AT-294 — per-recipient email send status + resend --}}
+                                {{-- AT-294 — per-recipient email send status + resend (shared partial) --}}
                                 @if($doc)
-                                    @foreach($tpl->requests->where('party_role', '!=', 'agent') as $rr)
-                                        @php
-                                            $rrFailed = ($rr->invite_send_status ?? null) === 'failed' || ($rr->completion_send_status ?? null) === 'failed';
-                                            $rrErr = ($rr->invite_send_status ?? null) === 'failed' ? $rr->invite_send_error : $rr->completion_send_error;
-                                        @endphp
-                                        @if($rrFailed)
-                                            <span class="text-[10px] font-semibold text-right" style="color: var(--ds-crimson);" title="{{ $rrErr }}">&#9888; {{ $rr->signer_name }} — send failed</span>
-                                        @endif
-                                        @if($rr->signer_email && in_array($rr->status, ['pending', 'viewed', 'partially_signed', 'completed']))
-                                            <form method="POST" action="{{ route('docuperfect.signatures.resendEmail', ['document' => $doc->id, 'signatureRequest' => $rr->id]) }}" class="inline">
-                                                @csrf
-                                                <button type="submit" class="text-xs font-semibold hover:underline transition-colors duration-150"
-                                                        style="color: {{ $rrFailed ? 'var(--ds-crimson)' : 'var(--brand-icon)' }};"
-                                                        onclick="return confirm('Resend the {{ $rr->status === 'completed' ? 'signed document' : 'signing invitation' }} to {{ $rr->signer_name }}?')">
-                                                    {{ $rrFailed ? 'Resend (failed)' : 'Resend' }}
-                                                </button>
-                                            </form>
-                                        @endif
-                                    @endforeach
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $tpl->requests])
                                 @endif
                                 <button type="button"
                                         @click="cancelTemplateId = {{ $tpl->id }}; cancelDocName = {{ Js::from($doc->name ?? 'Untitled') }}; showCancelModal = true"
@@ -576,8 +558,14 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
-                                <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--ds-green);">Download</a>
+                                <div class="flex flex-col items-end gap-1">
+                                    <div>
+                                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--brand-icon);">Audit</a>
+                                        <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-xs font-semibold hover:underline ml-3 transition-colors duration-150" style="color: var(--ds-green);">Download</a>
+                                    </div>
+                                    {{-- AT-294 — resend the completed signed-document email per recipient (stored PDF) --}}
+                                    @include('docuperfect.signatures.partials._recipient-resend', ['document' => $doc, 'requests' => $tpl->requests])
+                                </div>
                                 @endif
                             </td>
                         </tr>
