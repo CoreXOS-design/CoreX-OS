@@ -4,6 +4,7 @@ namespace App\Services\DealV2;
 
 use App\Models\Deal;
 use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\DealV2\AgencyServiceType;
 use App\Models\DealV2\DealDocumentDistribution;
 use App\Models\DealV2\DealStepWorkOrder;
 use App\Models\DealV2\DealV2;
@@ -91,6 +92,26 @@ class CocWorkOrderService
         return $email !== '' ? $email : null;
     }
 
+    /**
+     * AT-330 — the document detail for a meaningful email subject: "{service} Work Order"
+     * (e.g. "Electrical COC Work Order"). The service label is the agency's own
+     * AgencyServiceType label for this COC's code (Settings → COC / Service Types), so a
+     * custom COC type reads exactly as the agency named it; the raw code is the fallback.
+     * Dr2DistributionSendService prefixes the property address → "380 Wilfred Street,
+     * Shelly Beach — Electrical COC Work Order".
+     */
+    private function subjectDetail(DealStepWorkOrder $wo): string
+    {
+        $label = $wo->service_type
+            ? (AgencyServiceType::withoutGlobalScopes()
+                ->where('agency_id', $wo->agency_id)
+                ->where('code', $wo->service_type)
+                ->value('label') ?: $wo->service_type)
+            : 'Certificate of Compliance';
+
+        return trim((string) $label) . ' Work Order';
+    }
+
     /** Listing + selling agents (item 4), de-duped and MINUS the primary recipient (item 5). */
     public function ccList(Deal $deal, ?string $primaryEmail): array
     {
@@ -159,6 +180,7 @@ class CocWorkOrderService
             'Please find the attached work order.',
             $actor,
             $cc,
+            $this->subjectDetail($wo), // AT-330 — "{service} Work Order" → meaningful subject
         );
 
         $wo->forceFill([

@@ -50,6 +50,9 @@ class Dr2DistributionSendService
         ?string $message,
         User $actor,
         array $cc = [],
+        // AT-330 — the document detail for a meaningful subject ("Electrical COC Work Order").
+        // The composer prefixes the property address; null → the generic "Documents — {ref}".
+        ?string $subjectDetail = null,
     ): array {
         if (! $deal->deal_v2_id) {
             // AT-245 — mint the twin on demand rather than dead-end the send. Only
@@ -98,6 +101,15 @@ class Dr2DistributionSendService
             $mailDomain = 'corexos.co.za';
         }
 
+        // AT-330 — meaningful subject base: "{property address} — {detail}" when the caller
+        // supplies a document detail (e.g. "Electrical COC Work Order"); else the generic
+        // "Documents — {ref}". partLabel + the [CX-D…] token are appended per part below —
+        // the token is ALWAYS retained so AT-231 inbound reply-filing keeps resolving the deal.
+        $detail      = trim((string) $subjectDetail);
+        $baseSubject = $detail !== ''
+            ? ($address !== '' ? $address . ' — ' . $detail : $detail)
+            : 'Documents — ' . $reference;
+
         if ($mode === DealDocumentDistribution::MODE_DIRECT_ATTACHMENT) {
             $parts = $this->splitBySize($docs, $this->composer->sizeLimitBytes((int) $deal->agency_id));
         } else {
@@ -117,9 +129,9 @@ class Dr2DistributionSendService
                 ? 'cx-d' . $deal->id . '.' . strtolower($groupKey) . '.p' . $partNo . '@' . $mailDomain
                 : null;
 
-            // Subject carries the human reference, the optional part label, and the
-            // machine token — one string, reused by the email and the comms record.
-            $subject = 'Documents — ' . $reference . ($partLabel ? " ({$partLabel})" : '') . ' ' . $dealToken;
+            // Subject carries the meaningful base (address + detail), the optional part label, and
+            // the machine token — one string, reused by the email and the comms record.
+            $subject = $baseSubject . ($partLabel ? " ({$partLabel})" : '') . ' ' . $dealToken;
 
             // Build per-doc distribution rows + the delivery payload for this part.
             $secureLinks = [];
@@ -182,7 +194,7 @@ class Dr2DistributionSendService
             }
 
             // Deliver (email real via Mailer; WhatsApp = log-only deeplink idiom on staging).
-            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel, $dealToken, $messageId, $cc);
+            $partDelivered = $this->deliver($channel, $email, $actor, $recipient['name'] ?? '', $reference, $address, (string) $message, $attachments, $secureLinks, $partLabel, $dealToken, $messageId, $cc, $baseSubject);
             $delivered = $delivered || $partDelivered;
 
             // 3-pillar comms — deal (twin) + property + recipient contact (resolved by id, form-safe).
@@ -246,7 +258,7 @@ class Dr2DistributionSendService
     }
 
     /** Actually deliver a part. Email → Mailer; WhatsApp → deeplink+provisional-log (no real dispatch on staging). */
-    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel, string $dealToken = '', ?string $messageId = null, array $cc = []): bool
+    private function deliver(string $channel, string $email, User $actor, string $name, string $ref, string $address, string $message, array $attachments, array $secureLinks, ?string $partLabel, string $dealToken = '', ?string $messageId = null, array $cc = [], string $subjectDetail = ''): bool
     {
         if ($channel === DealDocumentDistribution::CHANNEL_WHATSAPP) {
             // The message + secure links go to the recipient over WhatsApp. On staging (WAHA not
@@ -263,7 +275,7 @@ class Dr2DistributionSendService
                 $mailer->cc($cc);
             }
             $mailer->send(
-                (new DealPackMail($name ?: 'there', $ref, $address, $message, $files, $secureLinks, $partLabel, $dealToken, $messageId))->fromAgent($actor)
+                (new DealPackMail($name ?: 'there', $ref, $address, $message, $files, $secureLinks, $partLabel, $dealToken, $messageId, $subjectDetail))->fromAgent($actor)
             );
             return true;
         } catch (\Throwable $e) {

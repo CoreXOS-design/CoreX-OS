@@ -679,3 +679,31 @@ firm-first, so no existing recipient changes; it only *adds* reachability for th
 
 Test: `tests/Feature/Dr2/WorkOrderRecipientResolutionTest.php` (firm-wins · contact-fallback ·
 both-blank-unsendable). Proven end-to-end on QA1 deal 1806 — two COCs, two Mailpit emails.
+
+## 24. AT-330 — pipeline document email subjects are meaningful (property + document detail)
+
+Every DR2 document email went out with the generic, meaningless subject **"Documents — {ref} [CX-D…]"**
+(built in `DealPackMail::envelope()` from the deal reference alone). The subject now carries the
+**property address + a document detail**:
+
+- **COC / attorney / bond-originator work orders** (the trigger-fired pipeline emails, all via
+  `CocWorkOrderService::send`) →
+  **"{property address} — {service label} Work Order"**, e.g.
+  *"380 Wilfred Street, Shelly Beach — Electrical COC Work Order [CX-D158]"*. The service label is the
+  agency's own `AgencyServiceType.label` for the COC code (Settings → COC / Service Types), so a custom
+  COC type reads exactly as the agency named it.
+
+**Mechanism (a general composer, not a per-COC special-case):**
+- `Dr2DistributionSendService::sendToParty(..., ?string $subjectDetail = null)` computes a
+  `$baseSubject` = **"{address} — {detail}"** when the caller supplies a detail, else the generic
+  "Documents — {ref}". This one string feeds both the email (via `DealPackMail`) and the comms archive.
+- `DealPackMail` gained `string $subjectDetail = ''`; its envelope uses it as the base when set.
+- **The `[CX-D{deal_id}]` token and the part label are ALWAYS appended after the base** — AT-231
+  inbound reply-filing still resolves the deal from the subject; nothing about threading changes.
+- The two **manual** send callers (`WorkOrderController::dr1Send`, `DealDistributionController`) pass no
+  detail → they keep the generic subject unchanged (out of this ticket's "same email path as AT-329"
+  scope; they can adopt the param under Johan's wording call).
+
+Test: `tests/Feature/Dr2/WorkOrderSubjectComposerTest.php` (meaningful base + token · generic fallback ·
+part label). Proven on QA1 deal 1806. **Wording is Johan's call** — the format follows the ticket's own
+examples; the token is retained deliberately (AT-231) and can be hidden later if Johan wants.

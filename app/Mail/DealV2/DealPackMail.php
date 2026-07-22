@@ -34,11 +34,16 @@ class DealPackMail extends BaseSignatureMail
         // comm (thread_key). See .ai/specs/at231-inbound-attorney-comms-filing.md §3.1.
         public string $dealToken = '',
         public ?string $messageId = null,
+        // AT-330 — a meaningful subject base (e.g. "380 Wilfred Street, Shelly Beach —
+        // Electrical COC Work Order") supplied by the sender. Empty → the generic
+        // "Documents — {ref}" (unchanged). partLabel + the [CX-D…] token are always
+        // appended after it, so AT-231 inbound reply-filing is never lost.
+        public string $subjectDetail = '',
     ) {}
 
     public function envelope(): Envelope
     {
-        $subject = 'Documents — ' . $this->dealReference;
+        $subject = $this->subjectDetail !== '' ? $this->subjectDetail : ('Documents — ' . $this->dealReference);
         if ($this->partLabel) {
             $subject .= ' (' . $this->partLabel . ')';
         }
