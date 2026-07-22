@@ -55,11 +55,20 @@ class AuthenticatedSessionController extends Controller
     {
         $request->authenticate();
 
-        // AT-268 — belt-and-braces over the unusable invite password: an account that has been
-        // invited but not yet accepted can NEVER hold a session, whatever password was supplied. The
-        // real fix (User::pendingInvitePassword) already makes Auth::attempt fail for these; this
-        // guarantees it even if a pending account ever ended up with a guessable password again.
-        if (auth()->user()?->isPendingInvite()) {
+        // AT-268 — belt-and-braces over the unusable invite password: refuse a session for a genuine
+        // unredeemed invite, i.e. an account that (a) has never accepted (email_verified_at IS NULL)
+        // AND (b) still carries the publicly-known 'INVITE_PENDING' constant as its password. The real
+        // fix (User::pendingInvitePassword) already makes Auth::attempt fail for post-fix invites, and
+        // the rotation migration scrubbed the constant from live — so this gate defends purely against
+        // the exact hole reappearing.
+        //
+        // The bare email_verified_at IS NULL test was too broad: CoreX never enforced MustVerifyEmail,
+        // so established accounts created outside the invite flow (e.g. the super_admin owner accounts)
+        // legitimately carry a NULL marker with a real password, and were wrongly locked out. Requiring
+        // the constant means the gate can only ever fire on the genuine vulnerability it closes.
+        // authenticate() has already succeeded, so auth()->user()->password is the account's real hash.
+        if (auth()->user()?->isPendingInvite()
+            && \Illuminate\Support\Facades\Hash::check('INVITE_PENDING', (string) auth()->user()->password)) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
