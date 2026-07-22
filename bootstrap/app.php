@@ -46,6 +46,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             \App\Http\Middleware\AgencyMaintenanceGate::class,
             \App\Http\Middleware\EnsureDemoGrant::class,
+            // AT-267 — records which records an assistant opens/edits. No-op for
+            // everyone who is not an assistant (a single bool check).
+            \App\Http\Middleware\LogAssistantActivity::class,
         ]);
 
         // EnsureDemoGrant MUST run BEFORE Authenticate.

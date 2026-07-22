@@ -57,6 +57,31 @@
         </div>
     </div>
 
+    {{-- Tabs: what they CAN do (permissions) vs what they HAVE done (activity) --}}
+    <div class="flex items-center gap-1" style="border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+        <button type="button" @click="tab = 'permissions'"
+                class="px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors"
+                :style="tab === 'permissions'
+                    ? 'color:var(--brand-icon, #0ea5e9); border-color:var(--brand-icon, #0ea5e9);'
+                    : 'color:var(--text-muted, #6b7280); border-color:transparent;'">
+            Permissions
+        </button>
+        <button type="button" @click="tab = 'activity'" data-tour="assist-matrix-activity"
+                class="px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors"
+                :style="tab === 'activity'
+                    ? 'color:var(--brand-icon, #0ea5e9); border-color:var(--brand-icon, #0ea5e9);'
+                    : 'color:var(--text-muted, #6b7280); border-color:transparent;'">
+            Activity
+            @if($activity->isNotEmpty())
+                <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[0.6875rem] font-bold align-middle"
+                      style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">{{ $activity->count() }}</span>
+            @endif
+        </button>
+    </div>
+
+    {{-- ══════════ PERMISSIONS TAB ══════════ --}}
+    <div x-show="tab === 'permissions'" x-cloak class="space-y-5">
+
     @if($pendingDrift > 0)
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:var(--surface, #fff); color:var(--text-primary, #111827); border:1px solid var(--ds-amber, #d97706);">
@@ -269,6 +294,71 @@
             <button type="button" class="corex-btn-primary" @click="save()">Save</button>
         </div>
     </form>
+    </div>{{-- /permissions tab --}}
+
+    {{-- ══════════ ACTIVITY TAB ══════════ --}}
+    <div x-show="tab === 'activity'" x-cloak>
+        <div class="rounded-md overflow-hidden" style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
+            <div class="px-4 py-3" style="background:var(--surface-2, #f0f2f8); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+                <div class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary, #6b7280);">
+                    What {{ $assistant?->name }} has been doing
+                </div>
+                <div class="text-xs mt-0.5" style="color:var(--text-muted, #6b7280);">
+                    Every property, contact and deal {{ $assistant?->name }} has opened, edited or deleted on your behalf — most recent first.
+                </div>
+            </div>
+
+            @forelse($activity as $entry)
+                @php
+                    $actionMeta = [
+                        'opened'  => ['label' => 'Opened',  'color' => 'var(--brand-icon, #0ea5e9)'],
+                        'edited'  => ['label' => 'Edited',  'color' => 'var(--ds-amber, #d97706)'],
+                        'created' => ['label' => 'Created', 'color' => 'var(--ds-green, #16a34a)'],
+                        'deleted' => ['label' => 'Deleted', 'color' => 'var(--ds-crimson, #c41e3a)'],
+                    ][$entry->action] ?? ['label' => \Illuminate\Support\Str::title($entry->action), 'color' => 'var(--text-secondary, #6b7280)'];
+                    $subjectWord = \Illuminate\Support\Str::title($entry->subject_type ?? 'record');
+                    $label = $entry->subject_label ?: ($entry->subject_id ? '#' . $entry->subject_id : 'a ' . strtolower($subjectWord));
+                @endphp
+                <div class="px-4 py-3 flex items-start gap-3" style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+                    <span class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $actionMeta['color'] }};"></span>
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm">
+                            <span class="font-semibold" style="color:{{ $actionMeta['color'] }};">{{ $actionMeta['label'] }}</span>
+                            <span style="color:var(--text-secondary, #6b7280);">{{ $subjectWord }}</span>
+                            @if($entry->url)
+                                <a href="{{ $entry->url }}" class="font-medium" style="color:var(--text-primary, #111827);">{{ $label }}</a>
+                            @else
+                                <span class="font-medium">{{ $label }}</span>
+                            @endif
+                        </div>
+                    </div>
+                    <div class="text-xs whitespace-nowrap flex-shrink-0" style="color:var(--text-muted, #6b7280);"
+                         title="{{ $entry->created_at?->format('j M Y, H:i') }}">
+                        {{ $entry->created_at?->diffForHumans() }}
+                    </div>
+                </div>
+            @empty
+                <div class="px-6 py-12 text-center">
+                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                         style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);">
+                        <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary, #111827);">Nothing yet</h3>
+                    <p class="text-sm" style="color:var(--text-muted, #6b7280);">
+                        When {{ $assistant?->name }} opens or changes one of your properties, contacts or deals, it will show up here.
+                    </p>
+                </div>
+            @endforelse
+        </div>
+
+        @if($activity->count() >= 200)
+            <p class="text-xs mt-3" style="color:var(--text-muted, #6b7280);">
+                Showing the 200 most recent actions.
+            </p>
+        @endif
+    </div>
 </div>
 
 @push('scripts')
@@ -280,6 +370,7 @@ function assistantMatrix() {
              array literal and drops the closing ']', producing invalid PHP (unclosed '['). --}}
         scopes: @json(collect($sections)->flatten(1)->filter(fn ($r) => $r['is_view'] && !$r['is_locked'])->mapWithKeys(fn ($r) => [$r['key'] => ($r['granted'] ? $r['scope'] : 'none')])),
         settings: @json($assistantSettings),
+        tab: 'permissions',
         featureSearch: '',
         selectedSection: @json((string) (collect($sections)->keys()->first() ?? '')),
         dirty: false,

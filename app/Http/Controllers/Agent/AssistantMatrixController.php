@@ -66,11 +66,19 @@ class AssistantMatrixController extends Controller
 
         $assignment->load('permissions');
 
+        // AT-267 — the Activity tab: what has this assistant actually been doing?
+        // The most recent things they've opened / edited / deleted, newest first.
+        $activity = \App\Models\AssistantActivityLog::where('assistant_assignment_id', $assignment->id)
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get();
+
         return view('agent.assistants.matrix', [
             'assignment'   => $assignment,
             'assistant'    => $assignment->assistant,
             'sections'     => $this->matrixSections($agent, $assignment),
             'pendingDrift' => $this->snapshots->pendingDriftCount($assignment),
+            'activity'     => $activity,
         ]);
     }
 

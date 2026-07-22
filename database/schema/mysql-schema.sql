@@ -1405,6 +1405,35 @@ CREATE TABLE `article_pool` (
   UNIQUE KEY `article_pool_url_hash_unique` (`url_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `assistant_activity_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `assistant_activity_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `assistant_assignment_id` bigint unsigned NOT NULL,
+  `assistant_user_id` bigint unsigned NOT NULL,
+  `agent_user_id` bigint unsigned DEFAULT NULL,
+  `action` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject_type` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_id` bigint unsigned DEFAULT NULL,
+  `subject_label` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `route_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `url` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `method` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `assistant_activity_log_agency_id_foreign` (`agency_id`),
+  KEY `aal_agent_fk` (`agent_user_id`),
+  KEY `aal_assignment_time_idx` (`assistant_assignment_id`,`created_at`),
+  KEY `aal_assistant_time_idx` (`assistant_user_id`,`created_at`),
+  KEY `aal_subject_idx` (`subject_type`,`subject_id`),
+  CONSTRAINT `aal_agent_fk` FOREIGN KEY (`agent_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `aal_assignment_fk` FOREIGN KEY (`assistant_assignment_id`) REFERENCES `assistant_assignments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `aal_assistant_fk` FOREIGN KEY (`assistant_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `assistant_activity_log_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `assistant_assignment_permissions`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12391,7 +12420,7 @@ CREATE TABLE `users` (
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'agent',
   `is_assistant` tinyint(1) NOT NULL DEFAULT '0',
   `fica_required` tinyint(1) NOT NULL DEFAULT '1',
-  `assistant_title` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `assistant_title` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `risk_tier` enum('high','medium','low') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
   `screening_status` enum('never_screened','pre_employment_pending','clear','concerns_flagged','overdue','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'never_screened',
   `screening_due_on` date DEFAULT NULL,
@@ -13871,3 +13900,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1026,'2026_07_19_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1027,'2026_07_19_000007_add_assistant_control_settings',187);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1028,'2026_07_21_000001_add_can_download_documents_to_assistant_assignments',188);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1029,'2026_07_22_120000_add_assistant_title_to_users_table',189);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1030,'2026_07_22_130000_create_assistant_activity_log_table',190);

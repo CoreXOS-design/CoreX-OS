@@ -110,6 +110,11 @@ return [
                 'body'    => 'This list is a copy of the things YOU can do. Anything switched on, your assistant may do on your behalf. Switch off anything you don\'t want handed over — you can change it any time.',
             ],
             [
+                'element' => '[data-tour="assist-matrix-activity"]',
+                'title'   => 'See what they\'ve done',
+                'body'    => 'The Permissions tab is what your assistant CAN do. The Activity tab is what they HAVE done — every property, contact and deal they\'ve opened, edited or deleted on your behalf, newest first. Check it any time to be sure nothing is happening that shouldn\'t.',
+            ],
+            [
                 'element' => '[data-tour="assist-matrix-behaviour"]',
                 'title'   => 'How they work for you',
                 'body'    => 'These toggles set the style of help: whether they can edit and delete your records or only add to them, whether their name is tagged on what they touch, whether you\'re notified, and whether they can download document files.',
