@@ -477,11 +477,11 @@
                             class="px-6 py-2.5 text-sm font-medium rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700"
                             onclick="return confirm('{{ $nextParty
                                 ? 'Approve and send to ' . ($nextPartyName ?: $nextPartyLabel) . '?'
-                                : 'Approve and complete the document?' }}')">
+                                : 'Approve and finalise the document?' }}')">
                         @if($nextParty)
                             Approve &amp; Send to {{ $nextPartyName ?: $nextPartyLabel }} &rarr;
                         @else
-                            Approve &amp; Complete Document
+                            Approve &amp; Finalise
                         @endif
                     </button>
                 </form>

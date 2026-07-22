@@ -2292,6 +2292,17 @@ class SignatureController extends Controller
             }
         }
 
+        // AT-325 — at the agent-approval gate (STATUS_PENDING_AGENT_APPROVAL)
+        // every party has already signed; the agent's action is the FINAL
+        // approve/finalise, never "send to [next party]". Status is the source
+        // of truth here, so a stray signing-order vs completed-key mismatch can
+        // never resurrect a phantom next signer ("Send to Andre" after Andre
+        // signed). The review surface is only ever shown at approval gates, so
+        // a genuine next signer never legitimately renders here.
+        if ($template->isPendingAgentApproval()) {
+            $nextParty = null;
+        }
+
         // Get progress for the completed party
         $progress = $template->partyProgress();
 
