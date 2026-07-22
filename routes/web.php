@@ -723,6 +723,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // the DR1 deal, only its pipeline steps + pointer). view_deals to see, create_deals to act.
     Route::get('/{deal}/pipeline',                        [\App\Http\Controllers\Dr2\PipelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline');
     Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
+    // AT-334 — build the pipeline from chosen suspensive conditions (Deal Structure tab).
+    Route::post('/{deal}/pipeline/structure',             [\App\Http\Controllers\Dr2\PipelineController::class, 'saveStructure'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.structure');
     Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
     // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
     Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');

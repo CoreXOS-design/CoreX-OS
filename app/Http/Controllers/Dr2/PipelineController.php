@@ -66,10 +66,59 @@ class PipelineController extends Controller
         $lockReason  = $locked ? $this->lock->reason($deal) : null;
         $unlockHint  = $locked ? $this->lock->unlockHint() : null;
 
+        // AT-334 — Deal Structure tab: the composable-condition picker.
+        $conditionCatalog = app(\App\Services\DealV2\Dr2ConditionCatalog::class)->conditions();
+        $dealConditions   = \App\Models\DealV2\DealCondition::where('deal_id', $deal->id)->get()->keyBy('key');
+        $hasPipeline      = $steps->isNotEmpty();
+
         return view('dr2.pipeline', compact(
             'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
             'locked', 'lockReason', 'unlockHint',
+            'conditionCatalog', 'dealConditions', 'hasPipeline',
         ));
+    }
+
+    /**
+     * AT-334 — build (or, later, restructure) a deal's pipeline from the chosen
+     * suspensive conditions. New-model path; the assembler refuses if a pipeline
+     * already exists (Restructure is a later phase).
+     */
+    public function saveStructure(Deal $deal, Request $request, \App\Services\DealV2\DealStructureAssembler $assembler): RedirectResponse
+    {
+        abort_unless($request->user()?->hasPermission('create_deals'), 403);
+        if ($this->lock->isLocked($deal)) {
+            return back()->with('error', 'This pipeline is locked and cannot be structured.');
+        }
+
+        $catalog    = app(\App\Services\DealV2\Dr2ConditionCatalog::class);
+        $in         = (array) $request->input('conditions', []);
+        $selections = [];
+        foreach (array_keys($catalog->conditions()) as $key) {
+            if (empty($in[$key]['on'])) {
+                continue;
+            }
+            $opts = [];
+            if ($key === 'bond') {
+                $opts['deposit'] = ! empty($in[$key]['deposit']);
+            }
+            if ($key === 'cash') {
+                $opts['payments'] = max(1, min(6, (int) ($in[$key]['payments'] ?? 1)));
+            }
+            $selections[$key] = $opts;
+        }
+
+        if (empty($selections)) {
+            return back()->with('error', 'Pick at least one suspensive condition to build the pipeline.');
+        }
+
+        try {
+            $assembler->assemble($deal, $selections);
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with('info', 'Deal structure saved — pipeline assembled.');
     }
 
     /** Attach a template's pipeline to the deal (the service guards against double-attach). */

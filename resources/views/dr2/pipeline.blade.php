@@ -120,9 +120,19 @@
             </p>
         </div>
     @elseif($steps->isEmpty())
-        {{-- No pipeline yet → attach one. --}}
+        {{-- AT-334 — empty-state points at the Deal Structure tab (the new-model path). --}}
+        <div class="corex-card" style="padding:1.5rem;margin-bottom:1rem;text-align:center;">
+            <div style="font-size:2rem;line-height:1;margin-bottom:.5rem;">🧩</div>
+            <h2 style="margin:0 0 .4rem;font-size:1.05rem;">Complete the deal structure to build your pipeline</h2>
+            <p style="margin:0 0 .9rem;color:var(--text-muted,#6b7280);font-size:.9rem;">
+                Choose this deal's suspensive conditions (cash, bond, subject-to-sale) and the pipeline assembles itself — with the right steps, milestones and dates.
+            </p>
+            <button type="button" class="corex-btn-primary" onclick="document.querySelector('.dr2-tabbar')?.scrollIntoView({behavior:'smooth'}); window.dispatchEvent(new CustomEvent('dr2-open-structure'))"
+                    style="font-size:.9rem;">Open Deal Structure →</button>
+        </div>
+        {{-- Fallback: the standard-template attach still available. --}}
         <div class="corex-card" style="padding:1.5rem;">
-            <h2 style="margin:0 0 .75rem;font-size:1.05rem;">Attach a pipeline</h2>
+            <h2 style="margin:0 0 .75rem;font-size:1.05rem;">Or attach a standard template</h2>
             @if($templates->isEmpty())
                 <p style="color:var(--corex-text-muted,#6b7280);">
                     No active pipeline templates for this agency yet. Create one under
@@ -348,16 +358,22 @@
              just holds the SAME partial as before; no controller/route/permission change.
              Active tab persists per user via localStorage. --}}
         <div class="lg:col-span-2 min-w-0 dr2-pipe-col"
-             x-data="{ tab: (window.localStorage.getItem('dr2_right_tab') || 'wo') }"
-             x-init="$watch('tab', v => window.localStorage.setItem('dr2_right_tab', v))">
+             x-data="{ tab: ({{ $hasPipeline ? 'true' : 'false' }} ? (window.localStorage.getItem('dr2_right_tab') || 'wo') : 'structure') }"
+             x-init="$watch('tab', v => window.localStorage.setItem('dr2_right_tab', v))"
+             @dr2-open-structure.window="tab='structure'">
 
             <div class="dr2-tabbar" role="tablist" aria-label="Deal right panel">
+                <button type="button" class="dr2-tab" :class="tab==='structure' ? 'corex-tab-active' : ''" @click="tab='structure'" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
                 <button type="button" class="dr2-tab" :class="tab==='wo'    ? 'corex-tab-active' : ''" @click="tab='wo'"    role="tab" :aria-selected="tab==='wo'">Supplier Work Orders</button>
                 <button type="button" class="dr2-tab" :class="tab==='docs'  ? 'corex-tab-active' : ''" @click="tab='docs'"  role="tab" :aria-selected="tab==='docs'">Documents</button>
                 <button type="button" class="dr2-tab" :class="tab==='email' ? 'corex-tab-active' : ''" @click="tab='email'" role="tab" :aria-selected="tab==='email'">Email Parties</button>
                 <button type="button" class="dr2-tab" :class="tab==='pi'    ? 'corex-tab-active' : ''" @click="tab='pi'"    role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
             </div>
 
+            {{-- AT-334 — Deal Structure: pick the suspensive conditions → assemble the pipeline. --}}
+            <div x-show="tab==='structure'" x-cloak role="tabpanel">
+                @include('dr2._deal-structure', ['deal' => $deal, 'conditionCatalog' => $conditionCatalog, 'dealConditions' => $dealConditions, 'hasPipeline' => $hasPipeline, 'locked' => $locked])
+            </div>
             {{-- AT-229 §17 — Supplier Work Orders config (NOT a modal). Wrapped as a pane; no logic change. --}}
             <div x-show="tab==='wo'" x-cloak role="tabpanel">
                 @include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])
