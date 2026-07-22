@@ -2567,6 +2567,39 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 {$cleanupCss}
 CSS;
 
+        // AT-328/AT-332 — when the render input is the signer's ALREADY-paginated
+        // DOM (signed_paginated_html: a sequence of fixed 210x297mm .corex-a4-page
+        // boxes, each carrying its own padding and its own .page-number footer),
+        // the default PDF CSS above (@page 18/20mm margins + counter(pages) footer,
+        // .corex-document-wrapper zoom:0.82, and .corex-a4-page reset to
+        // min-height:auto/padding:0) RE-FLOWS those boxes: 3 on-screen pages
+        // rendered as 4 physical PDF pages with a mismatched "Page X of Y" @page
+        // footer (counting physical pages) stacked on top of the DOM's own footer.
+        // Map each .corex-a4-page to EXACTLY one physical A4 page instead: zero the
+        // @page margins + blank its counter (the DOM footer is authoritative), drop
+        // the wrapper zoom, and restore the page box to its captured geometry with a
+        // hard page break after each. Appended last so it wins the cascade.
+        if (str_contains($mergedHtml, 'corex-a4-page')) {
+            $pdfStyles .= <<<CSS
+
+/* === AT-328/AT-332 — pre-paginated DOM: one .corex-a4-page = one physical page === */
+@page { size: A4; margin: 0; @bottom-center { content: ""; } }
+.corex-document-wrapper { zoom: 1 !important; }
+.corex-a4-page {
+    width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    padding: 20mm 18mm 25mm 18mm !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    page-break-after: always !important;
+    break-after: page !important;
+}
+.corex-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+CSS;
+        }
+
         // If it already has a DOCTYPE or <html> tag, inject all styles before </head>
         if (preg_match('/<!DOCTYPE|<html/i', $mergedHtml)) {
             $styleTag = '<style>' . $pdfStyles . '</style>';
