@@ -242,6 +242,18 @@ class DealMoneyLineRebuilder
                 'paid_at' => $paidAt,
             ];
 
+            // AT-334 — a money line belongs to the PARENT deal's agency. BelongsToAgency's
+            // creating hook does NOT stamp agency_id for an unscoped-owner user (e.g. an
+            // owner saving a deal) nor for the non-auth cron rebuild (RecalcDealMoneyLines),
+            // and its single-agency fallback only fires when exactly one agency exists — so
+            // on a multi-agency install the INSERT hit NOT-NULL agency_id with no value
+            // (SQLSTATE[HY000] 1364). Derive it from the deal, mirroring
+            // InheritsBranchFromParent. Guarded so we never pass an EXPLICIT null (which the
+            // trait treats as a deliberate GLOBAL row and would leave unstamped).
+            if ($deal->agency_id) {
+                $payload['agency_id'] = (int) $deal->agency_id;
+            }
+
             if (!$dryRun) {
                 DealMoneyLine::create($payload);
             }
