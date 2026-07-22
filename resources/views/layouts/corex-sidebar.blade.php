@@ -692,9 +692,15 @@
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
 
-                {{-- AT-XX — Viewing Packs (buyer-facing property packs). --}}
+                {{-- AT-XX — Viewing Packs (buyer-facing property packs).
+                     Gated on access_viewing_packs to match the route group
+                     (routes/web.php — permission:access_viewing_packs), so turning
+                     the permission off (e.g. an assistant's matrix) removes the link
+                     instead of leaving a dead item that 403s. --}}
                 @feature('viewing-packs')
+                @permission('access_viewing_packs')
                 <a href="{{ route('corex.viewing-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.viewing-packs.*') ? 'active' : '' }}">Viewing Packs</a>
+                @endpermission
                 @endfeature
 
                 @feature('portal-leads')
@@ -1511,6 +1517,7 @@
         {{-- PDF Suite --}}
         @if(auth()->check() && (auth()->user()->hasPermission('access_pdf_suite') || auth()->user()->hasPermission('access_pdf_splitter')))
         @feature('pdf-suite')
+        @permission('access_pdf_suite')
         @if(\Illuminate\Support\Facades\Route::has('tools.pdf_suite.hub'))
         <a href="{{ route('tools.pdf_suite.hub') }}" class="corex-nav-item {{ (request()->routeIs('tools.pdf_suite.*') || request()->routeIs('tools.pdf_splitter.*')) ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1523,6 +1530,7 @@
             <span>PDF Suite</span>
         </a>
         @endif
+        @endpermission
         @endfeature
         @endif
 
