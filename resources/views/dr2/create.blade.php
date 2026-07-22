@@ -160,29 +160,22 @@
                 </div>
             </div>
 
-            {{-- AT-216 V1.1 — Pipeline (auto-attached on save; defaults per deal type, changeable) --}}
+            {{-- AT-334 — Pipeline. Composition (Deal Structure) is now the DEFAULT: a new deal
+                 starts with NO template, so it lands with zero steps and the Deal Structure tab
+                 drives the build (pick conditions → Build). A standard template is an advanced/
+                 legacy choice — pick one here to attach it instead. NO auto-select on deal_type
+                 (the old JS that forced the deal_type's default template is removed). --}}
             @if(($mode ?? 'create') === 'create' && isset($availableTemplates) && $availableTemplates->isNotEmpty())
             <div class="field-full">
                 <label class="ds-label block mb-1">Pipeline</label>
                 <select name="pipeline_template_id" id="dr2-pipeline-select" class="ds-input w-full">
-                    <option value="">— No pipeline (attach later) —</option>
+                    <option value="">— None — build from Deal Structure (default) —</option>
                     @foreach($availableTemplates as $tpl)
-                        <option value="{{ $tpl->id }}" {{ (string) old('pipeline_template_id', $defaultByType[$dt] ?? '') === (string) $tpl->id ? 'selected' : '' }}>{{ $tpl->name }} · {{ $tpl->deal_type }}{{ $tpl->is_default ? ' (default)' : '' }}</option>
+                        <option value="{{ $tpl->id }}" {{ (string) old('pipeline_template_id') === (string) $tpl->id ? 'selected' : '' }}>{{ $tpl->name }} · {{ $tpl->deal_type }}{{ $tpl->is_default ? ' (default)' : '' }}</option>
                     @endforeach
                 </select>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">Defaults to your agency's template for the deal type — change it here or attach later from the deal's pipeline.</p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Leave as “None” to build the pipeline from the Deal Structure tab (recommended). Or pick a standard template to attach one instead.</p>
             </div>
-            <script>
-            (function () {
-                var map = @json($defaultByType);
-                document.querySelectorAll('input[name=deal_type]').forEach(function (r) {
-                    r.addEventListener('change', function () {
-                        var s = document.getElementById('dr2-pipeline-select');
-                        if (s && map[this.value]) { s.value = String(map[this.value]); }
-                    });
-                });
-            })();
-            </script>
             @endif
 
             {{-- (Enhancement 1) Property — rich searchable picker matching the PDF splitter --}}
