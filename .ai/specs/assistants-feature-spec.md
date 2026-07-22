@@ -929,4 +929,59 @@ setting deliberately left out is recorded here as a decision, per Non-negotiable
 
 ---
 
+## 23. Activity tracking — the "Activity" tab (added 2026-07-22, Johan)
+
+The matrix page (`agent.assistants.matrix`) gains a second tab. **Permissions** (the existing
+switchboard) is what the assistant CAN do; **Activity** is what they HAVE done — so the agent can
+check, plainly, that nothing is happening on their book that shouldn't be.
+
+- **Storage — `assistant_activity_log`** (append-only, no soft delete, like `property_audit_log`):
+  `agency_id`, `assistant_assignment_id`, `assistant_user_id`, `agent_user_id` (on-behalf-of),
+  `action` (opened|edited|created|deleted), `subject_type` (property|contact|deal), `subject_id`,
+  `subject_label` (denormalised human label), `route_name`, `url`, `method`, `created_at`. Indexed by
+  `(assistant_assignment_id, created_at)`.
+- **Writer — `App\Http\Middleware\LogAssistantActivity`** appended to the `web` group. A single
+  `is_assistant` bool check makes it a no-op for everyone else, so volume is bounded to assistants.
+  For an assistant, a successful (<400) request bound to a `{property}`/`{contact}`/`{deal}` route
+  writes one row: `GET → opened`, `PUT/PATCH → edited`, `DELETE → deleted`, `POST → edited` only when
+  the route name ends `.update` (so the many small sub-action POSTs stay out). List/index pages
+  (no bound record) write nothing. The write is wrapped so a logging failure never breaks the page.
+  **This is the ONLY property "open/view" logging in CoreX** — property views were not logged before
+  (contrast `contact_access_log`, which already logs contact views).
+- **Read** — `AssistantMatrixController::edit()` loads the 200 most recent rows for the assignment,
+  newest first; the Activity tab renders them as a dot + "Opened/Edited/Deleted &lt;Type&gt; &lt;label&gt;" +
+  relative time, linking to the record. Empty state when there's nothing yet.
+- **Not a permission.** The Activity tab is an *ownership* view (the agent seeing their own
+  assistant's actions), gated exactly like the matrix itself (`assignment.agent_user_id === auth id`).
+- **Switch User.** Assistants already satisfy the impersonation picker's filters (active, non-owner,
+  in-agency) and appear in it — the picker now also shows their Title/label so switching into one is
+  meaningful. No security guard changed (an assistant was always a valid impersonation target).
+
+Governing spec: this file. No separate spec — extends the Assistants feature.
+
+---
+
+## 24. Ads — all listings, always the listing agent's info (added 2026-07-22, Johan)
+
+An assistant helps market the whole office, so they may build an ad for **any** of the agency's
+listings — not just their assigned agent's own book. And because an ad's contact details must credit
+the **listing agent** (the property's `agent_id`), never the assistant, the two requirements combine
+safely: widening the pool cannot misattribute a listing.
+
+- **Access widened (assistant-only):** the ad generator (`PropertyController@ad`), the printable
+  brochure (`@brochure`) and the batch **Ad Manager** (`AdManagerController::adScope()` → `'all'` for
+  assistants) skip the per-listing data-scope gate for an assistant. The property is still
+  agency-scoped by route-model binding / `AgencyScope`, so an assistant can only ever reach their own
+  agency's listings. Everyone else stays scope-gated. (Assistants own no listings, so the old `'own'`
+  scope would have left their Ad Manager empty.)
+- **Agent info is already the listing agent** everywhere in the ad path (`Property::adData()`,
+  `agentAdCard()`, `ad.blade.php` all read `$property->agent`) — `auth()->user()` is never used for ad
+  contact. The two spots where a *different* agent could be surfaced are now locked for assistants:
+  the brochure `?ad_agent=` footer override is ignored, and `livePreview`'s `agent=me` falls back to
+  the listing agent. So an ad an assistant produces can only ever carry the listing agent's details.
+- No permission change: reaching the ad still requires `access_properties` (Ad Manager:
+  `access_ad_manager`), which the agent grants via the matrix like any other capability.
+
+---
+
 End of spec.

@@ -2084,7 +2084,14 @@ class PropertyController extends Controller
 
     public function ad(Property $property)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — an assistant may build an ad for ANY of the agency's listings
+        // (the property is already agency-scoped by route-model binding). The ad
+        // always carries the LISTING agent's own contact details, never the
+        // assistant's, so this cannot misattribute a listing. Everyone else stays
+        // data-scope gated.
+        if (! auth()->user()?->is_assistant) {
+            $this->authorizeProperty($property);
+        }
         $property->load(['agent', 'branch']);
 
         /** @var User $user */
@@ -2134,14 +2141,23 @@ class PropertyController extends Controller
      */
     public function brochure(Property $property, \App\Services\Properties\PropertyBrochureService $service)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — assistants may print a brochure for ANY of the agency's
+        // listings (agency-scoped by binding). Everyone else stays scope-gated.
+        $isAssistant = (bool) auth()->user()?->is_assistant;
+        if (! $isAssistant) {
+            $this->authorizeProperty($property);
+        }
 
         // Agent identity (ad-manager.md §"Agent identity"): ?ad_agent points the
         // footer at another in-scope agent; ?co=1 co-brands with the co-listing
         // agent. AgencyScope on User::find keeps the override inside the agency;
         // an out-of-agency or unknown id silently falls back to the listing agent.
+        //
+        // An ASSISTANT can never repoint the footer — a brochure they produce
+        // always carries the listing agent's own details, never the assistant's
+        // (or any agent they might name in the URL).
         $primary = null;
-        if ($id = (int) request('ad_agent')) {
+        if (! $isAssistant && $id = (int) request('ad_agent')) {
             $primary = User::find($id);
         }
         $secondary = request()->boolean('co') && $property->pp_second_agent_id
@@ -2254,7 +2270,9 @@ class PropertyController extends Controller
                     ->where('id', (int) $agentChoice)
                     ->where('agency_id', $property->agency_id)
                     ->first();
-            } elseif ($agentChoice === 'me' && $authUser) {
+            } elseif ($agentChoice === 'me' && $authUser && ! $authUser->is_assistant) {
+                // AT-267 — an assistant never surfaces themselves on a listing
+                // preview; it falls back to the listing agent below.
                 $displayAgent = $authUser;
             }
 

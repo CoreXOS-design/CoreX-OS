@@ -460,4 +460,101 @@ final class AssistantLifecycleTest extends TestCase
         // The sidebar entry is conditional on having one; the page must agree.
         $this->actingAs($this->otherAgent)->get(route('agent.assistants.index'))->assertNotFound();
     }
+
+    // ── Activity tracking (AT-267) ─────────────────────────────────────────
+
+    public function test_the_matrix_activity_tab_shows_what_the_assistant_did(): void
+    {
+        $this->createAssistant();
+        $assignment = AssistantAssignment::firstOrFail();
+
+        \App\Models\AssistantActivityLog::create([
+            'agency_id'               => $this->agency->id,
+            'assistant_assignment_id' => $assignment->id,
+            'assistant_user_id'       => $assignment->assistant_user_id,
+            'agent_user_id'           => $this->agent->id,
+            'action'                  => 'opened',
+            'subject_type'            => 'property',
+            'subject_id'              => 4242,
+            'subject_label'           => '12 Beach Road, Margate',
+            'created_at'              => now(),
+        ]);
+
+        $this->reset();
+        $this->actingAs($this->agent)->get(route('agent.assistants.matrix', $assignment))
+            ->assertSuccessful()
+            ->assertSee('Activity')
+            ->assertSee('12 Beach Road, Margate');
+    }
+
+    public function test_the_activity_middleware_records_an_assistant_opening_a_record(): void
+    {
+        $this->createAssistant();
+        $assignment = AssistantAssignment::firstOrFail();
+        $assistant  = $assignment->assistant->fresh();
+
+        $request = \Illuminate\Http\Request::create('/corex/properties/4242', 'GET');
+        $route   = (new \Illuminate\Routing\Route(['GET'], 'corex/properties/{property}', ['as' => 'corex.properties.show', 'uses' => fn () => '']))->bind($request);
+        $route->setParameter('property', '4242');   // raw id — binding didn't hydrate a model
+        $request->setRouteResolver(fn () => $route);
+        $request->setUserResolver(fn () => $assistant);
+
+        (new \App\Http\Middleware\LogAssistantActivity())
+            ->handle($request, fn ($r) => new \Illuminate\Http\Response('ok', 200));
+
+        $this->assertDatabaseHas('assistant_activity_log', [
+            'assistant_user_id' => $assistant->id,
+            'agent_user_id'     => $this->agent->id,
+            'action'            => 'opened',
+            'subject_type'      => 'property',
+            'subject_id'        => 4242,
+        ]);
+    }
+
+    // ── Ads (AT-267): all listings, always the listing agent's info ────────
+
+    public function test_an_assistant_can_open_the_ad_for_any_agency_listing_and_it_shows_the_listing_agent(): void
+    {
+        $this->createAssistant();
+        $assignment = AssistantAssignment::firstOrFail();
+        $assistant  = $assignment->assistant;
+
+        // A listing owned by a DIFFERENT agent — NOT the assistant's assigned agent.
+        $property = \App\Models\Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agent_id'  => $this->otherAgent->id,
+            'title'     => 'Sea-facing Apartment', 'status' => 'active',
+            'listing_type' => 'sale', 'property_type' => 'apartment',
+            'price' => 1850000, 'beds' => 2, 'baths' => 2, 'garages' => 1,
+            'suburb' => 'Margate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal',
+        ]);
+
+        $this->reset();
+
+        // Before the ad broadening this was a 403 (mutation scope 'own'). Now the
+        // assistant reaches it, and the ad carries the LISTING agent's name.
+        $this->actingAs($assistant)->get(route('corex.properties.ad', $property))
+            ->assertSuccessful()
+            ->assertSee(strtoupper($this->otherAgent->name));
+
+        // The broadening is assistant-only: an ordinary agent with no scope over
+        // this listing is still blocked.
+        $this->actingAs($this->agent)->get(route('corex.properties.ad', $property))
+            ->assertForbidden();
+    }
+
+    public function test_the_activity_middleware_ignores_a_normal_user(): void
+    {
+        // A non-assistant hitting the same route writes nothing.
+        $request = \Illuminate\Http\Request::create('/corex/properties/99', 'GET');
+        $route   = (new \Illuminate\Routing\Route(['GET'], 'corex/properties/{property}', ['as' => 'corex.properties.show', 'uses' => fn () => '']))->bind($request);
+        $route->setParameter('property', '99');
+        $request->setRouteResolver(fn () => $route);
+        $request->setUserResolver(fn () => $this->agent);   // an ordinary agent, not an assistant
+
+        (new \App\Http\Middleware\LogAssistantActivity())
+            ->handle($request, fn ($r) => new \Illuminate\Http\Response('ok', 200));
+
+        $this->assertDatabaseCount('assistant_activity_log', 0);
+    }
 }
