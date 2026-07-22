@@ -182,15 +182,19 @@
                 @php($s = $row['model'])
                 @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
                 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
-                <div x-data="{ na:false, cm:false, due:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
+                <div x-data="{ na:false, cm:false, due:false, seq:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
 
                     {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
                     <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+                        @if(($isNewModel ?? false) && !empty($row['gutter']))<span aria-hidden="true" style="flex:0 0 auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;color:#9ca3af;font-size:.82rem;line-height:1;">{{ $row['gutter'] }}</span>@endif
                         <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;display:inline-block;width:.65rem;height:.65rem;border-radius:50%;background:{{ $row['colour'] }};"></span>
 
                         <span style="flex:1 1 200px;min-width:0;{{ $row['na'] ? 'text-decoration:line-through;' : '' }}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                             <strong style="font-size:.9rem;">{{ $s->name }}</strong>
-                            @if($s->is_milestone)<span title="Milestone" style="font-size:.7rem;color:#b45309;margin-left:.35rem;">◆ milestone</span>@endif
+                            @if(($isNewModel ?? false) && (int) $s->days_offset > 0)<span title="Offset after the step it follows" style="font-size:.72rem;color:#9ca3af;margin-left:.3rem;">(+{{ (int) $s->days_offset }}d)</span>@endif
+                            @if($s->is_milestone && ($isNewModel ?? false))<span title="Milestone" style="color:#b45309;margin-left:.3rem;">★</span>@endif
+                            @if($s->is_milestone && !($isNewModel ?? false))<span title="Milestone" style="font-size:.7rem;color:#b45309;margin-left:.35rem;">◆ milestone</span>@endif
+                            @if(($isNewModel ?? false) && $s->is_locked)<span title="Locked" style="font-size:.72rem;margin-left:.25rem;">🔒</span>@endif
                             @if($s->is_custom)<span title="Custom step" style="font-size:.7rem;color:#2563eb;margin-left:.35rem;">+ custom</span>@endif
                         </span>
 
@@ -233,6 +237,11 @@
                         @permission('view_deals')
                         <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="due = !due">Edit due</button>
                         @endpermission
+                        @if($isNewModel ?? false)
+                        @permission('view_deals')
+                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="seq = !seq" title="Change which step this follows + offset">Sequence</button>
+                        @endpermission
+                        @endif
                         @permission('view_deals')
                         <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
                             <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;">Remove</button>
@@ -273,6 +282,34 @@
                     </div>
                     @endpermission
                     @endunless
+
+                    {{-- AT-334 Phase 5 — follows (predecessor) + offset (days); re-cascades Dues then
+                         reorders so this step sits right after the step it follows. New-model deals only. --}}
+                    @if($isNewModel ?? false)
+                    @unless($locked)
+                    @permission('view_deals')
+                    <div x-show="seq" x-cloak style="margin:.4rem 0 0 1.15rem;">
+                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
+                            <label style="font-size:.78rem;color:#374151;">Follows
+                                <select name="follows" class="corex-input" style="font-size:.8rem;">
+                                    <option value="">— nothing (starts on the deal date) —</option>
+                                    @foreach($steps as $r2)
+                                        @php($o = $r2['model'])
+                                        @if($o->id !== $s->id)
+                                        <option value="{{ $o->id }}" {{ (int) $s->trigger_step_instance_id === (int) $o->id ? 'selected' : '' }}>{{ $o->name }}</option>
+                                        @endif
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label style="font-size:.78rem;color:#374151;">+ offset
+                                <input type="number" name="offset" min="0" max="3650" value="{{ (int) $s->days_offset }}" class="corex-input" style="width:5rem;font-size:.8rem;"> days
+                            </label>
+                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save sequence</button>
+                        </form>
+                    </div>
+                    @endpermission
+                    @endunless
+                    @endif
 
                     {{-- Comment thread --}}
                     <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.15rem;">

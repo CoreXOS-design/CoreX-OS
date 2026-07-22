@@ -70,11 +70,33 @@ class PipelineController extends Controller
         $conditionCatalog = app(\App\Services\DealV2\Dr2ConditionCatalog::class)->conditions();
         $dealConditions   = \App\Models\DealV2\DealCondition::where('deal_id', $deal->id)->get()->keyBy('key');
         $hasPipeline      = $steps->isNotEmpty();
+        // AT-334 Phase 5 — the per-step "Follows + offset" control only applies to
+        // composable (new-model) deals; old-model/template deals never show it.
+        $isNewModel       = app(\App\Services\DealV2\DealDateCascade::class)->isNewModel($deal);
+
+        // AT-334 Phase 5 — new-model deals render as an INDENTED TREE of the follows graph
+        // (depth-first pre-order; ├→ └→ │ connectors). Reorder $steps into tree order and
+        // attach {depth, gutter} per row. Old-model deals keep the flat render untouched.
+        if ($isNewModel && $steps->isNotEmpty()) {
+            $tree = app(\App\Services\DealV2\DealStepReorderService::class)->treeRows($deal->pipelineSteps);
+            $byId = $steps->keyBy(fn ($r) => (int) $r['model']->id);
+            $steps = collect($tree)
+                ->map(function (array $t) use ($byId) {
+                    $row = $byId->get($t['id']);
+                    if (! $row) {
+                        return null;
+                    }
+                    $row['depth']  = $t['depth'];
+                    $row['gutter'] = $t['gutter'];
+                    return $row;
+                })
+                ->filter()->values();
+        }
 
         return view('dr2.pipeline', compact(
             'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
             'locked', 'lockReason', 'unlockHint',
-            'conditionCatalog', 'dealConditions', 'hasPipeline',
+            'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel',
         ));
     }
 
@@ -246,6 +268,70 @@ class PipelineController extends Controller
         $this->pipelines->updateStepDueDate($step, $data['due_date'] ?? null, $request->user()?->id);
 
         return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Due date updated for \"{$step->name}\".");
+    }
+
+    /**
+     * AT-334 Phase 5 — set a step's "follows" (predecessor) + offset (days). Re-cascades
+     * the Due dates off the new predecessor, then reorders the pipeline so the step sits
+     * right after the step it follows (dependency chains stay contiguous). New-model deals
+     * only; existing deals are never touched.
+     */
+    public function editFollows(
+        Deal $deal,
+        DealStepInstance $step,
+        Request $request,
+        \App\Services\DealV2\DealDateCascade $cascade,
+        \App\Services\DealV2\DealStepReorderService $reorder
+    ): RedirectResponse {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        if (! $cascade->isNewModel($deal)) {
+            return redirect()->route('deals-dr2.pipeline', $deal)
+                ->with('error', 'Sequence editing applies to composable deals only.');
+        }
+
+        $data = $request->validate([
+            'follows' => ['nullable', 'integer'],
+            'offset'  => ['nullable', 'integer', 'min:0', 'max:3650'],
+        ]);
+
+        // The predecessor must be another LIVE step of THIS deal (never self).
+        $follows = $data['follows'] ?? null;
+        if ($follows) {
+            $ok = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')
+                ->where('id', $follows)->where('id', '!=', $step->id)->exists();
+            if (! $ok) {
+                $follows = null;
+            }
+        }
+
+        // Cycle guard — walking the follows-chain up from the chosen predecessor must
+        // never reach this step (that would create a loop).
+        if ($follows) {
+            $cursor = $follows;
+            $seen   = [];
+            while ($cursor && ! isset($seen[$cursor])) {
+                if ((int) $cursor === (int) $step->id) {
+                    return redirect()->route('deals-dr2.pipeline', $deal)
+                        ->with('error', 'That would make the step follow itself (a loop).');
+                }
+                $seen[$cursor] = true;
+                $cursor = DealStepInstance::where('id', $cursor)->value('trigger_step_instance_id');
+            }
+        }
+
+        $step->forceFill([
+            'trigger_step_instance_id' => $follows,
+            'days_offset'              => (int) ($data['offset'] ?? 0),
+            'trigger_type'             => $follows ? 'after_step' : 'on_creation',
+        ])->save();
+
+        $cascade->recompute($deal);          // dates
+        $reorder->reorderByFollows($deal);   // visual order
+
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with('info', "Sequence updated for \"{$step->name}\".");
     }
 
     /** R2 — restore a removed (soft-deleted) step to its original position. */

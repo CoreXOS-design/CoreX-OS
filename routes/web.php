@@ -733,6 +733,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/{step}/comment',   [\App\Http\Controllers\Dr2\PipelineController::class, 'addComment'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.comment');
     // R2 — due-date edit + restore/reinstate (no permanent stranding)
     Route::post('/{deal}/pipeline/steps/{step}/due',       [\App\Http\Controllers\Dr2\PipelineController::class, 'editDue'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.due');
+    // AT-334 Phase 5 — per-step "follows" (predecessor) + offset; re-cascades dates then reorders.
+    Route::post('/{deal}/pipeline/steps/{step}/follows',   [\App\Http\Controllers\Dr2\PipelineController::class, 'editFollows'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.follows');
     Route::post('/{deal}/pipeline/steps/restore',          [\App\Http\Controllers\Dr2\PipelineController::class, 'restoreStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.restore');
     Route::post('/{deal}/pipeline/steps/{step}/reinstate', [\App\Http\Controllers\Dr2\PipelineController::class, 'reinstateStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reinstate');
 
