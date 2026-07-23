@@ -3,7 +3,7 @@
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4 flex items-center justify-between">
         <div>
             <h2 class="text-xl font-bold text-white leading-tight">Lease History</h2>
             <div class="text-sm text-white/60">{{ $currentLease->property_address }}</div>
@@ -19,29 +19,29 @@
     @endphp
 
     <div class="space-y-2">
-        <h3 class="text-sm font-semibold text-slate-700 uppercase tracking-wider">Current Lease (v{{ $versionNum }})</h3>
-        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--text-secondary)">Current Lease (v{{ $versionNum }})</h3>
+        <div class="rounded-2xl p-5" style="border:1px solid var(--border);background:var(--surface-2)">
             <div class="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                    <span class="text-slate-500">Period:</span>
-                    <span class="font-medium text-slate-800">
+                    <span style="color:var(--text-muted)">Period:</span>
+                    <span class="font-medium" style="color:var(--text-primary)">
                         {{ $current->lease_start_date?->format('d M Y') }} &mdash; {{ $current->lease_end_date?->format('d M Y') }}
                     </span>
                 </div>
                 <div>
-                    <span class="text-slate-500">Rental:</span>
-                    <span class="font-medium text-slate-800">R {{ number_format((float) $current->rental_amount, 0, '.', ' ') }}/mo</span>
+                    <span style="color:var(--text-muted)">Rental:</span>
+                    <span class="font-medium" style="color:var(--text-primary)">R {{ number_format((float) $current->rental_amount, 0, '.', ' ') }}/mo</span>
                 </div>
                 <div>
-                    <span class="text-slate-500">Tenant:</span>
-                    <span class="font-medium text-slate-800">{{ $current->tenant_name }}</span>
+                    <span style="color:var(--text-muted)">Tenant:</span>
+                    <span class="font-medium" style="color:var(--text-primary)">{{ $current->tenant_name }}</span>
                 </div>
                 <div>
-                    <span class="text-slate-500">Landlord:</span>
-                    <span class="font-medium text-slate-800">{{ $current->landlord_name }}</span>
+                    <span style="color:var(--text-muted)">Landlord:</span>
+                    <span class="font-medium" style="color:var(--text-primary)">{{ $current->landlord_name }}</span>
                 </div>
                 <div>
-                    <span class="text-slate-500">Status:</span>
+                    <span style="color:var(--text-muted)">Status:</span>
                     @php
                         $statusColor = match($current->status) {
                             'active' => 'bg-emerald-100 text-emerald-700',
@@ -58,8 +58,8 @@
                 </div>
                 @if($current->signatureTemplate?->completed_at)
                 <div>
-                    <span class="text-slate-500">Signed:</span>
-                    <span class="font-medium text-slate-800">{{ $current->signatureTemplate->completed_at->format('d M Y') }}</span>
+                    <span style="color:var(--text-muted)">Signed:</span>
+                    <span class="font-medium" style="color:var(--text-primary)">{{ $current->signatureTemplate->completed_at->format('d M Y') }}</span>
                 </div>
                 @endif
             </div>
@@ -73,7 +73,7 @@
                 @endif
                 @if($current->signatureTemplate)
                     <a href="{{ route('docuperfect.signatures.audit', $current->document) }}"
-                       class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                       class="text-xs px-3 py-1.5 rounded-lg hover:bg-[color:var(--surface-2)]" style="border:1px solid var(--border);color:var(--text-secondary)">
                         View Audit Trail
                     </a>
                 @endif
@@ -85,7 +85,7 @@
     {{-- Previous Versions --}}
     @if($totalVersions > 1)
     <div class="space-y-2">
-        <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Previous Versions</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--text-muted)">Previous Versions</h3>
         <div class="space-y-2">
             @foreach($versions as $idx => $version)
                 @if($version->id === $current->id)
@@ -102,14 +102,14 @@
                         default => 'text-slate-500',
                     };
                 @endphp
-                <div class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface)">
                     <div class="flex items-center justify-between">
                         <div>
-                            <span class="font-medium text-slate-700">v{{ $vNum }}</span>
-                            <span class="text-sm text-slate-500 ml-2">
+                            <span class="font-medium" style="color:var(--text-secondary)">v{{ $vNum }}</span>
+                            <span class="text-sm ml-2" style="color:var(--text-muted)">
                                 {{ $version->lease_start_date?->format('d M Y') }} to {{ $version->lease_end_date?->format('d M Y') }}
                             </span>
-                            <span class="text-sm text-slate-700 ml-2">&mdash; R {{ $rental }}/mo</span>
+                            <span class="text-sm ml-2" style="color:var(--text-secondary)">&mdash; R {{ $rental }}/mo</span>
                             <span class="text-xs ml-2 {{ $vStatusColor }}">{{ ucfirst(str_replace('_', ' ', $version->status)) }}</span>
                         </div>
                         <div class="flex gap-2">
@@ -120,7 +120,7 @@
                         </div>
                     </div>
                     @if($version->signatureTemplate?->completed_at)
-                        <div class="text-xs text-slate-400 mt-1">Signed: {{ $version->signatureTemplate->completed_at->format('d M Y') }}</div>
+                        <div class="text-xs mt-1" style="color:var(--text-faint)">Signed: {{ $version->signatureTemplate->completed_at->format('d M Y') }}</div>
                     @endif
                 </div>
             @endforeach
@@ -131,14 +131,14 @@
     {{-- Rental History Summary --}}
     @if($totalVersions > 1)
     <div class="space-y-2">
-        <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Rental History</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--text-muted)">Rental History</h3>
+        <div class="rounded-2xl p-4" style="border:1px solid var(--border);background:var(--surface)">
             <div class="flex flex-wrap items-center gap-2 text-sm">
                 @foreach($versions as $idx => $version)
                     @php
                         $rental = number_format((float) $version->rental_amount, 0, '.', ' ');
                     @endphp
-                    <span class="font-medium text-slate-700">v{{ $idx + 1 }}: R {{ $rental }}</span>
+                    <span class="font-medium" style="color:var(--text-secondary)">v{{ $idx + 1 }}: R {{ $rental }}</span>
                     @if($idx > 0)
                         @php
                             $prev = $versions[$idx - 1];
@@ -152,7 +152,7 @@
                         </span>
                     @endif
                     @if(!$loop->last)
-                        <span class="text-slate-400">&rarr;</span>
+                        <span style="color:var(--text-faint)">&rarr;</span>
                     @endif
                 @endforeach
             </div>

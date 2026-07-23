@@ -36,11 +36,11 @@
 
         {{-- Document name prefix --}}
         <div class="ds-status-card p-4">
-            <label class="block text-sm font-semibold text-slate-700 mb-1">Document name prefix</label>
+            <label class="block text-sm font-semibold text-[color:var(--text-secondary)] mb-1">Document name prefix</label>
             <input type="text" x-model="prefix"
-                   class="w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-3 py-2 text-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                   class="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] px-3 py-2 text-sm focus:ring-1 focus:ring-[color:var(--brand-icon)] focus:border-[color:var(--brand-icon)] focus:bg-[color:var(--surface)]"
                    placeholder="e.g. Oats" maxlength="200">
-            <div class="text-xs text-slate-400 mt-1">This will be added to the front of every document name.</div>
+            <div class="text-xs text-[color:var(--text-faint)] mt-1">This will be added to the front of every document name.</div>
         </div>
 
         @foreach($pack->slots as $slot)
@@ -52,15 +52,15 @@
                             <i class="fas fa-check text-xs"></i>
                         </span>
                         <div class="flex-1">
-                            <div class="text-sm font-semibold text-slate-900">{{ $slot->label }}</div>
+                            <div class="text-sm font-semibold text-[color:var(--text-primary)]">{{ $slot->label }}</div>
                             @if($slot->template)
-                                <div class="text-xs text-slate-500">{{ $slot->template->name }}</div>
+                                <div class="text-xs text-[color:var(--text-muted)]">{{ $slot->template->name }}</div>
                                 <input type="hidden" name="selected_templates[]" value="{{ $slot->template->id }}">
                                 <input type="text"
                                        name="document_names[{{ $slot->template->id }}]"
                                        data-template-name="{{ $slot->template->name }}"
                                        value="{{ $pack->name }} — {{ $slot->template->name }}"
-                                       class="mt-1.5 w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                                       class="mt-1.5 w-full rounded border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] px-2 py-1 text-xs focus:ring-1 focus:ring-[color:var(--brand-icon)] focus:border-[color:var(--brand-icon)] focus:bg-[color:var(--surface)]"
                                        placeholder="Document name" maxlength="255">
                             @else
                                 <div class="text-xs text-red-500">Template not found &mdash; this slot will be skipped.</div>
@@ -75,9 +75,9 @@
                         <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
                             <i class="fas fa-list text-xs"></i>
                         </span>
-                        <div class="text-sm font-semibold text-slate-900">{{ $slot->label }}</div>
+                        <div class="text-sm font-semibold text-[color:var(--text-primary)]">{{ $slot->label }}</div>
                         @if($slot->is_optional)
-                            <span class="text-[10px] text-slate-400">(Optional &mdash; uncheck to skip)</span>
+                            <span class="text-[10px] text-[color:var(--text-faint)]">(Optional &mdash; uncheck to skip)</span>
                         @endif
                     </div>
 
@@ -87,31 +87,31 @@
                     @endphp
 
                     @if($typeTemplates->isEmpty())
-                        <div class="text-xs text-slate-400 ml-8">No templates available for this type.</div>
+                        <div class="text-xs text-[color:var(--text-faint)] ml-8">No templates available for this type.</div>
                     @else
                         <div class="ml-8 space-y-2">
                             @foreach($typeTemplates as $tpl)
                                 <div x-data="{ checked: false }">
-                                    <label class="flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-50 rounded px-2 py-1 cursor-pointer">
+                                    <label class="flex items-center gap-2 text-sm text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)] rounded px-2 py-1 cursor-pointer">
                                         @if($slot->allow_multiple)
                                             <input type="checkbox" name="selected_templates[]" value="{{ $tpl->id }}"
-                                                   class="rounded border-slate-300"
+                                                   class="rounded border-[color:var(--border)]"
                                                    x-model="checked">
                                         @else
                                             <input type="radio" name="selectable_slot_{{ $slot->id }}" value="{{ $tpl->id }}"
-                                                   class="rounded-full border-slate-300"
+                                                   class="rounded-full border-[color:var(--border)]"
                                                    onchange="document.querySelector('#sel_hidden_{{ $slot->id }}').value = this.value"
                                                    @change="checked = true">
                                         @endif
                                         <span>{{ $tpl->name }}</span>
-                                        <span class="text-xs text-slate-400 ml-auto">{{ $tpl->page_count }} pg</span>
+                                        <span class="text-xs text-[color:var(--text-faint)] ml-auto">{{ $tpl->page_count }} pg</span>
                                     </label>
                                     <div x-show="checked" x-cloak class="ml-8 mt-1">
                                         <input type="text"
                                                name="document_names[{{ $tpl->id }}]"
                                                data-template-name="{{ $tpl->name }}"
                                                value="{{ $pack->name }} — {{ $tpl->name }}"
-                                               class="w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                                               class="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface-2)] text-[color:var(--text-secondary)] px-2 py-1 text-xs focus:ring-1 focus:ring-[color:var(--brand-icon)] focus:border-[color:var(--brand-icon)] focus:bg-[color:var(--surface)]"
                                                placeholder="Document name" maxlength="255">
                                     </div>
                                 </div>
@@ -125,12 +125,12 @@
                 {{-- ATTACHMENT --}}
                 @elseif($slot->slot_type === 'attachment')
                     <div class="mb-2 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center flex-shrink-0">
+                        <span class="w-6 h-6 rounded-full bg-[color:var(--brand-icon)]/15 text-[color:var(--brand-icon)] flex items-center justify-center flex-shrink-0">
                             <i class="fas fa-paperclip text-xs"></i>
                         </span>
-                        <div class="text-sm font-semibold text-slate-900">{{ $slot->label }}</div>
+                        <div class="text-sm font-semibold text-[color:var(--text-primary)]">{{ $slot->label }}</div>
                         @if($slot->is_optional)
-                            <span class="text-[10px] text-slate-400">(Optional &mdash; uncheck to skip)</span>
+                            <span class="text-[10px] text-[color:var(--text-faint)]">(Optional &mdash; uncheck to skip)</span>
                         @endif
                     </div>
 
@@ -140,22 +140,22 @@
                     @endphp
 
                     @if($kbDocs->isEmpty())
-                        <div class="text-xs text-slate-400 ml-8">No documents available in this category.</div>
+                        <div class="text-xs text-[color:var(--text-faint)] ml-8">No documents available in this category.</div>
                     @else
                         <div class="ml-8 space-y-1.5">
                             @foreach($kbDocs as $kbDoc)
-                                <label class="flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-50 rounded px-2 py-1 cursor-pointer">
+                                <label class="flex items-center gap-2 text-sm text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)] rounded px-2 py-1 cursor-pointer">
                                     @if($slot->allow_multiple)
                                         <input type="checkbox" name="selected_kb_docs[]" value="{{ $kbDoc->id }}"
-                                               class="rounded border-slate-300">
+                                               class="rounded border-[color:var(--border)]">
                                     @else
                                         <input type="radio" name="kb_slot_{{ $slot->id }}" value="{{ $kbDoc->id }}"
-                                               class="rounded-full border-slate-300"
+                                               class="rounded-full border-[color:var(--border)]"
                                                onchange="document.querySelector('#kb_hidden_{{ $slot->id }}').value = this.value">
                                     @endif
                                     <span>{{ $kbDoc->title }}</span>
                                     @if($kbDoc->category)
-                                        <span class="text-xs text-slate-400 ml-auto">{{ $kbDoc->category->name }}</span>
+                                        <span class="text-xs text-[color:var(--text-faint)] ml-auto">{{ $kbDoc->category->name }}</span>
                                     @endif
                                 </label>
                             @endforeach

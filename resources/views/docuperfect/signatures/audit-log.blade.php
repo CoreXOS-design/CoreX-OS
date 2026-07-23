@@ -4,7 +4,7 @@
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
     {{-- Header --}}
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4 flex items-center justify-between">
         <div>
             <h2 class="text-xl font-bold text-white leading-tight">
                 Audit Trail &mdash; {{ $document->name }}
@@ -36,16 +36,16 @@
     {{-- Flash messages handled by global toast system --}}
 
     {{-- Signing Parties Summary --}}
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Signing Parties</h3>
+    <div class="rounded-2xl border border-[color:var(--border)] overflow-hidden" style="background:var(--surface)">
+        <div class="px-6 py-4 border-b border-[color:var(--border)]" style="background:var(--surface-2)">
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-secondary)">Signing Parties</h3>
         </div>
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-[color:var(--border)]">
             @foreach($progress as $role => $party)
                 <div class="px-6 py-4 flex items-center justify-between">
                     <div>
-                        <div class="font-semibold text-slate-800">{{ $party['name'] }}</div>
-                        <div class="text-xs text-slate-500">
+                        <div class="font-semibold" style="color:var(--text-primary)">{{ $party['name'] }}</div>
+                        <div class="text-xs" style="color:var(--text-muted)">
                             {{ strtoupper(str_replace('_', ' ', $role)) }}
                             &mdash; {{ $party['email'] }}
                         </div>
@@ -61,10 +61,10 @@
                                 @endif
                             </span>
                             @if($party['completed_at'])
-                                <div class="text-xs text-slate-400 mt-1">{{ $party['completed_at']->format('d M Y, H:i') }}</div>
+                                <div class="text-xs mt-1" style="color:var(--text-faint)">{{ $party['completed_at']->format('d M Y, H:i') }}</div>
                             @endif
                         @else
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-[color:var(--surface-2)]" style="color:var(--text-secondary)">
                                 Pending
                             </span>
                         @endif
@@ -76,7 +76,7 @@
 
     {{-- Document Integrity --}}
     @if($template->document_hash)
-        <div class="bg-white rounded-2xl border border-slate-200 px-6 py-4">
+        <div class="rounded-2xl border border-[color:var(--border)] px-6 py-4" style="background:var(--surface)">
             <div class="flex items-center gap-3">
                 <div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
                     <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +86,7 @@
                 </div>
                 <div>
                     <div class="text-sm font-semibold text-emerald-700">Document Integrity Verified</div>
-                    <div class="text-xs text-slate-500 font-mono break-all">
+                    <div class="text-xs font-mono break-all" style="color:var(--text-muted)">
                         SHA-256: {{ $template->document_hash }}
                     </div>
                 </div>
@@ -95,14 +95,14 @@
     @endif
 
     {{-- Audit Timeline --}}
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Audit Trail</h3>
+    <div class="rounded-2xl border border-[color:var(--border)] overflow-hidden" style="background:var(--surface)">
+        <div class="px-6 py-4 border-b border-[color:var(--border)]" style="background:var(--surface-2)">
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-secondary)">Audit Trail</h3>
         </div>
         <div class="px-6 py-4">
             <div class="relative">
                 {{-- Timeline line --}}
-                <div class="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-200"></div>
+                <div class="absolute left-3 top-0 bottom-0 w-0.5 bg-[color:var(--border)]"></div>
 
                 <div class="space-y-0">
                     @foreach($logs as $log)
@@ -128,14 +128,14 @@
                             <div class="absolute left-1.5 top-1 w-3 h-3 rounded-full {{ $dotColor }} ring-2 ring-white"></div>
 
                             <div class="flex items-baseline gap-3">
-                                <span class="text-xs text-slate-400 whitespace-nowrap font-mono">
+                                <span class="text-xs whitespace-nowrap font-mono" style="color:var(--text-faint)">
                                     {{ $log->created_at->format('d M Y, H:i') }}
                                 </span>
-                                <span class="text-sm text-slate-700">{{ $description }}</span>
+                                <span class="text-sm" style="color:var(--text-secondary)">{{ $description }}</span>
                             </div>
 
                             @if($log->actor_ip_address)
-                                <div class="text-xs text-slate-400 pl-0 mt-0.5" style="margin-left: 115px;">
+                                <div class="text-xs pl-0 mt-0.5" style="margin-left: 115px; color:var(--text-faint)">
                                     IP: {{ $log->actor_ip_address }}
                                 </div>
                             @endif
@@ -148,22 +148,22 @@
 
     {{-- Amendment History --}}
     @if(isset($amendments) && $amendments->isNotEmpty())
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 bg-amber-50">
+    <div class="rounded-2xl border border-[color:var(--border)] overflow-hidden" style="background:var(--surface)">
+        <div class="px-6 py-4 border-b border-[color:var(--border)] bg-amber-50">
             <h3 class="text-sm font-bold text-amber-800 uppercase tracking-wider">Amendment History</h3>
         </div>
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-[color:var(--border)]">
             @foreach($amendments as $amendment)
                 <div class="px-6 py-4">
                     <div class="flex items-start justify-between">
                         <div>
-                            <div class="text-sm font-semibold text-slate-800">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary)">
                                 {{ ucfirst($amendment->amendment_type ?? 'Addition') }}
                                 @if($amendment->amended_by_party_id)
                                     — by {{ $amendment->amendedBy?->signer_name ?? 'Unknown' }}
                                 @endif
                             </div>
-                            <div class="text-xs text-slate-500 mt-0.5">
+                            <div class="text-xs mt-0.5" style="color:var(--text-muted)">
                                 {{ $amendment->created_at?->format('d M Y, H:i') }}
                                 @if($amendment->document_version_before && $amendment->document_version_after)
                                     &middot; v{{ $amendment->document_version_before }} &rarr; v{{ $amendment->document_version_after }}
@@ -176,7 +176,7 @@
                         </span>
                     </div>
                     @if($amendment->amendment_text)
-                    <div class="mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700 italic">
+                    <div class="mt-2 p-3 rounded-lg border border-[color:var(--border)] text-sm italic" style="background:var(--surface-2); color:var(--text-secondary)">
                         "{{ $amendment->amendment_text }}"
                     </div>
                     @endif
@@ -185,7 +185,7 @@
                     @if($amendment->acceptances && $amendment->acceptances->isNotEmpty())
                     <div class="mt-2 space-y-1">
                         @foreach($amendment->acceptances as $acceptance)
-                        <div class="flex items-center gap-2 text-xs text-slate-500">
+                        <div class="flex items-center gap-2 text-xs" style="color:var(--text-muted)">
                             @if($acceptance->accepted)
                                 <span class="text-emerald-600">&#10003;</span>
                                 <span>Accepted by {{ $acceptance->signingRequest?->signer_name ?? 'Unknown' }}</span>
@@ -199,7 +199,7 @@
                                 <span>Pending from {{ $acceptance->signingRequest?->signer_name ?? 'Unknown' }}</span>
                             @endif
                             @if($acceptance->initialled_at)
-                                <span class="text-slate-400">&middot; Initialled {{ $acceptance->initialled_at->format('d M Y, H:i') }}</span>
+                                <span style="color:var(--text-faint)">&middot; Initialled {{ $acceptance->initialled_at->format('d M Y, H:i') }}</span>
                             @endif
                         </div>
                         @endforeach
@@ -213,19 +213,19 @@
 
     {{-- Consent Log --}}
     @if(isset($consentLogs) && $consentLogs->isNotEmpty())
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Consent Records</h3>
+    <div class="rounded-2xl border border-[color:var(--border)] overflow-hidden" style="background:var(--surface)">
+        <div class="px-6 py-4 border-b border-[color:var(--border)]" style="background:var(--surface-2)">
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-secondary)">Consent Records</h3>
         </div>
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-[color:var(--border)]">
             @foreach($consentLogs as $consent)
                 <div class="px-6 py-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <div class="text-sm font-semibold text-slate-800">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary)">
                                 {{ $consent->signingRequest?->signer_name ?? $consent->contact?->full_name ?? 'Unknown' }}
                             </div>
-                            <div class="text-xs text-slate-500">
+                            <div class="text-xs" style="color:var(--text-muted)">
                                 Consented {{ $consent->consent_accepted_at?->format('d M Y, H:i') }}
                                 &middot; IP: {{ $consent->ip_address }}
                             </div>
@@ -235,7 +235,7 @@
                         </span>
                     </div>
                     @if($consent->device_info)
-                    <div class="text-xs text-slate-400 mt-1">
+                    <div class="text-xs mt-1" style="color:var(--text-faint)">
                         @php $device = is_array($consent->device_info) ? $consent->device_info : []; @endphp
                         {{ $device['browser'] ?? '' }} {{ $device['os'] ?? '' }}
                     </div>
@@ -248,19 +248,19 @@
 
     {{-- Document Versions --}}
     @if(isset($versions) && $versions->isNotEmpty())
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
-            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Document Versions</h3>
+    <div class="rounded-2xl border border-[color:var(--border)] overflow-hidden" style="background:var(--surface)">
+        <div class="px-6 py-4 border-b border-[color:var(--border)]" style="background:var(--surface-2)">
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-secondary)">Document Versions</h3>
         </div>
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-[color:var(--border)]">
             @foreach($versions as $version)
                 <div class="px-6 py-4 flex items-center justify-between">
                     <div>
-                        <div class="text-sm font-semibold text-slate-800">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary)">
                             Version {{ $version->version_number }}
-                            <span class="text-xs font-normal text-slate-500 ml-2">{{ strtoupper($version->file_type) }}</span>
+                            <span class="text-xs font-normal ml-2" style="color:var(--text-muted)">{{ strtoupper($version->file_type) }}</span>
                         </div>
-                        <div class="text-xs text-slate-500">
+                        <div class="text-xs" style="color:var(--text-muted)">
                             Uploaded by {{ $version->uploaded_by_name ?? 'Unknown' }}
                             &middot; {{ $version->uploaded_at?->format('d M Y, H:i') }}
                             @if($version->ip_address) &middot; IP: {{ $version->ip_address }} @endif
@@ -284,7 +284,7 @@
     @endif
 
     {{-- ECT Act Notice --}}
-    <div class="text-center text-xs text-slate-400 py-4">
+    <div class="text-center text-xs py-4" style="color:var(--text-faint)">
         This document was signed electronically in accordance with the
         Electronic Communications and Transactions Act 25 of 2002 (ECT Act), Republic of South Africa.
     </div>
