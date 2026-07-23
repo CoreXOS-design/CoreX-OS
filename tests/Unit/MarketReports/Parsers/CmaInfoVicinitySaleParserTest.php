@@ -220,4 +220,75 @@ final class CmaInfoVicinitySaleParserTest extends TestCase
         $this->assertGreaterThan(0, count($result->compRows),
             'vacant land vicinity must extract at least one comp row from the fixture');
     }
+
+    // ── Extraction — ESTATE / numberless / wrapped layout (regression) ─────
+    //
+    // The "1087 Harrison Drive, Shelly Beach" vicinity report parsed 0 of its
+    // 15 sales because the old regex REQUIRED a number-prefixed street address
+    // and a non-blank Erf Usage on one line. Estate reports ship rows with a
+    // blank address (", SHELLY BEACH"), a numberless street ("HARRISON DRIVE"),
+    // no Erf Usage, and addresses / erf numbers WRAPPED onto adjacent lines.
+    // The column/date-anchored parse must extract all 15.
+
+    private const FIXTURE_ESTATE = 'cma_info_vicinity_sale_estate.pdf';
+
+    public function test_estate_layout_extracts_all_comp_rows(): void
+    {
+        $path = $this->requireFixture(self::FIXTURE_ESTATE);
+        $result = $this->parser()->parse($path, $this->stubReport(suburb: 'SHELLY BEACH', town: 'MARGATE'));
+
+        $this->assertSame(15, count($result->compRows),
+            'estate/numberless/wrapped vicinity report must extract all 15 comparable sales (was 0)');
+
+        foreach ($result->compRows as $row) {
+            $this->assertSame(MarketReportCompRow::ROW_COMP, $row['row_type']);
+            $this->assertNotNull($row['sale_price'], 'every estate comp must carry a sale price');
+            $this->assertNotNull($row['sale_date'], 'every estate comp must carry a sale date');
+        }
+
+        // Index rows by erf number for spot-checks on the hard variants. The
+        // Erf No is carried in raw_row_json (there is no erf column on
+        // market_report_comp_rows — it is preserved in the raw payload).
+        $byErf = [];
+        foreach ($result->compRows as $row) {
+            $byErf[(string) ($row['raw_row_json']['erf_number'] ?? '')] = $row;
+        }
+
+        // Blank-address row (", SHELLY BEACH") — erf 1619, R600 000.
+        $this->assertArrayHasKey('1619', $byErf, 'blank-address row must still extract (keyed by Erf No)');
+        $this->assertSame(600000, $byErf['1619']['sale_price']);
+
+        // Numberless street ("HARRISON DRIVE, SHELLY BEACH") — erf 1078, R1 500 000.
+        $this->assertArrayHasKey('1078', $byErf);
+        $this->assertSame(1500000, $byErf['1078']['sale_price']);
+        $this->assertStringContainsString('HARRISON DRIVE', (string) $byErf['1078']['address']);
+
+        // Wrapped Erf No ("730-" above the row, "11" below) — reassembled to 730-11.
+        $this->assertArrayHasKey('730-11', $byErf, 'a wrapped Erf No must be reassembled from adjacent fragments');
+        $this->assertSame(3350000, $byErf['730-11']['sale_price']);
+    }
+
+    public function test_estate_extraction_is_idempotent(): void
+    {
+        $path = $this->requireFixture(self::FIXTURE_ESTATE);
+        $first  = $this->parser()->parse($path, $this->stubReport(suburb: 'SHELLY BEACH'));
+        $second = $this->parser()->parse($path, $this->stubReport(suburb: 'SHELLY BEACH'));
+
+        $this->assertSame(count($first->compRows), count($second->compRows));
+    }
+
+    public function test_residential_fixture_still_extracts_all_rows_no_regression(): void
+    {
+        // Hard gate: the column-anchored rewrite must NOT regress the clean
+        // single-line residential layout it already parsed.
+        $path = $this->requireFixture(self::FIXTURE_RESIDENTIAL);
+        $result = $this->parser()->parse($path, $this->stubReport(suburb: 'MARGATE BEACH'));
+
+        $this->assertGreaterThanOrEqual(10, count($result->compRows),
+            'clean residential vicinity report must keep extracting its full comp set');
+        foreach ($result->compRows as $row) {
+            $this->assertNotNull($row['sale_price']);
+            $this->assertNotNull($row['sale_date']);
+        }
+    }
 }

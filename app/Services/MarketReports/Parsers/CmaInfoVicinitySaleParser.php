@@ -259,53 +259,215 @@ final class CmaInfoVicinitySaleParser extends AbstractCmaInfoParser
     }
 
     /**
-     * Extract rows from the vicinity-sale table. Real pdftotext -layout
-     * row shape (decoded 2026-05-28 from the residential + vacant land
-     * fixtures):
+     * Extract comparable-sale rows from the vicinity-sale table.
      *
-     *   <row_idx> <dist> m <erf> <street> <SUBURB> <usage> [<extent> m²] <date> [R<price>] [R<r/m²>]
+     * Column order (pdftotext -layout):
+     *   Dist | Erf No | Address | Erf Usage | Type | Extent (m²) | Last Sale Date | Last Sale (R) | R/m²
      *
-     * Example rows (each is one physical line):
-     *   "1 116 m 1223 8 GARDEN TERRACE, UVONGO    Residential   1 442 m²   2026/02/11   R 1 100 000   R 763"
-     *   "3 237 m 2385 14 OSTEND DRIVE, UVONGO     Residential                          2025/10/13   R 1 800 000"
-     *   "5 191 m 37 63 EFFINGHAM PARADE, TRAFALGAR Vacant land  2 322 m²   2021/09/13   R 600 000     R 418"
+     * ROOT-CAUSE FIX — Shelly Beach / estate vicinity reports parsed 0/15
+     * (doc 456 "1087 Harrison Drive"). The previous single regex REQUIRED a
+     * number-prefixed street address AND a non-blank Erf Usage on one physical
+     * line. Estate / vicinity reports routinely ship rows the old pattern could
+     * never match:
+     *   - BLANK address ("… 1619   , SHELLY BEACH …" — the number is the Erf No),
+     *   - numberless street ("HARRISON DRIVE, SHELLY BEACH"),
+     *   - no Erf Usage column value,
+     *   - address WRAPPED across the lines above/below the numbered row
+     *     ("HARRISON DRIVE, BAHARI BAY ECO ESTATE," / "SHELLY BEACH"),
+     *   - Erf No itself wrapped ("730-" above, "11" below → erf 730-11).
      *
-     * Extent, sale_price, r_per_m2 are all optional per-row. Erf may
-     * carry a hyphenated section suffix ("46-1", "1241-1").
-     *
-     * Note on "m²" rendering: pdftotext often emits the ² as the UTF-8
-     * replacement character (0xEF 0xBF 0xBD). Our regex tolerates "m"
-     * followed by any single non-whitespace token (`m\S?`).
+     * New approach (parse by the COLUMNS, per Johan's layout note): a row is any
+     * physical line carrying "<row idx> <dist> m … <YYYY/MM/DD>". The reliable
+     * keys are Erf No + suburb; the data is Extent + Sale Date + Sale Price +
+     * R/m². Address and Erf Usage are captured WHEN PRESENT but never required,
+     * so no legitimate comp is dropped. Fragments wrapped onto the immediately
+     * adjacent lines are merged back — numeric fragments complete the Erf No,
+     * text fragments complete the address. Row highlight/shading is invisible to
+     * pdftotext, so it never affects extraction.
      *
      * @return array<int, array<string, mixed>>
      */
     private function extractCompRows(string $text): array
     {
+        $lines = preg_split('/\R/u', $text) ?: [];
+        $count = count($lines);
+
+        // A sales-table ROW LINE: row index + distance-in-metres + a sale date,
+        // all on one physical line. That is the ONLY hard requirement.
+        $isRowLine = static fn (string $l): bool =>
+            (bool) preg_match('/^\s*\d{1,3}\s+\d{1,5}\s*m\s+.*\d{4}\/\d{2}\/\d{2}/u', $l);
+
+        // A wrapped-cell continuation fragment: has content, is NOT itself a row
+        // line, carries no date, and is not a header/summary/scope line.
+        $isCont = static function (string $l) use ($isRowLine): bool {
+            $t = trim($l);
+            if ($t === '') return false;
+            if ($isRowLine($l)) return false;
+            if (preg_match('/\d{4}\/\d{2}\/\d{2}/', $l)) return false;
+            if (preg_match('/Lower\s+Range|Middle\s+Range|Upper\s+Range|Average|Price\s+Range|Limited\s+to|sales\s+within/i', $t)) return false;
+            // Skip table header / label lines (their wrapped "Erf No" / "Date"
+            // labels would otherwise be mistaken for an address fragment).
+            if (preg_match('/\b(Erf|Dist|Address|Usage|Type|Extent|Last\s+Sale|Date|R\/m|Page\s+\d)\b/i', $t)) return false;
+            return true;
+        };
+
         $rows = [];
+        for ($i = 0; $i < $count; $i++) {
+            if (!$isRowLine($lines[$i])) {
+                continue;
+            }
 
-        // The full row pattern. Extent block is optional (some rows ship
-        // without an extent value). Sale price + r_per_m2 are also
-        // optional independently.
-        $pattern = '/^\s*'
-                 . '(?<idx>\d{1,3})\s+'                                            // row index (ignored)
-                 . '(?<dist>\d{1,5})\s*m\s+'                                       // distance: "116 m"
-                 . '(?<erf>\d{1,6}(?:-\d{1,3})?)\s+'                               // erf: "1223" or "46-1"
-                 . '(?<addr>\d{1,4}\s+[^,\n]{2,60}?,\s+[A-Z][A-Z \'\-]{2,40})\s+'  // "8 GARDEN TERRACE, UVONGO"
-                 . '(?<usage>Residential|Vacant\s+land|Commercial|Other|Agricultural)' // erf usage column
-                 . '(?:\s+(?<ext>\d{1,3}(?:\s+\d{3})?)\s*m\S?)?'                   // optional "1 442 m²" or "974 m²"
-                 . '\s+(?<date>\d{4}\/\d{2}\/\d{2})'                               // sale date
-                 . '(?:\s+R\s+(?<sp>\d{1,3}(?:\s+\d{3}){1,3}))?'                   // optional "R 1 100 000"
-                 . '(?:\s+R\s+(?<ppm>\d{1,3}(?:\s+\d{3}){0,2}))?'                  // optional "R 763"
-                 . '/um';
+            // Wrapped fragments immediately adjacent to this numbered row line.
+            $above = ($i > 0 && $isCont($lines[$i - 1])) ? trim($lines[$i - 1]) : '';
+            $below = [];
+            for ($j = $i + 1; $j < $count && $isCont($lines[$j]); $j++) {
+                $below[] = trim($lines[$j]);
+            }
 
-        if (preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $rows[] = $this->buildRow($m);
+            $row = $this->parseVicinityRowLine($lines[$i], $above, $below);
+            if ($row !== null) {
+                $rows[] = $row;
             }
         }
 
-        // Dedupe (defensive — should be rare with the line-anchored regex).
         return array_values($this->dedupeBySalePrice($rows));
+    }
+
+    /**
+     * Parse ONE numbered sales-table line (plus any wrapped fragments) into a
+     * comp row. Anchors on the sale date; pulls Erf No + Extent off the columns
+     * before it and Sale Price + R/m² after it. Address and Erf Usage optional.
+     *
+     * @param  array<int, string>  $belowFrags
+     * @return array<string, mixed>|null
+     */
+    private function parseVicinityRowLine(string $line, string $aboveFrag, array $belowFrags): ?array
+    {
+        if (!preg_match('/^\s*(?<idx>\d{1,3})\s+(?<dist>\d{1,5})\s*m\s+(?<body>.+)$/u', $line, $m)) {
+            return null;
+        }
+        $dist = $m['dist'];
+        $body = $m['body'];
+
+        // The sale date is the pivot column.
+        if (!preg_match('/\d{4}\/\d{2}\/\d{2}/', $body, $dm, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+        $date   = $dm[0][0];
+        $before = substr($body, 0, $dm[0][1]);           // Erf | Address | Usage | Type | Extent
+        $after  = substr($body, $dm[0][1] + strlen($date)); // Sale Price | R/m²
+
+        // After the date: Last Sale (price) then R/m². Thousands are separated
+        // by a SINGLE space ("1 550 000") — match \s\d{3} (not \s+) so a match
+        // can never leap the wide inter-column gaps.
+        $sp = null; $ppm = null;
+        if (preg_match_all('/R\s+(\d{1,3}(?:\s\d{3}){0,3})/u', $after, $pm)) {
+            $sp  = $pm[1][0] ?? null;
+            $ppm = $pm[1][1] ?? null;
+        }
+
+        // Extent — trailing "NNN m²" on the tail of `before`. Single-space
+        // thousands so the match cannot span the erf→extent whitespace gap
+        // (that spanning produced "erf=1 ext=659835" on wrapped rows).
+        $ext = null;
+        if (preg_match('/(\d{1,3}(?:\s\d{3})?)\s*m\S?\s*$/u', $before, $em)) {
+            $ext    = $em[1];
+            $before = substr($before, 0, -strlen($em[0]));
+        }
+
+        // Erf No — leading numeric token (optional; may be wrapped instead).
+        $erf = null;
+        if (preg_match('/^\s*(\d{1,6}(?:-\d{1,3})?)\b/u', $before, $erm)) {
+            $erf    = $erm[1];
+            $before = substr($before, strlen($erm[0]));
+        }
+
+        // Erf Usage (optional).
+        $usage = null;
+        if (preg_match('/\b(Residential|Vacant\s+land|Commercial|Agricultural|Other)\b/i', $before, $um)) {
+            $usage  = $um[1];
+            $before = str_replace($um[0], ' ', $before);
+        }
+
+        // Did the Address cell render ANY text on the numbered line? Empty here
+        // means a TRUE wrap (address is only on the adjacent lines); a ", SUBURB"
+        // leftover means a street-less-but-on-line row (no wrap to borrow).
+        $rawLeftoverEmpty = (trim($before) === '');
+
+        // Inline address = the leftover street text. A leading comma means the
+        // STREET was blank: keep an estate/complex segment (still has a comma)
+        // but drop a bare suburb-only remainder (Erf No + suburb already identify
+        // the sale).
+        $inline = trim(preg_replace('/\s{2,}/', ' ', $before) ?? '');
+        if ($inline !== '' && $inline[0] === ',') {
+            $inner  = trim(ltrim($inline, ', '));
+            $inline = (strpos($inner, ',') !== false) ? $inner : '';
+        }
+
+        // Merge wrapped fragments — but ONLY into a field that is BLANK on this
+        // row's own line. A fragment sitting between two numbered rows is
+        // adjacent to both; merging it only into the row whose field is blank
+        // stops it being double-counted onto the neighbour that already has the
+        // value inline. Numeric fragments ("730-", "11") complete a blank Erf
+        // No; text fragments complete a blank address (reading order: above →
+        // below).
+        $aboveErf  = ($aboveFrag !== '' && $this->isErfFragment($aboveFrag)) ? trim($aboveFrag) : '';
+        $aboveAddr = ($aboveFrag !== '' && !$this->isErfFragment($aboveFrag)) ? trim($aboveFrag) : '';
+        $belowErf = [];
+        $belowAddr = [];
+        foreach ($belowFrags as $bf) {
+            if ($this->isErfFragment($bf)) {
+                $belowErf[] = trim($bf);
+            } else {
+                $belowAddr[] = trim($bf);
+            }
+        }
+
+        // Erf No: keep the inline value; only when blank, complete it from the
+        // wrapped numeric fragments.
+        if ($erf === null) {
+            $joined = trim($aboveErf . implode('', $belowErf));
+            $erf    = (trim($joined, "- \t") !== '') ? $joined : null;
+        }
+
+        // Address: keep the inline street text; only when the cell was blank AND
+        // the line truly wrapped (nothing rendered) assemble it from the adjacent
+        // text fragments. A street-less-but-on-line row ("…, SHELLY BEACH") does
+        // NOT borrow — that avoids pulling a wrapped neighbour's estate name.
+        if ($inline !== '') {
+            $address = $inline;
+        } elseif ($rawLeftoverEmpty) {
+            $address = trim($aboveAddr . ' ' . implode(' ', $belowAddr));
+        } else {
+            $address = '';
+        }
+        $address = trim(preg_replace('/\s{2,}/', ' ', $address) ?? '', ", \t");
+
+        // A real comp carries at least a price, extent, or erf — guards junk.
+        if ($sp === null && $ext === null && $erf === null) {
+            return null;
+        }
+
+        return $this->buildRow([
+            'dist'  => $dist,
+            'erf'   => $erf,
+            'addr'  => $address !== '' ? $address : null,
+            'usage' => $usage,
+            'ext'   => $ext,
+            'date'  => $date,
+            'sp'    => $sp,
+            'ppm'   => $ppm,
+        ]);
+    }
+
+    /**
+     * True when a wrapped fragment is an Erf-No continuation (a bare number with
+     * an optional hyphen + section digits) rather than address text — e.g.
+     * "730-" and "11" that together form erf "730-11".
+     */
+    private function isErfFragment(string $frag): bool
+    {
+        return (bool) preg_match('/^\s*\d{1,6}-?\d{0,3}\s*$/', trim($frag));
     }
 
     /**
