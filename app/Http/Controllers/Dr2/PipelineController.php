@@ -74,29 +74,17 @@ class PipelineController extends Controller
         // composable (new-model) deals; old-model/template deals never show it.
         $isNewModel       = app(\App\Services\DealV2\DealDateCascade::class)->isNewModel($deal);
 
-        // AT-334 Phase 5 — new-model deals render as an INDENTED TREE of the follows graph
-        // (depth-first pre-order; ├→ └→ │ connectors). Reorder $steps into tree order and
-        // attach {depth, gutter} per row. Old-model deals keep the flat render untouched.
-        if ($isNewModel && $steps->isNotEmpty()) {
-            $tree = app(\App\Services\DealV2\DealStepReorderService::class)->treeRows($deal->pipelineSteps);
-            $byId = $steps->keyBy(fn ($r) => (int) $r['model']->id);
-            $steps = collect($tree)
-                ->map(function (array $t) use ($byId) {
-                    $row = $byId->get($t['id']);
-                    if (! $row) {
-                        return null;
-                    }
-                    $row['depth']  = $t['depth'];
-                    $row['gutter'] = $t['gutter'];
-                    return $row;
-                })
-                ->filter()->values();
-        }
+        // AT-334 Phase 5b — new-model deals render as a PHASED / GROUPED board (anchor →
+        // Stage 1 condition groups → Granted gate → Stage 2 transfer). Classification is
+        // 100% field-driven (see DealStepPhaseGrouper). Old-model deals keep the flat render.
+        $phases = ($isNewModel && $steps->isNotEmpty())
+            ? app(\App\Services\DealV2\DealStepPhaseGrouper::class)->group($deal->pipelineSteps)
+            : null;
 
         return view('dr2.pipeline', compact(
             'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
             'locked', 'lockReason', 'unlockHint',
-            'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel',
+            'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel', 'phases',
         ));
     }
 

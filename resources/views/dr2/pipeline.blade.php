@@ -178,166 +178,50 @@
                 <span x-show="hideDone" x-cloak style="font-size:.72rem;color:#6b7280;">({{ $completedCount }} hidden)</span>
             </div>
             @endif
-            @foreach($steps as $row)
-                @php($s = $row['model'])
-                @php($badge = $row['na'] ? ['N/A', '#6b7280', '#f3f4f6'] : ($statusStyles[$s->status] ?? [ucfirst($s->status), '#6b7280', '#f3f4f6']))
-                @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
-                <div x-data="{ na:false, cm:false, due:false, seq:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $row['na'] ? 'opacity:.6;' : '' }}">
+            @php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id))
+            @if(($isNewModel ?? false) && !empty($phases) && ($phases['gate'] || !empty($phases['stage2']) || !empty($phases['stage1'])))
+                {{-- AT-334 Phase 5b — PHASED / GROUPED layout (new-model deals). Anchor →
+                     Stage 1 condition groups (parallel) → Granted GATE → Stage 2 transfer
+                     (date order, cash payments nested one level under Deeds Office). Every
+                     per-step control is preserved via the shared _pipeline-step-row partial. --}}
+                @if($phases['anchor'] && $rowById->has($phases['anchor']->id))
+                    @include('dr2._pipeline-step-row', ['row' => $rowById[$phases['anchor']->id]])
+                @endif
 
-                    {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
-                    <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-                        @if(($isNewModel ?? false) && !empty($row['gutter']))<span aria-hidden="true" style="flex:0 0 auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;color:#9ca3af;font-size:.82rem;line-height:1;">{{ $row['gutter'] }}</span>@endif
-                        <span title="{{ ucfirst($row['rag']) }}" style="flex:0 0 auto;display:inline-block;width:.65rem;height:.65rem;border-radius:50%;background:{{ $row['colour'] }};"></span>
-
-                        <span style="flex:1 1 200px;min-width:0;{{ $row['na'] ? 'text-decoration:line-through;' : '' }}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                            <strong style="font-size:.9rem;">{{ $s->name }}</strong>
-                            @if(($isNewModel ?? false) && (int) $s->days_offset > 0)<span title="Offset after the step it follows" style="font-size:.72rem;color:#9ca3af;margin-left:.3rem;">(+{{ (int) $s->days_offset }}d)</span>@endif
-                            @if($s->is_milestone && ($isNewModel ?? false))<span title="Milestone" style="color:#b45309;margin-left:.3rem;">★</span>@endif
-                            @if($s->is_milestone && !($isNewModel ?? false))<span title="Milestone" style="font-size:.7rem;color:#b45309;margin-left:.35rem;">◆ milestone</span>@endif
-                            @if(($isNewModel ?? false) && $s->is_locked)<span title="Locked" style="font-size:.72rem;margin-left:.25rem;">🔒</span>@endif
-                            @if($s->is_custom)<span title="Custom step" style="font-size:.7rem;color:#2563eb;margin-left:.35rem;">+ custom</span>@endif
-                        </span>
-
-                        <span style="flex:0 0 auto;font-size:.78rem;color:#6b7280;white-space:nowrap;">{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('d M Y') : '—' }}</span>
-
-                        <span style="flex:0 0 auto;display:inline-block;padding:.12rem .5rem;border-radius:1rem;font-size:.7rem;color:{{ $badge[1] }};background:{{ $badge[2] }};">{{ $badge[0] }}</span>
-
-                        {{-- Compact inline actions (all functionality preserved) --}}
-                        <div style="flex:1 1 auto;display:inline-flex;gap:.3rem;flex-wrap:wrap;align-items:center;justify-content:flex-end;">
-                        @unless($locked)
-                        @if($s->status === 'active')
-                            @permission('view_deals')
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#047857;border-color:#6ee7b7;">{{ $s->negative_status_trigger ? 'Mark passed' : 'Mark complete' }}</button>
-                            </form>
-                            {{-- AT-229 6b — a DECISION step (has a negative branch) also offers the negative
-                                 outcome. It completes the step and drives the deal by its negative trigger,
-                                 but NEVER activates the positive-path successors. --}}
-                            @if($s->negative_status_trigger)
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}"
-                                  onsubmit="return confirm('Record the NEGATIVE outcome? This completes the step and applies its declined status, and does NOT start the next steps.');">@csrf
-                                <input type="hidden" name="outcome" value="negative">
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;border-color:#fca5a5;">{{ $s->negative_outcome_label ?: 'Mark declined' }}</button>
-                            </form>
-                            @endif
-                            @endpermission
-                        @endif
-                        @unless($terminal)
-                            @permission('view_deals')
-                            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="na = !na">N/A</button>
-                            @endpermission
-                        @endunless
-                        @if($row['na'])
-                            @permission('view_deals')
-                            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
-                                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Reinstate</button>
-                            </form>
-                            @endpermission
-                        @endif
-                        @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="due = !due">Edit due</button>
-                        @endpermission
-                        @if($isNewModel ?? false)
-                        @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="seq = !seq" title="Change which step this follows + offset">Sequence</button>
-                        @endpermission
-                        @endif
-                        @permission('view_deals')
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
-                            <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#b91c1c;">Remove</button>
-                        </form>
-                        @endpermission
-                        @endunless
-
-                        {{-- Comments survive the lock (history-keeping, not a transition). --}}
-                        @permission('view_deals')
-                        <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;" @click="cm = !cm">Comments ({{ $s->comments->count() }})</button>
-                        @endpermission
-
-                        </div>{{-- /compact inline actions --}}
-                    </div>{{-- /one-liner --}}
-
-                    {{-- Secondary context (blocked reason / excused note) — only when present --}}
-                    @if($row['blocked'])<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">{{ $row['blocked'] }}</div>@endif
-                    @if($row['na'] && $s->na_reason)<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">Excused: {{ $s->na_reason }}</div>@endif
-
-                    {{-- N/A reason form --}}
-                    @unless($terminal || $locked)
-                    <div x-show="na" x-cloak style="margin:.4rem 0 0 1.15rem;">
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
-                            <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
-                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Mark N/A</button>
-                        </form>
+                @if(!empty($phases['stage1']))
+                    <div style="margin:.6rem .25rem .15rem;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#374151;">Stage 1 · Suspensive Conditions
+                        <span style="display:block;font-weight:400;text-transform:none;letter-spacing:0;font-size:.72rem;color:#9ca3af;">all must be met to grant · run in parallel</span>
                     </div>
-                    @endunless
+                    @foreach($phases['stage1'] as $grp)
+                        <div style="margin:.35rem .25rem;border-left:3px solid #e5e7eb;padding-left:.55rem;">
+                            <div style="font-size:.74rem;font-weight:700;color:#6b7280;margin:.2rem 0;">{{ $grp['label'] }}</div>
+                            @foreach($grp['steps'] as $m)
+                                @if($rowById->has($m->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$m->id], 'indentPx' => 8])@endif
+                            @endforeach
+                        </div>
+                    @endforeach
+                @endif
 
-                    {{-- R2 — inline due-date edit (RAG recalcs off the edited date) --}}
-                    @unless($locked)
-                    @permission('view_deals')
-                    <div x-show="due" x-cloak style="margin:.4rem 0 0 1.15rem;">
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
-                            <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input" style="font-size:.8rem;">
-                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save due date</button>
-                        </form>
-                    </div>
-                    @endpermission
-                    @endunless
+                @if($phases['gate'] && $rowById->has($phases['gate']->id))
+                    @include('dr2._pipeline-step-row', ['row' => $rowById[$phases['gate']->id], 'variant' => 'gate'])
+                @endif
 
-                    {{-- AT-334 Phase 5 — follows (predecessor) + offset (days); re-cascades Dues then
-                         reorders so this step sits right after the step it follows. New-model deals only. --}}
-                    @if($isNewModel ?? false)
-                    @unless($locked)
-                    @permission('view_deals')
-                    <div x-show="seq" x-cloak style="margin:.4rem 0 0 1.15rem;">
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
-                            <label style="font-size:.78rem;color:#374151;">Follows
-                                <select name="follows" class="corex-input" style="font-size:.8rem;">
-                                    <option value="">— nothing (starts on the deal date) —</option>
-                                    @foreach($steps as $r2)
-                                        @php($o = $r2['model'])
-                                        @if($o->id !== $s->id)
-                                        <option value="{{ $o->id }}" {{ (int) $s->trigger_step_instance_id === (int) $o->id ? 'selected' : '' }}>{{ $o->name }}</option>
-                                        @endif
-                                    @endforeach
-                                </select>
-                            </label>
-                            <label style="font-size:.78rem;color:#374151;">+ offset
-                                <input type="number" name="offset" min="0" max="3650" value="{{ (int) $s->days_offset }}" class="corex-input" style="width:5rem;font-size:.8rem;"> days
-                            </label>
-                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save sequence</button>
-                        </form>
+                @if(!empty($phases['stage2']))
+                    <div style="margin:.6rem .25rem .15rem;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#374151;">Stage 2 · Transfer &amp; Registration
+                        <span style="display:block;font-weight:400;text-transform:none;letter-spacing:0;font-size:.72rem;color:#9ca3af;">runs once granted · date order</span>
                     </div>
-                    @endpermission
-                    @endunless
-                    @endif
-
-                    {{-- Comment thread --}}
-                    <div x-show="cm" x-cloak style="margin:.5rem 0 0 1.15rem;">
-                        @forelse($s->comments as $c)
-                            <div style="font-size:.8rem;margin-bottom:.35rem;">
-                                <span style="color:#374151;">{{ $c->body }}</span>
-                                <span style="color:#9ca3af;font-size:.72rem;"> — {{ $c->user->name ?? 'Someone' }}, {{ $c->created_at?->format('d M H:i') }}</span>
-                            </div>
-                        @empty
-                            <div style="font-size:.78rem;color:#9ca3af;margin-bottom:.35rem;">No comments yet.</div>
-                        @endforelse
-                        @permission('view_deals')
-                        <form method="POST" action="{{ route('deals-dr2.pipeline.step.comment', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;">@csrf
-                            <input type="text" name="body" placeholder="Add a note for this step…" required class="corex-input" style="flex:1 1 260px;font-size:.8rem;">
-                            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Post</button>
-                        </form>
-                        {{-- AT-225/226 — attach a document to THIS step (gas CoC → gas step); files to deal+property+contacts too. --}}
-                        @unless($locked)
-                        <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;">@csrf
-                            <input type="hidden" name="pipeline_step_id" value="{{ $s->id }}">
-                            <input type="file" name="file" required class="corex-input" style="flex:1 1 240px;font-size:.78rem;">
-                            <button type="submit" class="corex-btn-outline" style="padding:.2rem .7rem;font-size:.78rem;">Attach document to this step</button>
-                        </form>
-                        @endunless
-                        @endpermission
-                    </div>
-                </div>
-            @endforeach
+                    @foreach($phases['stage2'] as $node)
+                        @if($rowById->has($node['step']->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$node['step']->id]])@endif
+                        @foreach($node['children'] as $c)
+                            @if($rowById->has($c->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$c->id], 'indentPx' => 22])@endif
+                        @endforeach
+                    @endforeach
+                @endif
+            @else
+                @foreach($steps as $row)
+                    @include('dr2._pipeline-step-row', ['row' => $row])
+                @endforeach
+            @endif
 
             {{-- R2 — Removed steps (soft-deleted) with per-step Restore. No permanent stranding. --}}
             @if($removedSteps->isNotEmpty())
