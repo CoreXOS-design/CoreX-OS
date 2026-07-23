@@ -2315,8 +2315,15 @@ class SigningController extends Controller
 
         $signatureTemplate = $signingRequest->template;
         $document = $signatureTemplate->document;
-        $webTemplateData = $document->web_template_data ?? [];
-        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+
+        // Re-render + download WITHOUT re-signing: regenerate the PDF from the stored
+        // signed content through the SAME measure-and-fit engine the completion email
+        // uses (SignaturePdfService::buildInjectedRenderHtml → resolveRenderHtml +
+        // injectInitialsPagination), so a downloaded signed doc is a page-for-page A4
+        // copy — one physical sheet per logical page, no spill — identical to the
+        // emailed PDF. (Was rendering raw merged_html verbatim, which spilled.)
+        $mergedHtml = app(\App\Services\Docuperfect\SignaturePdfService::class)
+            ->buildInjectedRenderHtml($signatureTemplate);
 
         if (empty($mergedHtml)) {
             return response()->json(['error' => 'Document content not available for PDF generation.'], 404);
@@ -2595,8 +2602,27 @@ CSS;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: auto !important; /* a >A4 element / legacy tall page may span sheets, uncut */
+    position: relative !important;      /* anchor the absolute page-number footer inside the box */
 }
 .corex-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+/* The "Page X of Y" footer MUST be OUT OF FLOW (absolute, in the bottom padding),
+   exactly as the signing view renders it. Without this rule the emailed PDF was
+   missing the .page-number CSS, so the footer flowed IN-LINE and added ~8px to
+   each box — enough to push a near-full page PAST one physical A4 sheet and spill
+   its bottom onto a near-blank next page (docs 455/454: 5 logical → 7 physical).
+   Absolute-positioned it consumes no flow height, so the box the paginator
+   measured (content + initials strip, no footer) IS the box that prints. */
+.corex-a4-page .page-number {
+    position: absolute !important;
+    bottom: 10mm !important;
+    left: 0 !important;
+    right: 0 !important;
+    text-align: center !important;
+    font-size: 9px !important;
+    color: #94a3b8 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
 CSS;
         }
 
