@@ -3197,6 +3197,20 @@ html.dark .corex-sidebar {
     border-radius: 0 !important;
     border-bottom: 1px solid var(--border);
     box-shadow: none !important;
+    /* Full-bleed to the content edges so the bottom border connects edge-to-edge
+       (matches the Properties header). Negative margins cancel <main>'s p-4/lg:p-6;
+       padding re-adds the inner gutter at the tighter py-3.5 the Properties bar uses. */
+    margin-top: -1rem;
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding: 0.875rem 1.5rem !important;
+}
+@media (min-width: 1024px) {
+    .corex-page-banner {
+        margin-top: -1.5rem;
+        margin-left: -1.5rem;
+        margin-right: -1.5rem;
+    }
 }
 /* Title / body text that was white */
 .corex-page-banner h1,
