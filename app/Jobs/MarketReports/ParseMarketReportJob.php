@@ -248,13 +248,58 @@ class ParseMarketReportJob implements ShouldQueue
                 BackfillPropertyGpsFromReportJob::dispatch($report->id)->afterCommit();
             }
 
-            // Dispatch spot-check unless the type is auto-approve (deterministic
-            // parsers with no AI uncertainty).
-            $shouldAudit = !(bool) ($report->reportType?->auto_approve ?? false);
-            if ($shouldAudit && count($result->dataPoints) > 0) {
-                SpotCheckMarketReportJob::dispatch($report->id);
+            // GUARDRAIL — surface a silent 0-comp parse. When a report carries
+            // SUMMARY ranges (Lower/Middle/Upper/Average → sales exist) yet ZERO
+            // comparable rows were extracted, the sales-table layout was not
+            // recognised and the comps did NOT import. Auto-approve would
+            // otherwise stamp the report "passed" and the agent would build a
+            // presentation with no comparables and never know (the Shelly Beach
+            // "1087 Harrison Drive" vicinity report: 0 of 15). FLAG it instead.
+            $compCount = 0;
+            foreach ($result->compRows as $r) {
+                if (($r['row_type'] ?? null) === MarketReportCompRow::ROW_COMP) {
+                    $compCount++;
+                }
+            }
+            $summaryKeys = ['cma_value_lower', 'cma_value_middle', 'cma_value_upper', 'cma_value_average'];
+            $hasSummary = false;
+            foreach ($result->dataPoints as $dp) {
+                if (in_array($dp['metric_key'] ?? '', $summaryKeys, true)) {
+                    $hasSummary = true;
+                    break;
+                }
+            }
+
+            if ($compCount === 0 && $hasSummary) {
+                $report->update([
+                    'spot_check_status'  => MarketReport::SPOT_FLAGGED,
+                    'spot_check_results' => [
+                        'note'         => 'Parsed 0 comparable sales, but the report carries summary ranges (Lower / Middle / Upper / Average) implying sales exist — the sales-table layout was not recognised, so comparables did NOT import. Re-check the report format before relying on this presentation.',
+                        'comp_rows'    => 0,
+                        'has_summary'  => true,
+                        'flagged_by'   => 'zero_comp_with_summary_guard',
+                        'completed_at' => now()->toIso8601String(),
+                    ],
+                ]);
+                Log::warning('ParseMarketReportJob: 0 comps parsed despite summary ranges — flagged for review', [
+                    'report_id'   => $report->id,
+                    'report_type' => $report->reportType?->key,
+                    'file'        => $report->file_name,
+                ]);
+                event(new \App\Events\MarketReports\MarketReportSpotCheckFlagged(
+                    report: $report,
+                    discrepancyCount: 1,
+                    maxSeverity: 'high',
+                ));
             } else {
-                $report->update(['spot_check_status' => MarketReport::SPOT_PASSED]);
+                // Dispatch spot-check unless the type is auto-approve (deterministic
+                // parsers with no AI uncertainty).
+                $shouldAudit = !(bool) ($report->reportType?->auto_approve ?? false);
+                if ($shouldAudit && count($result->dataPoints) > 0) {
+                    SpotCheckMarketReportJob::dispatch($report->id);
+                } else {
+                    $report->update(['spot_check_status' => MarketReport::SPOT_PASSED]);
+                }
             }
         } catch (Throwable $e) {
             $report->update([
