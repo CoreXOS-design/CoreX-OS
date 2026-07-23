@@ -81,10 +81,20 @@ class PipelineController extends Controller
             ? app(\App\Services\DealV2\DealStepPhaseGrouper::class)->group($deal->pipelineSteps)
             : null;
 
+        // AT-334 P3 — work orders held at the trigger for want of a supplier. Drives the RED
+        // warnings: the Supplier Work Orders tab turns red, and each held WO's own step row
+        // turns red with "no supplier has been set".
+        $awaitingWos      = \App\Models\DealV2\DealStepWorkOrder::where('dr1_deal_id', $deal->id)
+            ->where('status', 'awaiting_supplier')->get();
+        $woNeedsAttention = $awaitingWos->isNotEmpty();
+        $awaitingStepIds  = $awaitingWos->pluck('deal_step_instance_id')
+            ->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
         return view('dr2.pipeline', compact(
             'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
             'locked', 'lockReason', 'unlockHint',
             'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel', 'phases',
+            'woNeedsAttention', 'awaitingStepIds',
         ));
     }
 

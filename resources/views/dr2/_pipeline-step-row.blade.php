@@ -10,7 +10,8 @@
 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
 @php($indentPx = $indentPx ?? 0)
 @php($variant = $variant ?? 'row')
-<div x-data="{ na:false, cm:false, due:false, seq:false, done:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $indentPx ? 'margin-left:'.$indentPx.'px;' : '' }}{{ $variant === 'gate' ? 'background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:.5rem .6rem;margin:.45rem 0;' : '' }}{{ $row['na'] ? 'opacity:.6;' : '' }}">
+@php($awaiting = in_array((int) $s->id, $awaitingStepIds ?? [], true))
+<div x-data="{ na:false, cm:false, due:false, seq:false, done:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $indentPx ? 'margin-left:'.$indentPx.'px;' : '' }}{{ $variant === 'gate' ? 'background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:.5rem .6rem;margin:.45rem 0;' : '' }}{{ $awaiting ? 'border-left:3px solid #dc2626;background:#fef2f2;' : '' }}{{ $row['na'] ? 'opacity:.6;' : '' }}">
 
     {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
     <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
@@ -100,6 +101,9 @@
     </div>{{-- /one-liner --}}
 
     @if($variant === 'gate')<div style="font-size:.72rem;color:#92400e;margin:.15rem 0 0 1.15rem;">Deal becomes unconditional once every condition is met.</div>@endif
+
+    {{-- AT-334 P3 — a work order for this step is held awaiting a supplier. --}}
+    @if($awaiting)<div style="font-size:.74rem;font-weight:600;color:#b91c1c;margin:.2rem 0 0 1.15rem;">⚠ This work order has not been sent out as no supplier has been set.</div>@endif
 
     {{-- Secondary context (blocked reason / excused note) — only when present --}}
     @if($row['blocked'])<div style="font-size:.73rem;color:#6b7280;margin:.2rem 0 0 1.15rem;">{{ $row['blocked'] }}</div>@endif

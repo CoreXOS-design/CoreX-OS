@@ -339,6 +339,14 @@ class WorkOrderController extends Controller
         $naReason  = 'Not required — supplier work orders';
         $userId    = $request->user()?->id;
 
+        // AT-334 P3 — RELEASE: when the granting trigger step is ALREADY complete, a WO whose
+        // supplier is set now must send immediately on save (the deal was granted before the
+        // supplier was known). Computed once; each applicable WO is released after it is saved.
+        $triggerStep = $steps->firstWhere('id', $triggerId);
+        $triggerDone = $triggerStep && $triggerStep->status === 'completed';
+        $coc         = app(\App\Services\DealV2\CocWorkOrderService::class);
+        $actor       = $request->user();
+
         foreach ($data['items'] as $item) {
             $type = $types->get($item['code']);
             if (! $type) { continue; }
@@ -364,7 +372,7 @@ class WorkOrderController extends Controller
                 } elseif ($wo) {
                     $wo->update($attrs);
                 } else {
-                    \App\Models\DealV2\DealStepWorkOrder::create($attrs + [
+                    $wo = \App\Models\DealV2\DealStepWorkOrder::create($attrs + [
                         'dr1_deal_id'  => $deal->id,
                         'service_type' => $item['code'],
                         'status'       => 'pending',
@@ -376,6 +384,17 @@ class WorkOrderController extends Controller
                     $pipelines->restoreRemovedStep($deal, $step->id, $userId);
                 } elseif ($step && $step->status === 'skipped' && $step->na_reason === $naReason) {
                     $pipelines->reinstateStep($step, $userId);
+                }
+
+                // AT-334 P3 — release: trigger already complete + a recipient now resolvable →
+                // send this work order now (clears the awaiting-supplier warning). Send-once
+                // freeze respected (skip sent rows); a resolve/send failure records, never aborts.
+                if ($wo && ! $wo->isSent() && $triggerDone && $coc->hasRecipient($wo)) {
+                    try {
+                        $coc->send($wo, $actor);
+                    } catch (\Throwable $e) {
+                        $wo->forceFill(['status' => 'failed', 'send_error' => $e->getMessage()])->save();
+                    }
                 }
             } else {
                 // AT-320 — un-ticked → REMOVE the COC's pipeline step entirely (soft-delete,

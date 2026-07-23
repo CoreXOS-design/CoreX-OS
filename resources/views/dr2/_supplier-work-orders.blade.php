@@ -91,12 +91,14 @@
         {{-- Tick-list — one clean vertical row per COC; responsible/recipient appears under a ticked row --}}
         <template x-for="(it,i) in items" :key="it.code">
             <div style="border-top:1px solid #eee;padding:.5rem 0;">
-                <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : '')">
+                <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : (it.status==='awaiting_supplier' ? 'color:#b91c1c;' : ''))">
                     <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
                     <span x-text="it.label"></span>
                     <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">✓ sent</span>
                     {{-- AT-329 — a trigger-fired send that failed is shown, never silently dropped. --}}
                     <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">⚠ not sent</span>
+                    {{-- AT-334 P3 — held at the trigger for want of a supplier; sends automatically on assign+save. --}}
+                    <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">⚠ awaiting supplier — set one &amp; save to send</span>
                 </label>
 
                 <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-direction:column;gap:.3rem;">

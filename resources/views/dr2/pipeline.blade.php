@@ -285,7 +285,9 @@
 
             <div class="dr2-tabbar" role="tablist" aria-label="Deal right panel">
                 <button type="button" class="dr2-tab" :class="tab==='structure' ? 'corex-tab-active' : ''" @click="tab='structure'" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
-                <button type="button" class="dr2-tab" :class="tab==='wo'    ? 'corex-tab-active' : ''" @click="tab='wo'"    role="tab" :aria-selected="tab==='wo'">Supplier Work Orders</button>
+                {{-- AT-334 P3 — turns RED when a work order is held awaiting a supplier. --}}
+                @php($woAtt = ($woNeedsAttention ?? false))
+                <button type="button" class="dr2-tab" :class="tab==='wo'    ? 'corex-tab-active' : ''" @click="tab='wo'"    role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
                 <button type="button" class="dr2-tab" :class="tab==='docs'  ? 'corex-tab-active' : ''" @click="tab='docs'"  role="tab" :aria-selected="tab==='docs'">Documents</button>
                 <button type="button" class="dr2-tab" :class="tab==='email' ? 'corex-tab-active' : ''" @click="tab='email'" role="tab" :aria-selected="tab==='email'">Email Parties</button>
                 <button type="button" class="dr2-tab" :class="tab==='pi'    ? 'corex-tab-active' : ''" @click="tab='pi'"    role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>

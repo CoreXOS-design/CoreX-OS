@@ -129,6 +129,21 @@ class CocWorkOrderService
     }
 
     /**
+     * AT-334 P3 — can this work order be sent right now? True only when a recipient email
+     * resolves (a supplier/attorney is assigned and has an email, or the responsible party has
+     * one on file). Used to HOLD-until-assigned at the trigger instead of hard-failing. Pure
+     * read — no twin mint, no side effects.
+     */
+    public function hasRecipient(DealStepWorkOrder $wo): bool
+    {
+        $deal = $wo->stepInstance?->dr1Deal ?? Deal::find($wo->dr1_deal_id);
+        if (! $deal) {
+            return false;
+        }
+        return ! empty($this->resolveRecipient($deal, $wo)['email']);
+    }
+
+    /**
      * Send one work order: build the authorisation PDF, address the responsible party, CC the
      * agents (de-duped), audit through AT-228, and stamp the row sent. Throws on no address.
      */

@@ -305,13 +305,20 @@ class Dr1PipelineService
         // added and the trigger fires again), not just untouched 'pending' ones. 'sent' orders
         // are never re-sent.
         $orders = \App\Models\DealV2\DealStepWorkOrder::where('trigger_step_instance_id', $step->id)
-            ->whereIn('status', ['pending', 'failed'])->get();
+            ->whereIn('status', ['pending', 'failed', 'awaiting_supplier'])->get();
         if ($orders->isEmpty()) {
             return;
         }
         $coc  = app(\App\Services\DealV2\CocWorkOrderService::class);
         $user = $userId ? \App\Models\User::withoutGlobalScopes()->find($userId) : null;
         foreach ($orders as $order) {
+            // AT-334 P3 — hold-until-assigned: a WO with no resolvable recipient is NOT failed at
+            // the trigger. It parks in 'awaiting_supplier' (drives the red warnings) and sends
+            // automatically once the agent assigns the supplier and saves (or via manual Send).
+            if (! $coc->hasRecipient($order)) {
+                $order->forceFill(['status' => 'awaiting_supplier', 'send_error' => null])->save();
+                continue;
+            }
             try {
                 // send() sets status='sent' + clears send_error on success.
                 $coc->send($order, $user);
