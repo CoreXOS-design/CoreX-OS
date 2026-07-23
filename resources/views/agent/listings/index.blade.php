@@ -11,7 +11,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" data-tour="at-agent-listings-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-agent-listings-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">My Listing Stock</h1>

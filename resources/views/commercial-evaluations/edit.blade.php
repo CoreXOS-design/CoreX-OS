@@ -17,7 +17,7 @@
     </x-sticky-action-bar>
 
     {{-- Branded header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
         <h2 class="text-xl font-bold text-white leading-tight">Edit Evaluation</h2>
         <p class="text-sm text-white/60 mt-0.5">{{ $evaluation->property_name }}</p>
     </div>

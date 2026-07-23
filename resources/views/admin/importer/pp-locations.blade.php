@@ -6,7 +6,7 @@
 <div class="w-full space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 space-y-3" style="background:var(--brand-default, #0b2a4a);"
+    <div class="rounded-md px-6 py-5 corex-page-banner space-y-3"
          x-data="ppSyncWidget({
              refreshUrl: '{{ route('admin.importer.pp-locations.refresh') }}',
              statusUrl:  '{{ route('admin.importer.pp-locations.status') }}',

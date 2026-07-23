@@ -4,7 +4,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-portal-leads-intro">
                 <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Portal Leads</h1>

@@ -13,7 +13,7 @@
      }">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" data-tour="dp-esign-my-docs-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="dp-esign-my-docs-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">{{ ($showOnlyAuthorisation ?? false) ? 'Authorise Documents' : 'My E-Sign Documents' }}</h1>

@@ -4,7 +4,7 @@
 @section('corex-content')
 <div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="w-full space-y-6">
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" data-tour="cc-today-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-today-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0" data-tour="cc-today-greeting">
                 <h1 class="text-xl font-bold text-white leading-tight">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>

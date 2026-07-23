@@ -3,7 +3,7 @@
 @section('corex-content')
 <div class="space-y-5" x-data="pdfReorder()">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Reorder / Delete Pages</h1>

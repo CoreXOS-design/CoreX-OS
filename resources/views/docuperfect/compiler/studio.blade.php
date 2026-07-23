@@ -30,7 +30,7 @@
      })">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-4" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-4 corex-page-banner">
         <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
                 <div class="flex items-center gap-2">

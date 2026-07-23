@@ -9,7 +9,7 @@
      x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">{{ $agency ? 'Edit Agency' : 'Create Agency' }}</h1>
         <p class="text-sm text-white/60">
             {{ $agency ? "Editing: {$agency->name}" : 'Add a new agency to the platform.' }}

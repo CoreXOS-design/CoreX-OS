@@ -70,7 +70,7 @@
      }">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
 
         {{-- Top bar: back nav --}}
         <div class="flex items-center gap-2 mb-4">

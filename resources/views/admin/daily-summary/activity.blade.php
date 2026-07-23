@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <a href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}" class="text-sm text-white/60 hover:underline transition-all duration-300">&larr; Back to Company Summary</a>

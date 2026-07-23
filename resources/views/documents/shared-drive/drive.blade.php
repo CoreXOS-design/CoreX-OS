@@ -13,7 +13,7 @@
 <div class="w-full" x-data="sharedDrive()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="flex items-center gap-3">
                 @if($drive->is_restricted)

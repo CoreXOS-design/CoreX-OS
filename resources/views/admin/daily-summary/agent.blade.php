@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="text-sm text-white/60 mb-1">
             <a class="hover:underline text-white/60 transition-all duration-300" href="{{ route('admin.daily.summary.activity.branch', array_filter(['definition'=>$def->id,'branch'=>$branchId,'range'=>$range,'month'=>$month])) }}">&larr; Back to Branch</a>
         </div>

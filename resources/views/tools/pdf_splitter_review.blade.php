@@ -116,7 +116,7 @@
 <div class="wrap">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 mb-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-5">
         <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter — Review &amp; Assign</h1>
         <p class="text-sm text-white/60">
             <strong>{{ $base }}</strong> · {{ $pCount }} pages · Set each page's document type, then tick the contact(s) it belongs to.

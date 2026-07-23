@@ -9,7 +9,7 @@
      Slot:
        actions  — optional right-aligned action buttons (white-on-navy). --}}
 @props(['title', 'subtitle' => null])
-<div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a); margin-bottom: 16px;">
+<div class="rounded-md px-6 py-5 corex-page-banner" style=" margin-bottom: 16px;">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
             <div class="text-xs font-semibold uppercase text-white/50" style="letter-spacing: 0.06em;">Market Intelligence</div>

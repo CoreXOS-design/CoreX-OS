@@ -69,7 +69,7 @@
 <div class="w-full flex flex-col gap-5 lg:h-full">
 
   {{-- Page header (Pattern A — branded) --}}
-  <div class="rounded-md px-6 py-5 flex-shrink-0" style="background: var(--brand-default, #0b2a4a);">
+  <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div class="flex items-center gap-3">
         <img src="/images/ellie-32-circle.png" alt="Ellie" class="w-9 h-9 rounded-full">

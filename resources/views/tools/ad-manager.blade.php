@@ -18,7 +18,7 @@
 <div class="w-full space-y-5" x-data="adManager()">
 
     {{-- ── Page header (branded) ───────────────────────────────── --}}
-    <div class="rounded-md px-6 py-5" data-tour="tools-ad-manager-header" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="tools-ad-manager-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Ad Manager</h1>

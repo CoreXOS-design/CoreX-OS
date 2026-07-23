@@ -13,7 +13,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Billing</h1>
         <p class="text-sm text-white/60">What an agency pays for CoreX.</p>
     </div>

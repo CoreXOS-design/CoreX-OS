@@ -3,7 +3,7 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Lost Deals Analysis</h1>
         <p class="text-sm text-white/60">Understand why buyers and sellers leave. Last {{ number_format($days) }} days.</p>
     </div>

@@ -25,7 +25,7 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" data-tour="at-worksheet-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-worksheet-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Worksheet &mdash; {{ $user->name }}</h1>

@@ -3,7 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <a href="{{ url()->previous() }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
             ← Back
         </a>

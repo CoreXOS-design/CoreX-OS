@@ -4,7 +4,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     {{-- Page header (branded — Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Deal → Property → Portal status sync</h1>
         <p class="text-sm text-white/60 mt-1">
             Let deals drive a linked property's listing status automatically. These rules use your existing

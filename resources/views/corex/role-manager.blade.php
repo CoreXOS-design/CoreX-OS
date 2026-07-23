@@ -16,7 +16,7 @@
     <div x-cloak class="w-full space-y-5 pb-6">
 
         {{-- Page header --}}
-        <div class="rounded-md px-6 py-5 flex items-center justify-between" style="background:var(--brand-default,#0b2a4a);">
+        <div class="rounded-md px-6 py-5 corex-page-banner flex items-center justify-between">
             <div>
                 <h1 class="text-xl font-bold text-white tracking-tight leading-tight">Role Manager</h1>
                 <p class="text-sm text-white/60 mt-0.5">Manage roles, permissions & user assignments.</p>

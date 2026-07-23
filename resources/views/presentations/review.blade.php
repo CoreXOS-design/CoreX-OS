@@ -129,7 +129,7 @@
     @endif
 
     {{-- Header — branded Pattern A (UI_DESIGN_SYSTEM.md §2.4). --}}
-    <div class="rounded-md px-6 py-5 mb-4" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Review Presentation</h1>

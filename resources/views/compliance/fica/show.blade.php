@@ -22,7 +22,7 @@
 <div class="w-full space-y-5" x-data="ficaReview()">
 
     {{-- Page header (branded — Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div class="min-w-0">
                 <a href="{{ route('compliance.fica.index') }}" class="inline-flex items-center gap-1 text-xs font-medium text-white/70 hover:text-white transition mb-2">

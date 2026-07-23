@@ -21,7 +21,7 @@
     </a>
 
     {{-- Page header — §2.4 Pattern A --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Demo Terms &amp; Conditions</h1>
         <p class="text-sm text-white/60">
             The clickwrap every prospect accepts before they can use the demo.
