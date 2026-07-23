@@ -74,11 +74,12 @@ class PipelineController extends Controller
         // composable (new-model) deals; old-model/template deals never show it.
         $isNewModel       = app(\App\Services\DealV2\DealDateCascade::class)->isNewModel($deal);
 
-        // AT-334 Phase 5b — new-model deals render as a PHASED / GROUPED board (anchor →
-        // Stage 1 condition groups → Granted gate → Stage 2 transfer). Classification is
-        // 100% field-driven (see DealStepPhaseGrouper). Old-model deals keep the flat render.
-        $phases = ($isNewModel && $steps->isNotEmpty())
-            ? app(\App\Services\DealV2\DealStepPhaseGrouper::class)->group($deal->pipelineSteps)
+        // AT-334 (concurrent-lanes rework) — new-model deals render as a CLEAN CONCURRENT-LANE
+        // board: Anchor → Stage 1 (condition lanes) → Granted gate → Stage 2 (sequence points +
+        // concurrent bands). Convergence is field-driven off the predecessor SET (primary
+        // follows ∪ AND-gate fan-in). Old-model deals keep the flat render.
+        $board = ($isNewModel && $steps->isNotEmpty())
+            ? app(\App\Services\DealV2\DealLaneComposer::class)->board($deal->pipelineSteps)
             : null;
 
         // AT-334 P3 — work orders held at the trigger for want of a supplier. Drives the RED
@@ -93,7 +94,7 @@ class PipelineController extends Controller
         return view('dr2.pipeline', compact(
             'deal', 'steps', 'templates', 'defaultTemplateId', 'removedSteps',
             'locked', 'lockReason', 'unlockHint',
-            'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel', 'phases',
+            'conditionCatalog', 'dealConditions', 'hasPipeline', 'isNewModel', 'board',
             'woNeedsAttention', 'awaitingStepIds',
         ));
     }

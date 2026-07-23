@@ -58,6 +58,64 @@
 .dr2-sect-title { font-size:.9rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted,#6b7280); }
 .dr2-chev { transition:transform .2s; color:var(--text-muted,#9ca3af); font-size:.85rem; line-height:1; }
 .dr2-chev.dr2-chev-closed { transform:rotate(-90deg); }
+
+/* AT-334 concurrent-lane board (new-model deals). Scoped here — no Tailwind, no CSS rebuild on qa1. */
+.dr2-stage-h { margin:.9rem .15rem .35rem; font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#374151; }
+.dr2-stage-h span { display:block; font-weight:400; text-transform:none; letter-spacing:0; font-size:.72rem; color:#9ca3af; }
+.dr2-tile { width:200px; min-height:172px; box-sizing:border-box; display:flex; flex-direction:column;
+    border:1px solid var(--corex-border,#e5e7eb); border-radius:10px; padding:.5rem .55rem; background:var(--surface,#fff); position:relative; }
+.dr2-tile--wide { width:100%; }
+.dr2-tile--gate { background:#fffbeb; border:1px solid #fcd34d; }
+.dr2-tile--done { opacity:.62; filter:grayscale(.3); }
+.dr2-tile--na { opacity:.6; }
+.dr2-tile--warn { border-left:3px solid #dc2626; background:#fef2f2; }
+.dr2-tile.dr2-drop-ok { outline:2px dashed #2563eb; outline-offset:2px; }
+.dr2-tile__head { display:flex; align-items:flex-start; gap:.35rem; }
+.dr2-tile__grip { cursor:grab; color:#cbd5e1; font-size:.8rem; line-height:1.1; user-select:none; }
+.dr2-tile__rag { flex:0 0 auto; width:.6rem; height:.6rem; border-radius:50%; margin-top:.18rem; }
+.dr2-tile__name { flex:1 1 auto; font-weight:700; font-size:.82rem; line-height:1.15; color:#111827; word-break:break-word; }
+.dr2-tile__name--done { font-weight:600; text-decoration:line-through; text-decoration-color:rgba(0,0,0,.28); color:#374151; }
+.dr2-tile__name--na { text-decoration:line-through; }
+.dr2-tile__check { color:#047857; font-weight:800; margin-right:.1rem; }
+.dr2-tile__tags { display:flex; flex-wrap:wrap; gap:.25rem; margin:.25rem 0 0; min-height:.9rem; }
+.dr2-tag { font-size:.66rem; padding:0 .3rem; border-radius:.5rem; line-height:1.4; }
+.dr2-tag--off { color:#9ca3af; background:#f3f4f6; }
+.dr2-tag--ms { color:#b45309; }
+.dr2-tag--custom { color:#2563eb; }
+.dr2-tile__meta { display:flex; align-items:center; justify-content:space-between; gap:.35rem; margin:.3rem 0 .1rem; }
+.dr2-tile__date { font-size:.72rem; color:#6b7280; white-space:nowrap; }
+.dr2-tile__badge { font-size:.66rem; padding:.1rem .45rem; border-radius:1rem; white-space:nowrap; }
+.dr2-tile__gatenote { font-size:.7rem; color:#92400e; margin:.15rem 0; }
+.dr2-tile__warnnote { font-size:.7rem; font-weight:600; color:#b91c1c; margin:.15rem 0; }
+.dr2-tile__sub { font-size:.7rem; color:#6b7280; margin:.15rem 0; }
+.dr2-tile__btns { margin-top:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:.22rem; padding-top:.4rem; }
+.dr2-tile__btns form { display:block; margin:0; }
+.dr2-bt { display:block; width:100%; box-sizing:border-box; text-align:center; font-family:inherit; font-size:.68rem;
+    line-height:1.1; padding:.28rem .1rem; border:1px solid var(--corex-border,#e5e7eb); border-radius:6px;
+    background:#fff; color:#374151; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dr2-bt:hover { background:#f9fafb; }
+.dr2-bt--go { color:#047857; border-color:#6ee7b7; }
+.dr2-bt--danger { color:#b91c1c; }
+.dr2-bt--dis { color:#c7cdd6; background:#fafbfc; cursor:not-allowed; }
+.dr2-band { margin:.4rem 0; border:1px dashed #cbd5e1; border-radius:10px; padding:.55rem .5rem; position:relative; }
+.dr2-band__tag { position:absolute; top:-.6rem; left:.7rem; background:var(--surface,#fff); padding:0 .35rem; font-size:.66rem; color:#94a3b8; letter-spacing:.03em; }
+.dr2-band__lanes { display:flex; gap:.5rem; overflow-x:auto; padding-bottom:.15rem; align-items:flex-start; }
+.dr2-lane { display:flex; flex-direction:column; align-items:stretch; gap:.15rem; flex:0 0 auto; }
+.dr2-lane__link { text-align:center; color:#cbd5e1; font-size:.7rem; line-height:.7; }
+.dr2-seq { position:relative; padding-left:.55rem; margin:.4rem 0; }
+.dr2-seq__rail { position:absolute; left:0; top:.15rem; bottom:.15rem; width:4px; border-radius:3px; background:#2563eb; }
+.dr2-modal { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; padding:1rem; }
+.dr2-modal__bg { position:absolute; inset:0; background:rgba(15,23,42,.4); }
+.dr2-modal__card { position:relative; z-index:1; background:var(--surface,#fff); border-radius:12px; padding:1rem 1.1rem; width:min(420px,92vw); box-shadow:0 10px 40px rgba(2,20,40,.28); }
+.dr2-modal__card--wide { width:min(560px,94vw); }
+.dr2-modal__h { margin:0 0 .7rem; font-size:.95rem; font-weight:700; color:#111827; }
+.dr2-modal__lb { display:block; font-size:.78rem; color:#374151; margin-bottom:.55rem; }
+.dr2-modal__row { display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem; }
+.dr2-modal__cmform { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.5rem; }
+.dr2-modal__thread { max-height:38vh; overflow-y:auto; border:1px solid var(--corex-border,#e5e7eb); border-radius:8px; padding:.5rem; }
+.dr2-cmt { font-size:.8rem; margin-bottom:.35rem; color:#374151; }
+.dr2-cmt__by { color:#9ca3af; font-size:.72rem; }
+.dr2-cmt__empty { font-size:.78rem; color:#9ca3af; }
 </style>
 <div class="corex-page">
     <div class="corex-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
@@ -179,43 +237,28 @@
             </div>
             @endif
             @php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id))
-            @if(($isNewModel ?? false) && !empty($phases) && ($phases['gate'] || !empty($phases['stage2']) || !empty($phases['stage1'])))
-                {{-- AT-334 Phase 5b — PHASED / GROUPED layout (new-model deals). Anchor →
-                     Stage 1 condition groups (parallel) → Granted GATE → Stage 2 transfer
-                     (date order, cash payments nested one level under Deeds Office). Every
-                     per-step control is preserved via the shared _pipeline-step-row partial. --}}
-                @if($phases['anchor'] && $rowById->has($phases['anchor']->id))
-                    @include('dr2._pipeline-step-row', ['row' => $rowById[$phases['anchor']->id]])
+            @if(($isNewModel ?? false) && !empty($board) && ($board['gate'] || !empty($board['stage2']) || !empty($board['stage1']) || $board['anchor']))
+                {{-- AT-334 (concurrent-lanes rework) — CLEAN LANE BOARD (new-model deals):
+                     Anchor → Stage 1 condition lanes → Granted GATE (full-width bar) → Stage 2
+                     (full-width SEQUENCE POINTS + dashed CONCURRENT BANDS of vertical-chain
+                     lanes). Every step is a UNIFORM tile with the fixed 3×2 button grid.
+                     Segment structure comes from DealLaneComposer. --}}
+                @if($board['anchor'] && $rowById->has($board['anchor']->id))
+                    @include('dr2._pipeline-step-tile', ['row' => $rowById[$board['anchor']->id], 'variant' => 'wide'])
                 @endif
 
-                @if(!empty($phases['stage1']))
-                    <div style="margin:.6rem .25rem .15rem;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#374151;">Stage 1 · Suspensive Conditions
-                        <span style="display:block;font-weight:400;text-transform:none;letter-spacing:0;font-size:.72rem;color:#9ca3af;">all must be met to grant · run in parallel</span>
-                    </div>
-                    @foreach($phases['stage1'] as $grp)
-                        <div style="margin:.35rem .25rem;border-left:3px solid #e5e7eb;padding-left:.55rem;">
-                            <div style="font-size:.74rem;font-weight:700;color:#6b7280;margin:.2rem 0;">{{ $grp['label'] }}</div>
-                            @foreach($grp['steps'] as $m)
-                                @if($rowById->has($m->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$m->id], 'indentPx' => 8])@endif
-                            @endforeach
-                        </div>
-                    @endforeach
+                @if(!empty($board['stage1']))
+                    <div class="dr2-stage-h">Stage 1 · Suspensive Conditions<span>all must be met to grant · run in parallel</span></div>
+                    @include('dr2._pipeline-segments', ['segments' => $board['stage1'], 'rowById' => $rowById])
                 @endif
 
-                @if($phases['gate'] && $rowById->has($phases['gate']->id))
-                    @include('dr2._pipeline-step-row', ['row' => $rowById[$phases['gate']->id], 'variant' => 'gate'])
+                @if($board['gate'] && $rowById->has($board['gate']->id))
+                    @include('dr2._pipeline-step-tile', ['row' => $rowById[$board['gate']->id], 'variant' => 'gate'])
                 @endif
 
-                @if(!empty($phases['stage2']))
-                    <div style="margin:.6rem .25rem .15rem;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#374151;">Stage 2 · Transfer &amp; Registration
-                        <span style="display:block;font-weight:400;text-transform:none;letter-spacing:0;font-size:.72rem;color:#9ca3af;">runs once granted · date order</span>
-                    </div>
-                    @foreach($phases['stage2'] as $node)
-                        @if($rowById->has($node['step']->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$node['step']->id]])@endif
-                        @foreach($node['children'] as $c)
-                            @if($rowById->has($c->id))@include('dr2._pipeline-step-row', ['row' => $rowById[$c->id], 'indentPx' => 22])@endif
-                        @endforeach
-                    @endforeach
+                @if(!empty($board['stage2']))
+                    <div class="dr2-stage-h">Stage 2 · Transfer &amp; Registration<span>runs once granted · sequence points span the width; concurrent work sits in lanes</span></div>
+                    @include('dr2._pipeline-segments', ['segments' => $board['stage2'], 'rowById' => $rowById])
                 @endif
             @else
                 @foreach($steps as $row)
