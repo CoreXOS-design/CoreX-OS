@@ -25,39 +25,7 @@ class SignaturePdfService
             $docTemplate = $document->template;
 
             $webTemplateData = $document->web_template_data ?? [];
-            // AT-332 — the generated/emailed PDF must render the EXACT pages the
-            // signer saw. Read precedence for the final signed render:
-            //   1. signed_paginated_html — the exact per-document .corex-a4-page
-            //      DOM the last signer submitted, with every party's ink AND the
-            //      page-break initials already IN POSITION. This is what the
-            //      on-screen signed document shows (correct page count, per-page
-            //      footers, no spurious inline signature rows).
-            //   2. canonical_html WHEN it carries baked ink (canonical_version >= 1)
-            //      — the un-paginated vN artifact; used only when no signed
-            //      paginated DOM was captured (e.g. agent-only or older docs).
-            //      Chromium paginates it via CSS (see injectInitialsPagination).
-            //   3. canonical_html at v0 (structure only) if that is all we have.
-            //   4. merged_html — legacy / pre-canonical documents only.
-            //
-            // Why signed_paginated_html FIRST (was canonical-first): the ink baker
-            // stamps a "Signed by {name}" caption into EVERY role-block signature
-            // cell of the canonical — including inline clause cells the signer's
-            // paginated document collapsed away — so a canonical-rendered PDF
-            // showed extra mid-document signature rows and re-flowed to a different
-            // page count than the 3 pages on screen. The signer's own paginated
-            // DOM is the faithful source. (AT-332 — PDF ≠ on-screen divergence.)
-            $canonicalHtml    = (string) ($webTemplateData['canonical_html'] ?? '');
-            $canonicalVersion = (int) ($webTemplateData['canonical_version'] ?? 0);
-            $signedPaginated  = $document->signed_paginated_html;
-            if (is_string($signedPaginated) && trim($signedPaginated) !== '') {
-                $renderHtml = $signedPaginated;
-            } elseif ($canonicalVersion >= 1 && trim($canonicalHtml) !== '') {
-                $renderHtml = $canonicalHtml;
-            } elseif (trim($canonicalHtml) !== '') {
-                $renderHtml = $canonicalHtml;
-            } else {
-                $renderHtml = $webTemplateData['merged_html'] ?? '';
-            }
+            $renderHtml = $this->resolveRenderHtml($document);
             $hasMergedHtml = trim((string) $renderHtml) !== '';
             $hasDocPages = !empty($webTemplateData['flattened_page_count']);
             $isWebTemplate = $docTemplate && ($docTemplate->render_type ?? 'pdf') === 'web';
@@ -224,26 +192,90 @@ class SignaturePdfService
      * own page-break box. No-op when there are no captured initials; fail-open in
      * the browser (try/catch) so the PDF always at least renders the canonical.
      */
+    /**
+     * Resolve the faithful render source for a document, in read precedence:
+     *   1. signed_paginated_html — the exact per-document .corex-a4-page DOM the
+     *      last signer submitted, with every party's ink AND the page-break
+     *      initials already IN POSITION (what the on-screen signed document shows).
+     *   2. canonical_html WHEN it carries baked ink (canonical_version >= 1) — the
+     *      un-paginated vN artifact; Chromium paginates it via injectInitialsPagination.
+     *   3. canonical_html at v0 (structure only) if that is all we have.
+     *   4. merged_html — legacy / pre-canonical documents only.
+     *
+     * signed_paginated_html is FIRST because the ink baker stamps a "Signed by {name}"
+     * caption into every role-block signature cell of the canonical (including inline
+     * clause cells the signer's paginated document collapsed away), so a canonical
+     * render shows extra mid-document signature rows. The signer's own DOM is faithful.
+     * Its page BREAKS, however, are re-flowed at render time (injectInitialsPagination)
+     * so the emailed/downloaded PDF fits one physical A4 sheet per logical page.
+     */
+    public function resolveRenderHtml($document): string
+    {
+        $webTemplateData  = $document->web_template_data ?? [];
+        $canonicalHtml    = (string) ($webTemplateData['canonical_html'] ?? '');
+        $canonicalVersion = (int) ($webTemplateData['canonical_version'] ?? 0);
+        $signedPaginated  = $document->signed_paginated_html;
+
+        if (is_string($signedPaginated) && trim($signedPaginated) !== '') {
+            return $signedPaginated;
+        }
+        if (trim($canonicalHtml) !== '') {
+            return $canonicalHtml; // v>=1 (baked ink) or v0 (structure) — both paginated at render
+        }
+        return (string) ($webTemplateData['merged_html'] ?? '');
+    }
+
+    /**
+     * The ONE render-source + measure-and-fit-pagination pipeline, shared by the
+     * completion-email/filed PDF (generate) AND the live re-render+download route
+     * (SigningController::downloadWebPdf). Returns HTML ready for
+     * generatePdfFromHtml() — the signed content re-paginated through the corrected
+     * engine WITHOUT re-signing (pagination is presentation; ink flows with clauses).
+     */
+    public function buildInjectedRenderHtml(SignatureTemplate $template): string
+    {
+        $template->loadMissing('document');
+        $document = $template->document;
+        if (!$document) {
+            return '';
+        }
+        return $this->injectInitialsPagination($template, $document, $this->resolveRenderHtml($document));
+    }
+
     private function injectInitialsPagination(SignatureTemplate $template, $document, string $html): string
     {
-        // AT-332 — only the UN-paginated canonical needs this. When the render
-        // source is signed_paginated_html (the signer's exact DOM, already split
-        // into .corex-a4-page with the initials placed in-position), re-running
-        // paginateDocument would re-flow it and defeat the whole point — render it
-        // verbatim so the PDF matches the on-screen pages.
-        if (str_contains($html, 'corex-a4-page')) {
-            return $html;
-        }
-
-        $webData = $document->web_template_data ?? [];
-        $signed = $webData['signed_initials'] ?? [];
-        if (!is_array($signed) || $signed === []) {
-            return $html; // nothing captured — leave the canonical untouched
-        }
-
         $js = $this->esignPaginationJs();
         if (trim($js) === '') {
             return $html; // could not read the shared JS — do not risk the PDF
+        }
+
+        // AT-332 fix — ALWAYS re-paginate through the shared engine inside Chromium,
+        // including an already-paginated signed_paginated_html. Pagination is
+        // PRESENTATION, not signed content: the signed content is the clause text +
+        // the ink placed against those clauses, and those flow with the content when
+        // it re-paginates. Rendering the signer's frozen DOM VERBATIM was the bug —
+        // its .corex-a4-page boxes were sized by the signing browser's fonts, then
+        // the emailed PDF renders with SUBSTITUTE (taller) fonts, so each box
+        // overflowed one physical A4 sheet and spilled its footer/initials onto a
+        // near-blank next page (Premilla's doc: 4 logical pages → 6 physical). Re-
+        // paginating in the SAME engine that prints the PDF makes measured height ==
+        // rendered height, so every logical page fits exactly one physical sheet.
+        //
+        // Legacy docs are re-rendered without re-signing: a client cannot be asked to
+        // re-sign because our renderer was broken (Johan's hard requirement).
+        $alreadyPaginated = str_contains($html, 'corex-a4-page');
+
+        $webData = $document->web_template_data ?? [];
+        $signed = $webData['signed_initials'] ?? [];
+        if (!is_array($signed)) {
+            $signed = [];
+        }
+
+        // A plain, un-paginated canonical with no captured initials keeps its legacy
+        // CSS-flow render (nothing to place, no page boxes to build). Anything already
+        // paginated is always re-flowed to kill the physical spill.
+        if (!$alreadyPaginated && $signed === []) {
+            return $html;
         }
 
         // Same party set the review passes to paginateDocument().
@@ -260,9 +292,22 @@ class SignaturePdfService
         $partiesJson = json_encode($parties);
         $storedJson  = json_encode($signed);
 
+        // When the source is already paginated, mark the container so paginateDocument
+        // takes its idempotent re-anchor path: it snapshots every applied initial /
+        // signature by stable key, de-paginates the frozen .corex-a4-page boxes back to
+        // flat content, re-paginates with the corrected engine, then re-applies the ink.
+        // restoreStoredInitials then backfills any initials box by PARTY (robust to a
+        // changed page count) from signed_initials. Ink stays attached to its clauses.
+        // run() is idempotent (paginateDocument re-anchors on re-run). It is exposed
+        // as window.__corexRepaginate so html-to-pdf.mjs can fire it AFTER fonts +
+        // print media are applied (measure with the fonts the PDF actually prints).
+        // A document.fonts.ready fallback covers any caller that does not use the hook.
         $boot = '<script>(function(){function run(){var c=document.getElementById("pdfDocContent")||document.body;'
-            . 'try{paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');}catch(e){}}'
-            . 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
+            . 'try{if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
+            . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');}catch(e){}}'
+            . 'window.__corexRepaginate=run;'
+            . 'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(run).catch(run);}'
+            . 'else if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
 
         return '<div id="pdfDocContent">' . $html . '</div>'
             . '<script>' . $js . '</script>'

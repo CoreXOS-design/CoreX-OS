@@ -320,11 +320,33 @@ function _dePaginate(container) {
  * element is retained so SignatureService::splitMergedHtml() still splits the
  * already-paginated DOM per document (§19.7). Page numbering restarts at 1 per
  * document; an initial slot is placed on every page where
- * pageIndex < lastPageIndex; the signature section is forced onto the last
+ * pageIndex < lastPageIndex; the signature section is kept on the last
  * page (§19.3) — a single-page document gets the signature block, no initial.
+ *
+ * MEASURE-AND-FIT (no magic constant). Instead of guessing a content-height
+ * budget (the old PAGE_CONTENT_HEIGHT ≈ 878px reserve — fragile: it held on one
+ * doc and spilled on others because the emailed PDF renders with SUBSTITUTE
+ * fonts that are TALLER than the signing browser's, so a box packed to the
+ * guessed budget overflowed one physical A4 sheet and its footer/initials strip
+ * spilled onto a near-blank next page), we measure the REAL rendered box in the
+ * CURRENT render environment:
+ *
+ *   1. Probe the exact one-physical-sheet height by measuring an empty
+ *      .corex-a4-page (min-height:297mm) here — so the threshold is whatever
+ *      297mm actually renders to in THIS browser/Chromium, not a derived px.
+ *   2. Fill a live .corex-a4-page box element node-by-node, and after each
+ *      append measure box.offsetHeight WITH the bottom initials strip appended
+ *      (the real furniture, not a 58px guess). The moment the box would exceed
+ *      one sheet, the last node starts the next page.
+ *
+ * Because pagination runs in the SAME engine that produces the PDF (Chromium,
+ * via SignaturePdfService::injectInitialsPagination), the measured height IS
+ * the rendered height — every logical page fits exactly one physical sheet:
+ * zero clipping, zero near-blank spill pages, for short, medium and long docs.
  */
 function _paginateWrapper(wrapper, docIdx, parties) {
     var doc = wrapper.ownerDocument;
+    var win = doc.defaultView || window;
 
     var contentEl = wrapper;
     var innerPage = wrapper.querySelector(':scope > .corex-page');
@@ -335,92 +357,87 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     });
     if (children.length === 0) return;
 
-    // TRUE A4 content area — MUST match the .corex-a4-page CSS (210x297mm, padding
-    // 20mm top / 25mm bottom / 18mm sides) so the SIGNING view breaks at real A4
-    // boundaries and the emailed PDF is a page-for-page copy. Legal requirement:
-    // you sign the exact layout you receive — no clipping, no reflow.
-    //
-    // The width is already A4-correct (658px == 210-2*18 = 174mm content width), so we
-    // pin px/mm to THAT scale and derive the height from the SAME padding — height and
-    // width stay consistently calibrated (was hardcoded 1500px ≈ 1.6x too tall, which
-    // let the signing page grow past A4 and the PDF then clipped it).
-    var PAGE_CONTENT_WIDTH = 658;                          // 210mm - 2*18mm = 174mm
-    var PX_PER_MM = PAGE_CONTENT_WIDTH / 174;              // 3.7816 px/mm — same scale as the width
-    // Reserve room INSIDE the content area for the page furniture the assembler appends
-    // to EVERY page below its content: the bottom initials strip (_buildInitialsRow — a
-    // 40px box + 2px border + 16px vertical padding ≈ 58px, IN-FLOW) plus a little
-    // clearance above the absolute .page-number footer. Without this reserve the
-    // paginator packed content to the FULL printable height, so content + strip pushed
-    // each box PAST one physical A4 sheet and the strip+footer spilled onto a near-blank
-    // next page (the "8 physical pages for a 4-logical-page doc" artifact). Reserving it
-    // makes the paginator break earlier so content + strip + footer all fit one A4 sheet.
-    var INITIALS_STRIP_PX = 58;                           // .corex-page-initials-row height
-    var FOOTER_CLEARANCE_PX = 16;                          // clearance above the bottom footer
-    var PAGE_CONTENT_HEIGHT = Math.floor((297 - 20 - 25) * PX_PER_MM) - INITIALS_STRIP_PX - FOOTER_CLEARANCE_PX; // 252mm printable minus furniture -> ~878px
-    var MIN_CLAUSE_VISIBLE = 100;
+    // Keep the wrapper's own <style>/<link> so intra-document CSS survives.
+    var styleNodes = Array.from(contentEl.children).filter(function (el) {
+        return el.tagName === 'STYLE' || el.tagName === 'LINK';
+    });
 
+    // Detach every content node (references + order preserved) and clear the
+    // wrapper so we can build/measure fresh .corex-a4-page boxes inside it.
+    children.forEach(function (c) { if (c.parentNode) c.parentNode.removeChild(c); });
     var origW = wrapper.style.width, origMW = wrapper.style.maxWidth;
-    wrapper.style.width = PAGE_CONTENT_WIDTH + 'px';
-    wrapper.style.maxWidth = PAGE_CONTENT_WIDTH + 'px';
-    if (innerPage) {
-        innerPage.style.width = '100%'; innerPage.style.maxWidth = '100%';
-        innerPage.style.padding = '0'; innerPage.style.margin = '0'; innerPage.style.minHeight = 'auto';
+    wrapper.innerHTML = '';
+    // Let each .corex-a4-page own its 210mm A4 width (was pinned to 658px). The
+    // box's own CSS width is what the PDF prints at, so measuring inside it is
+    // the faithful width.
+    wrapper.style.width = '';
+    wrapper.style.maxWidth = '';
+
+    // (1) Probe the exact one-sheet height in THIS render environment.
+    var probe = doc.createElement('div');
+    probe.className = 'corex-a4-page';
+    probe.style.visibility = 'hidden';
+    wrapper.appendChild(probe);
+    var SHEET_PX = probe.offsetHeight;             // 297mm as it really renders (incl. padding)
+    wrapper.removeChild(probe);
+    if (!SHEET_PX || SHEET_PX < 200) {
+        SHEET_PX = Math.round(297 * 96 / 25.4);    // ultra-safe fallback: 297mm @96dpi ≈ 1123px
     }
 
-    var pages = [];
-    var cur = [];
-    var curH = 0;
-    var inSig = false;
+    // (2) Greedily fill live boxes, measuring the REAL rendered box (content +
+    //     the initials strip the non-last pages carry) so a page never exceeds
+    //     one physical sheet. A signature-section node marks the closing block:
+    //     once reached we keep it on the current/last page and break at most
+    //     once (to move an unbroken signature block onto a fresh last page).
+    var pageGroups = [];
+    var i = 0;
+    var sigMode = false;         // reached the signature/closing section
+    var sigBrokenOnce = false;   // allowed a single break to start the sig page
 
-    children.forEach(function (child, idx) {
-        if (child.nodeType !== 1) { cur.push(child); return; }
+    while (i < children.length) {
+        var box = doc.createElement('div');
+        box.className = 'corex-a4-page';
+        box.style.visibility = 'hidden';
+        wrapper.appendChild(box);
+        // The real furniture element (same one the assembler appends) — reused
+        // for every measurement on this page; reserved on non-last (non-sig) pages.
+        var strip = parties.length ? _buildInitialsRow(parties, 'measure') : null;
+        var group = [];
 
-        if (child.classList.contains('sig-section') ||
-            child.classList.contains('corex-signature-section')) {
-            inSig = true;
+        while (i < children.length) {
+            var child = children[i];
+            if (child.nodeType !== 1) { box.appendChild(child); group.push(child); i++; continue; }
+
+            if (!sigMode && (child.classList.contains('sig-section') ||
+                             child.classList.contains('corex-signature-section'))) {
+                sigMode = true;
+            }
+
+            box.appendChild(child);
+            var reserve = strip && !sigMode;                 // last (sig) page carries no strip
+            if (reserve) box.appendChild(strip);
+            var overflow = box.offsetHeight > SHEET_PX;
+            if (reserve && strip.parentNode === box) box.removeChild(strip);
+
+            if (overflow && group.length > 0 && !(sigMode && sigBrokenOnce)) {
+                box.removeChild(child);                      // this node starts the next page
+                if (sigMode) sigBrokenOnce = true;           // sig block now on its own fresh page
+                break;
+            }
+            group.push(child);
+            i++;
         }
 
-        var rect = child.getBoundingClientRect();
-        var cs = window.getComputedStyle(child);
-        var h = rect.height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+        pageGroups.push(group);
+        wrapper.removeChild(box);                            // rebuilt cleanly below with furniture
+    }
 
-        var tag = child.tagName;
-        var isHeading = tag === 'H1' || tag === 'H2' || tag === 'H3' || tag === 'H4' ||
-                        child.classList.contains('corex-h1') ||
-                        child.classList.contains('corex-h2') ||
-                        child.classList.contains('corex-h3') ||
-                        child.classList.contains('corex-section-heading');
-        var groupH = h;
-        if (isHeading && idx + 1 < children.length && children[idx + 1].nodeType === 1) {
-            var nr = children[idx + 1].getBoundingClientRect();
-            var ns = window.getComputedStyle(children[idx + 1]);
-            groupH += nr.height + (parseFloat(ns.marginTop) || 0) + (parseFloat(ns.marginBottom) || 0);
-        }
-        var isClause = child.classList.contains('corex-clause') &&
-                       child.querySelector('.corex-clause-number');
-
-        if (inSig) {
-            cur.push(child); curH += h;
-        } else if (isHeading && curH + groupH > PAGE_CONTENT_HEIGHT && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else if (curH + h > PAGE_CONTENT_HEIGHT && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else if (isClause && curH + h > PAGE_CONTENT_HEIGHT - MIN_CLAUSE_VISIBLE && cur.length > 0) {
-            pages.push(cur); cur = [child]; curH = h;
-        } else {
-            cur.push(child); curH += h;
-        }
-    });
-    if (cur.length > 0) pages.push(cur);
-
-    wrapper.style.width = origW;
-    wrapper.style.maxWidth = origMW;
-
-    var total = pages.length;
+    var total = pageGroups.length;
 
     // Rebuild the wrapper in place (retained for split + per-doc identity).
     wrapper.innerHTML = '';
-    pages.forEach(function (pageChildren, p) {
+    styleNodes.forEach(function (s) { wrapper.appendChild(s); });
+    pageGroups.forEach(function (pageChildren, p) {
         var pageDiv = doc.createElement('div');
         pageDiv.className = 'corex-a4-page';
         pageDiv.setAttribute('data-doc-index', String(docIdx));
@@ -447,6 +464,9 @@ function _paginateWrapper(wrapper, docIdx, parties) {
             wrapper.appendChild(gap);
         }
     });
+
+    wrapper.style.width = origW;
+    wrapper.style.maxWidth = origMW;
 }
 
 /**
