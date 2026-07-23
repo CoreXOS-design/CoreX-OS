@@ -40,14 +40,19 @@ class Dr2ConditionCatalog
         return [
             ['key' => 'otp',           'name' => 'Deal Signed',                'follows' => null,        'offset' => 0,  'milestone' => true,  'completion' => 'date_input',      'anchor' => true, 'pos' => 10],
             ['key' => 'attorneys',     'name' => 'Attorneys Instructed',       'follows' => '__grant__', 'offset' => 3,  'completion' => 'text_input',      'pos' => 40],
+            // FICA is a two-step vertical lane (Buyer → Seller) so it reads as ONE lane in
+            // the concurrent band rather than two peers.
             ['key' => 'fica_buyer',    'name' => 'FICA Completed (Buyer)',     'follows' => 'attorneys', 'offset' => 7,  'completion' => 'document_upload', 'pos' => 45],
-            ['key' => 'fica_seller',   'name' => 'FICA Completed (Seller)',    'follows' => 'attorneys', 'offset' => 7,  'completion' => 'document_upload', 'pos' => 46],
+            ['key' => 'fica_seller',   'name' => 'FICA Completed (Seller)',    'follows' => 'fica_buyer','offset' => 3,  'completion' => 'document_upload', 'pos' => 46],
             ['key' => 'elec_coc',      'name' => 'Electrical COC',             'follows' => 'attorneys', 'offset' => 14, 'completion' => 'document_upload', 'pos' => 50],
             ['key' => 'beetle',        'name' => 'Beetle Certificate',         'follows' => 'attorneys', 'offset' => 14, 'completion' => 'document_upload', 'pos' => 51],
             ['key' => 'rates',         'name' => 'Rates Clearance',            'follows' => 'attorneys', 'offset' => 21, 'completion' => 'document_upload', 'pos' => 55],
             ['key' => 'docs_signed',   'name' => 'Documents Signed',           'follows' => 'attorneys', 'offset' => 5,  'completion' => 'document_signed', 'pos' => 60],
             ['key' => 'transfer_duty', 'name' => 'Transfer Duty / SARS Receipt','follows' => 'docs_signed','offset' => 7, 'completion' => 'document_upload', 'pos' => 65],
-            ['key' => 'lodgement',     'name' => 'Deeds Office Lodgement',      'follows' => 'rates',     'offset' => 5,  'milestone' => true,  'completion' => 'date_input',     'pos' => 70],
+            // FAN-IN: Deeds Office Lodgement cannot start until EVERY concurrent Stage-2 lane
+            // tail is in — the honest convergence. Primary follows = Rates; the rest are
+            // AND-gate dependencies (written to deal_step_instance_dependencies).
+            ['key' => 'lodgement',     'name' => 'Deeds Office Lodgement',      'follows' => 'rates',     'deps' => ['fica_seller', 'elec_coc', 'beetle', 'transfer_duty'], 'offset' => 5,  'milestone' => true,  'completion' => 'date_input',     'pos' => 70],
             ['key' => 'registration',  'name' => 'Registration / Transfer',    'follows' => 'lodgement', 'offset' => 10, 'milestone' => true,  'completion' => 'date_input',     'status_trigger' => 'completed', 'pos' => 80],
         ];
     }
@@ -109,10 +114,13 @@ class Dr2ConditionCatalog
             }
         }
 
-        // Granted marker follows the LAST active suspensive step (default). If a deal has
-        // no suspensive condition, it follows OTP (grants on signing).
+        // Granted marker CONVERGES on EVERY active suspensive condition — the deal grants
+        // only when all are met. Primary follows = the last suspensive step; the rest are
+        // AND-gate dependencies. If a deal has no suspensive condition, it follows OTP
+        // (grants on signing).
         $grantFollows = end($suspensiveKeys) ?: 'otp';
-        $steps[] = ['key' => 'granted', 'name' => 'Granted', 'follows' => $grantFollows, 'offset' => 0, 'milestone' => true, 'grant_marker' => true, 'completion' => 'manual_tick', 'pos' => 30];
+        $grantDeps    = array_values(array_diff($suspensiveKeys, [$grantFollows]));
+        $steps[] = ['key' => 'granted', 'name' => 'Granted', 'follows' => $grantFollows, 'deps' => $grantDeps, 'offset' => 0, 'milestone' => true, 'grant_marker' => true, 'completion' => 'manual_tick', 'pos' => 30];
 
         // Resolve the __grant__ sentinel (base steps that start after grant → follow the marker).
         foreach ($steps as &$s) {

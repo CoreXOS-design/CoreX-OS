@@ -99,12 +99,39 @@ class DealStructureAssembler
                 $keyToId[$d['key']] = $inst->id;
             }
 
-            // 3. Resolve follows → trigger_step_instance_id.
+            // 3. Resolve follows → trigger_step_instance_id (the single primary predecessor).
             foreach ($defs as $d) {
                 if (! empty($d['follows']) && isset($keyToId[$d['follows']], $keyToId[$d['key']])) {
                     DealStepInstance::where('id', $keyToId[$d['key']])
                         ->update(['trigger_step_instance_id' => $keyToId[$d['follows']]]);
                 }
+            }
+
+            // 3b. Resolve additional AND-gate predecessors (deps) → fan-in rows in the
+            // EXISTING deal_step_instance_dependencies table. These make convergence honest
+            // (Deeds Office waits on ALL COCs; Granted waits on ALL suspensive conditions).
+            // Only deps that resolved to a real instance in THIS deal are written; a dep on
+            // an unselected condition's step is simply skipped.
+            $depRows = [];
+            foreach ($defs as $d) {
+                if (empty($d['deps']) || ! isset($keyToId[$d['key']])) {
+                    continue;
+                }
+                foreach ((array) $d['deps'] as $depKey) {
+                    if ($depKey === ($d['follows'] ?? null) || ! isset($keyToId[$depKey])) {
+                        continue; // never duplicate the primary follows; skip absent deps
+                    }
+                    $depRows[] = [
+                        'agency_id'                   => $agencyId,
+                        'deal_step_instance_id'       => $keyToId[$d['key']],
+                        'depends_on_step_instance_id' => $keyToId[$depKey],
+                        'created_at'                  => now(),
+                        'updated_at'                  => now(),
+                    ];
+                }
+            }
+            if (! empty($depRows)) {
+                DB::table('deal_step_instance_dependencies')->insert($depRows);
             }
 
             // Point the deal at "no template" — new-model deals are catalogue-driven.
