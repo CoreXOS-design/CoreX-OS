@@ -23,6 +23,9 @@
 @php($actualDone = $s->actual_date ?? $s->completed_at)
 @php($wide = in_array($variant, ['wide', 'gate'], true))
 <div class="dr2-tile {{ $wide ? 'dr2-tile--wide' : '' }} {{ $variant === 'gate' ? 'dr2-tile--gate' : '' }} {{ $isDone ? 'dr2-tile--done' : '' }} {{ $isNa ? 'dr2-tile--na' : '' }} {{ $awaiting ? 'dr2-tile--warn' : '' }}"
+     data-step-id="{{ $s->id }}" data-step-name="{{ $s->name }}" data-drop-follows="{{ $s->id }}"
+     data-offset="{{ (int) $s->days_offset }}"
+     data-follows-url="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}"
      x-data="{ na:false, due:false, seq:false, done:false, cm:false }">
 
     {{-- HEAD: RAG dot · name (+ tags) --}}

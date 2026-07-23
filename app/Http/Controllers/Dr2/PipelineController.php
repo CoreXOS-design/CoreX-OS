@@ -348,9 +348,19 @@ class PipelineController extends Controller
         }
 
         $data = $request->validate([
-            'follows' => ['nullable', 'integer'],
-            'offset'  => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'follows'       => ['nullable', 'integer'],
+            'offset'        => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'depends_on'    => ['sometimes', 'array'],
+            'depends_on.*'  => ['integer'],
         ]);
+
+        // Drag-to-relink posts a dependency SET (depends_on[]) — a full predecessor set,
+        // written to the AND-gate table. The Sequence MODAL posts only `follows` (single
+        // primary) and never carries depends_on, so its path below is unchanged and a
+        // convergence step's existing fan-in deps are preserved.
+        if ($request->has('depends_on')) {
+            return $this->relinkBySet($deal, $step, $data, $cascade, $reorder);
+        }
 
         // The predecessor must be another LIVE step of THIS deal (never self).
         $follows = $data['follows'] ?? null;
@@ -388,6 +398,98 @@ class PipelineController extends Controller
 
         return redirect()->route('deals-dr2.pipeline', $deal)
             ->with('info', "Sequence updated for \"{$step->name}\".");
+    }
+
+    /**
+     * AT-334 (concurrent-lanes rework) — relink a step to a full predecessor SET (drag-to-
+     * relink). Writes the AND-gate rows in the EXISTING deal_step_instance_dependencies table
+     * and sets the single primary "follows" pointer, then re-cascades + reorders. Only live
+     * steps of THIS deal are honoured; self and loops are rejected.
+     */
+    private function relinkBySet(
+        Deal $deal,
+        DealStepInstance $step,
+        array $data,
+        \App\Services\DealV2\DealDateCascade $cascade,
+        \App\Services\DealV2\DealStepReorderService $reorder
+    ): RedirectResponse {
+        $liveSet = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')
+            ->where('id', '!=', $step->id)->pluck('id')->map(fn ($i) => (int) $i)->flip()->all();
+
+        // The validated predecessor set (in-deal, live, never self).
+        $set = collect($data['depends_on'] ?? [])->map(fn ($i) => (int) $i)
+            ->filter(fn ($i) => isset($liveSet[$i]))->unique()->values()->all();
+
+        // Primary = the given follows if valid, else the first of the set (may be null → root).
+        $primary = (! empty($data['follows']) && isset($liveSet[(int) $data['follows']]))
+            ? (int) $data['follows']
+            : ($set[0] ?? null);
+        if ($primary !== null && ! in_array($primary, $set, true)) {
+            $set[] = $primary;
+        }
+
+        if ($this->wouldCycle($deal, (int) $step->id, $set)) {
+            return redirect()->route('deals-dr2.pipeline', $deal)
+                ->with('error', 'That relink would create a loop.');
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($step, $deal, $set, $primary, $data) {
+            $step->forceFill([
+                'trigger_step_instance_id' => $primary,
+                'days_offset'              => array_key_exists('offset', $data) && $data['offset'] !== null
+                    ? (int) $data['offset'] : (int) $step->days_offset,
+                'trigger_type'             => $primary ? 'after_step' : 'on_creation',
+            ])->save();
+
+            // Replace this step's fan-in set (pivot rows carry no user-recoverable record).
+            \Illuminate\Support\Facades\DB::table('deal_step_instance_dependencies')
+                ->where('deal_step_instance_id', $step->id)->delete();
+            $extra = array_values(array_filter($set, fn ($i) => $i !== $primary));
+            if (! empty($extra)) {
+                \Illuminate\Support\Facades\DB::table('deal_step_instance_dependencies')->insert(
+                    array_map(fn ($d) => [
+                        'agency_id'                   => $deal->agency_id,
+                        'deal_step_instance_id'       => $step->id,
+                        'depends_on_step_instance_id' => $d,
+                        'created_at'                  => now(),
+                        'updated_at'                  => now(),
+                    ], $extra),
+                );
+            }
+        });
+
+        $cascade->recompute($deal);
+        $reorder->reorderByFollows($deal);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with('info', "Re-linked \"{$step->name}\".");
+    }
+
+    /** True if making $stepId depend on every id in $preds would close a loop. */
+    private function wouldCycle(Deal $deal, int $stepId, array $preds): bool
+    {
+        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->get();
+        $map   = app(\App\Services\DealV2\DealDependencyResolver::class)->predecessorMap($steps);
+
+        // A cycle forms iff $stepId is already an ancestor of any proposed predecessor —
+        // i.e. $stepId is reachable by walking predecessors up from that predecessor.
+        $seen  = [];
+        $stack = array_values($preds);
+        while ($stack) {
+            $n = array_pop($stack);
+            if ($n === $stepId) {
+                return true;
+            }
+            if (isset($seen[$n])) {
+                continue;
+            }
+            $seen[$n] = true;
+            foreach ($map[$n] ?? [] as $p) {
+                $stack[] = $p;
+            }
+        }
+
+        return false;
     }
 
     /** R2 — restore a removed (soft-deleted) step to its original position. */

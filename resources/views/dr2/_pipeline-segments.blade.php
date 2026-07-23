@@ -14,8 +14,12 @@
             </div>
         @endif
     @else
+        @php($bandEntry = optional($seg['lanes'][0][0] ?? null)->trigger_step_instance_id)
         <div class="dr2-band" role="group" aria-label="Concurrent steps">
             <span class="dr2-band__tag">◇ concurrent</span>
+            @if($bandEntry && !($locked ?? false))
+                <div class="dr2-band__drop" data-drop-follows="{{ $bandEntry }}" title="Drop a step here to run it concurrently in this band">＋ drop to run concurrently</div>
+            @endif
             <div class="dr2-band__lanes">
                 @foreach($seg['lanes'] as $lane)
                     <div class="dr2-lane">

@@ -102,6 +102,11 @@
 .dr2-band__lanes { display:flex; gap:.5rem; overflow-x:auto; padding-bottom:.15rem; align-items:flex-start; }
 .dr2-lane { display:flex; flex-direction:column; align-items:stretch; gap:.15rem; flex:0 0 auto; }
 .dr2-lane__link { text-align:center; color:#cbd5e1; font-size:.7rem; line-height:.7; }
+.dr2-band__drop { font-size:.68rem; color:#94a3b8; border:1px dashed #d1d5db; border-radius:7px; padding:.25rem .5rem; margin-bottom:.4rem; text-align:center; }
+.dr2-band__drop.dr2-drop-ok { border-color:#2563eb; color:#2563eb; background:#eff6ff; }
+.dr2-tile.dr2-dragging { opacity:.5; }
+.dr2-tile__grip { cursor:grab; }
+.dr2-tile__grip:active { cursor:grabbing; }
 .dr2-seq { position:relative; padding-left:.55rem; margin:.4rem 0; }
 .dr2-seq__rail { position:absolute; left:0; top:.15rem; bottom:.15rem; width:4px; border-radius:3px; background:#2563eb; }
 .dr2-modal { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; padding:1rem; }
@@ -243,6 +248,7 @@
                      (full-width SEQUENCE POINTS + dashed CONCURRENT BANDS of vertical-chain
                      lanes). Every step is a UNIFORM tile with the fixed 3×2 button grid.
                      Segment structure comes from DealLaneComposer. --}}
+              <div id="dr2-lane-board">
                 @if($board['anchor'] && $rowById->has($board['anchor']->id))
                     @include('dr2._pipeline-step-tile', ['row' => $rowById[$board['anchor']->id], 'variant' => 'wide'])
                 @endif
@@ -260,6 +266,72 @@
                     <div class="dr2-stage-h">Stage 2 · Transfer &amp; Registration<span>runs once granted · sequence points span the width; concurrent work sits in lanes</span></div>
                     @include('dr2._pipeline-segments', ['segments' => $board['stage2'], 'rowById' => $rowById])
                 @endif
+              </div>
+              @unless($locked)
+              {{-- AT-334 Stage D — native HTML5 drag-to-relink. Drag a tile by its ⠿ grip onto
+                   another tile (→ follows that step) or onto a band's concurrent strip (→ runs
+                   concurrently there). Posts the predecessor SET to the follows endpoint, which
+                   re-cascades dates + reorders, then the page reloads. No library. --}}
+              <script>
+              (function () {
+                  var board = document.getElementById('dr2-lane-board');
+                  if (!board) return;
+                  var dragged = null; // the tile element being dragged
+
+                  board.addEventListener('mousedown', function (e) {
+                      var tile = e.target.closest('.dr2-tile');
+                      // Only the grip arms a tile for dragging (buttons/text stay selectable).
+                      board.querySelectorAll('.dr2-tile[draggable="true"]').forEach(function (t) { t.setAttribute('draggable', 'false'); });
+                      if (tile && e.target.closest('.dr2-tile__grip')) tile.setAttribute('draggable', 'true');
+                  });
+                  board.addEventListener('dragstart', function (e) {
+                      var tile = e.target.closest('.dr2-tile');
+                      if (!tile || tile.getAttribute('draggable') !== 'true') { e.preventDefault(); return; }
+                      dragged = tile;
+                      tile.classList.add('dr2-dragging');
+                      e.dataTransfer.effectAllowed = 'move';
+                      try { e.dataTransfer.setData('text/plain', tile.dataset.stepId); } catch (_) {}
+                  });
+                  board.addEventListener('dragover', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (!t || !dragged) return;
+                      if (t.dataset.dropFollows === dragged.dataset.stepId) return; // no self
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      t.classList.add('dr2-drop-ok');
+                  });
+                  board.addEventListener('dragleave', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (t) t.classList.remove('dr2-drop-ok');
+                  });
+                  board.addEventListener('drop', function (e) {
+                      var t = e.target.closest('[data-drop-follows]');
+                      if (!t || !dragged) return;
+                      e.preventDefault();
+                      t.classList.remove('dr2-drop-ok');
+                      var followsId = t.dataset.dropFollows;
+                      if (!followsId || followsId === dragged.dataset.stepId) return;
+                      var tokenEl = document.querySelector('input[name="_token"]');
+                      var f = document.createElement('form');
+                      f.method = 'POST';
+                      f.action = dragged.dataset.followsUrl;
+                      f.style.display = 'none';
+                      f.innerHTML =
+                          '<input type="hidden" name="_token" value="' + (tokenEl ? tokenEl.value : '') + '">' +
+                          '<input type="hidden" name="follows" value="' + followsId + '">' +
+                          '<input type="hidden" name="offset" value="' + (dragged.dataset.offset || 0) + '">' +
+                          '<input type="hidden" name="depends_on[]" value="' + followsId + '">';
+                      document.body.appendChild(f);
+                      f.submit();
+                  });
+                  board.addEventListener('dragend', function () {
+                      if (dragged) { dragged.classList.remove('dr2-dragging'); dragged.setAttribute('draggable', 'false'); }
+                      board.querySelectorAll('.dr2-drop-ok').forEach(function (t) { t.classList.remove('dr2-drop-ok'); });
+                      dragged = null;
+                  });
+              })();
+              </script>
+              @endunless
             @else
                 @foreach($steps as $row)
                     @include('dr2._pipeline-step-row', ['row' => $row])
