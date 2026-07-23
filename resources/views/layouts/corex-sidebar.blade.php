@@ -85,6 +85,11 @@
         $query = \Illuminate\Support\Facades\DB::table('users')
             ->where('is_active', 1)
             ->whereNull('deleted_at')
+            // Assistants are a separate identity, not an impersonation target
+            // (AT-267). An assistant has no permissions of their own — they act
+            // on behalf of the agent(s) who granted them, so "switching into" an
+            // assistant is meaningless. Exclude them from the picker entirely.
+            ->where('is_assistant', 0)
             ->when(!empty($ownerRoleNames), fn($q) => $q->whereNotIn('role', $ownerRoleNames));
 
         if ($agencyFilterId) {

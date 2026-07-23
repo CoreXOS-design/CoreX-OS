@@ -59,6 +59,12 @@ class RoleManagerController extends Controller
             // identities and bypass permission checks. They still exist in the
             // DB and continue to function; just not editable from this screen.
             ->where('is_owner', false)
+            // Hide the 'assistant' role (AT-267). An assistant is NOT a role —
+            // it's a separate identity (users.is_assistant) whose permissions
+            // come entirely from the per-assignment matrix, not from role grants
+            // (the assistant role is deliberately zero-grant). It must never show
+            // up as a selectable/editable role in this manager.
+            ->where('name', '!=', 'assistant')
             // Only this agency's own roles (templates stay invisible here).
             ->when(
                 $agencyId,
