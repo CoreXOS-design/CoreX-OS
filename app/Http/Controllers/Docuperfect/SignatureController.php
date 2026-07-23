@@ -2047,7 +2047,13 @@ class SignatureController extends Controller
     }
 
     /**
-     * Download signed document.
+     * Download signed document — CLEAN.
+     *
+     * The distributed signed document does NOT carry the electronic-signature
+     * certificate stapled to it. The certificate exists in the system and is
+     * downloaded SEPARATELY, on request, via downloadCertificate(). This surface
+     * therefore serves the CLIENT copy (no audit pages); it falls back to the
+     * internal copy only for legacy rows that never generated a client copy.
      */
     public function download(Request $request, Document $document)
     {
@@ -2057,22 +2063,50 @@ class SignatureController extends Controller
             ->where('status', SignatureTemplate::STATUS_COMPLETED)
             ->firstOrFail();
 
-        if (!$template->signed_pdf_path) {
-            return redirect()->back()->with('error', 'Signed PDF has not been generated yet.');
-        }
-
         // Resolve via the 'local' disk (where signed PDFs are written) —
         // raw storage_path('app/..') is one dir outside the disk root.
         $disk = \Illuminate\Support\Facades\Storage::disk('local');
-        $pdfPath = $disk->path($template->signed_pdf_path);
 
-        if (!$disk->exists($template->signed_pdf_path)) {
+        $path = $template->signed_pdf_client_path;
+        if (!$path || !$disk->exists($path)) {
+            $path = $template->signed_pdf_path; // legacy fallback (may include the certificate)
+        }
+
+        if (!$path) {
+            return redirect()->back()->with('error', 'Signed PDF has not been generated yet.');
+        }
+        if (!$disk->exists($path)) {
             return redirect()->back()->with('error', 'Signed PDF file not found.');
         }
 
         $filename = "Signed - {$document->name}.pdf";
 
-        return response()->download($pdfPath, $filename);
+        return response()->download($disk->path($path), $filename);
+    }
+
+    /**
+     * Download the electronic-signature CERTIFICATE on request — a standalone PDF of the
+     * audit certificate (parties, signing method, timestamps, IP, document SHA-256 hash),
+     * SEPARATE from the clean signed document. Rendered on demand from the live audit
+     * data so it always reflects the current record; the certificate is never stapled
+     * onto the distributed/emailed/downloaded copy.
+     */
+    public function downloadCertificate(Request $request, Document $document)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)
+            ->where('status', SignatureTemplate::STATUS_COMPLETED)
+            ->firstOrFail();
+
+        $path = app(SignaturePdfService::class)->generateCertificatePdf($template);
+        if (!$path || !file_exists($path)) {
+            return redirect()->back()->with('error', 'Certificate could not be generated.');
+        }
+
+        $filename = "Certificate - {$document->name}.pdf";
+
+        return response()->download($path, $filename)->deleteFileAfterSend(true);
     }
 
     // ──────────────────────────────────────────────

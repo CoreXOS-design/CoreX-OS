@@ -54,6 +54,9 @@ class WebTemplateDataService
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
+        // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
+        // from the linked Contact, so the merge binds each party's REAL details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
 
         // Build contact lookup by wizard role (first + second per role for co-owners)
         $contactsByRole = [];
@@ -426,6 +429,9 @@ class WebTemplateDataService
         $agent = $agent ?? auth()->user();
         $property = $stepData['property'] ?? [];
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
+        // from the linked Contact, so the merge binds the seller's REAL details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
         $details = $stepData['details'] ?? [];
 
         // Build contact lookup by role (first contact per role)
@@ -808,6 +814,86 @@ class WebTemplateDataService
         return (bool) preg_match('/\b(in\s*words|words|amount\s*in\s*words|alpha)\b/i', $label);
     }
 
+    /**
+     * Enrich each party recipient from its linked Contact record so a merge never
+     * shows a blank Physical address / Tel / Email when the detail IS on file.
+     *
+     * ROOT CAUSE (docs 455/456): party details resolve ONLY from the wizard recipient
+     * SNAPSHOT (stepData.recipients) — the merge never re-reads the Contact. Doc 456's
+     * seller recipient was captured with phone+email but an empty `address`, so
+     * seller_address merged blank even though Contact #13926 has "651 Boboni road…";
+     * the signing view then showed the grey `data-field` placeholder ("seller address").
+     *
+     * This fills ONLY the fields the snapshot left empty (address / phone / email /
+     * id_number), from the linked Contact resolved by `_contact_id` first, then by the
+     * recipient's email (agency-scoped). It NEVER overwrites a value the wizard already
+     * captured, and it leaves the agent recipient alone (agent details come from $agent).
+     * A field with no Contact value stays empty (the placeholder is then honest).
+     */
+    private function enrichRecipientsFromContacts(array $recipients, ?int $agencyId): array
+    {
+        foreach ($recipients as &$r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $role = strtolower((string) ($r['role'] ?? ''));
+            if ($role === '' || $role === 'agent') {
+                continue; // agent details come from $agent, not a Contact
+            }
+
+            $needAddress = trim((string) ($r['address'] ?? '')) === '';
+            $needPhone   = trim((string) ($r['cell'] ?? $r['phone'] ?? '')) === '';
+            $needEmail   = trim((string) ($r['email'] ?? '')) === '';
+            $needId      = trim((string) ($r['id_number'] ?? '')) === '';
+            if (!$needAddress && !$needPhone && !$needEmail && !$needId) {
+                continue; // snapshot already complete for the fields we bind
+            }
+
+            $contact = null;
+            $cid = $r['_contact_id'] ?? $r['contact_id'] ?? null;
+            if ($cid) {
+                $contact = \App\Models\Contact::find($cid); // BelongsToAgency global scope keeps this in-agency
+            }
+            if (!$contact) {
+                $email = trim((string) ($r['email'] ?? ''));
+                if ($email !== '') {
+                    try {
+                        $contact = app(\App\Services\Communications\ContactIdentifierResolver::class)
+                            ->resolve($email, (int) ($agencyId ?? 0));
+                    } catch (\Throwable $e) {
+                        $contact = null;
+                    }
+                    if (!$contact) {
+                        $q = \App\Models\Contact::where('email', $email);
+                        if ($agencyId) {
+                            $q->where('agency_id', $agencyId);
+                        }
+                        $contact = $q->first();
+                    }
+                }
+            }
+            if (!$contact) {
+                continue;
+            }
+
+            if ($needAddress && trim((string) $contact->address) !== '') {
+                $r['address'] = $contact->address;
+            }
+            if ($needPhone && trim((string) $contact->phone) !== '') {
+                $r['cell'] = $contact->phone; // resolveContactFromKey reads cell ?? phone
+            }
+            if ($needEmail && trim((string) $contact->email) !== '') {
+                $r['email'] = $contact->email;
+            }
+            if ($needId && trim((string) ($contact->id_number ?? '')) !== '') {
+                $r['id_number'] = $contact->id_number;
+            }
+        }
+        unset($r);
+
+        return $recipients;
+    }
+
     private function resolveContactFromKey(string $attr, array $contact)
     {
         return match ($attr) {
@@ -1061,6 +1147,9 @@ class WebTemplateDataService
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
+        // Same enrichment as the CDS/base resolve paths, so the indexed party keys
+        // (seller_address_1, seller_1_phone, …) also bind the linked Contact's details.
+        $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
 
         $contactsByRole = [];
         $secondContactByRole = [];

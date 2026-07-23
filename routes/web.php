@@ -3695,6 +3695,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // Audit & download
     Route::get('/documents/{document}/signatures/audit', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'audit'])->name('docuperfect.signatures.audit');
     Route::get('/documents/{document}/signatures/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'download'])->name('docuperfect.signatures.download');
+    // On-request electronic-signature certificate — a standalone PDF, kept OUT of the
+    // distributed signed document (the signed doc stays clean; the certificate is here).
+    Route::get('/documents/{document}/signatures/certificate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'downloadCertificate'])->name('docuperfect.signatures.certificate');
 
     // Wet ink inspection
     Route::get('/documents/{document}/signatures/inspect/{signingRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'wetInkReview'])->name('docuperfect.signatures.wetInkReview');

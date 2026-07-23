@@ -18,7 +18,7 @@
             </div>
         </div>
         <div class="flex items-center gap-3">
-            @if($template->signed_pdf_path)
+            @if($template->signed_pdf_client_path || $template->signed_pdf_path)
                 <a href="{{ route('docuperfect.signatures.download', $document) }}"
                    class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-xl text-sm transition">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -26,6 +26,16 @@
                               d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                     </svg>
                     Download Signed PDF
+                </a>
+                {{-- The e-signature certificate is a SEPARATE, on-request download — it is
+                     deliberately NOT stapled onto the signed document above. --}}
+                <a href="{{ route('docuperfect.signatures.certificate', $document) }}"
+                   class="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-300 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                    Download Certificate
                 </a>
             @endif
             <a href="{{ route('docuperfect.rental') }}"
