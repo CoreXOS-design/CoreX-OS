@@ -19,7 +19,7 @@
             </div>
             @endif
 
-            <div class="bg-white border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+            <div class="border" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <div class="px-6 py-5 text-center" style="background:var(--text-primary); color:#fff;">
                     <div class="text-xs font-semibold uppercase" style="color:var(--brand-icon); letter-spacing:2px;">{{ $ack->policy->name }} — Acknowledgement Receipt</div>
                     <div class="text-xs mt-2" style="color:#94a3b8;">Ref: ACK-{{ str_pad($ack->id, 6, '0', STR_PAD_LEFT) }}</div>

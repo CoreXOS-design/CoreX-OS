@@ -11,9 +11,9 @@
                 </svg>
             </div>
 
-            <h2 class="text-2xl font-bold text-gray-900 mb-2">Document Signed!</h2>
+            <h2 class="text-2xl font-bold mb-2" style="color:var(--text-primary)">Document Signed!</h2>
 
-            <p class="text-gray-600 mb-6">
+            <p class="mb-6" style="color:var(--text-secondary)">
                 You have successfully signed
                 <span class="font-semibold">{{ $template->name ?? 'the document' }}</span>.
             </p>
@@ -34,7 +34,7 @@
             @if($document)
                 <div class="flex items-center justify-center gap-3">
                     <a href="{{ route('docuperfect.signatures.audit', ['document' => $document->id]) }}"
-                       class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition">
+                       class="px-4 py-2 text-sm font-medium rounded-lg transition hover:opacity-80" style="color:var(--text-secondary); background:var(--surface-2)">
                         View Audit Trail
                     </a>
                     <a href="{{ route('docuperfect.esign.create') }}"
@@ -81,9 +81,9 @@
                                         /sign/{{ \Illuminate\Support\Str::limit($sr->token, 12) }}...
                                     </a>
                                 @elseif($sr->status === 'completed')
-                                    <span class="text-gray-400 text-xs ml-auto">Signed {{ $sr->completed_at?->diffForHumans() }}</span>
+                                    <span class="text-xs ml-auto" style="color:var(--text-faint)">Signed {{ $sr->completed_at?->diffForHumans() }}</span>
                                 @elseif($sr->status === 'waiting')
-                                    <span class="text-gray-400 text-xs ml-auto">Waiting for previous party</span>
+                                    <span class="text-xs ml-auto" style="color:var(--text-faint)">Waiting for previous party</span>
                                 @endif
                             </div>
                         @endforeach
