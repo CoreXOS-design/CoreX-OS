@@ -346,7 +346,6 @@ function _dePaginate(container) {
  */
 function _paginateWrapper(wrapper, docIdx, parties) {
     var doc = wrapper.ownerDocument;
-    var win = doc.defaultView || window;
 
     var contentEl = wrapper;
     var innerPage = wrapper.querySelector(':scope > .corex-page');
