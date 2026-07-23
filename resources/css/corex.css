@@ -2928,3 +2928,262 @@ html.dark .pres-badge-warn    { background: rgba(245,158,11,0.12); color: #fbbf2
    with a CSS :hover rule. */
 tr.analysis-hover-row { transition: background 300ms ease; }
 tr.analysis-hover-row:hover { background: var(--surface-2); }
+
+/* ============================================================================
+   AT-336 — Premium UI restyle (Properties page + Sidebar) — TEST / PREVIEW
+   Everything below is additive and appended LAST so it wins on source order.
+   Scoped to `.corex-props-v2` (Properties page) + the sidebar so the rest of
+   the app is untouched. Remove this whole block to revert cleanly.
+   ============================================================================ */
+
+/* --- 1. Properties page: spec slate palette, scoped via wrapper class ------ */
+/* Light theme (default) — spec §2 LIGHT.
+   `.corex-ui-v2` is the app-shell alias (set on <body> in both authenticated
+   layouts) so the ENTIRE app inherits this palette; `.corex-props-v2` stays as
+   the page-level alias the Properties views already carry. Same values either way. */
+.corex-props-v2,
+.corex-ui-v2 {
+    --bg:             #f8fafc;   /* app / slate-50      */
+    --surface:        #eef2f6;   /* card surface — greyer than pure white */
+    --surface-2:      #ffffff;   /* inner (lighter than card so wells pop) */
+    --border:         #cbd5e1;   /* slate-300 — bumped from slate-200 for visibility */
+    --border-hover:   #94a3b8;   /* slate-400 — hover lifts a clear step further */
+    --text-primary:   #0f172a;   /* slate-900           */
+    --text-secondary: #334155;   /* slate-700 (body)    */
+    --text-muted:     #64748b;   /* slate-500           */
+    --text-faint:     #94a3b8;   /* slate-400           */
+    --pv2-emerald:    #059669;   /* emerald-600 (light) */
+    --pv2-shadow:     0 1px 2px rgba(15, 23, 42, 0.06);
+}
+/* Dark theme — spec §2 DARK (both the page alias and the app-shell alias) */
+html.dark .corex-props-v2,
+html.dark .corex-ui-v2 {
+    --bg:             #020617;   /* slate-950 — page bg              */
+    --surface:        #0F172A;   /* slate-900 — card/panel (LIFTS off bg) */
+    --surface-2:      #020617;   /* slate-950 — inner tiles / idle tubs */
+    --border:         #1E293B;   /* slate-800 — subtle but visible   */
+    --border-hover:   #334155;   /* slate-700                        */
+    --text-primary:   #FFFFFF;
+    --text-secondary: #E2E8F0;   /* slate-200 (body)                 */
+    --text-muted:     #94A3B8;   /* slate-400                        */
+    --text-faint:     #64748B;   /* slate-500                        */
+    --pv2-emerald:    #34D399;   /* emerald-400 (dark)               */
+    --pv2-shadow:     0 4px 12px rgba(0, 0, 0, 0.30);
+}
+
+/* --- 2. Property card (spec §9) -------------------------------------------- */
+.pcard-v2 {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;                 /* 8px */
+    box-shadow: var(--pv2-shadow);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.pcard-v2:hover {
+    border-color: color-mix(in srgb, var(--brand-icon, #6366f1) 50%, transparent);
+    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent);
+}
+
+/* Glassmorphism status overlay (spec §2 image glass overlay) */
+.pglass-v2 {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+    color: #f1f5f9;                        /* slate-100 */
+}
+
+/* Ref chip (spec §9 — 4px radius, 1px border, NO fill) */
+.pchip-v2 {
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    line-height: 1;
+}
+
+/* --- 3. Stat tile (spec §7) ------------------------------------------------ */
+.pstat-v2 {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;                 /* 8px */
+    box-shadow: var(--pv2-shadow);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.pstat-v2:hover { border-color: var(--border-hover); }
+/* Icon tub (neutral) */
+.pstat-v2__tub {
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+}
+/* Icon tub (live / emerald) */
+.pstat-v2__tub--live {
+    border-color: color-mix(in srgb, var(--pv2-emerald) 40%, transparent);
+    background: color-mix(in srgb, var(--pv2-emerald) 10%, transparent);
+    color: var(--pv2-emerald);
+}
+
+/* --- 4. Sidebar upgrade (spec §5) — global (it IS the sidebar) ------------- */
+/* Brand tub around the wordmark, drawn with CSS only (no HTML change).
+   Outer layer = tint tub; inner square = solid brand block. */
+.corex-sidebar-logo > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+}
+.corex-sidebar-logo > span:first-child::before {
+    content: "";
+    width: 32px;
+    height: 32px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    /* Built from --brand-icon (the bright accent), not --brand-default: the
+       agency's brand-default is a deep navy that disappears on the #020617
+       sidebar. The 14px inner block + soft tub read clearly in both themes. */
+    background:
+        linear-gradient(var(--brand-icon, #6366f1), var(--brand-icon, #6366f1)) center / 14px 14px no-repeat,
+        color-mix(in srgb, var(--brand-icon, #6366f1) 18%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent);
+}
+
+/* Active nav row: brand 10% bg + ring 25% + left accent bar + brand icon */
+.corex-nav-item.active {
+    position: relative;
+    background: color-mix(in srgb, var(--corex-sidebar-hover, #6366f1) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--corex-sidebar-hover, #6366f1) 25%, transparent);
+    color: var(--text-primary);
+    border-left: 0;
+    padding-left: 0.75rem;
+    font-weight: 600;
+}
+.corex-nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    border-radius: 0 3px 3px 0;
+    background: var(--corex-sidebar-hover, #6366f1);
+}
+.corex-nav-item.active svg { color: var(--brand-icon, #6366f1); opacity: 1; }
+
+/* Active sub-item (inside a drill-down panel): same brand-sidebar treatment */
+.corex-nav-panel .corex-nav-subitem.active {
+    position: relative;
+    background: color-mix(in srgb, var(--corex-sidebar-hover, #6366f1) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--corex-sidebar-hover, #6366f1) 25%, transparent);
+    color: var(--text-primary);
+    border-left: 0;
+}
+.corex-nav-panel .corex-nav-subitem.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    border-radius: 0 3px 3px 0;
+    background: var(--corex-sidebar-hover, #6366f1);
+}
+/* --- 5. Dark-theme canvas + sidebar tone (AT-336 fidelity pass) ------------ */
+/* Reference two-tone: the page canvas AND the sidebar share the deep slate-950
+   base (#020617); cards sit one step up at slate-900 (#0F172A, from the scoped
+   palette above) with a slate-800 (#1E293B) border. No brand/teal tint on any
+   of these neutrals.
+   • Canvas is scoped via :has() so ONLY the Properties page changes — every other
+     content page keeps the global dark theme untouched.
+   • The sidebar is a shared component (explicitly in scope) so it goes deep on
+     every page; its border + drill-down panels match the same base tone. */
+html.dark main#appScroll:has(.corex-props-v2) {
+    background: #020617 !important;   /* slate-950 — canvas the cards lift off */
+}
+html.dark .corex-sidebar {
+    background: #020617;              /* slate-950 — same tone as the page base */
+    border-right-color: #1E293B;     /* slate-800 */
+}
+html.dark .corex-nav-panel {
+    background: #020617;             /* drill-down panels match the sidebar tone */
+}
+
+/* --- 6. Fancy sidebar scrollbar (AT-336) ---------------------------------- */
+/* The raw browser scrollbar (chunky light Windows bar) broke the dark theme.
+   Replace it with a slim, floating, brand-tinted thumb on a transparent track,
+   scoped to the sidebar scroll areas only. Firefox uses scrollbar-color; the
+   webkit rules build the "floating pill" look (transparent border + padding-box
+   clip = inset padding so the thumb never touches the edges). Theme-agnostic:
+   the transparent track blends into whatever the sidebar bg is. */
+.corex-sidebar,
+.corex-nav-root,
+.corex-nav-panel,
+.corex-nav-search-results {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent) transparent;
+}
+.corex-sidebar::-webkit-scrollbar,
+.corex-nav-root::-webkit-scrollbar,
+.corex-nav-panel::-webkit-scrollbar,
+.corex-nav-search-results::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+.corex-sidebar::-webkit-scrollbar-track,
+.corex-nav-root::-webkit-scrollbar-track,
+.corex-nav-panel::-webkit-scrollbar-track,
+.corex-nav-search-results::-webkit-scrollbar-track {
+    background: transparent;
+}
+.corex-sidebar::-webkit-scrollbar-thumb,
+.corex-nav-root::-webkit-scrollbar-thumb,
+.corex-nav-panel::-webkit-scrollbar-thumb,
+.corex-nav-search-results::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    border: 2px solid transparent;      /* inset padding → slim floating pill */
+    background-clip: padding-box;
+    background-color: color-mix(in srgb, var(--brand-icon, #6366f1) 35%, transparent);
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--brand-icon, #6366f1) 50%, transparent),
+        color-mix(in srgb, var(--brand-sidebar, #6366f1) 35%, transparent)
+    );
+    transition: background-color 150ms ease;
+}
+.corex-sidebar::-webkit-scrollbar-thumb:hover,
+.corex-nav-root::-webkit-scrollbar-thumb:hover,
+.corex-nav-panel::-webkit-scrollbar-thumb:hover,
+.corex-nav-search-results::-webkit-scrollbar-thumb:hover {
+    background-image: linear-gradient(
+        180deg,
+        var(--brand-icon, #6366f1),
+        var(--brand-sidebar, #6366f1)
+    );
+}
+.corex-sidebar::-webkit-scrollbar-corner,
+.corex-nav-root::-webkit-scrollbar-corner,
+.corex-nav-panel::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* --- 7. Sidebar control retone (AT-336) ----------------------------------- */
+/* The search field, Switch-Branch / Acting-as switchers and the theme picker were
+   filled with --surface-2 (#1a1e28 dark / #f0f2f8 light) — a stark mid-grey box
+   that stood proud of the sidebar in both themes. Retone to a faint, theme-blending
+   inset via a shared token so they read as controls, not grey slabs. Focus/hover
+   states (defined earlier with higher specificity) still win. */
+.corex-sidebar {
+    --side-control-bg:     rgba(15, 23, 42, 0.03);   /* light: faint on white  */
+    --side-control-border: rgba(15, 23, 42, 0.10);
+}
+html.dark .corex-sidebar {
+    --side-control-bg:     rgba(255, 255, 255, 0.03); /* dark: faint on #020617 */
+    --side-control-border: #1E293B;
+}
+.corex-nav-search-field,
+.corex-theme-toggle {
+    background: var(--side-control-bg);
+    border-color: var(--side-control-border);
+}
+
+/* End AT-336 restyle block */

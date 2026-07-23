@@ -74,7 +74,7 @@
              via @push('head'); pages that don't push produce nothing here. --}}
         @stack('head')
     </head>
-    <body class="font-sans antialiased">
+    <body class="font-sans antialiased corex-ui-v2">
         {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
              NOTHING unless this is a demo instance with a resolved grant.
              MUST also be in layouts/corex.blade.php (the other ~231 views).

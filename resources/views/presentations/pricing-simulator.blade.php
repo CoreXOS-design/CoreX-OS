@@ -87,19 +87,19 @@
     <div class="flex items-center flex-wrap gap-3 text-sm">
         <span class="font-bold text-lg">{{ $stock['total_active_stock'] }}</span>
         <span>competing listings</span>
-        <span class="text-gray-400">|</span>
+        <span class="text-[var(--text-faint)]">|</span>
         <span><strong>{{ $stock['annual_sales'] }}</strong> sales/year ({{ number_format($stock['monthly_sales'], 1) }}/month)</span>
-        <span class="text-gray-400">|</span>
+        <span class="text-[var(--text-faint)]">|</span>
         <span><strong>{{ number_format($stock['months_of_supply'], 1) }}</strong> months of supply</span>
-        <span class="text-gray-400">|</span>
+        <span class="text-[var(--text-faint)]">|</span>
         <span class="font-semibold">{{ $stock['absorption_label'] }}</span>
     </div>
     @if(!empty($pricePos['has_data']))
     <div class="flex items-center gap-3 text-sm mt-2 pt-2 border-t border-current border-opacity-20">
         <span>Price rank: <strong>#{{ $pricePos['price_rank'] }}</strong> of {{ $pricePos['total_listings'] }}</span>
-        <span class="text-gray-400">|</span>
+        <span class="text-[var(--text-faint)]">|</span>
         <span>{{ $pricePos['listings_more_expensive'] }} priced higher, {{ $pricePos['listings_cheaper'] }} lower</span>
-        <span class="text-gray-400">|</span>
+        <span class="text-[var(--text-faint)]">|</span>
         <span class="font-semibold">{{ $pricePos['position_label'] }}</span>
     </div>
     @endif
@@ -126,7 +126,7 @@
     <div class="overflow-x-auto">
         <table class="ds-table w-full text-sm" id="scenarios-table">
             <thead>
-                <tr class="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
+                <tr class="text-xs text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                     <th class="text-left py-2 px-2">Scenario</th>
                     <th class="text-right py-2 px-2">Price</th>
                     <th class="text-right py-2 px-2">Competing</th>
@@ -142,20 +142,20 @@
             </thead>
             <tbody id="scenarios-body">
                 @foreach($scenarios as $i => $s)
-                <tr class="scenario-row border-b border-gray-100 hover:bg-gray-50" data-index="{{ $i }}">
+                <tr class="scenario-row border-b border-[var(--border)] hover:bg-[var(--surface-2)]" data-index="{{ $i }}">
                     <td class="py-2 px-2">
-                        <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-gray-800 w-full focus:outline-none focus:bg-sky-50 rounded px-1"
+                        <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-[var(--text-primary)] w-full focus:outline-none focus:bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)] rounded px-1"
                                value="{{ $s['label'] }}">
                     </td>
                     <td class="py-2 px-2 text-right">
-                        <input type="number" class="sc-price border border-gray-200 rounded px-2 py-1 text-sm text-right w-28 focus:ring-[#00b4d8] focus:border-[#00b4d8]"
+                        <input type="number" class="sc-price border border-[var(--border)] rounded px-2 py-1 text-sm text-right w-28 focus:ring-[var(--brand-icon)] focus:border-[var(--brand-icon)]"
                                value="{{ $s['price'] }}" min="1" step="10000">
                     </td>
-                    <td class="py-2 px-2 text-right sc-competing text-gray-700">{{ $s['competing_count'] ?? '—' }}</td>
-                    <td class="py-2 px-2 text-right sc-months text-gray-700">{{ $s['est_months'] ?? '—' }}</td>
-                    <td class="py-2 px-2 text-right sc-holding text-gray-700">{{ isset($s['holding_cost_total']) ? 'R ' . number_format($s['holding_cost_total'], 0, '.', ' ') : '—' }}</td>
-                    <td class="py-2 px-2 text-right sc-commission text-gray-700">{{ isset($s['commission']) ? 'R ' . number_format($s['commission'], 0, '.', ' ') : '—' }}</td>
-                    <td class="py-2 px-2 text-right sc-transfer text-gray-700">{{ isset($s['transfer_cost']) ? 'R ' . number_format($s['transfer_cost'], 0, '.', ' ') : '—' }}</td>
+                    <td class="py-2 px-2 text-right sc-competing text-[var(--text-secondary)]">{{ $s['competing_count'] ?? '—' }}</td>
+                    <td class="py-2 px-2 text-right sc-months text-[var(--text-secondary)]">{{ $s['est_months'] ?? '—' }}</td>
+                    <td class="py-2 px-2 text-right sc-holding text-[var(--text-secondary)]">{{ isset($s['holding_cost_total']) ? 'R ' . number_format($s['holding_cost_total'], 0, '.', ' ') : '—' }}</td>
+                    <td class="py-2 px-2 text-right sc-commission text-[var(--text-secondary)]">{{ isset($s['commission']) ? 'R ' . number_format($s['commission'], 0, '.', ' ') : '—' }}</td>
+                    <td class="py-2 px-2 text-right sc-transfer text-[var(--text-secondary)]">{{ isset($s['transfer_cost']) ? 'R ' . number_format($s['transfer_cost'], 0, '.', ' ') : '—' }}</td>
                     <td class="py-2 px-2 text-right sc-net font-bold {{ ($s['net_proceeds'] ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-600' }}">
                         {{ isset($s['net_proceeds']) ? 'R ' . number_format($s['net_proceeds'], 0, '.', ' ') : '—' }}
                     </td>
@@ -181,7 +181,7 @@
                         </span>
                     </td>
                     <td class="py-2 px-1">
-                        <button class="btn-remove-row text-gray-400 hover:text-red-500 text-xs" title="Remove">&times;</button>
+                        <button class="btn-remove-row text-[var(--text-faint)] hover:text-red-500 text-xs" title="Remove">&times;</button>
                     </td>
                 </tr>
                 @endforeach
@@ -302,13 +302,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderChart(scenarios) {
         const chart = document.getElementById('bar-chart');
         if (!scenarios || !scenarios.length) {
-            chart.innerHTML = '<p class="text-sm text-gray-400">No scenarios computed yet.</p>';
+            chart.innerHTML = '<p class="text-sm text-[var(--text-faint)]">No scenarios computed yet.</p>';
             return;
         }
 
         const maxNet = Math.max(...scenarios.map(s => Math.max(s.net_proceeds || 0, 0)));
         if (maxNet <= 0) {
-            chart.innerHTML = '<p class="text-sm text-gray-400">All scenarios show negative net proceeds.</p>';
+            chart.innerHTML = '<p class="text-sm text-[var(--text-faint)]">All scenarios show negative net proceeds.</p>';
             return;
         }
 
@@ -317,8 +317,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const widthPct = maxNet > 0 ? Math.max(Math.round((Math.max(s.net_proceeds, 0) / maxNet) * 100), 2) : 2;
             const color = probBarColor(s.probability);
             html += `<div class="flex items-center gap-2">
-                <div class="w-28 text-xs text-gray-600 text-right truncate flex-shrink-0">${s.label}</div>
-                <div class="flex-1 bg-gray-100 rounded-full h-7 relative overflow-hidden">
+                <div class="w-28 text-xs text-[var(--text-secondary)] text-right truncate flex-shrink-0">${s.label}</div>
+                <div class="flex-1 bg-[var(--surface-2)] rounded-full h-7 relative overflow-hidden">
                     <div class="h-full rounded-full flex items-center px-2 transition-all duration-300"
                          style="width:${widthPct}%;background:${color};">
                         <span class="text-xs text-white font-medium whitespace-nowrap">${zar(s.net_proceeds)}</span>
@@ -341,24 +341,24 @@ document.addEventListener('DOMContentLoaded', function() {
             const pClass = probClass(s.probability);
 
             const tr = document.createElement('tr');
-            tr.className = 'scenario-row border-b border-gray-100 hover:bg-gray-50';
+            tr.className = 'scenario-row border-b border-[var(--border)] hover:bg-[var(--surface-2)]';
             tr.dataset.index = i;
             tr.innerHTML = `
                 <td class="py-2 px-2">
-                    <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-gray-800 w-full focus:outline-none focus:bg-sky-50 rounded px-1" value="${s.label}">
+                    <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-[var(--text-primary)] w-full focus:outline-none focus:bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)] rounded px-1" value="${s.label}">
                 </td>
                 <td class="py-2 px-2 text-right">
-                    <input type="number" class="sc-price border border-gray-200 rounded px-2 py-1 text-sm text-right w-28 focus:ring-[#00b4d8] focus:border-[#00b4d8]" value="${s.price}" min="1" step="10000">
+                    <input type="number" class="sc-price border border-[var(--border)] rounded px-2 py-1 text-sm text-right w-28 focus:ring-[var(--brand-icon)] focus:border-[var(--brand-icon)]" value="${s.price}" min="1" step="10000">
                 </td>
-                <td class="py-2 px-2 text-right sc-competing text-gray-700">${s.competing_count ?? '—'}</td>
-                <td class="py-2 px-2 text-right sc-months text-gray-700">${s.est_months ?? '—'}</td>
-                <td class="py-2 px-2 text-right sc-holding text-gray-700">${s.holding_cost_total != null ? zar(s.holding_cost_total) : '—'}</td>
-                <td class="py-2 px-2 text-right sc-commission text-gray-700">${s.commission != null ? zar(s.commission) : '—'}</td>
-                <td class="py-2 px-2 text-right sc-transfer text-gray-700">${s.transfer_cost != null ? zar(s.transfer_cost) : '—'}</td>
+                <td class="py-2 px-2 text-right sc-competing text-[var(--text-secondary)]">${s.competing_count ?? '—'}</td>
+                <td class="py-2 px-2 text-right sc-months text-[var(--text-secondary)]">${s.est_months ?? '—'}</td>
+                <td class="py-2 px-2 text-right sc-holding text-[var(--text-secondary)]">${s.holding_cost_total != null ? zar(s.holding_cost_total) : '—'}</td>
+                <td class="py-2 px-2 text-right sc-commission text-[var(--text-secondary)]">${s.commission != null ? zar(s.commission) : '—'}</td>
+                <td class="py-2 px-2 text-right sc-transfer text-[var(--text-secondary)]">${s.transfer_cost != null ? zar(s.transfer_cost) : '—'}</td>
                 <td class="py-2 px-2 text-right sc-net font-bold ${netClass}">${s.net_proceeds != null ? zar(s.net_proceeds) : '—'}</td>
                 <td class="py-2 px-2 text-right sc-vs-asking ${vsClass}">${s.vs_asking_net != null ? vsPrefix + zar(s.vs_asking_net) : '—'}</td>
                 <td class="py-2 px-2 text-center"><span class="sc-prob inline-block text-xs px-2 py-0.5 rounded-full font-medium ${pClass}">${s.probability || '—'}</span></td>
-                <td class="py-2 px-1"><button class="btn-remove-row text-gray-400 hover:text-red-500 text-xs" title="Remove">&times;</button></td>
+                <td class="py-2 px-1"><button class="btn-remove-row text-[var(--text-faint)] hover:text-red-500 text-xs" title="Remove">&times;</button></td>
             `;
             tbody.appendChild(tr);
         });
@@ -455,24 +455,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const idx = rows.length;
         const tr = document.createElement('tr');
-        tr.className = 'scenario-row border-b border-gray-100 hover:bg-gray-50';
+        tr.className = 'scenario-row border-b border-[var(--border)] hover:bg-[var(--surface-2)]';
         tr.dataset.index = idx;
         tr.innerHTML = `
             <td class="py-2 px-2">
-                <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-gray-800 w-full focus:outline-none focus:bg-sky-50 rounded px-1" value="Custom ${idx + 1}" placeholder="Label">
+                <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-[var(--text-primary)] w-full focus:outline-none focus:bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)] rounded px-1" value="Custom ${idx + 1}" placeholder="Label">
             </td>
             <td class="py-2 px-2 text-right">
-                <input type="number" class="sc-price border border-gray-200 rounded px-2 py-1 text-sm text-right w-28 focus:ring-[#00b4d8] focus:border-[#00b4d8]" value="" min="1" step="10000" placeholder="Price">
+                <input type="number" class="sc-price border border-[var(--border)] rounded px-2 py-1 text-sm text-right w-28 focus:ring-[var(--brand-icon)] focus:border-[var(--brand-icon)]" value="" min="1" step="10000" placeholder="Price">
             </td>
-            <td class="py-2 px-2 text-right sc-competing text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-months text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-holding text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-commission text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-transfer text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-net font-bold text-gray-700">—</td>
-            <td class="py-2 px-2 text-right sc-vs-asking text-gray-700">—</td>
-            <td class="py-2 px-2 text-center"><span class="sc-prob inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">—</span></td>
-            <td class="py-2 px-1"><button class="btn-remove-row text-gray-400 hover:text-red-500 text-xs" title="Remove">&times;</button></td>
+            <td class="py-2 px-2 text-right sc-competing text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-months text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-holding text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-commission text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-transfer text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-net font-bold text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-right sc-vs-asking text-[var(--text-secondary)]">—</td>
+            <td class="py-2 px-2 text-center"><span class="sc-prob inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-[var(--surface-2)] text-[var(--text-muted)]">—</span></td>
+            <td class="py-2 px-1"><button class="btn-remove-row text-[var(--text-faint)] hover:text-red-500 text-xs" title="Remove">&times;</button></td>
         `;
         document.getElementById('scenarios-body').appendChild(tr);
         attachRemoveHandlers();
@@ -488,30 +488,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
         defaultScenarios.forEach((s, i) => {
             const tr = document.createElement('tr');
-            tr.className = 'scenario-row border-b border-gray-100 hover:bg-gray-50';
+            tr.className = 'scenario-row border-b border-[var(--border)] hover:bg-[var(--surface-2)]';
             tr.dataset.index = i;
             tr.innerHTML = `
                 <td class="py-2 px-2">
-                    <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-gray-800 w-full focus:outline-none focus:bg-sky-50 rounded px-1" value="${s.label}">
+                    <input type="text" class="sc-label border-0 bg-transparent text-sm font-medium text-[var(--text-primary)] w-full focus:outline-none focus:bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)] rounded px-1" value="${s.label}">
                 </td>
                 <td class="py-2 px-2 text-right">
-                    <input type="number" class="sc-price border border-gray-200 rounded px-2 py-1 text-sm text-right w-28 focus:ring-[#00b4d8] focus:border-[#00b4d8]" value="${s.price}" min="1" step="10000">
+                    <input type="number" class="sc-price border border-[var(--border)] rounded px-2 py-1 text-sm text-right w-28 focus:ring-[var(--brand-icon)] focus:border-[var(--brand-icon)]" value="${s.price}" min="1" step="10000">
                 </td>
-                <td class="py-2 px-2 text-right sc-competing text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-months text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-holding text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-commission text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-transfer text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-net font-bold text-gray-700">—</td>
-                <td class="py-2 px-2 text-right sc-vs-asking text-gray-700">—</td>
-                <td class="py-2 px-2 text-center"><span class="sc-prob inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">—</span></td>
-                <td class="py-2 px-1"><button class="btn-remove-row text-gray-400 hover:text-red-500 text-xs" title="Remove">&times;</button></td>
+                <td class="py-2 px-2 text-right sc-competing text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-months text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-holding text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-commission text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-transfer text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-net font-bold text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-right sc-vs-asking text-[var(--text-secondary)]">—</td>
+                <td class="py-2 px-2 text-center"><span class="sc-prob inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-[var(--surface-2)] text-[var(--text-muted)]">—</span></td>
+                <td class="py-2 px-1"><button class="btn-remove-row text-[var(--text-faint)] hover:text-red-500 text-xs" title="Remove">&times;</button></td>
             `;
             tbody.appendChild(tr);
         });
 
         attachRemoveHandlers();
-        document.getElementById('bar-chart').innerHTML = '<p class="text-sm text-gray-400">Click "Compute Scenarios" to generate results.</p>';
+        document.getElementById('bar-chart').innerHTML = '<p class="text-sm text-[var(--text-faint)]">Click "Compute Scenarios" to generate results.</p>';
         document.getElementById('narrative-text').textContent = 'Click "Compute Scenarios" to generate insights.';
     });
 

@@ -2,7 +2,7 @@
 
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <div>
                 <h2 class="text-xl font-bold text-white leading-tight">Edit Listing Agents</h2>
@@ -32,7 +32,7 @@
     @endif
 
     <div class="ds-status-card p-4">
-        <div class="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-line">
+        <div class="text-sm whitespace-pre-line" style="color:var(--text-secondary)">
             <strong>Property:</strong><br>
             {{ $listing->property }}
         </div>
@@ -41,11 +41,11 @@
             $agentsRaw = is_array($listing->raw_payload) ? ($listing->raw_payload['Agents'] ?? null) : null;
         @endphp
 
-        <div class="mt-3 text-sm text-gray-700">
+        <div class="mt-3 text-sm" style="color:var(--text-secondary)">
             <strong>Imported Agents (raw):</strong> {{ $agentsRaw ?: '(none)' }}
         </div>
 
-        <div class="mt-3 text-sm text-gray-700">
+        <div class="mt-3 text-sm" style="color:var(--text-secondary)">
             <strong>Current Primary Agent:</strong> {{ optional($listing->user)->name }} ({{ optional($listing->user)->email }})
         </div>
     </div>
@@ -62,7 +62,7 @@
                     </option>
                 @endforeach
             </select>
-            <div class="text-xs text-gray-500 mt-1">This controls the default “owner” (existing system field).</div>
+            <div class="text-xs mt-1" style="color:var(--text-muted)">This controls the default “owner” (existing system field).</div>
         </div>
 
         <div class="mb-4">
@@ -78,7 +78,7 @@
                     </option>
                 @endforeach
             </select>
-            <div class="text-xs text-gray-500 mt-1">Hold Ctrl (Windows) / Cmd (Mac) to select multiple.</div>
+            <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl (Windows) / Cmd (Mac) to select multiple.</div>
         </div>
 
         <button type="submit" class="corex-btn-primary">

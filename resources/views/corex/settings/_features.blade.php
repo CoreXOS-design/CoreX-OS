@@ -77,7 +77,7 @@
                                         @endunless
                                         <input type="checkbox" name="{{ $row['key'] }}" value="1" class="sr-only peer"
                                                @checked($row['enabled']) @disabled((bool) $row['blocked_by'])>
-                                        <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
+                                        <span class="w-11 h-6 rounded-full transition-colors bg-[var(--border,#cbd5e1)] peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
                                         <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
                                     </label>
                                 @else

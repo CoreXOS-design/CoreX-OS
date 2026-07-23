@@ -3,7 +3,7 @@
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <h2 class="text-xl font-bold text-white leading-tight">
                 {{ $rental->id ? 'Edit Rental' : 'Create Rental' }}
@@ -24,8 +24,8 @@
                 <div class="space-y-4">
 
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Branch</label>
-                        <select name="branch_id" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Branch</label>
+                        <select name="branch_id" class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                             @foreach($branches as $branch)
                                 <option value="{{ $branch->id }}"
                                     {{ old('branch_id', $rental->branch_id) == $branch->id ? 'selected' : '' }}>
@@ -36,55 +36,55 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Address</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Address</label>
                         <input type="text"
                                name="lease_address"
                                value="{{ old('lease_address', $rental->lease_address) }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Lease Start</label>
+                            <label class="block text-xs mb-1" style="color:var(--text-muted)">Lease Start</label>
                             <input type="date"
                                    name="lease_start_date"
                                    value="{{ old('lease_start_date', optional($rental->lease_start_date)->format('Y-m-d')) }}"
-                                   class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                                   class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                         </div>
                         <div>
-                            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Lease End</label>
+                            <label class="block text-xs mb-1" style="color:var(--text-muted)">Lease End</label>
                             <input type="date"
                                    name="lease_end_date"
                                    value="{{ old('lease_end_date', optional($rental->lease_end_date)->format('Y-m-d')) }}"
-                                   class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                                   class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                         </div>
                     </div>
 
-                    <div class="flex gap-6 text-sm text-slate-700 dark:text-slate-200">
+                    <div class="flex gap-6 text-sm" style="color:var(--text-secondary)">
                         <label class="inline-flex items-center gap-2">
                             <input type="checkbox" name="is_month_to_month" value="1"
                                    {{ old('is_month_to_month', $rental->is_month_to_month) ? 'checked' : '' }}
-                                   class="rounded border-slate-300 dark:border-slate-700">
+                                   class="rounded" style="border-color:var(--border)">
                             Month-to-month
                         </label>
                         <label class="inline-flex items-center gap-2">
                             <input type="checkbox" name="is_active" value="1"
                                    {{ old('is_active', $rental->is_active ?? true) ? 'checked' : '' }}
-                                   class="rounded border-slate-300 dark:border-slate-700">
+                                   class="rounded" style="border-color:var(--border)">
                             Active
                         </label>
                         <label class="inline-flex items-center gap-2">
                             <input type="checkbox" name="is_rental_assist" value="1"
                                    {{ old('is_rental_assist', $rental->is_rental_assist) ? 'checked' : '' }}
-                                   class="rounded border-slate-300 dark:border-slate-700">
+                                   class="rounded" style="border-color:var(--border)">
                             Rental assist
                         </label>
                     </div>
 
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Agents</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Agents</label>
                         <select name="rental_agents[]" multiple
-                                class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm h-32">
+                                class="w-full rounded-lg border px-3 py-2 text-sm h-32" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                             @foreach($agents as $agent)
                                 <option value="{{ $agent->id }}"
                                     {{ collect(old('rental_agents', $rental->agents->pluck('id') ?? []))->contains($agent->id) ? 'selected' : '' }}>
@@ -106,30 +106,30 @@
                     @php($v = $rental->currentAmountVersion)
                     <div class="ds-status-card p-4 mb-4">
                         <div class="flex items-center justify-between mb-2">
-                            <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Current Amount (latest version)</div>
-                            <div class="text-sm text-slate-500 dark:text-slate-400">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary)">Current Amount (latest version)</div>
+                            <div class="text-sm" style="color:var(--text-muted)">
                                 Effective: {{ optional($v->effective_from)->format('Y-m-d') }}
                             </div>
                         </div>
                         <div class="grid grid-cols-2 gap-3 text-sm">
                             <div class="flex items-center justify-between">
-                                <span class="text-slate-600 dark:text-slate-300">Rent (incl)</span>
-                                <span class="font-medium text-slate-900 dark:text-slate-100">{{ number_format($v->rent_incl, 2) }}</span>
+                                <span style="color:var(--text-secondary)">Rent (incl)</span>
+                                <span class="font-medium" style="color:var(--text-primary)">{{ number_format($v->rent_incl, 2) }}</span>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span class="text-slate-600 dark:text-slate-300">Rent (excl)</span>
-                                <span class="font-medium text-slate-900 dark:text-slate-100">{{ number_format($v->rent_excl, 2) }}</span>
+                                <span style="color:var(--text-secondary)">Rent (excl)</span>
+                                <span class="font-medium" style="color:var(--text-primary)">{{ number_format($v->rent_excl, 2) }}</span>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span class="text-slate-600 dark:text-slate-300">Commission (incl)</span>
-                                <span class="font-medium text-slate-900 dark:text-slate-100">{{ number_format($v->commission_incl, 2) }}</span>
+                                <span style="color:var(--text-secondary)">Commission (incl)</span>
+                                <span class="font-medium" style="color:var(--text-primary)">{{ number_format($v->commission_incl, 2) }}</span>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span class="text-slate-600 dark:text-slate-300">Commission (excl)</span>
-                                <span class="font-medium text-slate-900 dark:text-slate-100">{{ number_format($v->commission_excl, 2) }}</span>
+                                <span style="color:var(--text-secondary)">Commission (excl)</span>
+                                <span class="font-medium" style="color:var(--text-primary)">{{ number_format($v->commission_excl, 2) }}</span>
                             </div>
                         </div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400 mt-3">
+                        <div class="text-xs mt-3" style="color:var(--text-muted)">
                             To change amounts, add a new version below (we keep history).
                         </div>
                     </div>
@@ -137,29 +137,29 @@
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Effective From</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Effective From</label>
                         <input type="date" name="effective_from" value="{{ old('effective_from') }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Rent (incl)</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Rent (incl)</label>
                         <input type="number" step="0.01" name="rent_incl" id="rent_incl" value="{{ old('rent_incl') }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Rent (excl)</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Rent (excl)</label>
                         <input type="number" step="0.01" name="rent_excl" id="rent_excl" value="{{ old('rent_excl') }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Commission (incl)</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Commission (incl)</label>
                         <input type="number" step="0.01" name="commission_incl" id="commission_incl" value="{{ old('commission_incl') }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
                     <div>
-                        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Commission (excl)</label>
+                        <label class="block text-xs mb-1" style="color:var(--text-muted)">Commission (excl)</label>
                         <input type="number" step="0.01" name="commission_excl" id="commission_excl" value="{{ old('commission_excl') }}"
-                               class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm">
+                               class="w-full rounded-lg border px-3 py-2 text-sm" style="background:var(--surface); border-color:var(--border); color:var(--text-primary)">
                     </div>
                 </div>
             </div>
@@ -167,21 +167,21 @@
             @if($rental->id && $rental->amountVersions->count())
                 <div>
                     <h3 class="ds-section-header mb-3">Amount History</h3>
-                    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border)">
                         <table class="min-w-full text-sm ds-table">
                             <thead>
-                                <tr class="border-b text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40">
+                                <tr class="border-b" style="color:var(--text-secondary); background:var(--surface-2); border-color:var(--border)">
                                     <th class="text-left px-4 py-3">Effective</th>
                                     <th class="text-right px-4 py-3">Rent excl</th>
                                     <th class="text-right px-4 py-3">Commission excl</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                            <tbody class="divide-y" style="border-color:var(--border)">
                                 @foreach($rental->amountVersions as $version)
-                                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
-                                        <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $version->effective_from->format('Y-m-d') }}</td>
-                                        <td class="px-4 py-3 text-right text-slate-900 dark:text-slate-100">{{ number_format($version->rent_excl, 2) }}</td>
-                                        <td class="px-4 py-3 text-right text-slate-900 dark:text-slate-100">{{ number_format($version->commission_excl, 2) }}</td>
+                                    <tr class="hover:opacity-80">
+                                        <td class="px-4 py-3" style="color:var(--text-primary)">{{ $version->effective_from->format('Y-m-d') }}</td>
+                                        <td class="px-4 py-3 text-right" style="color:var(--text-primary)">{{ number_format($version->rent_excl, 2) }}</td>
+                                        <td class="px-4 py-3 text-right" style="color:var(--text-primary)">{{ number_format($version->commission_excl, 2) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>

@@ -588,19 +588,19 @@
                             <p class="text-xs font-semibold text-green-800">
                                 Seller questions — <span x-text="currentConfig.label || 'crop'"></span>
                             </p>
-                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-gray-400'"
+                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-[var(--text-faint)]'"
                                   x-text="answeredCount + '/' + totalQuestions + ' answered'"></span>
                         </div>
                         <ul class="space-y-2">
                             <template x-for="q in (currentConfig.questions || [])" :key="q.id">
                                 <li class="border rounded-md overflow-hidden"
-                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-white' : 'border-gray-200 bg-white'">
+                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-[var(--surface)]' : 'border-[var(--border)] bg-[var(--surface)]'">
                                     {{-- Question header (checkbox + text) --}}
                                     <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
                                          @click="toggleQuestion(q.id)">
                                         <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
                                                :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
-                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-gray-600'" x-text="q.question"></span>
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
                                         <template x-if="hasAnswer(q.id)">
                                             <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                         </template>
@@ -662,7 +662,7 @@
                     </div>
 
                     {{-- Config defaults info --}}
-                    <div x-show="selectedCrop && currentConfig.lifespan_years" x-transition class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-700">
+                    <div x-show="selectedCrop && currentConfig.lifespan_years" x-transition class="mb-3 p-2 border rounded-md text-xs" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); border-color: color-mix(in srgb, var(--brand-icon) 35%, transparent); color: var(--brand-icon);">
                         <strong>Config defaults:</strong>
                         Lifespan: <span x-text="currentConfig.lifespan_years"></span> yrs |
                         First crop: yr <span x-text="currentConfig.years_to_first_crop"></span> |
@@ -914,19 +914,19 @@
                             <p class="text-xs font-semibold text-green-800">
                                 Seller questions — <span x-text="currentConfig.label || 'livestock'"></span>
                             </p>
-                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-gray-400'"
+                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-[var(--text-faint)]'"
                                   x-text="answeredCount + '/' + totalQuestions + ' answered'"></span>
                         </div>
                         <ul class="space-y-2">
                             <template x-for="q in (currentConfig.questions || [])" :key="q.id">
                                 <li class="border rounded-md overflow-hidden"
-                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-white' : 'border-gray-200 bg-white'">
+                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-[var(--surface)]' : 'border-[var(--border)] bg-[var(--surface)]'">
                                     {{-- Question header --}}
                                     <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
                                          @click="toggleQuestion(q.id)">
                                         <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
                                                :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
-                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-gray-600'" x-text="q.question"></span>
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
                                         <template x-if="hasAnswer(q.id)">
                                             <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                         </template>
@@ -1255,13 +1255,13 @@
             // Helper to determine card border color based on deviation from recommendation
             $recMid = $rec['mid'] ?? 0;
             $cardBorder = function(string $key, array $m) use ($rec, $recMid, $formatZar) {
-                if ($key === ($rec['primary_method'] ?? '')) return 'border-l-4 border-l-blue-500';
+                if ($key === ($rec['primary_method'] ?? '')) return 'border-l-4 border-l-[var(--brand-icon)]';
                 $mid = 0;
                 if (isset($m['evaluation_mid'])) $mid = $m['evaluation_mid'];
                 elseif ($key === 'asset_based' && isset($m['total'])) $mid = $m['total'];
                 elseif ($key === 'revenue_multiple') $mid = $m['evaluation_ebitda'][1] ?? $m['evaluation_revenue'][1] ?? 0;
                 elseif ($key === 'gross_rent_multiplier') $mid = $m['evaluation'][1] ?? 0;
-                if ($mid <= 0 || $recMid <= 0) return 'border-l-4 border-l-gray-200';
+                if ($mid <= 0 || $recMid <= 0) return 'border-l-4 border-l-[var(--border)]';
                 $dev = abs($mid - $recMid) / $recMid;
                 if ($dev <= 0.15) return 'border-l-4 border-l-emerald-400';
                 if ($dev <= 0.30) return 'border-l-4 border-l-amber-400';
@@ -1275,7 +1275,7 @@
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Recommended Market Evaluation</h3>
                     <div class="flex items-center gap-2">
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $confidenceColors[$rec['confidence'] ?? 'low'] ?? 'bg-gray-100 text-gray-600' }}">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $confidenceColors[$rec['confidence'] ?? 'low'] ?? 'bg-[var(--surface-2)] text-[var(--text-secondary)]' }}">
                             {{ ucfirst($rec['confidence'] ?? 'unknown') }} confidence
                         </span>
                         <span class="text-xs" style="color: var(--text-muted);">{{ $evaluation->evaluated_at->format('Y-m-d H:i') }}</span>
@@ -1331,7 +1331,7 @@
                         <div class="flex items-center gap-3">
                             <div class="w-40 text-xs text-right truncate" style="color: var(--text-secondary);">{{ $methodLabels[$bk] ?? $bk }}</div>
                             <div class="flex-1 rounded-full h-5 relative overflow-hidden" style="background: var(--surface-2);">
-                                <div class="h-full rounded-full {{ $bk === ($rec['primary_method'] ?? '') ? 'bg-blue-500' : 'bg-[var(--brand-icon)]' }}"
+                                <div class="h-full rounded-full bg-[var(--brand-icon)]"
                                      style="width:{{ round(($bv / $barMax) * 100) }}%"></div>
                             </div>
                             <div class="w-32 text-xs font-mono text-right" style="color: var(--text-primary);">{{ $formatZar($bv) }}</div>
@@ -1364,7 +1364,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['income_capitalisation'] }}</h4>
                             @if('income_capitalisation' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['income_capitalisation'] }}</p>
@@ -1418,7 +1418,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['comparable_sales'] }}</h4>
                             @if('comparable_sales' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['comparable_sales'] }}</p>
@@ -1490,7 +1490,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['revenue_multiple'] }}</h4>
                             @if('revenue_multiple' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['revenue_multiple'] }}</p>
@@ -1552,7 +1552,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['asset_based'] }}</h4>
                             @if('asset_based' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['asset_based'] }}</p>
@@ -1601,7 +1601,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['productive_value'] }}</h4>
                             @if('productive_value' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['productive_value'] }}</p>
@@ -1683,7 +1683,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $methodLabels['gross_rent_multiplier'] }}</h4>
                             @if('gross_rent_multiplier' === ($rec['primary_method'] ?? ''))
-                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Primary Method</span>
                             @endif
                         </div>
                         <p class="text-xs mb-3" style="color: var(--text-muted);">{{ $methodDescriptions['gross_rent_multiplier'] }}</p>

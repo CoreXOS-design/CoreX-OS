@@ -19,17 +19,18 @@
             <div class="hfc-card p-5 sm:p-6">
                 <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
                     <div>
-                        <h3 class="text-lg font-bold text-slate-900">Choose a period</h3>
-                        <p class="text-sm text-slate-500">Pick the month you want to discuss in the meeting.</p>
+                        <h3 class="text-lg font-bold" style="color:var(--text-primary)">Choose a period</h3>
+                        <p class="text-sm" style="color:var(--text-muted)">Pick the month you want to discuss in the meeting.</p>
                     </div>
 
                     <form method="GET" action="{{ route('company.summary') }}" class="flex items-end gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wide">Period</label>
+                            <label class="block text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary)">Period</label>
                             <input type="month"
                                    name="period"
                                    value="{{ $period }}"
-                                   class="mt-1 border-gray-300 rounded-md shadow-sm">
+                                   class="mt-1 rounded-md shadow-sm"
+                                   style="border-color:var(--border)">
                         </div>
 
                         <div>
@@ -45,12 +46,12 @@
             <div class="hfc-card p-5 sm:p-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Monthly Company Expenses (Admin-set)</p>
-                        <p class="text-3xl font-extrabold text-slate-900 mt-1">R {{ number_format($monthlyExpenses, 2) }}</p>
+                        <p class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-muted)">Monthly Company Expenses (Admin-set)</p>
+                        <p class="text-3xl font-extrabold mt-1" style="color:var(--text-primary)">R {{ number_format($monthlyExpenses, 2) }}</p>
                     </div>
                     <div class="text-right">
-                        <p class="text-sm text-slate-500">Cashflow is calculated after expenses.</p>
-                        <p class="text-xs text-slate-400">This is the “overhead” the business must cover each month.</p>
+                        <p class="text-sm" style="color:var(--text-muted)">Cashflow is calculated after expenses.</p>
+                        <p class="text-xs" style="color:var(--text-faint)">This is the “overhead” the business must cover each month.</p>
                     </div>
                 </div>
             </div>
@@ -100,9 +101,9 @@
                             <div>
                                 <div class="flex items-center gap-2">
                                     <div class="text-xl">{{ $b['icon'] }}</div>
-                                    <h3 class="text-xl font-extrabold text-slate-900">{{ $b['title'] }}</h3>
+                                    <h3 class="text-xl font-extrabold" style="color:var(--text-primary)">{{ $b['title'] }}</h3>
                                 </div>
-                                <p class="text-sm text-slate-600 mt-1">{{ $b['subtitle'] }}</p>
+                                <p class="text-sm mt-1" style="color:var(--text-secondary)">{{ $b['subtitle'] }}</p>
                             </div>
                             <span class="text-xs px-3 py-1 rounded-full font-bold {{ $b['pill'] }}">{{ $b['badge'] }}</span>
                         </div>
@@ -119,40 +120,40 @@
                         {{-- Metrics --}}
                         <div class="grid grid-cols-2 gap-4 mt-5">
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Total Listings</p>
-                                <p class="text-2xl font-extrabold text-slate-900">{{ number_format($b['data']['listings'], 2) }}</p>
+                                <p class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-muted)">Total Listings</p>
+                                <p class="text-2xl font-extrabold" style="color:var(--text-primary)">{{ number_format($b['data']['listings'], 2) }}</p>
                             </div>
 
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Correctly Priced</p>
-                                <p class="text-2xl font-extrabold text-slate-900">{{ number_format($b['data']['cp_listings'], 2) }}</p>
+                                <p class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-muted)">Correctly Priced</p>
+                                <p class="text-2xl font-extrabold" style="color:var(--text-primary)">{{ number_format($b['data']['cp_listings'], 2) }}</p>
                             </div>
 
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Est. Sales</p>
-                                <p class="text-2xl font-extrabold text-slate-900">{{ number_format($b['data']['sales'], 2) }}</p>
-                                <p class="text-xs text-slate-400">CP ÷ 5</p>
+                                <p class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-muted)">Est. Sales</p>
+                                <p class="text-2xl font-extrabold" style="color:var(--text-primary)">{{ number_format($b['data']['sales'], 2) }}</p>
+                                <p class="text-xs" style="color:var(--text-faint)">CP ÷ 5</p>
                             </div>
 
                             <div>
-                                <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Agency Gross</p>
-                                <p class="text-2xl font-extrabold text-slate-900">R {{ number_format($b['data']['agency_gross'], 2) }}</p>
+                                <p class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-muted)">Agency Gross</p>
+                                <p class="text-2xl font-extrabold" style="color:var(--text-primary)">R {{ number_format($b['data']['agency_gross'], 2) }}</p>
                             </div>
                         </div>
 
-                        <div class="mt-5 border-t border-slate-200 pt-4 space-y-3">
+                        <div class="mt-5 border-t pt-4 space-y-3" style="border-color:var(--border)">
                             <div class="flex items-center justify-between">
-                                <p class="text-sm text-slate-600">Company Income</p>
-                                <p class="text-lg font-extrabold text-slate-900">R {{ number_format($b['data']['company_income'], 2) }}</p>
+                                <p class="text-sm" style="color:var(--text-secondary)">Company Income</p>
+                                <p class="text-lg font-extrabold" style="color:var(--text-primary)">R {{ number_format($b['data']['company_income'], 2) }}</p>
                             </div>
                             <div class="flex items-center justify-between">
-                                <p class="text-sm text-slate-600">Agents Net (Total)</p>
-                                <p class="text-lg font-extrabold text-slate-900">R {{ number_format($b['data']['agent_net'], 2) }}</p>
+                                <p class="text-sm" style="color:var(--text-secondary)">Agents Net (Total)</p>
+                                <p class="text-lg font-extrabold" style="color:var(--text-primary)">R {{ number_format($b['data']['agent_net'], 2) }}</p>
                             </div>
                         </div>
 
-                        <div class="mt-4 text-xs text-slate-500">
-                            <span class="font-bold text-slate-700">How to read:</span>
+                        <div class="mt-4 text-xs" style="color:var(--text-muted)">
+                            <span class="font-bold" style="color:var(--text-secondary)">How to read:</span>
                             focus on cashflow first, then look at listings → correctly priced → sales.
                         </div>
                     </div>
@@ -160,8 +161,8 @@
             </div>
 
             <div class="hfc-card p-5 sm:p-6">
-                <h3 class="text-lg font-extrabold text-slate-900">The message for the meeting</h3>
-                <p class="text-sm text-slate-600 mt-1">
+                <h3 class="text-lg font-extrabold" style="color:var(--text-primary)">The message for the meeting</h3>
+                <p class="text-sm mt-1" style="color:var(--text-secondary)">
                     If <span class="font-bold">pricing quality</span> improves, sales increase without needing huge stock.
                     If we hit the <span class="font-bold">targets</span>, we stabilize predictable outcomes.
                     If we follow the <span class="font-bold">recommended</span> plan, we align stock with income needs.

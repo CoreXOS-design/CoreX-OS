@@ -4,7 +4,7 @@
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <div class="text-sm text-white/60 space-x-2">
@@ -55,21 +55,21 @@
     </div>
 
     @if($items->isEmpty())
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-8 text-center text-slate-500 dark:text-slate-400">
+        <div class="rounded-2xl border p-8 text-center" style="border-color:var(--border); background:var(--surface); color:var(--text-muted)">
             No audit items found for this deal in run #{{ $run->id }}.
         </div>
     @else
 
-    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
+        <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
             <h3 class="ds-section-header">Audit Metrics</h3>
-            <div class="text-xs text-slate-500 dark:text-slate-400">Definition-by-definition breakdown for this deal.</div>
+            <div class="text-xs" style="color:var(--text-muted)">Definition-by-definition breakdown for this deal.</div>
         </div>
 
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
-                    <tr class="border-b text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40">
+                    <tr class="border-b" style="border-color:var(--border); color:var(--text-secondary); background:var(--surface-2)">
                         <th class="text-left px-4 py-3 w-20">Status</th>
                         <th class="text-left px-4 py-3">Definition</th>
                         <th class="text-right px-4 py-3">Expected</th>
@@ -78,9 +78,9 @@
                         <th class="text-left px-4 py-3">Message</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                <tbody class="divide-y divide-[color:var(--border)]">
                     @foreach($items as $item)
-                        <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : '' }} hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
+                        <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : '' }} hover:bg-[color:var(--surface-2)]">
                             <td class="px-4 py-3">
                                 @if($item->severity === 'error')
                                     <span class="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">fail</span>
@@ -91,10 +91,10 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3">
-                                <div class="text-sm text-slate-700 dark:text-slate-300">{{ AuditLabelHelper::label($item->definition_key) }}</div>
-                                <div class="text-xs text-slate-400 font-mono">{{ $item->definition_key }}</div>
+                                <div class="text-sm" style="color:var(--text-secondary)">{{ AuditLabelHelper::label($item->definition_key) }}</div>
+                                <div class="text-xs font-mono" style="color:var(--text-faint)">{{ $item->definition_key }}</div>
                             </td>
-                            <td class="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-300 text-xs">
+                            <td class="px-4 py-3 text-right font-mono text-xs" style="color:var(--text-secondary)">
                                 @if($item->expected_numeric !== null)
                                     {{ AuditLabelHelper::zar((float)$item->expected_numeric) }}
                                 @elseif($item->expected_json)
@@ -103,7 +103,7 @@
                                     —
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-300 text-xs">
+                            <td class="px-4 py-3 text-right font-mono text-xs" style="color:var(--text-secondary)">
                                 @if($item->actual_numeric !== null)
                                     {{ AuditLabelHelper::zar((float)$item->actual_numeric) }}
                                 @elseif($item->actual_json)
@@ -119,10 +119,10 @@
                                         {{ AuditLabelHelper::zar($diff) }}
                                     </span>
                                 @else
-                                    <span class="text-slate-400">—</span>
+                                    <span style="color:var(--text-faint)">—</span>
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs max-w-xs" title="{{ $item->message }}">
+                            <td class="px-4 py-3 text-xs max-w-xs" style="color:var(--text-muted)" title="{{ $item->message }}">
                                 {{ $item->message ?? '—' }}
                             </td>
                         </tr>
@@ -136,22 +136,22 @@
                             $allAgentIds = collect(array_merge(array_keys($expAgents ?? []), array_keys($actAgents ?? [])))->unique()->sort()->values();
                         @endphp
                         @if($hasAgentData)
-                            <tr class="bg-slate-50/60 dark:bg-slate-900/20">
+                            <tr style="background:var(--surface-2)">
                                 <td colspan="6" class="px-6 py-3">
-                                    <div class="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                                    <div class="text-xs font-semibold mb-2 uppercase tracking-wide" style="color:var(--text-muted)">
                                         Agent Allocations — {{ AuditLabelHelper::label($item->definition_key) }}
                                     </div>
                                     <div class="overflow-x-auto">
-                                        <table class="text-xs border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden w-auto min-w-[400px]">
+                                        <table class="text-xs border rounded-xl overflow-hidden w-auto min-w-[400px]" style="border-color:var(--border)">
                                             <thead>
-                                                <tr class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                                <tr style="background:var(--surface-2); color:var(--text-muted)">
                                                     <th class="text-left px-3 py-2">Agent</th>
                                                     <th class="text-right px-3 py-2">Expected</th>
                                                     <th class="text-right px-3 py-2">Actual</th>
                                                     <th class="text-right px-3 py-2">Diff</th>
                                                 </tr>
                                             </thead>
-                                            <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                                            <tbody class="divide-y divide-[color:var(--border)]">
                                                 @php
                                                     $expTotal = 0; $actTotal = 0; $diffTotal = 0;
                                                 @endphp
@@ -164,14 +164,14 @@
                                                         $actTotal += $actVal ?? 0;
                                                         $diffTotal += $diffVal ?? 0;
                                                     @endphp
-                                                    <tr class="bg-white dark:bg-slate-950">
-                                                        <td class="px-3 py-1.5 text-slate-700 dark:text-slate-300">
+                                                    <tr style="background:var(--surface)">
+                                                        <td class="px-3 py-1.5" style="color:var(--text-secondary)">
                                                             {{ $agentNameMap[$agentId] ?? "Agent #{$agentId}" }}
                                                         </td>
-                                                        <td class="px-3 py-1.5 text-right font-mono text-slate-600 dark:text-slate-300">
+                                                        <td class="px-3 py-1.5 text-right font-mono" style="color:var(--text-secondary)">
                                                             {{ AuditLabelHelper::zar($expVal) }}
                                                         </td>
-                                                        <td class="px-3 py-1.5 text-right font-mono text-slate-600 dark:text-slate-300">
+                                                        <td class="px-3 py-1.5 text-right font-mono" style="color:var(--text-secondary)">
                                                             {{ AuditLabelHelper::zar($actVal) }}
                                                         </td>
                                                         <td class="px-3 py-1.5 text-right font-mono">
@@ -180,15 +180,15 @@
                                                                     {{ AuditLabelHelper::zar($diffVal) }}
                                                                 </span>
                                                             @else
-                                                                <span class="text-slate-400">—</span>
+                                                                <span style="color:var(--text-faint)">—</span>
                                                             @endif
                                                         </td>
                                                     </tr>
                                                 @endforeach
-                                                <tr class="bg-slate-50 dark:bg-slate-900 font-semibold border-t-2 border-slate-200 dark:border-slate-700">
-                                                    <td class="px-3 py-1.5 text-slate-700 dark:text-slate-300">Total</td>
-                                                    <td class="px-3 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300">{{ AuditLabelHelper::zar($expTotal) }}</td>
-                                                    <td class="px-3 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300">{{ AuditLabelHelper::zar($actTotal) }}</td>
+                                                <tr class="font-semibold border-t-2" style="background:var(--surface-2); border-color:var(--border)">
+                                                    <td class="px-3 py-1.5" style="color:var(--text-secondary)">Total</td>
+                                                    <td class="px-3 py-1.5 text-right font-mono" style="color:var(--text-secondary)">{{ AuditLabelHelper::zar($expTotal) }}</td>
+                                                    <td class="px-3 py-1.5 text-right font-mono" style="color:var(--text-secondary)">{{ AuditLabelHelper::zar($actTotal) }}</td>
                                                     <td class="px-3 py-1.5 text-right font-mono">
                                                         <span class="{{ abs($diffTotal) > 0.01 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400' }}">
                                                             {{ AuditLabelHelper::zar($diffTotal) }}
@@ -211,7 +211,7 @@
 
     <div>
         <a href="{{ route('admin.finance.audit.run', $run) }}"
-           class="text-sm text-[#0b2a4a] dark:text-[#00b4d8] hover:underline">
+           class="text-sm hover:underline" style="color:var(--brand-icon)">
             &larr; Back to Run #{{ $run->id }}
         </a>
     </div>

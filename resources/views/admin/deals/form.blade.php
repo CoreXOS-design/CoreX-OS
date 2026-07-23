@@ -172,7 +172,7 @@
             <div>
                 <label class="ds-label block mb-1">Total Commission (Incl VAT)</label>
                 <input type="number" step="0.01" class="input-base money-input" name="total_commission" value="{{ old('total_commission', $deal->total_commission) }}" required>
-                <div class="mt-1 text-xs text-gray-500">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
+                <div class="mt-1 text-xs" style="color:var(--text-muted)">Internal pools/allocations are calculated <span class="font-semibold">Ex VAT</span> (VAT is tracked separately).</div>
             </div>
                 </div>
             </div>
@@ -230,7 +230,7 @@
                 <div class="deal-grid pt-4">
             <!-- LISTING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Listing Side</h3>
+                <h3 class="font-bold" style="color:var(--brand-default)">Listing Side</h3>
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
@@ -242,12 +242,12 @@
                     <div class="w-64">
                         <div class="flex items-center justify-between">
                             <div class="ds-label">Listing split %</div>
-                            <div class="text-xs text-gray-500"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
+                            <div class="text-xs" style="color:var(--text-muted)"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
                         </div>
                         <div class="mt-2 flex items-center gap-3">
                             <input id="listing_split_percent" type="number" step="0.01" name="listing_split_percent"
                                    value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-lg" style="border-color:var(--border)" placeholder="%">
                             <input id="listing_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}">
                         </div>
@@ -265,7 +265,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="listing_selected" class="space-y-2"></div>
@@ -274,7 +274,7 @@
 
             <!-- SELLING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Selling Side</h3>
+                <h3 class="font-bold" style="color:var(--brand-default)">Selling Side</h3>
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
@@ -288,7 +288,7 @@
                         <div class="mt-2 flex items-center gap-3">
                             <input id="selling_split_percent" type="number" step="0.01" name="selling_split_percent"
                                    value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-lg" style="border-color:var(--border)" placeholder="%">
                             <input id="selling_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}">
                         </div>
@@ -306,7 +306,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="selling_selected" class="space-y-2"></div>
@@ -347,7 +347,7 @@
                     row.innerHTML = `
                         <input type="hidden" name="${sideName}_agents[]" value="${id}">
                         <div class="w-48 font-semibold" style="color:var(--text-primary, #0b2a4a)">${label}</div>
-                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg border-gray-200" value="${initial ?? ''}">
+                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg" style="border-color:var(--border)" value="${initial ?? ''}">
                         <button type="button" class="text-xs text-red-600">Remove</button>
                     `;
 

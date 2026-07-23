@@ -1,7 +1,7 @@
 <x-app-layout>
     {{-- SETTLE_BLADE_FINGERPRINT: 2026-01-26_1602 --}}
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+        <div style="background:var(--brand-default,#0b2a4a);" class="rounded-2xl px-6 py-4">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                 <div>
                     <h2 class="text-xl font-bold text-white leading-tight">Settlement &mdash; Deal #{{ $deal->deal_no }}</h2>
@@ -46,15 +46,15 @@
                 <div class="settle-key-totals">
                     <div class="text-center">
                         <div class="ds-label mb-1">Commission (Incl VAT)</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ $money($totalCommissionIncVat) }}</div>
+                        <div class="ds-value-xl" style="color:var(--text-primary,#0b2a4a)">R {{ $money($totalCommissionIncVat) }}</div>
                     </div>
                     <div class="text-center">
                         <div class="ds-label mb-1">VAT ({{ (int)round(((float)$vatRate)*100) }}%)</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ $money($vatAmt) }}</div>
+                        <div class="ds-value-xl" style="color:var(--text-primary,#0b2a4a)">R {{ $money($vatAmt) }}</div>
                     </div>
                     <div class="text-center">
                         <div class="ds-label mb-1">Commission (Ex VAT)</div>
-                        <div class="ds-value-xl" style="color:#0b2a4a">R {{ $money($totalCommissionExVat) }}</div>
+                        <div class="ds-value-xl" style="color:var(--text-primary,#0b2a4a)">R {{ $money($totalCommissionExVat) }}</div>
                     </div>
                 </div>
             </div>
@@ -78,8 +78,8 @@
     {{-- Listing Pool --}}
     <div class="ds-status-card" style="border-left-color: var(--ds-navy);">
         <div class="ds-label">Listing Pool (Our share)</div>
-        <div class="ds-value-xl mt-1" style="color:#0b2a4a">R <span class="js-pool" data-side="listing">{{ $money($listingPool) }}</span></div>
-        <div class="text-xs text-gray-500 mt-1">External payable: R {{ $money($listingExternalPayable ?? 0) }}</div>
+        <div class="ds-value-xl mt-1" style="color:var(--text-primary,#0b2a4a)">R <span class="js-pool" data-side="listing">{{ $money($listingPool) }}</span></div>
+        <div class="text-xs mt-1" style="color:var(--text-muted)">External payable: R {{ $money($listingExternalPayable ?? 0) }}</div>
     </div>
 
     {{-- Listing Side Card --}}
@@ -92,20 +92,21 @@
         </div>
 
         @if($deal->listing_external)
-            <div class="text-sm text-gray-600">
+            <div class="text-sm" style="color:var(--text-secondary)">
                 Listing side is marked external — pool is R 0.
             </div>
         @else
             <div class="space-y-3">
                 @foreach($listingRows as $r)
-                    <div class="settle-row rounded-xl bg-white ring-1 ring-gray-200 p-4 md:p-3 shadow-sm"
+                    <div class="settle-row rounded-xl ring-1 ring-[var(--border)] p-4 md:p-3 shadow-sm"
+                         style="background:var(--surface)"
                          data-side="listing"
                          data-user="{{ $r['user_id'] }}">
 
                         <div class="grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-4">
-                                <div class="font-semibold" style="color:#0b2a4a">{{ $r['name'] }}</div>
-                                <div class="text-xs text-gray-400">
+                                <div class="font-semibold" style="color:var(--text-primary,#0b2a4a)">{{ $r['name'] }}</div>
+                                <div class="text-xs" style="color:var(--text-faint)">
                                     Alloc: R <span class="js-allocated" data-raw="{{ (float)$r['allocated'] }}">{{ $money($r['allocated']) }}</span>
                                     &bull; Gross: R <span class="js-gross" data-raw="{{ (float)$r['gross'] }}">{{ $money($r['gross']) }}</span>
                                 </div>
@@ -113,8 +114,9 @@
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Share %</label>
-                                <label class="md:hidden text-xs text-gray-500">Share %</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Share %</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_share[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_share.'.$r['user_id'], $r['share_percent']) }}">
@@ -122,8 +124,9 @@
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Cut %</label>
-                                <label class="md:hidden text-xs text-gray-500">Cut %</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Cut %</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_agent_cut[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_agent_cut.'.$r['user_id'], $r['agent_cut_percent']) }}">
@@ -131,29 +134,32 @@
 
                             <div class="md:col-span-5">
                                 <label class="ds-label block mb-1">PAYE</label>
-                                <label class="md:hidden text-xs text-gray-500">PAYE</label>
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">PAYE</label>
                                 <div class="flex items-center gap-2 flex-nowrap">
                                     @php $pm = old('listing_paye_method.'.$r['user_id'], $r['paye_method']); @endphp
-                                    <select class="w-32 shrink-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                    <select class="w-32 shrink-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                            style="background:var(--surface); color:var(--text-primary)"
                                             name="listing_paye_method[{{ $r['user_id'] }}]">
                                         <option value="percentage" {{ $pm === 'percentage' ? 'selected' : '' }}>%</option>
                                         <option value="fixed" {{ $pm === 'fixed' ? 'selected' : '' }}>Fixed</option>
                                     </select>
 
-                                    <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                    <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                            type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                            name="listing_paye_value[{{ $r['user_id'] }}]"
                                            value="{{ old('listing_paye_value.'.$r['user_id'], $r['paye_value']) }}">
                                 </div>
-                                <div class="text-xs text-gray-500 mt-1">
+                                <div class="text-xs mt-1" style="color:var(--text-muted)">
                                     Calc: R <span class="js-paye" data-raw="{{ (float)$r['paye'] }}">{{ $money($r['paye']) }}</span>
                                 </div>
                             </div>
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Deduct</label>
-                                <label class="md:hidden text-xs text-gray-500">Deduct</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Deduct</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_deductions[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_deductions.'.$r['user_id'], $r['deductions']) }}">
@@ -161,11 +167,11 @@
 
                             <div class="md:col-span-3 md:text-right">
                                 <div class="ds-label block mb-1 text-right">Net</div>
-                                <div class="md:hidden text-xs text-gray-500">Net</div>
+                                <div class="md:hidden text-xs" style="color:var(--text-muted)">Net</div>
                                 <div class="text-lg font-extrabold" style="color:var(--ds-green)">
                                     R <span class="js-net" data-raw="{{ (float)$r['net'] }}">{{ $money($r['net']) }}</span>
                                 </div>
-                                <div class="text-xs text-gray-400">
+                                <div class="text-xs" style="color:var(--text-faint)">
                                     Company: R <span class="js-company" data-raw="{{ (float)$r['company'] }}">{{ $money($r['company']) }}</span>
                                 </div>
                             </div>
@@ -173,7 +179,8 @@
 
                         <div class="mt-2 grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-12">
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="text"
                                        placeholder="Deduction reason (optional)"
                                        name="listing_deductions_description[{{ $r['user_id'] }}]"
@@ -184,7 +191,7 @@
                 @endforeach
             </div>
 
-            <div class="text-xs text-gray-600 mt-3">Rule: listing shares must total 100.</div>
+            <div class="text-xs mt-3" style="color:var(--text-secondary)">Rule: listing shares must total 100.</div>
         @endif
     </div>
 </div>
@@ -195,8 +202,8 @@
     {{-- Selling Pool --}}
     <div class="ds-status-card" style="border-left-color: var(--ds-green);">
         <div class="ds-label">Selling Pool (Our share)</div>
-        <div class="ds-value-xl mt-1" style="color:#0b2a4a">R <span class="js-pool" data-side="selling">{{ $money($sellingPool) }}</span></div>
-        <div class="text-xs text-gray-500 mt-1">External payable: R {{ $money($sellingExternalPayable ?? 0) }}</div>
+        <div class="ds-value-xl mt-1" style="color:var(--text-primary,#0b2a4a)">R <span class="js-pool" data-side="selling">{{ $money($sellingPool) }}</span></div>
+        <div class="text-xs mt-1" style="color:var(--text-muted)">External payable: R {{ $money($sellingExternalPayable ?? 0) }}</div>
     </div>
 
     {{-- Selling Side Card --}}
@@ -209,20 +216,21 @@
         </div>
 
         @if($deal->selling_external)
-            <div class="text-sm text-gray-600">
+            <div class="text-sm" style="color:var(--text-secondary)">
                 Selling side is marked external — pool is R 0.
             </div>
         @else
             <div class="space-y-3">
                 @foreach($sellingRows as $r)
-                    <div class="settle-row rounded-xl bg-white ring-1 ring-gray-200 p-4 md:p-3 shadow-sm"
+                    <div class="settle-row rounded-xl ring-1 ring-[var(--border)] p-4 md:p-3 shadow-sm"
+                         style="background:var(--surface)"
                          data-side="selling"
                          data-user="{{ $r['user_id'] }}">
 
                         <div class="grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-4">
-                                <div class="font-semibold" style="color:#0b2a4a">{{ $r['name'] }}</div>
-                                <div class="text-xs text-gray-400">
+                                <div class="font-semibold" style="color:var(--text-primary,#0b2a4a)">{{ $r['name'] }}</div>
+                                <div class="text-xs" style="color:var(--text-faint)">
                                     Alloc: R <span class="js-allocated" data-raw="{{ (float)$r['allocated'] }}">{{ $money($r['allocated']) }}</span>
                                     &bull; Gross: R <span class="js-gross" data-raw="{{ (float)$r['gross'] }}">{{ $money($r['gross']) }}</span>
                                 </div>
@@ -230,8 +238,9 @@
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Share %</label>
-                                <label class="md:hidden text-xs text-gray-500">Share %</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Share %</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_share[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_share.'.$r['user_id'], $r['share_percent']) }}">
@@ -239,8 +248,9 @@
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Cut %</label>
-                                <label class="md:hidden text-xs text-gray-500">Cut %</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Cut %</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_agent_cut[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_agent_cut.'.$r['user_id'], $r['agent_cut_percent']) }}">
@@ -248,29 +258,32 @@
 
                             <div class="md:col-span-5">
                                 <label class="ds-label block mb-1">PAYE</label>
-                                <label class="md:hidden text-xs text-gray-500">PAYE</label>
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">PAYE</label>
                                 <div class="flex items-center gap-2 flex-nowrap">
                                     @php $pm = old('selling_paye_method.'.$r['user_id'], $r['paye_method']); @endphp
-                                    <select class="w-32 shrink-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                    <select class="w-32 shrink-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                            style="background:var(--surface); color:var(--text-primary)"
                                             name="selling_paye_method[{{ $r['user_id'] }}]">
                                         <option value="percentage" {{ $pm === 'percentage' ? 'selected' : '' }}>%</option>
                                         <option value="fixed" {{ $pm === 'fixed' ? 'selected' : '' }}>Fixed</option>
                                     </select>
 
-                                    <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                    <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                            type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                            name="selling_paye_value[{{ $r['user_id'] }}]"
                                            value="{{ old('selling_paye_value.'.$r['user_id'], $r['paye_value']) }}">
                                 </div>
-                                <div class="text-xs text-gray-500 mt-1">
+                                <div class="text-xs mt-1" style="color:var(--text-muted)">
                                     Calc: R <span class="js-paye" data-raw="{{ (float)$r['paye'] }}">{{ $money($r['paye']) }}</span>
                                 </div>
                             </div>
 
                             <div class="md:col-span-2">
                                 <label class="ds-label block mb-1">Deduct</label>
-                                <label class="md:hidden text-xs text-gray-500">Deduct</label>
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <label class="md:hidden text-xs" style="color:var(--text-muted)">Deduct</label>
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_deductions[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_deductions.'.$r['user_id'], $r['deductions']) }}">
@@ -278,11 +291,11 @@
 
                             <div class="md:col-span-3 md:text-right">
                                 <div class="ds-label block mb-1 text-right">Net</div>
-                                <div class="md:hidden text-xs text-gray-500">Net</div>
+                                <div class="md:hidden text-xs" style="color:var(--text-muted)">Net</div>
                                 <div class="text-lg font-extrabold" style="color:var(--ds-green)">
                                     R <span class="js-net" data-raw="{{ (float)$r['net'] }}">{{ $money($r['net']) }}</span>
                                 </div>
-                                <div class="text-xs text-gray-400">
+                                <div class="text-xs" style="color:var(--text-faint)">
                                     Company: R <span class="js-company" data-raw="{{ (float)$r['company'] }}">{{ $money($r['company']) }}</span>
                                 </div>
                             </div>
@@ -290,7 +303,8 @@
 
                         <div class="mt-2 grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-12">
-                                <input class="w-full flex-1 min-w-0 rounded-xl bg-white ring-1 ring-gray-300 px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
+                                       style="background:var(--surface); color:var(--text-primary)"
                                        type="text"
                                        placeholder="Deduction reason (optional)"
                                        name="selling_deductions_description[{{ $r['user_id'] }}]"
@@ -301,7 +315,7 @@
                 @endforeach
             </div>
 
-            <div class="text-xs text-gray-600 mt-3">Rule: selling shares must total 100.</div>
+            <div class="text-xs mt-3" style="color:var(--text-secondary)">Rule: selling shares must total 100.</div>
         @endif
     </div>
 </div>
@@ -320,7 +334,7 @@
                     Mark deal commission status as "Paid"
                 </label>
 
-                <div class="text-xs text-gray-400">
+                <div class="text-xs" style="color:var(--text-faint)">
                     Note: Invalid totals block saving. Paid deals lock.
                 </div>
             </div>
@@ -362,7 +376,7 @@
                     <tbody id="js-agent-summary-body">
                         @foreach(($agentSummary ?? []) as $s)
                             <tr class="agent-summary-row" data-user="{{ (int)$s['user_id'] }}">
-                                <td class="px-4 py-3 font-medium" style="color:#0b2a4a">{{ $s['name'] }}</td>
+                                <td class="px-4 py-3 font-medium" style="color:var(--text-primary,#0b2a4a)">{{ $s['name'] }}</td>
                                 <td class="px-4 py-3 text-right">R <span class="js-sum-allocated" data-raw="{{ (float)$s['allocated'] }}">{{ $money($s['allocated']) }}</span></td>
                                 <td class="px-4 py-3 text-right">R <span class="js-sum-gross" data-raw="{{ (float)$s['gross'] }}">{{ $money($s['gross']) }}</span></td>
                                 <td class="px-4 py-3 text-right">R <span class="js-sum-paye" data-raw="{{ (float)$s['paye'] }}">{{ $money($s['paye']) }}</span></td>
@@ -380,7 +394,7 @@
                         @endforeach
 
                         <tr style="border-top: 2px solid var(--ds-border);">
-                            <td class="px-4 py-3 font-extrabold" style="color:#0b2a4a">Totals</td>
+                            <td class="px-4 py-3 font-extrabold" style="color:var(--text-primary,#0b2a4a)">Totals</td>
                             <td class="px-4 py-3 text-right font-bold">R <span id="js-sum-total-allocated">{{ $money($totals['allocated']) }}</span></td>
                             <td class="px-4 py-3 text-right font-bold">R <span id="js-sum-total-gross">{{ $money($totals['gross']) }}</span></td>
                             <td class="px-4 py-3 text-right font-bold">R <span id="js-sum-total-paye">{{ $money($totals['paye']) }}</span></td>

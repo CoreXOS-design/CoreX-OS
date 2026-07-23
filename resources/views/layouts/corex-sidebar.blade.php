@@ -322,7 +322,7 @@
         <div x-data="{ branchOpen: false }" class="px-0">
             <button type="button" @click="branchOpen = !branchOpen"
                     class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15" />
                 </svg>
@@ -372,7 +372,7 @@
         <div x-data="{ actingOpen: false }" class="px-0">
             <button type="button" @click="actingOpen = !actingOpen"
                     class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
                 </svg>

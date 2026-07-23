@@ -9,7 +9,7 @@
     // portals" instead of leaving P24/PP/the website advertising the old listing.
     $synOpenOnLoad = !$isNew && session('open_syndication');
 @endphp
-<div class="w-full space-y-4"
+<div class="w-full space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
@@ -1015,8 +1015,8 @@
             <button type="button"
                     data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
-                    :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
-                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
+                    :class="'border-b-2'"
+                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
                     class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
                     style="background:transparent;">
                 {{ $tab['label'] }}
@@ -3194,8 +3194,8 @@
             <div class="flex items-center justify-between pt-4">
                 <button type="submit" form="prop-update-form"
                         class="px-5 py-2 rounded-md text-sm font-semibold text-white"
-                        style="background:var(--brand-default); border:1px solid var(--border);"
-                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        style="background:var(--brand-button); border:none; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-button) 25%, transparent);"
+                        onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
                     {{ $isNew ? 'Create Property' : 'Save Changes' }}
                 </button>
                 @if(!$isNew)
@@ -4210,7 +4210,7 @@
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3" style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="add(r)"
-                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--brand-icon)]/10 transition-colors"
                                 style="border-bottom:1px solid var(--border); background:var(--surface);">
                             <div>
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
@@ -4407,7 +4407,7 @@
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="select(r)"
-                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--brand-icon)]/10 transition-colors"
                                 style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
                             <div>
                                 <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>

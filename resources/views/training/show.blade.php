@@ -26,7 +26,7 @@
     {{-- Progress bar --}}
     <div class="flex items-center gap-3 p-4 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
         <div class="flex-1 h-3 rounded-full overflow-hidden" style="background:var(--border);">
-            <div class="h-full rounded-full transition-all" style="width:{{ $pct }}%; background:{{ $completion ? '#22c55e' : '#0ea5e9' }};"></div>
+            <div class="h-full rounded-full transition-all" style="width:{{ $pct }}%; background:{{ $completion ? '#22c55e' : 'var(--brand-icon)' }};"></div>
         </div>
         <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $pct }}%</span>
         @if($completion)
@@ -48,7 +48,7 @@
                     class="w-full flex items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-white/5">
                 {{-- Status icon --}}
                 <div class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
-                     style="{{ $isLessonDone ? 'background:#22c55e; color:#fff;' : ($isStarted ? 'background:rgba(14,165,233,0.15); color:#0ea5e9;' : 'background:var(--border); color:var(--text-muted);') }}">
+                     style="{{ $isLessonDone ? 'background:#22c55e; color:#fff;' : ($isStarted ? 'background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);' : 'background:var(--border); color:var(--text-muted);') }}">
                     @if($isLessonDone)
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                     @else
@@ -75,7 +75,7 @@
                 @if(!$isStarted)
                 <form method="POST" action="{{ route('training.start-lesson', $lesson) }}" class="mb-3">
                     @csrf
-                    <button type="submit" class="text-xs px-3 py-1 rounded" style="background:rgba(14,165,233,0.12); color:#0ea5e9; border:1px solid rgba(14,165,233,0.25);">Start Lesson</button>
+                    <button type="submit" class="text-xs px-3 py-1 rounded" style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">Start Lesson</button>
                 </form>
                 @endif
 
@@ -89,14 +89,14 @@
                     @elseif($lesson->content_type === 'document' && $lesson->document_path)
                         <a href="{{ asset('storage/' . $lesson->document_path) }}" target="_blank"
                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm no-underline"
-                           style="background:rgba(14,165,233,0.12); color:#0ea5e9; border:1px solid rgba(14,165,233,0.25);">
+                           style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                             Download Document
                         </a>
                     @elseif($lesson->content_type === 'link' && $lesson->external_link)
                         <a href="{{ $lesson->external_link }}" target="_blank" rel="noopener"
                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm no-underline"
-                           style="background:rgba(14,165,233,0.12); color:#0ea5e9; border:1px solid rgba(14,165,233,0.25);">
+                           style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                             Open External Resource
                         </a>

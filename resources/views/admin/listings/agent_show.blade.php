@@ -45,15 +45,15 @@
         </div>
     </div>
 
-    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Listings</div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">Showing {{ $listings->firstItem() ?? 0 }}–{{ $listings->lastItem() ?? 0 }} of {{ $listings->total() }}</div>
+    <div class="rounded-2xl border overflow-hidden" style="background:var(--surface); border-color:var(--border)">
+        <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
+            <div class="text-sm font-medium" style="color:var(--text-primary)">Listings</div>
+            <div class="text-xs" style="color:var(--text-muted)">Showing {{ $listings->firstItem() ?? 0 }}–{{ $listings->lastItem() ?? 0 }} of {{ $listings->total() }}</div>
         </div>
 
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
-                <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+                <thead>
                     <tr>
                         <th class="text-left px-4 py-3">Property</th>
                         <th class="text-left px-4 py-3">Status</th>
@@ -64,37 +64,38 @@
                         <th class="text-left px-4 py-3">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                <tbody>
                     @forelse($listings as $l)
-                        <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
+                        <tr>
                             <td class="px-4 py-3">
-                                <div class="font-medium text-slate-900 dark:text-slate-100">{{ $l->property ?? '(no address)' }}</div>
-                                <div class="text-xs text-slate-500 dark:text-slate-400">
+                                <div class="font-medium" style="color:var(--text-primary)">{{ $l->property ?? '(no address)' }}</div>
+                                <div class="text-xs" style="color:var(--text-muted)">
                                     {{ $l->external_ref ?? $l->external_id ?? '' }}
                                     @if($l->region) · {{ $l->region }} @endif
                                 </div>
                             </td>
-                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->status ?? '' }}</td>
-                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->type ?? '' }}</td>
-                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->mandate ?? '' }}</td>
-                            <td class="px-4 py-3 text-right text-slate-900 dark:text-slate-100">
+                            <td class="px-4 py-3" style="color:var(--text-primary)">{{ $l->status ?? '' }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-primary)">{{ $l->type ?? '' }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-primary)">{{ $l->mandate ?? '' }}</td>
+                            <td class="px-4 py-3 text-right" style="color:var(--text-primary)">
                                 @if(!is_null($l->price_cents))
                                     R {{ number_format($l->price_cents/100, 0) }}
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
+                            <td class="px-4 py-3" style="color:var(--text-secondary)">
                                 @if($l->modified_at) {{ $l->modified_at->format('Y-m-d') }} @endif
                             </td>
                             <td class="px-4 py-3">
                                 <a href="{{ route('admin.listings.stock.agents.edit', $l) }}"
-                                   class="inline-flex items-center px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-900/30">
+                                   class="inline-flex items-center px-3 py-1.5 rounded-lg border hover:bg-[var(--surface-2)]"
+                                   style="border-color:var(--border); color:var(--text-primary)">
                                     Edit Agents
                                 </a>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="6">
+                            <td class="px-4 py-6 text-center" style="color:var(--text-muted)" colspan="6">
                                 No listings found for this agent/filter.
                             </td>
                         </tr>
@@ -103,7 +104,7 @@
             </table>
         </div>
 
-        <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-800">
+        <div class="px-4 py-3 border-t" style="border-color:var(--border)">
             {{ $listings->links() }}
         </div>
     </div>
