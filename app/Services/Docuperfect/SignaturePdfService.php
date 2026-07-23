@@ -418,6 +418,35 @@ class SignaturePdfService
     }
 
     /**
+     * Render the electronic-signature CERTIFICATE as a STANDALONE PDF (audit pages only),
+     * on request. This is deliberately SEPARATE from the clean signed document — the
+     * certificate is never stapled onto the distributed/emailed/downloaded copy; it is
+     * downloaded on demand (SignatureController::downloadCertificate) from the live audit
+     * data, so it always reflects the current record. Returns a temp PDF path or null.
+     */
+    public function generateCertificatePdf(SignatureTemplate $template): ?string
+    {
+        try {
+            $template->loadMissing(['document.template', 'markers.signatures', 'requests', 'signatures', 'auditLogs']);
+            $document = $template->document;
+            if (!$document) {
+                return null;
+            }
+            $auditData = $this->buildAuditData($template, $document);
+            $auditHtml = view('docuperfect.signatures.pdf.audit-certificate', $auditData)->render();
+
+            return app(\App\Http\Controllers\Docuperfect\SigningController::class)
+                ->generatePdfFromHtml($auditHtml, (int) $document->id);
+        } catch (\Throwable $e) {
+            Log::error('SignaturePdfService: certificate-only PDF generation failed', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
      * Build audit certificate data.
      */
     private function buildAuditData(SignatureTemplate $template, $document): array
