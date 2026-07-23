@@ -726,6 +726,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // AT-334 — build the pipeline from chosen suspensive conditions (Deal Structure tab).
     Route::post('/{deal}/pipeline/structure',             [\App\Http\Controllers\Dr2\PipelineController::class, 'saveStructure'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.structure');
     Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
+    // AT-334 P1 — reopen a completed step (composable deals): clears actual_date, back to not_started, re-cascades.
+    Route::post('/{deal}/pipeline/steps/{step}/reopen',   [\App\Http\Controllers\Dr2\PipelineController::class, 'reopenStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reopen');
     // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)
     Route::post('/{deal}/pipeline/steps/add',              [\App\Http\Controllers\Dr2\PipelineController::class, 'addStep'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.step.add');
     Route::post('/{deal}/pipeline/steps/{step}/na',        [\App\Http\Controllers\Dr2\PipelineController::class, 'markNa'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.na');

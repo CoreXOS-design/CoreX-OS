@@ -146,18 +146,21 @@
                 <input type="date" name="deal_date" value="{{ old('deal_date', optional($deal->deal_date)->format('Y-m-d')) }}" required>
             </div>
 
-            {{-- (Enhancement 6) Deal Type — compulsory radios, NO default (silent default = silent wrong data) --}}
+            {{-- AT-334 P2 — Deal Type is now OPTIONAL. The Deal Structure tab composes the
+                 pipeline from suspensive conditions after capture, so a type/pipeline pick is
+                 no longer required. Leave it blank and compose later, or set it here if known. --}}
             <div class="field-full">
-                <label class="ds-label block mb-1">Deal Type <span style="color:#dc2626;">*</span></label>
+                <label class="ds-label block mb-1">Deal Type <span style="color:var(--text-muted,#9ca3af);font-weight:400;">(optional)</span></label>
                 @php $dt = old('deal_type', $deal->deal_type); @endphp
                 <div class="flex flex-wrap gap-4 pt-1">
                     @foreach(['bond' => 'Bond Sale', 'cash' => 'Cash Sale', 'sale_of_2nd' => 'Sale of 2nd Property'] as $val => $lbl)
                     <label class="inline-flex items-center gap-2">
-                        <input type="radio" name="deal_type" value="{{ $val }}" {{ $dt === $val ? 'checked' : '' }} required>
+                        <input type="radio" name="deal_type" value="{{ $val }}" {{ $dt === $val ? 'checked' : '' }}>
                         <span>{{ $lbl }}</span>
                     </label>
                     @endforeach
                 </div>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Optional — the Deal Structure tab builds the pipeline from the deal's conditions after capture.</p>
             </div>
 
             {{-- AT-334 — Pipeline. Composition (Deal Structure) is now the DEFAULT: a new deal

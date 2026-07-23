@@ -10,7 +10,7 @@
 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
 @php($indentPx = $indentPx ?? 0)
 @php($variant = $variant ?? 'row')
-<div x-data="{ na:false, cm:false, due:false, seq:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $indentPx ? 'margin-left:'.$indentPx.'px;' : '' }}{{ $variant === 'gate' ? 'background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:.5rem .6rem;margin:.45rem 0;' : '' }}{{ $row['na'] ? 'opacity:.6;' : '' }}">
+<div x-data="{ na:false, cm:false, due:false, seq:false, done:false }"@if($terminal) x-show="!hideDone" x-cloak @endif style="border-bottom:1px solid var(--corex-border,#e5e7eb);padding:.4rem .25rem;{{ $indentPx ? 'margin-left:'.$indentPx.'px;' : '' }}{{ $variant === 'gate' ? 'background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:.5rem .6rem;margin:.45rem 0;' : '' }}{{ $row['na'] ? 'opacity:.6;' : '' }}">
 
     {{-- ONE-LINER: dot · name(+tags) · due · badge · compact inline actions --}}
     <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
@@ -32,7 +32,22 @@
         {{-- Compact inline actions (all functionality preserved) --}}
         <div style="flex:1 1 auto;display:inline-flex;gap:.3rem;flex-wrap:wrap;align-items:center;justify-content:flex-end;">
         @unless($locked)
-        @if($s->status === 'active')
+        {{-- AT-334 P1 — composable deals: mark ANY not-started/active step done (editable
+             actual date; re-cascades) + reopen a completed one. Old-model keeps its strict
+             active-only "Mark complete". --}}
+        @if(($isNewModel ?? false) && !$terminal)
+            @permission('view_deals')
+            <button type="button" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#047857;border-color:#6ee7b7;" @click="done = !done" title="Mark this step done (set the actual date)">Complete</button>
+            @endpermission
+        @endif
+        @if(($isNewModel ?? false) && $s->status === 'completed')
+            @permission('view_deals')
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf
+                <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;">Reopen</button>
+            </form>
+            @endpermission
+        @endif
+        @if($s->status === 'active' && !($isNewModel ?? false))
             @permission('view_deals')
             <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
                 <button type="submit" class="corex-btn-outline" style="padding:.12rem .5rem;font-size:.72rem;color:#047857;border-color:#6ee7b7;">{{ $s->negative_status_trigger ? 'Mark passed' : 'Mark complete' }}</button>
@@ -133,6 +148,23 @@
                 <input type="number" name="offset" min="0" max="3650" value="{{ (int) $s->days_offset }}" class="corex-input" style="width:5rem;font-size:.8rem;"> days
             </label>
             <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;">Save sequence</button>
+        </form>
+    </div>
+    @endpermission
+    @endunless
+    @endif
+
+    {{-- AT-334 P1 — mark done with an editable ACTUAL date (defaults today; back-datable).
+         On submit, completeStep sets actual_date + re-cascades downstream Dues. New-model only. --}}
+    @if(($isNewModel ?? false) && !$terminal)
+    @unless($locked)
+    @permission('view_deals')
+    <div x-show="done" x-cloak style="margin:.4rem 0 0 1.15rem;">
+        <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}" style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">@csrf
+            <label style="font-size:.78rem;color:#374151;">Actually done on
+                <input type="date" name="actual_date" value="{{ \Illuminate\Support\Carbon::today()->format('Y-m-d') }}" class="corex-input" style="font-size:.8rem;">
+            </label>
+            <button type="submit" class="corex-btn-secondary" style="padding:.2rem .7rem;font-size:.78rem;color:#047857;">Mark done</button>
         </form>
     </div>
     @endpermission

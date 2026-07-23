@@ -173,7 +173,12 @@ class PipelineController extends Controller
         if ((int) $step->dr1_deal_id !== (int) $deal->id) {
             abort(404);
         }
-        if ($step->status !== 'active') {
+        $isNewModel = app(\App\Services\DealV2\DealDateCascade::class)->isNewModel($deal);
+        // Old-model steps complete in strict order (active only). New-model (composable) deals
+        // let the agent mark ANY not-started/active step done — real deals rarely complete in
+        // order, and the Due cascade re-baselines downstream off the actual date. The deal-level
+        // lock (declined deals) still applies, enforced by the service's assertStepUnlocked.
+        if ($step->status !== 'active' && ! ($isNewModel && $step->status === 'not_started')) {
             return back()->with('error', 'Only an active step can be completed.');
         }
 
@@ -201,8 +206,60 @@ class PipelineController extends Controller
             ));
         }
 
+        // AT-334 P1 — new-model: honour an editable actual_date (defaults to today; a user can
+        // back-date "bond was actually approved on 1 Aug") and re-cascade downstream Dues off it
+        // (Due = predecessor Actual-if-set else Due + offset). RAG recomputes live on render.
+        if ($isNewModel) {
+            $actual = $request->input('actual_date');
+            $actualDate = $actual
+                ? \Illuminate\Support\Carbon::parse($actual)->toDateString()
+                : now()->toDateString();
+            $step->forceFill(['actual_date' => $actualDate])->saveQuietly();
+            app(\App\Services\DealV2\DealDateCascade::class)->recompute($deal);
+        }
+
         return redirect()->route('deals-dr2.pipeline', $deal)
             ->with('info', "Step \"{$step->name}\" completed.");
+    }
+
+    /**
+     * AT-334 P1 — reopen a completed step (composable deals only): clear actual_date /
+     * completed_at, return it to not_started, and re-cascade downstream Dues. Reversible;
+     * the deal-level lock still applies. Direct successors that this completion activated are
+     * left as-is (reopen them individually if needed).
+     */
+    public function reopenStep(
+        Deal $deal,
+        DealStepInstance $step,
+        Request $request,
+        \App\Services\DealV2\DealDateCascade $cascade
+    ): RedirectResponse {
+        if ((int) $step->dr1_deal_id !== (int) $deal->id) {
+            abort(404);
+        }
+        if ($this->lock->isLocked($deal)) {
+            return back()->with('error', 'This deal is not proceeding — its pipeline is locked.');
+        }
+        if (! $cascade->isNewModel($deal)) {
+            return back()->with('error', 'Reopen applies to composable deals only.');
+        }
+        if (! in_array($step->status, ['completed', 'skipped'], true)) {
+            return back()->with('error', 'Only a completed step can be reopened.');
+        }
+
+        $step->forceFill([
+            'status'          => 'not_started',
+            'actual_date'     => null,
+            'completed_at'    => null,
+            'completed_by_id' => null,
+            'completion_data' => null,
+            'current_rag'     => 'grey',
+        ])->save();
+
+        $cascade->recompute($deal);
+
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with('info', "Step \"{$step->name}\" reopened.");
     }
 
     /** V1.1 — mark a step Not Applicable (kept, visibly excused; reason recorded + audited). */

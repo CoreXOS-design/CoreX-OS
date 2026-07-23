@@ -450,9 +450,10 @@ class DealRegisterController extends Controller
         $data = $request->validate([
             'period'           => ['required'],
             'deal_date'        => ['required', 'date'],
-            // (Enhancement 6) deal type is COMPULSORY — explicit choice, no silent
-            // default. Additive column on `deals`; DR1 ignores it (legacy rows NULL).
-            'deal_type'        => ['required', 'in:bond,cash,sale_of_2nd'],
+            // AT-334 P2 — deal_type is now OPTIONAL. The composable Deal Structure tab drives
+            // the pipeline from suspensive conditions, so a capture no longer needs a type/
+            // pipeline pick. Column is already nullable (most deals carry NULL); no migration.
+            'deal_type'        => ['nullable', 'in:bond,cash,sale_of_2nd'],
             'property_value'   => ['required', 'numeric'],
             'total_commission' => ['required', 'numeric'],
 
@@ -599,7 +600,7 @@ class DealRegisterController extends Controller
         $deal->fill([
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
-            'deal_type'        => $data['deal_type'],
+            'deal_type'        => $data['deal_type'] ?? null,
             'property_value'   => $data['property_value'],
             'total_commission' => $data['total_commission'],
 
