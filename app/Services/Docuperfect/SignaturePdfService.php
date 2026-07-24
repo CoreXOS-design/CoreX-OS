@@ -25,7 +25,7 @@ class SignaturePdfService
             $docTemplate = $document->template;
 
             $webTemplateData = $document->web_template_data ?? [];
-            $renderHtml = $this->resolveRenderHtml($document);
+            $renderHtml = $this->resolveRenderHtml($template);
             $hasMergedHtml = trim((string) $renderHtml) !== '';
             $hasDocPages = !empty($webTemplateData['flattened_page_count']);
             $isWebTemplate = $docTemplate && ($docTemplate->render_type ?? 'pdf') === 'web';
@@ -193,56 +193,32 @@ class SignaturePdfService
      * the browser (try/catch) so the PDF always at least renders the canonical.
      */
     /**
-     * Resolve the faithful render source for a document, in read precedence:
-     *   1. signed_paginated_html — the exact per-document .corex-a4-page DOM the
-     *      last signer submitted, with every party's ink AND the page-break
-     *      initials already IN POSITION (what the on-screen signed document shows).
-     *   2. canonical_html WHEN it carries baked ink (canonical_version >= 1) — the
-     *      un-paginated vN artifact; Chromium paginates it via injectInitialsPagination.
-     *   3. canonical_html at v0 (structure only) if that is all we have.
-     *   4. merged_html — legacy / pre-canonical documents only.
+     * Resolve the faithful render source — THE SAME HTML the agent-approval review
+     * screen renders (SignatureController::review → CanonicalDocumentRenderer::forDisplay).
      *
-     * signed_paginated_html is FIRST because the ink baker stamps a "Signed by {name}"
-     * caption into every role-block signature cell of the canonical (including inline
-     * clause cells the signer's paginated document collapsed away), so a canonical
-     * render shows extra mid-document signature rows. The signer's own DOM is faithful.
-     * Its page BREAKS, however, are re-flowed at render time (injectInitialsPagination)
-     * so the emailed/downloaded PDF fits one physical A4 sheet per logical page.
+     * The signed PDF is a faithful PRINT of the exact page the agent approved, NOT a
+     * re-derivation. One source of truth: screen == PDF, by construction.
+     *
+     * Previously the PDF read signed_paginated_html (only the LAST signer's frozen,
+     * partial browser DOM — missing earlier same-role parties) and then re-stamped
+     * ceremony_values over it. ceremony_values keys by role ("seller_"), so two
+     * same-role parties (seller#1 + seller#2) collapsed into one — bleeding one
+     * party's place/date across the other and blanking the rest, and dropping an
+     * address to a "seller address" placeholder. The accumulated canonical
+     * (forDisplay) already carries EVERY party's signature, initials, location,
+     * date and address, identity-scoped (seller_1 vs seller_2), so we print it
+     * directly and touch nothing. Chromium re-flows the page breaks
+     * (injectInitialsPagination) exactly as the review screen paginates it.
      */
-    public function resolveRenderHtml($document): string
+    public function resolveRenderHtml(SignatureTemplate $template): string
     {
-        $webTemplateData  = $document->web_template_data ?? [];
-        $canonicalHtml    = (string) ($webTemplateData['canonical_html'] ?? '');
-        $canonicalVersion = (int) ($webTemplateData['canonical_version'] ?? 0);
-        $signedPaginated  = $document->signed_paginated_html;
-
-        if (is_string($signedPaginated) && trim($signedPaginated) !== '') {
-            return $this->withCeremonyValues($signedPaginated, $webTemplateData);
-        }
-        if (trim($canonicalHtml) !== '') {
-            return $this->withCeremonyValues($canonicalHtml, $webTemplateData); // v>=1 (baked) or v0 (structure)
-        }
-        return $this->withCeremonyValues((string) ($webTemplateData['merged_html'] ?? ''), $webTemplateData);
-    }
-
-    /**
-     * Re-apply EVERY party's captured ceremony values (place/date/time) onto their
-     * own spans in the resolved render source. `ceremony_values` is the source of
-     * truth for what each signer entered; a frozen signed_paginated_html or a
-     * canonical baked by the old strict binding can show a party's spans blank.
-     * Re-binding here — the ONE place both the filed/emailed PDF (generate) and
-     * the live download (buildInjectedRenderHtml) read — makes the rendered PDF
-     * faithful and repairs already-signed docs on a no-re-sign re-render. Party-
-     * scoped + idempotent; fail-safe returns the HTML unchanged on any error.
-     */
-    private function withCeremonyValues(string $html, array $webTemplateData): string
-    {
-        $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
-        if (! is_array($ceremonyValues) || $ceremonyValues === [] || trim($html) === '') {
-            return $html;
+        $canonical = app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->forDisplay($template);
+        if (trim($canonical) !== '') {
+            return $canonical;
         }
 
-        return app(CanonicalInkComposer::class)->applyCeremonyValues($html, $ceremonyValues);
+        // Mirror the review screen's own fallback for legacy / pre-canonical docs.
+        return (string) (($template->document?->web_template_data ?? [])['merged_html'] ?? '');
     }
 
     /**
@@ -259,7 +235,7 @@ class SignaturePdfService
         if (!$document) {
             return '';
         }
-        return $this->injectInitialsPagination($template, $document, $this->resolveRenderHtml($document));
+        return $this->injectInitialsPagination($template, $document, $this->resolveRenderHtml($template));
     }
 
     private function injectInitialsPagination(SignatureTemplate $template, $document, string $html): string
@@ -283,20 +259,25 @@ class SignaturePdfService
         //
         // Legacy docs are re-rendered without re-signing: a client cannot be asked to
         // re-sign because our renderer was broken (Johan's hard requirement).
-        $alreadyPaginated = str_contains($html, 'corex-a4-page');
-
         $webData = $document->web_template_data ?? [];
         $signed = $webData['signed_initials'] ?? [];
         if (!is_array($signed)) {
             $signed = [];
         }
-
-        // A plain, un-paginated canonical with no captured initials keeps its legacy
-        // CSS-flow render (nothing to place, no page boxes to build). Anything already
-        // paginated is always re-flowed to kill the physical spill.
-        if (!$alreadyPaginated && $signed === []) {
-            return $html;
+        // §20 disclosure answers — restored read-only exactly as the agent-review
+        // screen does (SignatureController::review hands web_template_data
+        // .disclosure_answers to restoreStoredDisclosure), so the printed PDF
+        // matches the approved page. Empty for docs without a disclosure block.
+        $disclosure = $webData['disclosure_answers'] ?? [];
+        if (!is_array($disclosure)) {
+            $disclosure = [];
         }
+
+        // Always paginate + restore — the SAME unconditional pass the agent-review
+        // screen runs on this canonical (paginateDocument + restoreStoredInitials +
+        // restoreStoredDisclosure). forDisplay is now the one source, so print ==
+        // screen by construction; there is no raw-canonical short-circuit that could
+        // diverge from what the agent approved.
 
         // Same party set the review passes to paginateDocument().
         $parties = collect($template->parties_json ?? [])
@@ -309,8 +290,9 @@ class SignaturePdfService
 
         // Default json_encode escapes '/', so any "</script>" inside a data: URI is
         // emitted as "<\/script>" and cannot break out of the script context.
-        $partiesJson = json_encode($parties);
-        $storedJson  = json_encode($signed);
+        $partiesJson    = json_encode($parties);
+        $storedJson     = json_encode($signed);
+        $disclosureJson = json_encode($disclosure);
 
         // When the source is already paginated, mark the container so paginateDocument
         // takes its idempotent re-anchor path: it snapshots every applied initial /
@@ -324,7 +306,8 @@ class SignaturePdfService
         // A document.fonts.ready fallback covers any caller that does not use the hook.
         $boot = '<script>(function(){function run(){var c=document.getElementById("pdfDocContent")||document.body;'
             . 'try{if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
-            . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');}catch(e){}}'
+            . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');'
+            . 'try{restoreStoredDisclosure(c,' . $disclosureJson . ');}catch(e){}}catch(e){}}'
             . 'window.__corexRepaginate=run;'
             . 'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(run).catch(run);}'
             . 'else if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run);}else{run();}})();</script>';
