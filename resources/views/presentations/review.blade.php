@@ -301,6 +301,27 @@
                     <div id="cma-upper" class="cell-value">{{ ($cmaValuation['cma_upper'] ?? null) ? 'R ' . number_format($cmaValuation['cma_upper'], 0, '.', ' ') : '—' }}</div>
                 </div>
             </div>
+
+            {{-- CMA valuation sanity guardrail — additive warning, surfacing only.
+                 Fires when the median headline may be unreliable (size-normalised
+                 cross-check diverges >30%, or comps/subject are not size-comparable).
+                 Never changes the headline number above; same philosophy as the
+                 CMA parse-failure alert. --}}
+            @php $vg = $cmaValuation['valuation_guardrail'] ?? []; @endphp
+            @if(!empty($vg['flagged']))
+            <div id="cma-valuation-guardrail" class="review-warn-banner"
+                 data-severity="{{ $vg['severity'] ?? 'review' }}"
+                 style="margin-top:10px;{{ ($vg['severity'] ?? '') === 'high' ? ' border-left:4px solid var(--ds-amber,#f59e0b);' : '' }}">
+                <strong>⚠ Valuation sanity check</strong> — {{ $vg['message'] }}
+                <span style="display:block; margin-top:4px; font-size:11px; color:var(--text-muted);">
+                    Median headline R {{ number_format((int) ($vg['median_value'] ?? 0), 0, '.', ' ') }}
+                    · size-normalised R {{ ($vg['rm2_value'] ?? null) ? number_format((int) $vg['rm2_value'], 0, '.', ' ') : '—' }}
+                    @if(!is_null($vg['divergence_pct'] ?? null)) · divergence {{ $vg['divergence_pct'] }}% @endif
+                    @if(!empty($vg['basis_mismatch'])) · size-basis mismatch ({{ $vg['basis_ratio'] }}×) @endif
+                </span>
+            </div>
+            @endif
+
             <div id="cma-adj-line" class="cma-adj-line"
                  {{ ($cmaValuation['condition_applied'] ?? false) ? '' : 'hidden' }}>
                 <span id="cma-adj-text">
