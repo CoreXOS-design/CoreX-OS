@@ -17,6 +17,33 @@ use Illuminate\Support\Collection;
  */
 class AnalysisDataService
 {
+    // ── CMA headline — size-normalised median-floored blend (STEP 2a) ─────
+    // The headline is the median of comparable sold prices, lifted toward the
+    // size-normalised value (median R/m² × subject extent) ONLY when it is safe
+    // to do so. These knobs are deliberately tunable — Johan calibrates them.
+    //
+    //   TRUST band  — the blend is applied only when the subject extent and the
+    //                 comp pool share a size basis, proxied by the size-basis
+    //                 ratio (subject extent ÷ median comp size) sitting in band.
+    //                 Below the floor / above the ceiling the extrapolation is
+    //                 untrustworthy (sectional units vs a full erf, or a subject
+    //                 so much larger than the comps that flat R/m² over-values
+    //                 it) → the headline stays the plain median, UNCHANGED.
+    //   LIFT ramp   — how strongly the size-normalised value pulls the headline
+    //                 up, as a function of how far it exceeds the median. Zero at
+    //                 the LOW divergence (so already-sane presentations do not
+    //                 move) ramping to full lift at HIGH (a clear under-valuation
+    //                 like a much-larger-than-comps stand gets its full uplift).
+    private const BLEND_TRUST_RATIO_MIN = 0.4;
+    private const BLEND_TRUST_RATIO_MAX = 1.6;
+    private const BLEND_LIFT_LOW_PCT    = 30.0;
+    private const BLEND_LIFT_HIGH_PCT   = 60.0;
+
+    // Guardrail (STEP 2b) — flag when the headline still can't be trusted.
+    private const GUARDRAIL_BASIS_RATIO_HIGH = 2.5;
+    private const GUARDRAIL_BASIS_RATIO_LOW  = 0.4;
+    private const GUARDRAIL_DIVERGENCE_PCT   = 30.0;
+
     /**
      * Compile all extracted data into display-ready sections.
      *
@@ -96,18 +123,22 @@ class AnalysisDataService
         // render. Pre-fix compileKeyInsights re-read the raw
         // cma.middle_range field directly, which produced a different
         // "vs CMA Evaluation (middle)" benchmark from the tile value.
-        $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed);
+        // STEP 2a — size-normalised median-floored blend. Computed ONCE here and
+        // shared by the headline (compileCmaValuation) and the STEP 2b guardrail
+        // so the two can never disagree about which value the seller sees.
+        $blend = $this->computeSizeNormalisedBlend($inPoolComps, $cmaComputed);
 
-        // CMA VALUATION SANITY GUARDRAIL — additive, surfacing-only. Does NOT
-        // change the headline number. Flags when the median-based headline may
-        // be unreliable, using the two signals the live prototype (2026-07-24)
-        // proved discriminating: (1) the size-normalised cross-check
-        // (median R/m² × subject extent) diverging hard from the median, and
-        // (2) the comps' size basis and the subject extent being on different
-        // bases (sectional units vs a full erf). Injected into cma_valuation so
-        // it rides the existing pass-through to the review screen — no
-        // controller change. See computeValuationGuardrail() for thresholds.
-        $cmaValuation['valuation_guardrail'] = $this->computeValuationGuardrail($inPoolComps, $cmaComputed);
+        $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed, $blend);
+
+        // CMA VALUATION SANITY GUARDRAIL (STEP 2b) — additive, surfacing-only.
+        // Flags when the headline STILL cannot be trusted after the blend: the
+        // pool is not size-comparable (basis mismatch), or the size-normalised
+        // value still diverges hard from the value shown (the explosion cases,
+        // where the blend deliberately fell back to the plain median). A lifted
+        // headline that now agrees with the size-normalised evidence (Harrison)
+        // is clean. Injected into cma_valuation so it rides the existing
+        // pass-through to the review screen — no controller change.
+        $cmaValuation['valuation_guardrail'] = $this->computeValuationGuardrail($blend);
 
         return [
             'subject_property'   => $this->compileSubjectProperty($presentation, $fields, $askingPrice),
@@ -517,7 +548,7 @@ class AnalysisDataService
         ];
     }
 
-    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = [], array $cmaComputed = []): array
+    private function compileCmaValuation(Collection $fields, ?int $askingPrice, string $cmaSelectedRange = 'middle', array $conditionContext = [], array $cmaComputed = [], array $blend = []): array
     {
         // CMA Info benchmark — what the source PDF stated. Used as an
         // INTERNAL reference line on the review screen so the agent can
@@ -552,7 +583,15 @@ class AnalysisDataService
 
         $lowerBaseline  = $this->intOrNull($poolStats['p25']    ?? null);
         $upperBaseline  = $this->intOrNull($poolStats['p75']    ?? null);
-        $middleBaseline = $this->intOrNull($methodMedian['raw'] ?? null);
+        // STEP 2a — the middle baseline is the size-normalised median-floored
+        // blend (computeSizeNormalisedBlend). It EQUALS the plain median unless
+        // the subject is a genuinely larger, same-basis stand than its comps, in
+        // which case it is lifted toward (median R/m² × extent). Falls back to
+        // the raw median if the blend was not supplied (defensive).
+        $medianRaw      = $this->intOrNull($methodMedian['raw'] ?? null);
+        $middleBaseline = array_key_exists('headline_baseline', $blend)
+            ? $this->intOrNull($blend['headline_baseline'])
+            : $medianRaw;
 
         // PRES-CMA-REALFIX (Johan, 2026-06-16) — the recommended band is the
         // EVALUATED VALUE (middle) ± a tight, agency-configurable %. The middle
@@ -667,39 +706,39 @@ class AnalysisDataService
             // and the review-screen can warn when zero comps are
             // ticked (tiles fall to null).
             'compute_pool_n'            => (int) ($cmaComputed['pool_stats']['n_total'] ?? 0),
-            'compute_method'            => 'median',
+            // STEP 2a — 'median' when the headline is the plain comp-median,
+            // 'size_adjusted' when the size-normalised blend lifted it.
+            'compute_method'            => ($blend['lifted'] ?? false) ? 'size_adjusted' : 'median',
+            'headline_lifted'           => (bool) ($blend['lifted'] ?? false),
+            'headline_median_raw'       => $medianRaw,
+            'size_normalised_value'     => $blend['rm2'] ?? null,
+            'headline_uplift_pct'       => $blend['uplift_applied_pct'] ?? null,
         ];
     }
 
     /**
-     * CMA valuation SANITY GUARDRAIL — surfacing only, never mutates the headline.
+     * STEP 2a — size-normalised, median-floored, same-basis-guarded blend.
      *
-     * The current headline is the median of comparable sold prices. That is
-     * safe when the subject is a typical member of its comp pool, but it can be
-     * materially wrong when the subject is much larger/smaller than the comps
-     * (the median ignores size), or when the comp pool is not size-comparable
-     * at all (sectional units priced against a full-title erf). This guardrail
-     * raises a visible, agent-facing warning in those cases — it never silently
-     * shows a wrong number. Same philosophy as the CMA parse-failure alert.
+     * Produces the headline baseline the seller sees. The comp-median is the
+     * FLOOR; the size-normalised value (median R/m² × subject extent) is allowed
+     * to LIFT it, but only when that is trustworthy and only in proportion to how
+     * clearly the subject is under-valued by the raw median:
      *
-     * Signals (thresholds proven against the live presentation set 2026-07-24 —
-     * flags the 6 explosion cases + the Harrison under-valuation, clears all 28
-     * "sane" presentations, which sit at ≤30% divergence AND basis ratio ~0.8–1.3):
+     *   - trustworthy ⟺ the size-normalised value exists AND the size-basis ratio
+     *     (subject extent ÷ median comp size) sits in [MIN, MAX]. Outside the band
+     *     the comps and subject are not size-comparable, or the subject is so much
+     *     larger that flat R/m² over-values it (the explosion cases) → NO lift,
+     *     headline stays the plain median.
+     *   - lift only upward (never below the median floor) and only by
+     *     weight × (rm2 − median), where weight ramps 0→1 across
+     *     [LIFT_LOW_PCT, LIFT_HIGH_PCT] of median-relative uplift. Already-sane
+     *     presentations (small uplift) therefore do not move; a clearly
+     *     larger-than-comps stand (Harrison, +60%) gets its full uplift.
      *
-     *   1. divergence — |sizeNormalised − median| / median, where
-     *      sizeNormalised = method_rm2_extent.raw (median R/m² × subject extent).
-     *      > 30% means the raw median and the size-aware value disagree
-     *      materially: the subject is probably much bigger/smaller than the comps.
-     *   2. basis mismatch — subject extent ÷ median comp size far from 1
-     *      (> 2.5× or < 0.4×). The comps and the subject are measured on
-     *      different bases (unit floor-area vs full erf), so any per-m² figure
-     *      explodes or collapses and neither method can be trusted.
-     *
-     * A flag is raised on EITHER signal. When rm2 cannot be computed (no subject
-     * extent, or no comp carries a size) there is nothing to cross-check, so the
-     * guardrail stays silent rather than crying wolf.
+     * Shared by the headline (compileCmaValuation) and the guardrail
+     * (computeValuationGuardrail) so the two agree by construction.
      */
-    private function computeValuationGuardrail(Collection $inPoolComps, array $cmaComputed): array
+    private function computeSizeNormalisedBlend(Collection $inPoolComps, array $cmaComputed): array
     {
         $median        = $this->intOrNull($cmaComputed['method_median']['raw'] ?? null);
         $rm2Row        = $cmaComputed['method_rm2_extent'] ?? [];
@@ -715,23 +754,85 @@ class AnalysisDataService
         $maxPrice = $prices->count() ? (int) $prices->last()  : null;
         $medComp  = $sizes->count() ? (int) $sizes[intdiv($sizes->count(), 2)] : null;
 
-        // Signal 1 — size-normalised vs median divergence.
-        $divergencePct = ($median && $rm2)
-            ? round(abs($rm2 - $median) / $median * 100, 1)
+        $basisRatio    = ($medComp && $subjectExtent) ? round($subjectExtent / $medComp, 2) : null;
+        $basisMismatch = $basisRatio !== null
+            && ($basisRatio > self::GUARDRAIL_BASIS_RATIO_HIGH || $basisRatio < self::GUARDRAIL_BASIS_RATIO_LOW);
+
+        // Signed uplift the size-normalised value would apply to the median.
+        $upliftPct = ($median && $rm2) ? round(($rm2 - $median) / $median * 100, 1) : null;
+
+        // Trust gate — same-basis, in-band ratio.
+        $trustworthy = $rm2 !== null && $median !== null && $basisRatio !== null
+            && $basisRatio >= self::BLEND_TRUST_RATIO_MIN
+            && $basisRatio <= self::BLEND_TRUST_RATIO_MAX;
+
+        // Median floor; lift only when trustworthy AND the size-normalised value
+        // sits ABOVE the median (a larger-than-comps subject).
+        $headlineBaseline = $median;
+        $weight           = 0.0;
+        $lifted           = false;
+        if ($trustworthy && $median !== null && $rm2 !== null && $rm2 > $median) {
+            $span   = self::BLEND_LIFT_HIGH_PCT - self::BLEND_LIFT_LOW_PCT;
+            $weight = $span > 0
+                ? max(0.0, min(1.0, (($upliftPct ?? 0) - self::BLEND_LIFT_LOW_PCT) / $span))
+                : (($upliftPct ?? 0) >= self::BLEND_LIFT_HIGH_PCT ? 1.0 : 0.0);
+            if ($weight > 0) {
+                $headlineBaseline = (int) round($median + ($rm2 - $median) * $weight);
+                $lifted           = true;
+            }
+        }
+
+        // Divergence of the size-normalised value from the value ACTUALLY shown
+        // (the blended headline). ≈0 once a headline has been lifted to meet it;
+        // large when the blend fell back to the median (the explosion cases).
+        $headlineDivergencePct = ($headlineBaseline && $rm2)
+            ? round(abs($rm2 - $headlineBaseline) / $headlineBaseline * 100, 1)
             : null;
 
-        // Signal 2 — size-basis mismatch.
-        $basisRatio = ($medComp && $subjectExtent)
-            ? round($subjectExtent / $medComp, 2)
-            : null;
-        $basisMismatch = $basisRatio !== null && ($basisRatio > 2.5 || $basisRatio < 0.4);
+        return [
+            'median'                  => $median,
+            'rm2'                     => $rm2,
+            'subject_extent_m2'       => $subjectExtent,
+            'median_comp_size_m2'     => $medComp,
+            'comp_price_min'          => $minPrice,
+            'comp_price_max'          => $maxPrice,
+            'basis_ratio'             => $basisRatio,
+            'basis_mismatch'          => $basisMismatch,
+            'trustworthy'             => $trustworthy,
+            'weight'                  => round($weight, 3),
+            'lifted'                  => $lifted,
+            'headline_baseline'       => $headlineBaseline,
+            'uplift_available_pct'    => $upliftPct,          // rm2 vs median (what COULD lift)
+            'uplift_applied_pct'      => ($median && $headlineBaseline)
+                ? round(($headlineBaseline - $median) / $median * 100, 1) : null,
+            'headline_divergence_pct' => $headlineDivergencePct, // rm2 vs shown headline
+        ];
+    }
 
-        // Info only — size-normalised value falls outside the comp sold-price band.
-        $outOfRange = $rm2 !== null && $minPrice !== null && $maxPrice !== null
-            && ($rm2 < $minPrice || $rm2 > $maxPrice);
+    /**
+     * CMA valuation SANITY GUARDRAIL (STEP 2b) — surfacing only, never mutates
+     * the headline. Reads the shared blend so it flags exactly the presentations
+     * whose headline could NOT be safely corrected by STEP 2a:
+     *
+     *   - basis mismatch — comps and subject not size-comparable (ratio > 2.5×
+     *     or < 0.4×): a per-m² valuation is meaningless, the blend kept the median.
+     *   - residual divergence — the size-normalised value still differs from the
+     *     value SHOWN by > 30% (the explosion cases, where the blend deliberately
+     *     fell back to the plain median). A headline that was lifted to meet the
+     *     size-normalised evidence (Harrison) has ≈0 residual divergence → clean.
+     *
+     * Silent when there is nothing to cross-check (no size / no extent).
+     */
+    private function computeValuationGuardrail(array $blend): array
+    {
+        $rm2             = $blend['rm2'] ?? null;
+        $median          = $blend['median'] ?? null;
+        $headlineShown   = $blend['headline_baseline'] ?? null;
+        $basisRatio      = $blend['basis_ratio'] ?? null;
+        $basisMismatch   = (bool) ($blend['basis_mismatch'] ?? false);
+        $divergencePct   = $blend['headline_divergence_pct'] ?? null;
 
-        $divergenceThreshold = 30.0;
-        $divergesHard = $divergencePct !== null && $divergencePct > $divergenceThreshold;
+        $divergesHard = $divergencePct !== null && $divergencePct > self::GUARDRAIL_DIVERGENCE_PCT;
         $flagged      = $divergesHard || $basisMismatch;
 
         $reasons = [];
@@ -753,8 +854,8 @@ class AnalysisDataService
                     . 'Check the comparable selection and the subject extent before relying on the headline figure.';
             } else {
                 $message = 'Heads up — a size-normalised cross-check (median R/m² × this property\'s extent) values it around R'
-                    . number_format((int) $rm2) . ', which differs from the comparable-median headline by ' . $divergencePct . '%. '
-                    . 'The subject may be materially larger or smaller than the comparables — review the comparable selection before sending.';
+                    . number_format((int) $rm2) . ', which still differs from the headline by ' . $divergencePct . '%. '
+                    . 'The comparables may not price this property\'s size well — review the comparable selection before sending.';
             }
         }
 
@@ -765,14 +866,14 @@ class AnalysisDataService
             'message'             => $message,
             'median_value'        => $median,
             'rm2_value'           => $rm2,
-            'divergence_pct'      => $divergencePct,
+            'headline_shown'      => $headlineShown,
+            'divergence_pct'      => $divergencePct,  // rm2 vs headline shown
             'basis_ratio'         => $basisRatio,
             'basis_mismatch'      => $basisMismatch,
-            'subject_extent_m2'   => $subjectExtent,
-            'median_comp_size_m2' => $medComp,
-            'comp_price_min'      => $minPrice,
-            'comp_price_max'      => $maxPrice,
-            'out_of_range'        => $outOfRange,
+            'subject_extent_m2'   => $blend['subject_extent_m2'] ?? null,
+            'median_comp_size_m2' => $blend['median_comp_size_m2'] ?? null,
+            'comp_price_min'      => $blend['comp_price_min'] ?? null,
+            'comp_price_max'      => $blend['comp_price_max'] ?? null,
         ];
     }
 
