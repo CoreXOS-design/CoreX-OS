@@ -224,6 +224,24 @@ function paginateDocument(container, parties) {
     // per-wrapper content, then rebuild and re-apply by key. No duplicate
     // rows, no lost applied values, orphaned rows dropped on shrink, and the
     // signature block follows the document's (possibly new) last page.
+    // Give every signature/initial marker a STABLE per-anchor sequence in
+    // document order per (party|type). The composed clause signatures carry NO
+    // data-marker-index (only the final attestation markers do), so without this
+    // _markerKey collapses all of a party's clause signatures onto one key
+    // "party|signature|" — the snapshot/re-apply below then overwrites them to the
+    // LAST one, re-collapsing the per-anchor signatures (seller l/m/n → all n)
+    // AFTER bakeInk had bound them correctly. Idempotent: assigned once, persists
+    // across re-pagination passes so snapshot and re-apply resolve the same key.
+    (function _ensureAnchorSeq() {
+        var seq = {};
+        container.querySelectorAll('[data-marker-type="signature"], [data-marker-type="initial"]').forEach(function (el) {
+            if (el.getAttribute('data-anchor-seq')) return; // already numbered
+            var kk = (el.getAttribute('data-marker-party') || '') + '|' + (el.getAttribute('data-marker-type') || '');
+            var n = seq[kk] || 0; seq[kk] = n + 1;
+            el.setAttribute('data-anchor-seq', String(n));
+        });
+    })();
+
     var applied = {};
     if (container.dataset.paginated === 'true') {
         container.querySelectorAll('[data-marker-type="initial"][data-signed="true"], [data-marker-type="signature"][data-signed="true"]').forEach(function (el) {
@@ -288,7 +306,9 @@ function paginateDocument(container, parties) {
 function _markerKey(el) {
     return (el.getAttribute('data-marker-party') || '') + '|' +
            (el.getAttribute('data-marker-type') || '') + '|' +
-           (el.getAttribute('data-marker-index') || '');
+           // Prefer the composed index; fall back to the per-anchor sequence so
+           // index-less clause signatures each keep a UNIQUE key (no collapse).
+           (el.getAttribute('data-marker-index') || el.getAttribute('data-anchor-seq') || '');
 }
 
 /** Pull each wrapper's body back out of its .corex-a4-page pages (drop the
