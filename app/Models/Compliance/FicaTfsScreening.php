@@ -48,10 +48,11 @@ class FicaTfsScreening extends Model
      * Does this screening CLEAR the FICA approval gate?
      *
      * Blocks on hit / review_required / error (per Johan: "block on an open hit or an
-     * undecided review"). A clean `passed` clears the gate — that IS the feature (clean =>
-     * the agent proceeds). A CO decision overrides either way. The `trust_auto_pass` flag
-     * does NOT change gating; it only governs the label's coverage caveat (see coverageNote()),
-     * because a human CO still approves every file — screening never auto-completes approval.
+     * undecided review"). A clean `passed` clears the gate only when the auto-pass is
+     * TRUSTED (config tfs.trust_auto_pass — approved 2026-07-24 for the UN list); if trust
+     * were turned off, a clean pass would require a CO to clear it. A stale list never
+     * produces `passed` (the service downgrades it to review_required), so a trusted pass
+     * is always clean AND fresh. A CO decision overrides either way.
      */
     public function clearsApprovalGate(): bool
     {
@@ -61,7 +62,7 @@ class FicaTfsScreening extends Model
         if ($this->decision === 'confirmed_hit') {
             return false;
         }
-        return $this->outcome === 'passed';
+        return $this->outcome === 'passed' && $this->auto_pass_trusted;
     }
 
     /** True while an unresolved hit/review is blocking approval. */
@@ -105,8 +106,10 @@ class FicaTfsScreening extends Model
         if ($this->outcome !== 'passed') {
             return null;
         }
+        // Trusted: the provenance line (list + version) is the assertion — no extra caveat.
+        // Untrusted (flag turned off): say so, because a clean pass then needs a CO to clear.
         return $this->auto_pass_trusted
-            ? 'Full sanctions coverage confirmed.'
-            : 'Checked against the FIC UN Consolidated list only — SA-domestic designation coverage is pending sign-off.';
+            ? null
+            : 'Auto-pass is currently disabled — a Compliance Officer must clear this to proceed.';
     }
 }

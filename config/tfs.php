@@ -6,13 +6,14 @@ return [
     |--------------------------------------------------------------------------
     | Auto-pass trust gate  (GUARDRAIL)
     |--------------------------------------------------------------------------
-    | A clean screen ("no match") produces outcome=passed, but it only AUTO-CLEARS
-    | the FICA approval gate when this is true. It stays FALSE until list completeness
-    | (UN + any SA-domestic feed) is confirmed and signed off — so we can never silently
-    | clear someone the country has actually designated. Exact ID/passport HITs and
-    | name→review_required always work regardless of this flag.
+    | A clean screen ("no match") produces outcome=passed, and AUTO-CLEARS the FICA
+    | approval gate when this is true. Johan confirmed (2026-07-24) the FIC UN Consolidated
+    | list is THE TFS list FIC publishes, so auto-pass against it is APPROVED — this is TRUE.
+    | The honest provenance label (list + version date) is shown on every result regardless,
+    | as the legal defense. If an SA-domestic feed is ever added, revisit before assuming its
+    | absence is covered. Exact ID/passport HITs and name→review_required block regardless.
     */
-    'trust_auto_pass' => env('TFS_TRUST_AUTO_PASS', false),
+    'trust_auto_pass' => env('TFS_TRUST_AUTO_PASS', true),
 
     /*
     |--------------------------------------------------------------------------

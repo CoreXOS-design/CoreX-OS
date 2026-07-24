@@ -13,7 +13,7 @@
         'red'   => '#dc2626',
         'grey'  => 'var(--text-muted)',
     ][$tone];
-    $listName = 'FIC UN Consolidated Sanctions List';
+    $listName = 'FIC UN Consolidated list';
 @endphp
 
 <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border); border-left:4px solid {{ $toneColor }};">
@@ -41,7 +41,7 @@
             <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Possible name match{{ $tfsScreening->reason === 'list_stale' ? ' / list is stale' : '' }} — review required.</p>
             <p class="text-xs mb-3" style="color:var(--text-secondary);">Approval is blocked until a Compliance Officer clears these as false positives or confirms a match.</p>
         @elseif($tfsScreening->outcome === 'passed')
-            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">No sanctions match found.</p>
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Screened &amp; passed — no sanctions match.</p>
         @else
             <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Screening could not complete.</p>
             <p class="text-xs mb-3" style="color:var(--text-secondary);">No current sanctions list is available. Approval is blocked until the list ingests successfully.</p>
@@ -87,7 +87,7 @@
             <p class="text-xs mb-3" style="color:var(--ds-green,#059669);">Cleared as a false positive by a Compliance Officer{{ $tfsScreening->decided_at ? ' on '.$tfsScreening->decided_at->format('Y-m-d H:i') : '' }}. Approval unblocked.</p>
         @elseif($tfsScreening->decision === 'confirmed_hit')
             <p class="text-xs mb-3" style="color:#dc2626;">Confirmed as a sanctions match by a Compliance Officer. Approval remains blocked.</p>
-        @elseif(in_array($tfsScreening->outcome, ['hit','review_required']))
+        @elseif($tfsScreening->isBlocking())
             @if($viewerIsCo)
                 <form method="POST" action="{{ route('compliance.fica.tfs-decision', $submission) }}" class="rounded p-2" style="background:var(--surface-2); border:1px dashed var(--border);">
                     @csrf
@@ -96,7 +96,9 @@
                     <textarea name="note" rows="2" class="w-full rounded-md px-2 py-1 text-xs mb-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason / note (recorded to the audit trail)"></textarea>
                     <div class="flex gap-2">
                         <button type="submit" name="action" value="clear" class="corex-btn-primary text-xs">Clear as false positive</button>
-                        <button type="submit" name="action" value="confirm" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:#dc2626; color:#fff;">Confirm sanctions match</button>
+                        @if(in_array($tfsScreening->outcome, ['hit','review_required']))
+                            <button type="submit" name="action" value="confirm" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:#dc2626; color:#fff;">Confirm sanctions match</button>
+                        @endif
                     </div>
                 </form>
             @else
