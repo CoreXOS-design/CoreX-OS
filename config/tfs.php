@@ -17,6 +17,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Match-handling — the seriousness flow (Johan, 2026-07-24)
+    |--------------------------------------------------------------------------
+    | Fixed three-tier escalation tied to the existing FICA risk rating (1/2/3):
+    |   TIER 1  no match           -> "Screened & passed", ticks, NON-blocking (risk untouched)
+    |   TIER 2  name/surname match -> risk = 2 (AMBER) + "ID does not match, name and
+    |                                 surname match."; ticks; NON-blocking (flagged for CO)
+    |   TIER 3  exact ID/passport  -> risk = 3 (CRITICAL); record LOCKS — all action buttons
+    |                                 disappear, only "Report to CO" remains; fully audited
+    | This is not a config toggle — it is the compliance behaviour. See TfsScreeningService
+    | + FicaTfsScreening::isLocked()/riskRatingValue().
+    */
+
+    /*
+    |--------------------------------------------------------------------------
     | Staleness guard
     |--------------------------------------------------------------------------
     | The XML carries no version stamp, so we version by fetch-time + content SHA.

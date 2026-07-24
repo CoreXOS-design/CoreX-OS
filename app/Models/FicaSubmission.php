@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 
+#[ObservedBy([\App\Observers\FicaSubmissionObserver::class])]
 class FicaSubmission extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
@@ -94,10 +96,22 @@ class FicaSubmission extends Model
         return $this->tfsScreenings()->latest('screened_at')->latest('id')->first();
     }
 
-    /** Approval is allowed only when the latest screening exists and clears the gate. */
+    /**
+     * Does the latest TFS screening ALLOW the approve flow to continue?
+     * Non-blocking except for a TIER 3 exact-ID match (a locked screening): true unless the
+     * latest screening is locked. A name review (Tier 2) is amber but does NOT block; no
+     * screening => not blocking.
+     */
     public function tfsGateCleared(): bool
     {
-        return (bool) $this->latestTfsScreening()?->clearsApprovalGate();
+        $s = $this->latestTfsScreening();
+        return ! ($s && $s->blocksApproval());
+    }
+
+    /** True once a TFS screening has run to a definite result (checklist tick). */
+    public function tfsScreeningRan(): bool
+    {
+        return (bool) $this->latestTfsScreening()?->ranSuccessfully();
     }
 
     public function verifiedBy(): BelongsTo

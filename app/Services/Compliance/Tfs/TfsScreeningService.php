@@ -7,9 +7,11 @@ use App\Models\Compliance\SanctionsListAlias;
 use App\Models\Compliance\SanctionsListEntry;
 use App\Models\Compliance\SanctionsListIdentifier;
 use App\Models\Compliance\SanctionsListImport;
+use App\Models\FicaStatusHistory;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Screen a FICA submission's Name + ID/Passport against the ingested sanctions list.
@@ -74,6 +76,7 @@ class TfsScreeningService
             $screening->match_count = $idHits->count();
             $screening->candidates  = $idHits->map(fn ($i) => $this->candidate($i->entry, 'ID/passport ' . $i->id_type . ': ' . $i->id_value))->values()->all();
             $screening->save();
+            $this->applyRisk($submission, $screening);
             return $screening;
         }
 
@@ -91,23 +94,90 @@ class TfsScreeningService
                 return $this->candidate($e, $why);
             })->values()->all();
             $screening->save();
+            $this->applyRisk($submission, $screening);
             return $screening;
         }
 
-        // ── 3. Clean. Stale list can never auto-pass ─────────────────────────
+        // ── 3. Clean, but the list is STALE => could not complete a trustworthy
+        //       screen. Record as error (NOT a pass) so the item stays un-ticked and
+        //       the manual fallback is offered. (A hit/review on stale data still fires
+        //       above — we flag on stale data, we just never PASS on it.) ────────────
         if ($stale) {
-            $screening->outcome = 'review_required';
+            $screening->outcome = 'error';
             $screening->reason  = 'list_stale';
             $screening->save();
             return $screening;
         }
 
-        // ── 4. Clean + fresh => PASSED (auto-clears only if trusted) ─────────
+        // ── 4. Clean + fresh => PASSED (trusted per config) ──────────────────
         $screening->outcome           = 'passed';
         $screening->reason            = 'no_match';
         $screening->auto_pass_trusted = (bool) config('tfs.trust_auto_pass', false);
         $screening->save();
         return $screening;
+    }
+
+    /**
+     * Auto-screen ONLY when needed — the on-data trigger. Runs a screen when there is
+     * no current screening for the submission's identity, or the identity changed, or
+     * the last screen could not complete (error) and a usable list is now available.
+     * Returns null when there are no identifying details to screen yet, or when a fresh
+     * completed screen for the current identity already exists (no wasted work).
+     */
+    public function screenIfNeeded(FicaSubmission $submission, ?User $actor = null): ?FicaTfsScreening
+    {
+        [$name, $idNumber] = $this->subjectOf($submission);
+        if (trim((string) $name) === '') {
+            return null; // identifying details have not landed yet
+        }
+
+        $fingerprint = TfsNormalizer::name($name) . '|' . TfsNormalizer::identifier($idNumber);
+        $latest = $submission->latestTfsScreening();
+
+        if ($latest && $latest->fingerprint() === $fingerprint) {
+            if ($latest->ranSuccessfully()) {
+                return $latest; // already screened this exact identity — nothing to do
+            }
+            // Previous run could not complete. Only retry if a usable (fresh) list now exists,
+            // otherwise leave the error state (and the fallback button) rather than spam rows.
+            $import = $this->freshestImport($this->operativeFeeds());
+            $usable = $import && $import->finished_at
+                && $import->finished_at->gte(Carbon::now()->subDays((int) config('tfs.max_staleness_days', 3)));
+            if (! $usable) {
+                return $latest;
+            }
+        }
+
+        return $this->screen($submission, $actor);
+    }
+
+    /**
+     * Apply the tier's risk rating to the submission's EXISTING risk_rating field and
+     * audit it. Escalate-only (never downgrades a higher existing rating). saveQuietly so
+     * the screening observer is not re-triggered. Audit-write is defensive — a history
+     * failure never breaks screening (the screening row is itself the primary audit).
+     */
+    private function applyRisk(FicaSubmission $submission, FicaTfsScreening $screening): void
+    {
+        $risk = $screening->riskRatingValue();
+        if ($risk === null) {
+            return;
+        }
+        if ($risk > (int) ($submission->risk_rating ?? 0)) {
+            $submission->risk_rating = $risk;
+            $submission->saveQuietly();
+        }
+
+        $note = $screening->outcome === 'hit'
+            ? 'TFS EXACT ID/passport sanctions match — record LOCKED, refer to Compliance Officer. '
+              . '(' . collect($screening->candidates ?? [])->pluck('ref')->filter()->implode(', ') . ')'
+            : ($screening->amberMessage() ?? 'TFS name match.');
+
+        try {
+            FicaStatusHistory::record($submission, 'tfs_' . $screening->outcome, $submission->status, $submission->status, null, $note);
+        } catch (\Throwable $e) {
+            Log::warning('TFS risk audit-write failed', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /** Exact normalised name, alias match, and all-token containment. */
