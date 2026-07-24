@@ -61,3 +61,64 @@ exactly the embarrassment to avoid.
    with unique markers.
 3. Close whatever the smoke test bites (date sub-answer restore; witness; any multi-doc per-anchor
    mis-bind) — then Johan runs the supervised first test.
+
+---
+
+# ADDENDUM — Johan's 4 disclosure spec criteria (2026-07-24)
+
+The live e-sign disclosure is the CDS web template `cds/template-123.blade.php`
+(`SalesMandatoryDisclosureEsignSeeder`): a FIXED YES/NO/N-A checklist + a signature block.
+A second, legacy blade `sales-mandatory-disclosure.blade.php` (`SalesMandatoryDisclosureSeeder`)
+has one extra "additional information" textarea. Neither is registered on QA1.
+
+**1. System document** — PARTIAL. Not a special "system document" class (no `is_system`); it is a
+normal CDS `render_type=web` template with FIXED, server-authored form markup (hardcoded radio grid,
+`template-123.blade.php:17`). Signatures/initials flow through the SAME chain as the mandate
+(`SignatureSurfaceNormalizer:74` lists it → bakeInk → LetterheadRefresher). BUT the disclosure ANSWERS
+bypass bakeInk — captured to `web_template_data['disclosure_answers']` and re-applied read-only by
+`restoreStoredDisclosure`. So sigs/initials = canonical ink pipeline (our fixes apply); ticks = a
+separate restore side-channel.
+
+**2. Government-form fidelity** — DOES NOT MEET as specified.
+ - Selected answer renders as a **filled circle ● (U+25CF), NOT a tick/check ✓** (`disclosure-logic.blade.php:133`;
+   `a4-page-styles.blade.php:712,733`). If the requirement is a literal tick in the box, this fails.
+ - Layout is a **reflowed web/A4 HTML table** (`corex-disclosure-table`), structurally faithful to the
+   gov form but a web approximation, not a pixel-facsimile of the prescribed PDF.
+ - Letterhead = OUR company header (correct — `company-header` include + `LetterheadRefresher`).
+ - Screen==PDF: ● in both (restore runs in `SignaturePdfService:310` and `review.blade:335`) ✓ — but the
+   glyph is ●, and it's an approximation, so "EXACTLY like the government form with ticks" is not met.
+
+**3. Comments / other conditions (multi-seller free text)** — NOT MET.
+ - The live e-sign disclosure (template-123) has **NO comments/other-conditions field at all**.
+ - The legacy blade has ONE `additional_information` textarea → a **single shared scalar**
+   `other_conditions_text` (`external/sign.blade.php:1527,3424-3496,3769`), overwritten by whoever edits;
+   no multi-seller accumulation, no per-seller attribution. The disclosure grid itself is editable
+   **only for the owner/seller** (`disclosure-logic.blade.php:19-38`). So "fillable by ANY seller,
+   multi-seller" is not met.
+
+**4. Dynamic per-condition initials** — NOT MET (two ways).
+ - The disclosure has **no add-condition / insertable-block markup**, so "initials against each inserted
+   condition" does not exist on the disclosure at all.
+ - The GENERIC add-condition system (mandate/OTA — `add-condition-modal.blade.php`, `InsertableBlockRenderer`)
+   DOES support it, and — good news for the keying concern — each condition's per-party initials are keyed
+   by the **stable DB `condition_id` + `party_key`** (`ConditionInitial`, `InsertableBlockRenderer:385,440`),
+   NOT by document order. So dynamic insertion/removal does **not** break the per-anchor binding we fixed
+   (they're a disjoint system). HOWEVER: those per-condition initials are **explicitly suppressed in the
+   flattened PDF** — `renderInitialSlotsForCondition` returns `''` when `context === CONTEXT_PDF_RENDER`
+   (`InsertableBlockRenderer.php:393`). They render only in the interactive recipient view and persist as
+   `condition_initials` rows, but are NOT baked into the PDF → **screen ≠ PDF for condition initials**, even
+   where the feature exists.
+
+## VERDICT (against the 4 gating criteria): NO-GO
+- #1 partial; #2 fails (● not ✓, web approximation); #3 fails (no multi-seller comments); #4 fails on the
+  disclosure (feature absent) AND, where it exists, the per-condition initials are dropped from the PDF.
+
+## Gaps to close (all CODE changes, then QA1 proof)
+1. **Disclosure content:** add a seller-fillable, multi-seller **other-conditions insertable block** to the
+   disclosure template (it currently has none / a single shared textarea).
+2. **Per-condition initials in the PDF:** `InsertableBlockRenderer::renderInitialSlotsForCondition` returns
+   '' for `CONTEXT_PDF_RENDER` — the captured `ConditionInitial`s must be composed into the baked PDF (as
+   ink), or they will never print. This is the single biggest fidelity break.
+3. **Ticks:** decide ● vs a literal ✓/facsimile with Johan; if ✓ required, change the restore glyph +
+   box styling.
+4. Then the pack setup + multi-doc smoke test from the main audit above.
