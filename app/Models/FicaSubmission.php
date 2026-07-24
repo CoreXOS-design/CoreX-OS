@@ -83,6 +83,23 @@ class FicaSubmission extends Model
         return $this->belongsTo(User::class, 'requested_by');
     }
 
+    public function tfsScreenings(): HasMany
+    {
+        return $this->hasMany(\App\Models\Compliance\FicaTfsScreening::class, 'fica_submission_id');
+    }
+
+    /** The most recent TFS screening (the one the approval gate consults). */
+    public function latestTfsScreening(): ?\App\Models\Compliance\FicaTfsScreening
+    {
+        return $this->tfsScreenings()->latest('screened_at')->latest('id')->first();
+    }
+
+    /** Approval is allowed only when the latest screening exists and clears the gate. */
+    public function tfsGateCleared(): bool
+    {
+        return (bool) $this->latestTfsScreening()?->clearsApprovalGate();
+    }
+
     public function verifiedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');

@@ -393,9 +393,19 @@
                             <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Optional notes..."></textarea>
                         </div>
 
-                        <button type="submit" class="corex-btn-primary w-full justify-center text-sm">
-                            Approve (Send to Compliance Officer)
-                        </button>
+                        @error('tfs')
+                            <div class="rounded-md px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid #dc2626; color:#dc2626;">{{ $message }}</div>
+                        @enderror
+                        @if($submission->tfsGateCleared())
+                            <button type="submit" class="corex-btn-primary w-full justify-center text-sm">
+                                Approve (Send to Compliance Officer)
+                            </button>
+                        @else
+                            <button type="button" disabled class="corex-btn-primary w-full justify-center text-sm" style="opacity:0.5; cursor:not-allowed;" title="Resolve TFS sanctions screening first">
+                                Approve — blocked by TFS screening
+                            </button>
+                            <p class="text-xs text-center" style="color:#dc2626;">Run and clear TFS sanctions screening (panel above) before approving.</p>
+                        @endif
                     </div>
                 </form>
 

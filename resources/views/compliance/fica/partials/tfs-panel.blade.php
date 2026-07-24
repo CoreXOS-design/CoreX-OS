@@ -1,126 +1,121 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- TFS Screening — full-screen modal --}}
-<?php
-    $tfsData = $submission->form_data ?? [];
-    $tfsPersonal = $tfsData['personal'] ?? [];
-    $tfsEntity = $tfsData['entity'] ?? [];
-    $tfsContactName = $tfsPersonal['full_name'] ?? $submission->contact?->full_name ?? 'Unknown';
-    $tfsIdNumber = $tfsPersonal['id_number'] ?? '';
-    $tfsDob = $tfsPersonal['date_of_birth'] ?? '';
-    $tfsNationality = $tfsPersonal['nationality'] ?? '';
-    $tfsEntityName = '';
-    if ($submission->entity_type === 'company') { $tfsEntityName = $tfsEntity['company_name'] ?? ''; }
-    elseif ($submission->entity_type === 'trust') { $tfsEntityName = $tfsEntity['trust_name'] ?? ''; }
-    elseif ($submission->entity_type === 'partnership') { $tfsEntityName = $tfsEntity['partnership_name'] ?? ''; }
+{{-- TFS Screening — automatic in-app sanctions screening result + CO actions.
+     Screening runs against the ingested FIC sanctions list. A HIT (exact ID/passport)
+     or an undecided name review BLOCKS approval (server-enforced in FicaController); a
+     clean result shows "Screened & passed" with an honest coverage label. --}}
+@php
+    $tfsScreening = $tfsScreening ?? $submission->latestTfsScreening();
+    $viewerIsCo   = auth()->user()?->isComplianceOfficer() ?? false;
+    $tone = $tfsScreening?->tone() ?? 'grey';
+    $toneColor = [
+        'green' => 'var(--ds-green,#059669)',
+        'amber' => '#b45309',
+        'red'   => '#dc2626',
+        'grey'  => 'var(--text-muted)',
+    ][$tone];
+    $listName = 'FIC UN Consolidated Sanctions List';
+@endphp
 
-    $tfsFields = array_filter([
-        ['label' => 'Full Name', 'value' => $tfsContactName],
-        ['label' => 'ID / Passport', 'value' => $tfsIdNumber],
-        ['label' => 'Date of Birth', 'value' => $tfsDob],
-        ['label' => 'Nationality', 'value' => $tfsNationality],
-        ['label' => 'Entity Name', 'value' => $tfsEntityName],
-    ], fn($f) => !empty($f['value']));
-?>
-
-<div x-data="{ tfsModal: false }">
-    {{-- Trigger button --}}
-    <button type="button" @click="tfsModal = true" class="corex-btn-outline text-sm">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" style="color:var(--brand-icon,#0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
-        TFS Screening
-    </button>
-
-    {{-- Full-screen modal --}}
-    <div x-show="tfsModal" x-cloak
-         x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-         @keydown.escape.window="tfsModal = false"
-         class="fixed inset-0 z-50 flex items-center justify-center p-4"
-         style="background: rgba(0,0,0,0.5);">
-
-        {{-- Modal body --}}
-        <div @click.away="tfsModal = false"
-             class="rounded-md flex flex-col overflow-hidden"
-             style="width: 95vw; height: 90vh; max-width: 1600px; background:var(--surface); border:1px solid var(--border);">
-
-            {{-- Top bar --}}
-            <div class="flex items-center justify-between px-5 py-3 flex-shrink-0" style="background:var(--brand-default,#0b2a4a); border-bottom:1px solid var(--border);">
-                <div class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:var(--brand-icon,#0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
-                    <span class="text-sm font-bold text-white">TFS Screening</span>
-                    <span class="text-sm text-white/60">&mdash; {{ $tfsContactName }}</span>
-                </div>
-                <button type="button" @click="tfsModal = false" class="text-white/60 hover:text-white transition p-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                </button>
-            </div>
-
-            {{-- Two-column content --}}
-            <div class="flex flex-1 overflow-hidden">
-                {{-- LEFT: Contact details (fixed 300px) --}}
-                <div class="w-[300px] flex-shrink-0 overflow-y-auto p-5" style="background:var(--surface-2); border-right:1px solid var(--border);">
-                    <h4 class="text-xs font-bold uppercase tracking-wide mb-4" style="color:var(--text-secondary);">Contact Details for Screening</h4>
-
-                    <div class="space-y-3">
-                        @foreach($tfsFields as $field)
-                        <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
-                            <div class="text-xs mb-0.5" style="color:var(--text-muted);">{{ $field['label'] }}</div>
-                            <div class="flex items-center justify-between gap-2">
-                                <div class="text-base font-bold break-all leading-tight" style="color:var(--text-primary);">{{ $field['value'] }}</div>
-                                <button type="button"
-                                        onclick="tfsCopyField('{{ addslashes($field['value']) }}', this)"
-                                        class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition" style="color:var(--text-muted);" title="Copy">
-                                    <svg class="tfs-copy-icon w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m0 0a2.625 2.625 0 1 1 5.25 0" /></svg>
-                                    <svg class="tfs-ok-icon w-4 h-4" style="display:none; color:var(--ds-green,#059669);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                        @endforeach
-                    </div>
-
-                    <p class="text-xs mt-4 leading-relaxed" style="color:var(--text-muted);">Copy each field and paste into the FIC search form.</p>
-
-                    <div class="mt-6 pt-4" style="border-top:1px solid var(--border);">
-                        <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
-                           class="inline-flex items-center gap-1.5 text-xs font-semibold transition" style="color:var(--text-secondary);">
-                            Open FIC TFS in new tab
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                        </a>
-                    </div>
-                </div>
-
-                {{-- RIGHT: Open FIC TFS in a new tab.
-                     We deliberately do NOT iframe tfs.fic.gov.za — the FIC site refuses
-                     embedding (X-Frame-Options / CSP frame-ancestors) and 403s datacenter
-                     IPs, so an embed renders a bare broken-document icon and the iframe
-                     'error' event never fires (a framing refusal is not a network error),
-                     which is why the old onerror fallback could never trigger. The screening
-                     workflow is: copy the fields on the left, open FIC in a new tab, paste. --}}
-                <div class="flex-1 flex flex-col items-center justify-center text-center p-8" style="background:var(--surface-2);">
-                    <div class="w-16 h-16 rounded-full flex items-center justify-center mb-5" style="background:var(--surface); border:1px solid var(--border);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8" style="color:var(--brand-icon,#0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                    </div>
-                    <h3 class="text-lg font-bold mb-2" style="color:var(--text-primary);">Screen on the FIC TFS website</h3>
-                    <p class="text-sm mb-1" style="max-width:28rem; color:var(--text-secondary);">The FIC TFS register can't be embedded here. Open it in a new tab, then paste the contact details from the left into the FIC search form.</p>
-                    <p class="text-xs mb-6" style="max-width:28rem; color:var(--text-muted);">Use the copy button on each field on the left, then paste into the FIC search.</p>
-                    <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
-                       class="corex-btn-primary" style="font-size:0.95rem; padding:0.75rem 1.5rem;">
-                        Open FIC TFS in New Tab
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                    </a>
-                    <p class="text-xs mt-4" style="color:var(--text-muted);">Opens tfs.fic.gov.za in a new browser tab</p>
-                </div>
-            </div>
+<div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border); border-left:4px solid {{ $toneColor }};">
+    <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:{{ $toneColor }};"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+            <span class="text-sm font-bold" style="color:var(--text-primary);">TFS Sanctions Screening</span>
         </div>
+        @if($tfsScreening)
+            <span class="text-xs font-bold px-2 py-0.5 rounded" style="color:#fff; background:{{ $toneColor }};">{{ $tfsScreening->badge() }}</span>
+        @else
+            <span class="text-xs font-semibold" style="color:var(--text-muted);">Not screened yet</span>
+        @endif
+    </div>
+
+    @if(! $tfsScreening)
+        {{-- Never screened --}}
+        <p class="text-xs mb-3" style="color:var(--text-muted);">This submission has not been screened against the sanctions list. Screening is required before approval.</p>
+    @else
+        {{-- Outcome-specific body --}}
+        @if($tfsScreening->outcome === 'hit')
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Exact ID / passport match against a sanctioned party.</p>
+            <p class="text-xs mb-3" style="color:var(--text-secondary);">Approval is blocked. A Compliance Officer must confirm or clear this before the submission can proceed.</p>
+        @elseif($tfsScreening->outcome === 'review_required')
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Possible name match{{ $tfsScreening->reason === 'list_stale' ? ' / list is stale' : '' }} — review required.</p>
+            <p class="text-xs mb-3" style="color:var(--text-secondary);">Approval is blocked until a Compliance Officer clears these as false positives or confirms a match.</p>
+        @elseif($tfsScreening->outcome === 'passed')
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">No sanctions match found.</p>
+        @else
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Screening could not complete.</p>
+            <p class="text-xs mb-3" style="color:var(--text-secondary);">No current sanctions list is available. Approval is blocked until the list ingests successfully.</p>
+        @endif
+
+        {{-- HONEST COVERAGE / PROVENANCE — always shown, never a bare "passed" --}}
+        <div class="rounded p-2 mb-3 text-xs" style="background:var(--surface-2); color:var(--text-muted);">
+            <div>Screened against <span style="color:var(--text-secondary); font-weight:600;">{{ $listName }}</span>
+                @if($tfsScreening->import)
+                    · version <span style="color:var(--text-secondary); font-weight:600;">{{ optional($tfsScreening->list_fetched_at)->format('Y-m-d H:i') ?? ('#'.$tfsScreening->import_id) }}</span>
+                @else
+                    · <span style="color:#b45309;">no list version on record</span>
+                @endif
+            </div>
+            <div>Screened {{ optional($tfsScreening->screened_at)->diffForHumans() }}
+                @if($tfsScreening->screened_name) · subject: <span style="color:var(--text-secondary);">{{ $tfsScreening->screened_name }}</span>@endif
+            </div>
+            @if($tfsScreening->coverageNote())
+                <div class="mt-1" style="color:{{ $tfsScreening->auto_pass_trusted ? 'var(--ds-green,#059669)' : '#b45309' }};">{{ $tfsScreening->coverageNote() }}</div>
+            @endif
+        </div>
+
+        {{-- Candidate matches (hit / review) --}}
+        @if(in_array($tfsScreening->outcome, ['hit','review_required']) && !empty($tfsScreening->candidates))
+            <div class="mb-3">
+                <div class="text-xs font-bold uppercase tracking-wide mb-1" style="color:var(--text-secondary);">Candidate {{ \Illuminate\Support\Str::plural('match', count($tfsScreening->candidates)) }} ({{ count($tfsScreening->candidates) }})</div>
+                <div class="space-y-1">
+                    @foreach($tfsScreening->candidates as $c)
+                        <div class="rounded p-2 text-xs" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <span style="color:var(--text-primary); font-weight:700;">{{ $c['name'] ?? '—' }}</span>
+                            @if(!empty($c['ref'])) <span style="color:var(--text-muted);">· {{ $c['ref'] }}</span>@endif
+                            @if(!empty($c['dob'])) <span style="color:var(--text-muted);">· DOB {{ $c['dob'] }}</span>@endif
+                            @if(!empty($c['nationality'])) <span style="color:var(--text-muted);">· {{ $c['nationality'] }}</span>@endif
+                            @if(!empty($c['why'])) <div style="color:{{ $toneColor }};">{{ $c['why'] }}</div>@endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+
+        {{-- Decision state / CO actions --}}
+        @if($tfsScreening->decision === 'cleared_false_positive')
+            <p class="text-xs mb-3" style="color:var(--ds-green,#059669);">Cleared as a false positive by a Compliance Officer{{ $tfsScreening->decided_at ? ' on '.$tfsScreening->decided_at->format('Y-m-d H:i') : '' }}. Approval unblocked.</p>
+        @elseif($tfsScreening->decision === 'confirmed_hit')
+            <p class="text-xs mb-3" style="color:#dc2626;">Confirmed as a sanctions match by a Compliance Officer. Approval remains blocked.</p>
+        @elseif(in_array($tfsScreening->outcome, ['hit','review_required']))
+            @if($viewerIsCo)
+                <form method="POST" action="{{ route('compliance.fica.tfs-decision', $submission) }}" class="rounded p-2" style="background:var(--surface-2); border:1px dashed var(--border);">
+                    @csrf
+                    <input type="hidden" name="screening_id" value="{{ $tfsScreening->id }}">
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Compliance Officer decision</label>
+                    <textarea name="note" rows="2" class="w-full rounded-md px-2 py-1 text-xs mb-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason / note (recorded to the audit trail)"></textarea>
+                    <div class="flex gap-2">
+                        <button type="submit" name="action" value="clear" class="corex-btn-primary text-xs">Clear as false positive</button>
+                        <button type="submit" name="action" value="confirm" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:#dc2626; color:#fff;">Confirm sanctions match</button>
+                    </div>
+                </form>
+            @else
+                <p class="text-xs mb-3" style="color:var(--text-muted);">Awaiting a Compliance Officer's decision.</p>
+            @endif
+        @endif
+    @endif
+
+    {{-- Primary action: run / re-run screening --}}
+    <div class="flex items-center gap-3 mt-3 pt-3" style="border-top:1px solid var(--border);">
+        <form method="POST" action="{{ route('compliance.fica.tfs-screen', $submission) }}">
+            @csrf
+            <button type="submit" class="corex-btn-outline text-sm">{{ $tfsScreening ? 'Re-run screening' : 'Run TFS screening' }}</button>
+        </form>
+        {{-- Secondary: manual cross-check on the FIC site (opens in a new tab) --}}
+        <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1.5 text-xs font-semibold transition" style="color:var(--text-secondary);">
+            Open FIC TFS in new tab
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+        </a>
     </div>
 </div>
-
-<script>
-function tfsCopyField(text, btn) {
-    var ta = document.createElement('textarea');
-    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta);
-    var ci = btn.querySelector('.tfs-copy-icon'), oi = btn.querySelector('.tfs-ok-icon');
-    if (ci && oi) { ci.style.display = 'none'; oi.style.display = ''; setTimeout(function() { ci.style.display = ''; oi.style.display = 'none'; }, 1500); }
-}
-</script>

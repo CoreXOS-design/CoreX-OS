@@ -171,10 +171,20 @@
                         <input type="hidden" name="co_signature_data" x-model="signatureDataUrl">
                     </div>
 
-                    <button type="submit" class="w-full px-4 py-2 bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition" :disabled="submitting">
-                        <span x-show="!submitting">Approve & Finalise</span>
-                        <span x-show="submitting" x-cloak>Processing...</span>
-                    </button>
+                    @error('tfs')
+                        <div class="px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid #dc2626; color:#dc2626;">{{ $message }}</div>
+                    @enderror
+                    @if($submission->tfsGateCleared())
+                        <button type="submit" class="w-full px-4 py-2 bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition" :disabled="submitting">
+                            <span x-show="!submitting">Approve & Finalise</span>
+                            <span x-show="submitting" x-cloak>Processing...</span>
+                        </button>
+                    @else
+                        <button type="button" disabled class="w-full px-4 py-2 bg-emerald-600 text-white text-sm font-semibold transition" style="opacity:0.5; cursor:not-allowed;" title="Resolve TFS sanctions screening first">
+                            Approve — blocked by TFS screening
+                        </button>
+                        <p class="text-xs text-center text-red-600">Resolve the TFS sanctions screening (panel above) before finalising.</p>
+                    @endif
                 </div>
             </form>
 
