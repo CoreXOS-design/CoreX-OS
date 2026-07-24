@@ -45,30 +45,67 @@ class FicaTfsScreening extends Model
     }
 
     /**
-     * Does this screening CLEAR the FICA approval gate?
-     *
-     * Blocks on hit / review_required / error (per Johan: "block on an open hit or an
-     * undecided review"). A clean `passed` clears the gate only when the auto-pass is
-     * TRUSTED (config tfs.trust_auto_pass — approved 2026-07-24 for the UN list); if trust
-     * were turned off, a clean pass would require a CO to clear it. A stale list never
-     * produces `passed` (the service downgrades it to review_required), so a trusted pass
-     * is always clean AND fresh. A CO decision overrides either way.
+     * Did the screening actually RUN to a definite result? (passed / hit / review).
+     * `error` (no list / stale list) means it could NOT complete — the checklist item
+     * stays un-ticked and the manual "Run TFS" fallback button is offered.
      */
-    public function clearsApprovalGate(): bool
+    public function ranSuccessfully(): bool
     {
-        if ($this->decision === 'cleared_false_positive') {
-            return true;
-        }
-        if ($this->decision === 'confirmed_hit') {
-            return false;
-        }
-        return $this->outcome === 'passed' && $this->auto_pass_trusted;
+        return in_array($this->outcome, ['passed', 'hit', 'review_required'], true);
     }
 
-    /** True while an unresolved hit/review is blocking approval. */
-    public function isBlocking(): bool
+    /** A hit or an undecided name review — loudly flagged, never a silent green. */
+    public function isFlagged(): bool
     {
-        return ! $this->clearsApprovalGate();
+        return in_array($this->outcome, ['hit', 'review_required'], true)
+            && $this->decision !== 'cleared_false_positive';
+    }
+
+    /**
+     * TIER 3 — an exact ID/passport match LOCKS the record: all normal action buttons
+     * disappear and the only path is "Report to CO". A CO clearing it as a false positive
+     * unlocks it. A name review (Tier 2) does NOT lock — it is amber and non-blocking.
+     */
+    public function isLocked(): bool
+    {
+        return $this->outcome === 'hit' && $this->decision !== 'cleared_false_positive';
+    }
+
+    /** Only a locked (exact-ID) hit blocks approval; name matches never block. */
+    public function blocksApproval(): bool
+    {
+        return $this->isLocked();
+    }
+
+    /** Convenience for callers/blades that want the positive form. */
+    public function clearsApprovalGate(): bool
+    {
+        return ! $this->blocksApproval();
+    }
+
+    /**
+     * Risk rating this screening imposes on the submission's EXISTING risk_rating field:
+     * exact-ID hit => 3 (critical/red), name match => 2 (amber). No match => null (untouched).
+     */
+    public function riskRatingValue(): ?int
+    {
+        return match ($this->outcome) {
+            'hit'             => 3,
+            'review_required' => 2,
+            default           => null,
+        };
+    }
+
+    /** The exact Tier-2 amber message. */
+    public function amberMessage(): ?string
+    {
+        return $this->outcome === 'review_required' ? 'ID does not match, name and surname match.' : null;
+    }
+
+    /** Identity fingerprint — used to auto re-run when the screened details change. */
+    public function fingerprint(): string
+    {
+        return ($this->screened_name_normalised ?? '') . '|' . ($this->screened_id_normalised ?? '');
     }
 
     /** Short human status for the UI badge. */
@@ -78,7 +115,20 @@ class FicaTfsScreening extends Model
             'hit'             => 'Sanctions HIT',
             'review_required' => 'Review required',
             'passed'          => 'Screened & passed',
-            default           => 'Could not screen',
+            default           => 'Not screened',
+        };
+    }
+
+    /** One-line human status for the panel. */
+    public function statusLine(): string
+    {
+        return match ($this->outcome) {
+            'hit'             => 'Sanctions HIT — refer to compliance.',
+            'review_required' => 'Possible name match — review required.',
+            'passed'          => 'Screened & passed — no sanctions match.',
+            default           => $this->reason === 'list_stale'
+                                    ? 'Could not screen — the sanctions list is stale. Run it once the daily update succeeds.'
+                                    : 'Could not screen — the sanctions list is unavailable. Run it manually to retry.',
         };
     }
 

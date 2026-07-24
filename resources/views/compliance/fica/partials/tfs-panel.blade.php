@@ -1,75 +1,67 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- TFS Screening — automatic in-app sanctions screening result + CO actions.
-     Screening runs against the ingested FIC sanctions list. A HIT (exact ID/passport)
-     or an undecided name review BLOCKS approval (server-enforced in FicaController); a
-     clean result shows "Screened & passed" with an honest coverage label. --}}
+{{-- TFS Screening — automatic, non-blocking result (three-tier seriousness flow):
+     TIER 1 clean -> green "Screened & passed", ticks, continue.
+     TIER 2 name match -> amber "ID does not match, name and surname match.", ticks, continue (flagged).
+     TIER 3 exact ID  -> red "Sanctions HIT", record LOCKED (all buttons hidden, Report to CO only).
+     Auto-runs on data landing; the "Run TFS" button here is a FALLBACK only when a run could
+     not complete (list unavailable / stale). Provenance label is mandatory on every result. --}}
 @php
-    $tfsScreening = $tfsScreening ?? $submission->latestTfsScreening();
-    $viewerIsCo   = auth()->user()?->isComplianceOfficer() ?? false;
-    $tone = $tfsScreening?->tone() ?? 'grey';
-    $toneColor = [
-        'green' => 'var(--ds-green,#059669)',
-        'amber' => '#b45309',
-        'red'   => '#dc2626',
-        'grey'  => 'var(--text-muted)',
-    ][$tone];
+    $s = $tfsScreening ?? $submission->latestTfsScreening();
+    $ran = $s?->ranSuccessfully() ?? false;
+    $viewerIsCo = auth()->user()?->isComplianceOfficer() ?? false;
+    $tone = $s?->tone() ?? 'grey';
+    $toneColor = ['green' => 'var(--ds-green,#059669)', 'amber' => '#b45309', 'red' => '#dc2626', 'grey' => 'var(--text-muted)'][$tone];
     $listName = 'FIC UN Consolidated list';
 @endphp
 
 <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border); border-left:4px solid {{ $toneColor }};">
     <div class="flex items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:{{ $toneColor }};"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+            @if($ran && !$s->isFlagged())
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5" style="color:var(--ds-green,#059669);"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+            @else
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:{{ $toneColor }};"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+            @endif
             <span class="text-sm font-bold" style="color:var(--text-primary);">TFS Sanctions Screening</span>
         </div>
-        @if($tfsScreening)
-            <span class="text-xs font-bold px-2 py-0.5 rounded" style="color:#fff; background:{{ $toneColor }};">{{ $tfsScreening->badge() }}</span>
+        @if($s)
+            <span class="text-xs font-bold px-2 py-0.5 rounded" style="color:#fff; background:{{ $toneColor }};">{{ $s->badge() }}</span>
         @else
             <span class="text-xs font-semibold" style="color:var(--text-muted);">Not screened yet</span>
         @endif
     </div>
 
-    @if(! $tfsScreening)
-        {{-- Never screened --}}
-        <p class="text-xs mb-3" style="color:var(--text-muted);">This submission has not been screened against the sanctions list. Screening is required before approval.</p>
+    @if(! $s)
+        <p class="text-xs mb-3" style="color:var(--text-muted);">Screening runs automatically once the applicant's name and ID are on file. If it has not run, use the button below.</p>
     @else
-        {{-- Outcome-specific body --}}
-        @if($tfsScreening->outcome === 'hit')
-            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Exact ID / passport match against a sanctioned party.</p>
-            <p class="text-xs mb-3" style="color:var(--text-secondary);">Approval is blocked. A Compliance Officer must confirm or clear this before the submission can proceed.</p>
-        @elseif($tfsScreening->outcome === 'review_required')
-            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Possible name match{{ $tfsScreening->reason === 'list_stale' ? ' / list is stale' : '' }} — review required.</p>
-            <p class="text-xs mb-3" style="color:var(--text-secondary);">Approval is blocked until a Compliance Officer clears these as false positives or confirms a match.</p>
-        @elseif($tfsScreening->outcome === 'passed')
+        {{-- Outcome body --}}
+        @if($s->outcome === 'hit')
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Exact ID / passport match — Sanctions HIT.</p>
+            <p class="text-xs mb-3" style="color:var(--text-secondary);">This record is <strong>locked</strong>. The only available action is <strong>Report to CO</strong>.</p>
+        @elseif($s->outcome === 'review_required')
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">{{ $s->amberMessage() }}</p>
+            <p class="text-xs mb-3" style="color:var(--text-secondary);">Flagged amber for Compliance Officer attention. The agent may continue — this does not block approval.</p>
+        @elseif($s->outcome === 'passed')
             <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Screened &amp; passed — no sanctions match.</p>
         @else
-            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">Screening could not complete.</p>
-            <p class="text-xs mb-3" style="color:var(--text-secondary);">No current sanctions list is available. Approval is blocked until the list ingests successfully.</p>
+            <p class="text-sm font-semibold mb-1" style="color:{{ $toneColor }};">{{ $s->statusLine() }}</p>
         @endif
 
-        {{-- HONEST COVERAGE / PROVENANCE — always shown, never a bare "passed" --}}
-        <div class="rounded p-2 mb-3 text-xs" style="background:var(--surface-2); color:var(--text-muted);">
-            <div>Screened against <span style="color:var(--text-secondary); font-weight:600;">{{ $listName }}</span>
-                @if($tfsScreening->import)
-                    · version <span style="color:var(--text-secondary); font-weight:600;">{{ optional($tfsScreening->list_fetched_at)->format('Y-m-d H:i') ?? ('#'.$tfsScreening->import_id) }}</span>
-                @else
-                    · <span style="color:#b45309;">no list version on record</span>
-                @endif
+        {{-- MANDATORY provenance / freshness — the legal defense, on every result --}}
+        @if($s->import)
+            <div class="rounded p-2 mb-3 text-xs" style="background:var(--surface-2); color:var(--text-muted);">
+                <div>Screened against <span style="color:var(--text-secondary); font-weight:600;">{{ $listName }}</span>
+                    · version <span style="color:var(--text-secondary); font-weight:600;">{{ optional($s->list_fetched_at)->format('Y-m-d H:i') ?? ('#'.$s->import_id) }}</span></div>
+                <div>Screened {{ optional($s->screened_at)->diffForHumans() }}@if($s->screened_name) · subject: <span style="color:var(--text-secondary);">{{ $s->screened_name }}</span>@endif</div>
             </div>
-            <div>Screened {{ optional($tfsScreening->screened_at)->diffForHumans() }}
-                @if($tfsScreening->screened_name) · subject: <span style="color:var(--text-secondary);">{{ $tfsScreening->screened_name }}</span>@endif
-            </div>
-            @if($tfsScreening->coverageNote())
-                <div class="mt-1" style="color:{{ $tfsScreening->auto_pass_trusted ? 'var(--ds-green,#059669)' : '#b45309' }};">{{ $tfsScreening->coverageNote() }}</div>
-            @endif
-        </div>
+        @endif
 
         {{-- Candidate matches (hit / review) --}}
-        @if(in_array($tfsScreening->outcome, ['hit','review_required']) && !empty($tfsScreening->candidates))
+        @if(in_array($s->outcome, ['hit','review_required']) && !empty($s->candidates))
             <div class="mb-3">
-                <div class="text-xs font-bold uppercase tracking-wide mb-1" style="color:var(--text-secondary);">Candidate {{ \Illuminate\Support\Str::plural('match', count($tfsScreening->candidates)) }} ({{ count($tfsScreening->candidates) }})</div>
+                <div class="text-xs font-bold uppercase tracking-wide mb-1" style="color:var(--text-secondary);">Candidate {{ \Illuminate\Support\Str::plural('match', count($s->candidates)) }} ({{ count($s->candidates) }})</div>
                 <div class="space-y-1">
-                    @foreach($tfsScreening->candidates as $c)
+                    @foreach($s->candidates as $c)
                         <div class="rounded p-2 text-xs" style="background:var(--surface-2); border:1px solid var(--border);">
                             <span style="color:var(--text-primary); font-weight:700;">{{ $c['name'] ?? '—' }}</span>
                             @if(!empty($c['ref'])) <span style="color:var(--text-muted);">· {{ $c['ref'] }}</span>@endif
@@ -82,38 +74,33 @@
             </div>
         @endif
 
-        {{-- Decision state / CO actions --}}
-        @if($tfsScreening->decision === 'cleared_false_positive')
-            <p class="text-xs mb-3" style="color:var(--ds-green,#059669);">Cleared as a false positive by a Compliance Officer{{ $tfsScreening->decided_at ? ' on '.$tfsScreening->decided_at->format('Y-m-d H:i') : '' }}. Approval unblocked.</p>
-        @elseif($tfsScreening->decision === 'confirmed_hit')
-            <p class="text-xs mb-3" style="color:#dc2626;">Confirmed as a sanctions match by a Compliance Officer. Approval remains blocked.</p>
-        @elseif($tfsScreening->isBlocking())
-            @if($viewerIsCo)
-                <form method="POST" action="{{ route('compliance.fica.tfs-decision', $submission) }}" class="rounded p-2" style="background:var(--surface-2); border:1px dashed var(--border);">
-                    @csrf
-                    <input type="hidden" name="screening_id" value="{{ $tfsScreening->id }}">
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Compliance Officer decision</label>
-                    <textarea name="note" rows="2" class="w-full rounded-md px-2 py-1 text-xs mb-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason / note (recorded to the audit trail)"></textarea>
-                    <div class="flex gap-2">
-                        <button type="submit" name="action" value="clear" class="corex-btn-primary text-xs">Clear as false positive</button>
-                        @if(in_array($tfsScreening->outcome, ['hit','review_required']))
-                            <button type="submit" name="action" value="confirm" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:#dc2626; color:#fff;">Confirm sanctions match</button>
-                        @endif
-                    </div>
-                </form>
-            @else
-                <p class="text-xs mb-3" style="color:var(--text-muted);">Awaiting a Compliance Officer's decision.</p>
-            @endif
+        {{-- CO decision state / actions (clearing a hit unlocks the record) --}}
+        @if($s->decision === 'cleared_false_positive')
+            <p class="text-xs mb-3" style="color:var(--ds-green,#059669);">Cleared as a false positive by a Compliance Officer{{ $s->decided_at ? ' on '.$s->decided_at->format('Y-m-d H:i') : '' }}.</p>
+        @elseif($s->decision === 'confirmed_hit')
+            <p class="text-xs mb-3" style="color:#dc2626;">Confirmed as a sanctions match by a Compliance Officer.</p>
+        @elseif($s->isFlagged() && $viewerIsCo)
+            <form method="POST" action="{{ route('compliance.fica.tfs-decision', $submission) }}" class="rounded p-2" style="background:var(--surface-2); border:1px dashed var(--border);">
+                @csrf
+                <input type="hidden" name="screening_id" value="{{ $s->id }}">
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Compliance Officer decision</label>
+                <textarea name="note" rows="2" class="w-full rounded-md px-2 py-1 text-xs mb-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason / note (recorded to the audit trail)"></textarea>
+                <div class="flex gap-2">
+                    <button type="submit" name="action" value="clear" class="corex-btn-primary text-xs">Clear as false positive</button>
+                    <button type="submit" name="action" value="confirm" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:#dc2626; color:#fff;">Confirm sanctions match</button>
+                </div>
+            </form>
         @endif
     @endif
 
-    {{-- Primary action: run / re-run screening --}}
+    {{-- Fallback: manual run ONLY when a run has not completed (never in the happy path) --}}
     <div class="flex items-center gap-3 mt-3 pt-3" style="border-top:1px solid var(--border);">
-        <form method="POST" action="{{ route('compliance.fica.tfs-screen', $submission) }}">
-            @csrf
-            <button type="submit" class="corex-btn-outline text-sm">{{ $tfsScreening ? 'Re-run screening' : 'Run TFS screening' }}</button>
-        </form>
-        {{-- Secondary: manual cross-check on the FIC site (opens in a new tab) --}}
+        @if(! $ran)
+            <form method="POST" action="{{ route('compliance.fica.tfs-screen', $submission) }}">
+                @csrf
+                <button type="submit" class="corex-btn-outline text-sm">Run TFS screening</button>
+            </form>
+        @endif
         <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
            class="inline-flex items-center gap-1.5 text-xs font-semibold transition" style="color:var(--text-secondary);">
             Open FIC TFS in new tab

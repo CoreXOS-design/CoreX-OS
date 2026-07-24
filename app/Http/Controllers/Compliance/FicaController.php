@@ -238,6 +238,13 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
 
+        // Auto-screen on view too (safety net for pre-existing / retry) — idempotent.
+        try {
+            app(TfsScreeningService::class)->screenIfNeeded($submission);
+        } catch (\Throwable $e) {
+            Log::warning('TFS auto-screen on show failed', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
+        }
+
         $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
@@ -291,24 +298,54 @@ class FicaController extends Controller
     }
 
     /**
-     * Approval gate — the authoritative server-side sanctions block. Returns a redirect
-     * when approval must be refused, or null when clear. Never let a hit/undecided review
-     * (or an unscreened / listless submission) through.
+     * Sanctions approval backstop. NON-BLOCKING by default — only a TIER 3 exact-ID
+     * match (a locked screening) refuses approval; a Tier-2 name match is amber but
+     * continues, and a clean/unscreened submission is not blocked. The UI hides the
+     * action buttons on a lock; this is the server-side enforcement of the same rule.
      */
     private function tfsApprovalGuard(FicaSubmission $submission, string $redirectRoute)
     {
         $tfs = $submission->latestTfsScreening();
-        if ($tfs && $tfs->clearsApprovalGate()) {
+        if (! $tfs || ! $tfs->blocksApproval()) {
             return null;
         }
-        $msg = match (true) {
-            ! $tfs                             => 'Run TFS sanctions screening before approving this submission.',
-            $tfs->outcome === 'hit'            => 'Sanctions HIT unresolved — a Compliance Officer must confirm or clear it before this can be approved.',
-            $tfs->outcome === 'review_required' => 'TFS screening flagged possible matches — a Compliance Officer must clear or confirm them before approval.',
-            default                            => 'TFS screening could not complete (no current sanctions list) — cannot approve until it does.',
-        };
 
-        return redirect()->route($redirectRoute, $submission)->withErrors(['tfs' => $msg]);
+        return redirect()->route($redirectRoute, $submission)->withErrors([
+            'tfs' => 'This submission is an exact sanctions-list match and is locked — it cannot be approved. Use "Report to CO".',
+        ]);
+    }
+
+    /**
+     * TIER 3 "Report to CO" — the only action on a locked (exact-ID) sanctions match.
+     * Escalates to the Compliance Officer regardless of the agency's general refer-to-CO
+     * toggle (a sanctions hit must always be reportable), with an auto-composed note.
+     */
+    public function tfsReport(FicaSubmission $submission, FicaReferralService $referrals)
+    {
+        $this->authorizeAgency($submission);
+
+        $tfs = $submission->latestTfsScreening();
+        if (! $tfs || ! $tfs->isLocked()) {
+            return redirect()->route('compliance.fica.show', $submission)
+                ->with('success', 'No active sanctions lock to report.');
+        }
+        if (! in_array($submission->status, FicaReferralService::REFERABLE_FROM, true)) {
+            return back()->withErrors(['tfs' => 'This FICA can no longer be escalated — it is ' . $submission->status_label . '.']);
+        }
+        if (! $referrals->resolveRecipient((int) $submission->agency_id)) {
+            return back()->withErrors(['tfs' =>
+                'Cannot escalate: your agency has no active Compliance Officer to receive it. '
+                . 'An administrator must appoint one under Company Settings → Compliance Officers.',
+            ]);
+        }
+
+        $refs = collect($tfs->candidates ?? [])->pluck('ref')->filter()->implode(', ');
+        $note = 'AUTOMATIC SANCTIONS ESCALATION — exact TFS ID/passport match on the FIC UN Consolidated list ('
+            . ($refs ?: 'match') . '). Reported by ' . Auth::user()->name . '.';
+        $referrals->refer($submission, Auth::user(), $note);
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Reported to the Compliance Officer — this sanctions match has been escalated.');
     }
 
     /**

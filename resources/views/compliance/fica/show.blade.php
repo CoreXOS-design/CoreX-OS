@@ -350,6 +350,19 @@
                 {{-- TFS Screening Panel --}}
                 @include('compliance.fica.partials.tfs-panel', ['submission' => $submission])
 
+                @php $tfsLocked = $submission->latestTfsScreening()?->isLocked() ?? false; @endphp
+                @if($tfsLocked)
+                    {{-- TIER 3 — exact sanctions match: record LOCKED, only Report to CO --}}
+                    <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:2px solid #dc2626;">
+                        <h3 class="text-sm font-bold pb-2" style="color:#dc2626; border-bottom:1px solid var(--border);">Sanctions match — record locked</h3>
+                        <p class="text-xs" style="color:var(--text-secondary);">An exact ID/passport match to the FIC UN Consolidated list was found. All actions are disabled — this must be reported to the Compliance Officer.</p>
+                        @error('tfs')<div class="rounded-md px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid #dc2626; color:#dc2626;">{{ $message }}</div>@enderror
+                        <form method="POST" action="{{ route('compliance.fica.tfs-report', $submission) }}">
+                            @csrf
+                            <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:#dc2626; box-shadow:none;">Report to CO</button>
+                        </form>
+                    </div>
+                @else
                 {{-- Agent Approve Form --}}
                 <form method="POST" action="{{ route('compliance.fica.agent-approve', $submission) }}">
                     @csrf
@@ -393,19 +406,9 @@
                             <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Optional notes..."></textarea>
                         </div>
 
-                        @error('tfs')
-                            <div class="rounded-md px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid #dc2626; color:#dc2626;">{{ $message }}</div>
-                        @enderror
-                        @if($submission->tfsGateCleared())
-                            <button type="submit" class="corex-btn-primary w-full justify-center text-sm">
-                                Approve (Send to Compliance Officer)
-                            </button>
-                        @else
-                            <button type="button" disabled class="corex-btn-primary w-full justify-center text-sm" style="opacity:0.5; cursor:not-allowed;" title="Resolve TFS sanctions screening first">
-                                Approve — blocked by TFS screening
-                            </button>
-                            <p class="text-xs text-center" style="color:#dc2626;">Run and clear TFS sanctions screening (panel above) before approving.</p>
-                        @endif
+                        <button type="submit" class="corex-btn-primary w-full justify-center text-sm">
+                            Approve (Send to Compliance Officer)
+                        </button>
                     </div>
                 </form>
 
@@ -435,6 +438,7 @@
 
                 {{-- AT-236 — Escalate to CO (third action for a non-primary-CO reviewer) --}}
                 @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
+                @endif {{-- /tfsLocked --}}
             @endif
 
             {{-- RO Approvals stage — an authorized reviewer (RO) can review via the CO
