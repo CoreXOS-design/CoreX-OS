@@ -64,3 +64,30 @@ keep their old stored canonical until re-baked/re-signed — backfill available 
 
 **Scope:** QA1 only. No Staging/live without Johan's go. Files: `CanonicalInkComposer.php`,
 `resources/views/docuperfect/signatures/partials/a4-page-styles.blade.php`.
+
+## Second collapse (QA1 `1a7529ff`) — pagination re-anchor key
+Verification with the ACTUAL captured glyphs (Johan TYPED a unique letter per entry
+point, so captures are per-anchor by construction) exposed a second collapse that
+`bakeInk` alone did not cover. Captured signatures: Anine l/m/n/r, Andre u/v/w/aa,
+Johan b/d/e/i (all distinct). `bakeInk` bound them per-anchor in the canonical — but
+the rendered page 3 still showed **n/n/n** for Anine (r on page 5).
+
+Root cause: `paginateDocument`'s snapshot/re-apply (`_markerKey` = `party|type|data-marker-index`).
+The composed CLAUSE signature markers carry **no `data-marker-index`** (only the final
+attestation markers do), so all of a party's clause anchors shared the key
+`seller|signature|`; the re-pagination pass overwrote them to the LAST one (sig-2 = n),
+while the indexed final marker kept its own (sig-3 = r). A render-time re-collapse
+after the canonical was already correct.
+
+Fix: assign every signature/initial marker a stable per-anchor sequence in document
+order per (party|type); `_markerKey` falls back to it when `data-marker-index` is
+absent → index-less clause anchors keep unique keys. Idempotent, persists across passes.
+
+Proof (doc 459 re-rendered): page 3 clause signatures now **l/m/n** (Anine), **u/v/w**
+(Andre), **b/d/e** (Johan); page 5 finals r/aa/i. Every one of the 12 anchors renders
+its own capture, document order, on BOTH the review screen and the PDF (same JS).
+
+**Capture model:** signatures are PER-ANCHOR (each "sign here" captures its own image),
+same as initials — NOT adopt-once. So identical clause signatures were a real bug, now
+fixed. (Adopt-once, when a party reuses one signature, still renders the same mark at
+every anchor via the representative fallback — regression-safe.)
