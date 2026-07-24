@@ -92,28 +92,21 @@ class CanonicalInkComposer
                 $el, $signerIdentity, $signerRole, $signerNameKey, $signerAliases, $signerIsSoleOfRole,
             );
 
-            // ── Signatures ── representative capture → every signature marker
-            // this signer owns. Apply-to-all yields identical captures, so a
-            // representative image is faithful; recipient per-page captures are
-            // the same hand either way. Uniform render box (I5 — refined in 1d).
-            $repSig = $this->representative($signatures);
-            if ($repSig !== null) {
-                foreach ($xpath->query('//*[@data-marker-type="signature"][@data-marker-party]') as $el) {
-                    if ($el instanceof \DOMElement && $ownsMarker($el)) {
-                        $this->paintImage($dom, $el, $repSig, 'signature', $signerName);
-                    }
-                }
-            }
+            // ── Signatures ── PER-ANCHOR binding. Each captured signature carries the
+            // document-order index of the marker it was drawn in ("{party}-sig-{n}"),
+            // so the k-th signature marker this signer owns takes capture index k —
+            // NOT a single "representative" painted over every box (which collapsed
+            // seller#1+#2's four distinct captures to sig-0 and dropped sig-1/2/3).
+            // Mirrors embedSignaturesIntoHtml's per-anchor keying (the agent path).
+            // Adopt-once/apply-to-all stays correct: one capture (or N identical) →
+            // every owned marker falls back to the representative → same mark везде.
+            $this->paintOwnedMarkersByIndex($xpath, $dom, 'signature', $signatures, $ownsMarker, $signerName);
 
-            // ── Initials ── representative initial → every initial marker owned.
-            $repInit = $this->representative($initials);
-            if ($repInit !== null) {
-                foreach ($xpath->query('//*[@data-marker-type="initial"][@data-marker-party]') as $el) {
-                    if ($el instanceof \DOMElement && $ownsMarker($el)) {
-                        $this->paintImage($dom, $el, $repInit, 'initial', $signerName);
-                    }
-                }
-            }
+            // ── Initials ── same per-anchor binding (k-th owned initial marker ←
+            // "{party}-init-{k}"). Inert for docs whose page-break initials are
+            // injected at pagination (restoreStoredInitials handles those) — but
+            // correct for any doc that carries baked-in initial markers.
+            $this->paintOwnedMarkersByIndex($xpath, $dom, 'initial', $initials, $ownsMarker, $signerName);
 
             // ── Ceremony values ── text fields (location/day/month/year/time/
             // am_pm) keyed "{party}_{fieldType}"; fill this signer's owned
@@ -409,6 +402,53 @@ class CanonicalInkComposer
             }
         }
         return null;
+    }
+
+    /**
+     * Paint every marker of $type this signer owns with ITS OWN captured image,
+     * bound per-anchor by the document-order index.
+     *
+     * Captures are keyed "{party}-{type}-{n}" where n is the position of the marker
+     * the ink was drawn in (the frontend numbers them in document order). We walk
+     * this signer's owned markers in document order and give the k-th marker the
+     * capture whose index is k. A marker with no distinct capture at its position
+     * falls back to the representative (first) image — so the common case, where a
+     * signer adopts ONE signature/initial that applies to all their anchors (one
+     * capture, or N identical copies), still fills every box with the same mark.
+     * This kills the "representative over all" collapse (bleed + drop) while keeping
+     * apply-to-all correct.
+     */
+    private function paintOwnedMarkersByIndex(
+        \DOMXPath $xpath,
+        \DOMDocument $dom,
+        string $type,
+        array $captures,
+        callable $ownsMarker,
+        string $signerName,
+    ): void {
+        // index (trailing -N) → image, for this signer's captures of this type.
+        $byIndex = [];
+        foreach ($captures as $key => $img) {
+            if (is_string($img) && trim($img) !== '' && preg_match('/-(\d+)$/', (string) $key, $m)) {
+                $byIndex[(int) $m[1]] = $img;
+            }
+        }
+        $fallback = $this->representative($captures);
+        if ($byIndex === [] && $fallback === null) {
+            return;
+        }
+
+        $k = 0;
+        foreach ($xpath->query('//*[@data-marker-type="' . $type . '"][@data-marker-party]') as $el) {
+            if (! $el instanceof \DOMElement || ! $ownsMarker($el)) {
+                continue;
+            }
+            $img = $byIndex[$k] ?? $fallback;   // this anchor's own capture, else representative
+            if ($img !== null && trim($img) !== '') {
+                $this->paintImage($dom, $el, $img, $type, $signerName);
+            }
+            $k++;
+        }
     }
 
     /** Marker-party aliases that denote the same party as $role. */

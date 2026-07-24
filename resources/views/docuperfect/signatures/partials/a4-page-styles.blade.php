@@ -532,24 +532,36 @@ function restoreStoredInitials(container, storedInitials) {
     // top-level role put the 2nd co-seller's ink in the 1st seller's page-break box
     // (and left the 2nd's box empty). Building a per-recipient map and matching each
     // box by its own data-marker-party places every signer's initials in THEIR box.
-    var byRecipient = {}; // recipientKey -> first captured image for that recipient
+    // recipientKey -> { list: [img@index], first: img }. PER-ANCHOR: keep every
+    // captured initial at its OWN document-order index ("seller_2-init-2" -> idx 2)
+    // so the k-th of a recipient's page-break boxes takes init-k — not init-0 for
+    // all boxes (which bled the first initial across every page and dropped the
+    // rest). Mirrors the per-anchor signature binding in CanonicalInkComposer.
+    var byRecipient = {};
     Object.keys(storedInitials).forEach(function (topKey) {
         var group = storedInitials[topKey];
         if (!group || typeof group !== 'object') return;
         Object.keys(group).forEach(function (subKey) {
             var img = group[subKey];
             if (!img) return;
-            var m = /^(.*)-init-\d+$/.exec(subKey);
+            var m = /^(.*)-init-(\d+)$/.exec(subKey);
             var recipientKey = (m ? m[1] : (topKey || '')).toLowerCase();
-            if (!byRecipient[recipientKey]) byRecipient[recipientKey] = img; // first per recipient
+            var idx = m ? parseInt(m[2], 10) : 0;
+            if (!byRecipient[recipientKey]) byRecipient[recipientKey] = { list: [], first: img };
+            byRecipient[recipientKey].list[idx] = img;
         });
     });
 
+    var seenByParty = {}; // recipientKey -> running box position (document order)
     allInitialEls.forEach(function (el) {
-        if (el.getAttribute('data-signed')) return;
         var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
-        var img = byRecipient[elParty];
-        if (!img) return; // this recipient captured no initial — leave their box empty
+        var rec = byRecipient[elParty];
+        if (!rec) return; // this recipient captured no initial — leave their box empty
+        var k = seenByParty[elParty] || 0;
+        seenByParty[elParty] = k + 1; // advance even past a pre-inked box, to keep positions aligned
+        if (el.getAttribute('data-signed')) return; // already inked (baked canonical) — keep it
+        var img = rec.list[k] || rec.first; // this box's OWN initial, else adopt-once fallback
+        if (!img) return;
 
         el.setAttribute('data-signed', 'true');
         el.style.cursor = 'default';
