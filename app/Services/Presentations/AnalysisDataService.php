@@ -98,6 +98,17 @@ class AnalysisDataService
         // "vs CMA Evaluation (middle)" benchmark from the tile value.
         $cmaValuation = $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange, $conditionContext, $cmaComputed);
 
+        // CMA VALUATION SANITY GUARDRAIL — additive, surfacing-only. Does NOT
+        // change the headline number. Flags when the median-based headline may
+        // be unreliable, using the two signals the live prototype (2026-07-24)
+        // proved discriminating: (1) the size-normalised cross-check
+        // (median R/m² × subject extent) diverging hard from the median, and
+        // (2) the comps' size basis and the subject extent being on different
+        // bases (sectional units vs a full erf). Injected into cma_valuation so
+        // it rides the existing pass-through to the review screen — no
+        // controller change. See computeValuationGuardrail() for thresholds.
+        $cmaValuation['valuation_guardrail'] = $this->computeValuationGuardrail($inPoolComps, $cmaComputed);
+
         return [
             'subject_property'   => $this->compileSubjectProperty($presentation, $fields, $askingPrice),
             'suburb_overview'    => $suburbOverview,
@@ -657,6 +668,111 @@ class AnalysisDataService
             // ticked (tiles fall to null).
             'compute_pool_n'            => (int) ($cmaComputed['pool_stats']['n_total'] ?? 0),
             'compute_method'            => 'median',
+        ];
+    }
+
+    /**
+     * CMA valuation SANITY GUARDRAIL — surfacing only, never mutates the headline.
+     *
+     * The current headline is the median of comparable sold prices. That is
+     * safe when the subject is a typical member of its comp pool, but it can be
+     * materially wrong when the subject is much larger/smaller than the comps
+     * (the median ignores size), or when the comp pool is not size-comparable
+     * at all (sectional units priced against a full-title erf). This guardrail
+     * raises a visible, agent-facing warning in those cases — it never silently
+     * shows a wrong number. Same philosophy as the CMA parse-failure alert.
+     *
+     * Signals (thresholds proven against the live presentation set 2026-07-24 —
+     * flags the 6 explosion cases + the Harrison under-valuation, clears all 28
+     * "sane" presentations, which sit at ≤30% divergence AND basis ratio ~0.8–1.3):
+     *
+     *   1. divergence — |sizeNormalised − median| / median, where
+     *      sizeNormalised = method_rm2_extent.raw (median R/m² × subject extent).
+     *      > 30% means the raw median and the size-aware value disagree
+     *      materially: the subject is probably much bigger/smaller than the comps.
+     *   2. basis mismatch — subject extent ÷ median comp size far from 1
+     *      (> 2.5× or < 0.4×). The comps and the subject are measured on
+     *      different bases (unit floor-area vs full erf), so any per-m² figure
+     *      explodes or collapses and neither method can be trusted.
+     *
+     * A flag is raised on EITHER signal. When rm2 cannot be computed (no subject
+     * extent, or no comp carries a size) there is nothing to cross-check, so the
+     * guardrail stays silent rather than crying wolf.
+     */
+    private function computeValuationGuardrail(Collection $inPoolComps, array $cmaComputed): array
+    {
+        $median        = $this->intOrNull($cmaComputed['method_median']['raw'] ?? null);
+        $rm2Row        = $cmaComputed['method_rm2_extent'] ?? [];
+        $rm2           = $this->intOrNull($rm2Row['raw'] ?? null);
+        $subjectExtent = $this->intOrNull($rm2Row['subject_extent_m2'] ?? null);
+
+        // Comp sold-price band + median comp size (only comps carrying a size).
+        $prices = $inPoolComps->map(fn ($c) => (int) ($c->sold_price_inc ?? 0))
+            ->filter(fn ($p) => $p > 0)->sort()->values();
+        $sizes  = $inPoolComps->map(fn ($c) => (int) ($c->size_m2 ?? 0))
+            ->filter(fn ($s) => $s > 0)->sort()->values();
+        $minPrice = $prices->count() ? (int) $prices->first() : null;
+        $maxPrice = $prices->count() ? (int) $prices->last()  : null;
+        $medComp  = $sizes->count() ? (int) $sizes[intdiv($sizes->count(), 2)] : null;
+
+        // Signal 1 — size-normalised vs median divergence.
+        $divergencePct = ($median && $rm2)
+            ? round(abs($rm2 - $median) / $median * 100, 1)
+            : null;
+
+        // Signal 2 — size-basis mismatch.
+        $basisRatio = ($medComp && $subjectExtent)
+            ? round($subjectExtent / $medComp, 2)
+            : null;
+        $basisMismatch = $basisRatio !== null && ($basisRatio > 2.5 || $basisRatio < 0.4);
+
+        // Info only — size-normalised value falls outside the comp sold-price band.
+        $outOfRange = $rm2 !== null && $minPrice !== null && $maxPrice !== null
+            && ($rm2 < $minPrice || $rm2 > $maxPrice);
+
+        $divergenceThreshold = 30.0;
+        $divergesHard = $divergencePct !== null && $divergencePct > $divergenceThreshold;
+        $flagged      = $divergesHard || $basisMismatch;
+
+        $reasons = [];
+        if ($basisMismatch) {
+            $reasons[] = 'comp_size_basis_mismatch';
+        }
+        if ($divergesHard) {
+            $reasons[] = 'diverges_from_size_normalised';
+        }
+
+        $severity = null;
+        $message  = null;
+        if ($flagged) {
+            $severity = ($basisMismatch || ($divergencePct !== null && $divergencePct > 100))
+                ? 'high' : 'review';
+            if ($basisMismatch) {
+                $message = 'This valuation may be unreliable: the comparable sales and this property are not size-comparable '
+                    . '(e.g. sectional units measured against a full-title erf), so a per-m² valuation is not meaningful. '
+                    . 'Check the comparable selection and the subject extent before relying on the headline figure.';
+            } else {
+                $message = 'Heads up — a size-normalised cross-check (median R/m² × this property\'s extent) values it around R'
+                    . number_format((int) $rm2) . ', which differs from the comparable-median headline by ' . $divergencePct . '%. '
+                    . 'The subject may be materially larger or smaller than the comparables — review the comparable selection before sending.';
+            }
+        }
+
+        return [
+            'flagged'             => $flagged,
+            'severity'            => $severity,       // 'high' | 'review' | null
+            'reasons'             => $reasons,
+            'message'             => $message,
+            'median_value'        => $median,
+            'rm2_value'           => $rm2,
+            'divergence_pct'      => $divergencePct,
+            'basis_ratio'         => $basisRatio,
+            'basis_mismatch'      => $basisMismatch,
+            'subject_extent_m2'   => $subjectExtent,
+            'median_comp_size_m2' => $medComp,
+            'comp_price_min'      => $minPrice,
+            'comp_price_max'      => $maxPrice,
+            'out_of_range'        => $outOfRange,
         ];
     }
 
