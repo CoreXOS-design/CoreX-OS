@@ -11,9 +11,11 @@ use App\Models\FicaComplianceOfficer;
 use App\Models\FicaDocument;
 use App\Models\FicaResendLog;
 use App\Models\FicaStatusHistory;
+use App\Models\Compliance\FicaTfsScreening;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use App\Services\Compliance\FicaReferralService;
+use App\Services\Compliance\Tfs\TfsScreeningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -240,8 +242,73 @@ class FicaController extends Controller
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
+        $tfsScreening = $submission->latestTfsScreening();
 
-        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo'));
+        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening'));
+    }
+
+    /**
+     * Run (or re-run) TFS sanctions screening for this submission. Records a
+     * version-stamped FicaTfsScreening row. Screening never approves — it informs
+     * the gate; a HIT / review blocks approval until a CO resolves it.
+     */
+    public function screenTfs(FicaSubmission $submission, TfsScreeningService $svc)
+    {
+        $this->authorizeAgency($submission);
+        $screening = $svc->screen($submission, Auth::user());
+
+        return redirect()->back()->with('success', 'TFS screening run — result: ' . $screening->badge() . '.');
+    }
+
+    /**
+     * CO decision on a flagged screening (a HIT or a review). "clear" resolves it as a
+     * false positive (clears the gate); "confirm" records a confirmed hit (keeps it blocked).
+     */
+    public function tfsDecision(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        $actor = Auth::user();
+        abort_unless($actor->isComplianceOfficer(), 403, 'Only a Compliance Officer may decide a TFS match.');
+
+        $data = $request->validate([
+            'screening_id' => 'required|integer',
+            'action'       => 'required|in:clear,confirm',
+            'note'         => 'nullable|string|max:2000',
+        ]);
+
+        $screening = FicaTfsScreening::where('fica_submission_id', $submission->id)->findOrFail($data['screening_id']);
+        $decision = $data['action'] === 'clear' ? 'cleared_false_positive' : 'confirmed_hit';
+        $screening->update([
+            'decision'      => $decision,
+            'decided_by'    => $actor->id,
+            'decided_at'    => now(),
+            'decision_note' => $data['note'] ?? null,
+        ]);
+
+        FicaStatusHistory::record($submission, 'tfs_' . $decision, $submission->status, $submission->status, $actor, $data['note'] ?? null);
+
+        return redirect()->back()->with('success', 'TFS decision recorded (' . str_replace('_', ' ', $decision) . ').');
+    }
+
+    /**
+     * Approval gate — the authoritative server-side sanctions block. Returns a redirect
+     * when approval must be refused, or null when clear. Never let a hit/undecided review
+     * (or an unscreened / listless submission) through.
+     */
+    private function tfsApprovalGuard(FicaSubmission $submission, string $redirectRoute)
+    {
+        $tfs = $submission->latestTfsScreening();
+        if ($tfs && $tfs->clearsApprovalGate()) {
+            return null;
+        }
+        $msg = match (true) {
+            ! $tfs                             => 'Run TFS sanctions screening before approving this submission.',
+            $tfs->outcome === 'hit'            => 'Sanctions HIT unresolved — a Compliance Officer must confirm or clear it before this can be approved.',
+            $tfs->outcome === 'review_required' => 'TFS screening flagged possible matches — a Compliance Officer must clear or confirm them before approval.',
+            default                            => 'TFS screening could not complete (no current sanctions list) — cannot approve until it does.',
+        };
+
+        return redirect()->route($redirectRoute, $submission)->withErrors(['tfs' => $msg]);
     }
 
     /**
@@ -250,6 +317,11 @@ class FicaController extends Controller
     public function agentApprove(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        // TFS sanctions gate — block an unresolved hit / review / unscreened submission.
+        if ($block = $this->tfsApprovalGuard($submission, 'compliance.fica.show')) {
+            return $block;
+        }
 
         $validated = $request->validate([
             'risk_rating'         => 'required|integer|in:1,2,3',
@@ -297,8 +369,9 @@ class FicaController extends Controller
         // station owner only; the view hides the buttons a non-owner cannot use so
         // there are no dead buttons (No-Silent-Locks), matching the server guard.
         $viewerOwnsReferralStation = $referrals->isReferralStationOwner($submission, Auth::user());
+        $tfsScreening = $submission->latestTfsScreening();
 
-        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'viewerOwnsReferralStation'));
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'viewerOwnsReferralStation', 'tfsScreening'));
     }
 
     /**
@@ -309,6 +382,12 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer(), 403);
+
+        // TFS sanctions gate — a hit / undecided review / unscreened pack cannot be
+        // finally approved. The CO resolves the flag (clear / confirm) first.
+        if ($block = $this->tfsApprovalGuard($submission, 'compliance.fica.compliance-review')) {
+            return $block;
+        }
 
         // AT-269 (P2-49) — the CO-decision station is action-enforced, not just
         // hidden. A referred pack may only be decided by its recipient / the primary

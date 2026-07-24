@@ -46,10 +46,12 @@ class FicaTfsScreening extends Model
 
     /**
      * Does this screening CLEAR the FICA approval gate?
-     * - hit: never (unless a CO explicitly resolved it as a false positive)
-     * - review_required: only if a CO cleared it
-     * - passed: only if the auto-pass is trusted (guardrail) OR a CO cleared it
-     * - error: never
+     *
+     * Blocks on hit / review_required / error (per Johan: "block on an open hit or an
+     * undecided review"). A clean `passed` clears the gate — that IS the feature (clean =>
+     * the agent proceeds). A CO decision overrides either way. The `trust_auto_pass` flag
+     * does NOT change gating; it only governs the label's coverage caveat (see coverageNote()),
+     * because a human CO still approves every file — screening never auto-completes approval.
      */
     public function clearsApprovalGate(): bool
     {
@@ -59,7 +61,13 @@ class FicaTfsScreening extends Model
         if ($this->decision === 'confirmed_hit') {
             return false;
         }
-        return $this->outcome === 'passed' && $this->auto_pass_trusted;
+        return $this->outcome === 'passed';
+    }
+
+    /** True while an unresolved hit/review is blocking approval. */
+    public function isBlocking(): bool
+    {
+        return ! $this->clearsApprovalGate();
     }
 
     /** Short human status for the UI badge. */
@@ -68,8 +76,37 @@ class FicaTfsScreening extends Model
         return match ($this->outcome) {
             'hit'             => 'Sanctions HIT',
             'review_required' => 'Review required',
-            'passed'          => $this->auto_pass_trusted ? 'Screened & passed' : 'No match (auto-clear disabled)',
-            default           => 'Not screened',
+            'passed'          => 'Screened & passed',
+            default           => 'Could not screen',
         };
+    }
+
+    /** Panel colour tone. */
+    public function tone(): string
+    {
+        if ($this->decision === 'cleared_false_positive') {
+            return 'green';
+        }
+        return match ($this->outcome) {
+            'hit'             => 'red',
+            'review_required' => 'amber',
+            'passed'          => 'green',
+            default           => 'grey',
+        };
+    }
+
+    /**
+     * HONEST COVERAGE LABEL — always shown, so "passed" is never a bare claim.
+     * While auto-pass is untrusted we say exactly which list was checked and that
+     * SA-domestic coverage is pending, so we never assert more coverage than we have.
+     */
+    public function coverageNote(): ?string
+    {
+        if ($this->outcome !== 'passed') {
+            return null;
+        }
+        return $this->auto_pass_trusted
+            ? 'Full sanctions coverage confirmed.'
+            : 'Checked against the FIC UN Consolidated list only — SA-domestic designation coverage is pending sign-off.';
     }
 }
