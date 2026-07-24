@@ -143,7 +143,11 @@ class CanonicalInkComposer
                 }
                 $keyParty  = strtolower($parts[0]);
                 $fieldType = $parts[1];
-                foreach ($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]') as $el) {
+                // Materialise the match set before mutating — stampCeremonyFilled may
+                // REPLACE an <input> node, and iterating a live query while
+                // restructuring the tree is unsafe.
+                $matches = iterator_to_array($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]'));
+                foreach ($matches as $el) {
                     if (! $el instanceof \DOMElement) {
                         continue;
                     }
@@ -213,7 +217,10 @@ class CanonicalInkComposer
                 }
                 $keyParty  = strtolower($parts[0]);
                 $fieldType = $parts[1];
-                foreach ($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]') as $el) {
+                // Materialise before mutating — stampCeremonyFilled may REPLACE an
+                // <input> node with a <span>.
+                $matches = iterator_to_array($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]'));
+                foreach ($matches as $el) {
                     if (! $el instanceof \DOMElement) {
                         continue;
                     }
@@ -259,6 +266,37 @@ class CanonicalInkComposer
      */
     private function stampCeremonyFilled(\DOMElement $el, string $value): void
     {
+        // <input> ceremony fields (the recipient-editable place/date/time the
+        // signing UI created for a party) are VOID elements: DOMDocument::saveHTML
+        // DROPS any textContent written into them, so the value never renders — and
+        // the browser never serialised the typed value onto the `value` attribute
+        // either (a JS .value property is not reflected into the DOM attribute), so
+        // the frozen artifact carries an EMPTY input. A signed document must read as
+        // plain text anyway — exactly like the agent's <span> block — so replace the
+        // <input> with a read-only <span> carrying the value, dropping the editable
+        // field styling (yellow fill / heavy underline) so the executed document
+        // shows text, not an empty-looking form control. Non-input elements (the
+        // agent's spans) take textContent as before.
+        if (strtolower($el->tagName) === 'input') {
+            $doc = $el->ownerDocument;
+            if ($doc instanceof \DOMDocument && $el->parentNode !== null) {
+                $span = $doc->createElement('span');
+                // Carry the marker identity (so an idempotent re-render still matches
+                // this field) and the layout class (underline/width parity with the
+                // agent's spans); the editable inline style is intentionally dropped.
+                foreach (['data-marker-party', 'data-marker-type', 'data-recipient-identity', 'class'] as $attr) {
+                    if ($el->hasAttribute($attr)) {
+                        $span->setAttribute($attr, $el->getAttribute($attr));
+                    }
+                }
+                $span->setAttribute('style', 'font-weight:500;');
+                $span->setAttribute('data-signed', 'true');
+                $span->textContent = $value;
+                $el->parentNode->replaceChild($span, $el);
+                return;
+            }
+        }
+
         $el->textContent = $value;
         $style = $el->getAttribute('style') ?: '';
         if (! str_contains($style, 'font-weight:500;')) {

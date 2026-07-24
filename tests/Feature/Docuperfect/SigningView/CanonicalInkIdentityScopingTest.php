@@ -383,4 +383,68 @@ final class CanonicalInkIdentityScopingTest extends TestCase
         $out = app(CanonicalInkComposer::class)->applyCeremonyValues($html, ['seller_day' => '23']);
         $this->assertStringNotContainsString('>23<', $out, 'seller value never lands on an agent span');
     }
+
+    // ── <input>-based ceremony fields (the doc-456 break) ──────────────────────
+    // The seller's five ceremony fields are recipient-editable <input> VOID
+    // elements; DOMDocument::saveHTML drops textContent written into them, so the
+    // value never renders. The stamp must REPLACE the input with a read-only span.
+
+    public function test_applyCeremonyValues_renders_input_ceremony_fields_as_text(): void
+    {
+        $frozen = '<p class="sig-preamble">signed at '
+                . '<input type="text" class="sig-field" data-marker-party="seller" data-marker-type="location">'
+                . ' on this '
+                . '<input type="text" class="sig-field" data-marker-party="seller" data-marker-type="day">'
+                . ' day at '
+                . '<input type="text" class="sig-field" data-marker-party="seller" data-marker-type="time">'
+                . '</p>';
+
+        $values = ['seller_location' => 'rytyuhi', 'seller_day' => '23', 'seller_time' => '05:06'];
+        $out = app(CanonicalInkComposer::class)->applyCeremonyValues($frozen, $values);
+
+        // Values are present in the SERIALISED output — the real failure was that
+        // saveHTML dropped them from the <input>.
+        $this->assertStringContainsString('rytyuhi', $out, "seller's place renders");
+        $this->assertStringContainsString('>23<', $out, "seller's day renders as text");
+        $this->assertStringContainsString('>05:06<', $out, "seller's time renders as text");
+        // The empty-looking form control is gone — a signed doc shows plain text.
+        $this->assertStringNotContainsString('<input', $out, 'filled inputs are replaced by read-only spans');
+        // The replacement span keeps the marker identity so a re-render still matches it.
+        $this->assertMatchesRegularExpression('/data-marker-party="seller" data-marker-type="day"[^>]*>23</', $out);
+
+        // Idempotent across the input→span conversion.
+        $again = app(CanonicalInkComposer::class)->applyCeremonyValues($out, $values);
+        $this->assertSame($out, $again, 'input→span conversion is idempotent on re-render');
+    }
+
+    public function test_applyCeremonyValues_input_replacement_does_not_cross_roles(): void
+    {
+        // An agent <input> must NOT be filled by a seller value, and an input with
+        // no captured value is left untouched (still an input, still empty).
+        $html = '<input type="text" data-marker-party="agent" data-marker-type="day">';
+        $out = app(CanonicalInkComposer::class)->applyCeremonyValues($html, ['seller_day' => '23']);
+        $this->assertStringNotContainsString('23', $out, 'seller value never lands on an agent input');
+        $this->assertStringContainsString('data-marker-party="agent"', $out, 'untouched agent field is left as-is');
+    }
+
+    public function test_bakeInk_replaces_input_ceremony_field_for_owning_signer(): void
+    {
+        // Same fix reached through bakeInk (sign-time), for an un-stamped input the
+        // signing seller owns by party.
+        $html = '<p>signed at <input type="text" data-marker-party="seller" data-marker-type="location"> on this '
+              . '<input type="text" data-marker-party="seller" data-marker-type="day"> day</p>';
+
+        $baked = app(CanonicalInkComposer::class)->bakeInk(
+            $html,
+            $this->seller(1, 'Premilla Swepath'),
+            [],
+            [],
+            ['seller_location' => 'rytyuhi', 'seller_day' => '23'],
+            false,
+        );
+
+        $this->assertStringNotContainsString('<input', $baked, 'owned inputs are replaced by spans at bake time');
+        $this->assertStringContainsString('rytyuhi', $baked);
+        $this->assertStringContainsString('>23<', $baked);
+    }
 }
