@@ -346,8 +346,20 @@
             <div id="cma-pool-meta" style="margin-top:10px; font-size:11px; color:var(--text-muted);">
                 CoreX evaluation —
                 <span id="cma-pool-n">{{ (int) ($cmaValuation['compute_pool_n'] ?? 0) }}</span>
-                comps included (method: median).
+                comps included (method: {{ ($cmaValuation['compute_method'] ?? 'median') === 'size_adjusted' ? 'size-adjusted' : 'median' }}).
             </div>
+
+            {{-- STEP 2a — size-adjusted headline note. Shown only when the median
+                 was lifted toward the size-normalised value because the subject is
+                 a genuinely larger, same-basis stand than its comparables. --}}
+            @if(!empty($cmaValuation['headline_lifted']))
+            <div id="cma-size-adjusted-note" style="margin-top:6px; font-size:11px; color:var(--text-secondary);">
+                Size-adjusted: comp-median R {{ number_format((int) ($cmaValuation['headline_median_raw'] ?? 0), 0, '.', ' ') }}
+                lifted to R {{ number_format((int) ($cmaValuation['cma_middle_baseline'] ?? 0), 0, '.', ' ') }}
+                (+{{ $cmaValuation['headline_uplift_pct'] ?? 0 }}%) — subject larger than the comparables
+                (size-normalised R {{ number_format((int) ($cmaValuation['size_normalised_value'] ?? 0), 0, '.', ' ') }}).
+            </div>
+            @endif
             @php
                 $bm = $cmaValuation['cma_info_benchmark'] ?? [];
                 $bmAny = !empty($bm['lower']) || !empty($bm['middle']) || !empty($bm['upper']);
