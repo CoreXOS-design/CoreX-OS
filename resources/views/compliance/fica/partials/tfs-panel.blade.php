@@ -22,7 +22,7 @@
     ], fn($f) => !empty($f['value']));
 ?>
 
-<div x-data="{ tfsModal: false, iframeError: false }">
+<div x-data="{ tfsModal: false }">
     {{-- Trigger button --}}
     <button type="button" @click="tfsModal = true" class="corex-btn-outline text-sm">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5" style="color:var(--brand-icon,#0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
@@ -88,25 +88,26 @@
                     </div>
                 </div>
 
-                {{-- RIGHT: Embedded FIC search --}}
-                <div class="flex-1 flex flex-col overflow-hidden">
-                    <div x-show="!iframeError" class="flex-1">
-                        <iframe src="https://tfs.fic.gov.za/Pages/Search"
-                                style="width: 100%; height: 100%; border: none;"
-                                x-on:error="iframeError = true"
-                                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                                referrerpolicy="no-referrer"></iframe>
+                {{-- RIGHT: Open FIC TFS in a new tab.
+                     We deliberately do NOT iframe tfs.fic.gov.za — the FIC site refuses
+                     embedding (X-Frame-Options / CSP frame-ancestors) and 403s datacenter
+                     IPs, so an embed renders a bare broken-document icon and the iframe
+                     'error' event never fires (a framing refusal is not a network error),
+                     which is why the old onerror fallback could never trigger. The screening
+                     workflow is: copy the fields on the left, open FIC in a new tab, paste. --}}
+                <div class="flex-1 flex flex-col items-center justify-center text-center p-8" style="background:var(--surface-2);">
+                    <div class="w-16 h-16 rounded-full flex items-center justify-center mb-5" style="background:var(--surface); border:1px solid var(--border);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8" style="color:var(--brand-icon,#0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
                     </div>
-
-                    <div x-show="iframeError" x-cloak class="flex-1 flex flex-col items-center justify-center text-center" style="background:var(--surface-2);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-12 h-12 mb-4" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                        <p class="text-base font-semibold mb-2" style="color:var(--text-primary);">Unable to embed FIC search</p>
-                        <p class="text-sm mb-4" style="color:var(--text-muted);">The FIC website does not allow embedding. Open it in a new tab instead.</p>
-                        <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener" class="corex-btn-primary text-sm">
-                            Open FIC TFS in New Tab
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                        </a>
-                    </div>
+                    <h3 class="text-lg font-bold mb-2" style="color:var(--text-primary);">Screen on the FIC TFS website</h3>
+                    <p class="text-sm mb-1" style="max-width:28rem; color:var(--text-secondary);">The FIC TFS register can't be embedded here. Open it in a new tab, then paste the contact details from the left into the FIC search form.</p>
+                    <p class="text-xs mb-6" style="max-width:28rem; color:var(--text-muted);">Use the copy button on each field on the left, then paste into the FIC search.</p>
+                    <a href="https://tfs.fic.gov.za/Pages/Search" target="_blank" rel="noopener"
+                       class="corex-btn-primary" style="font-size:0.95rem; padding:0.75rem 1.5rem;">
+                        Open FIC TFS in New Tab
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                    </a>
+                    <p class="text-xs mt-4" style="color:var(--text-muted);">Opens tfs.fic.gov.za in a new browser tab</p>
                 </div>
             </div>
         </div>
