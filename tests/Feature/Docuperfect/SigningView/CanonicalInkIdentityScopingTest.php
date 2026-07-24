@@ -277,4 +277,110 @@ final class CanonicalInkIdentityScopingTest extends TestCase
             "seller_2's field must NOT be editable by seller_1",
         );
     }
+
+    // ── Ceremony-text binding (place/date/time) ────────────────────────────────
+    // The seller's captured ceremony_values were dropped from the render because
+    // ceremony spans carry NO data-name (no name-rescue) and, when un-stamped,
+    // relied only on the sole-of-role party gate. bakeInk now binds un-stamped
+    // ceremony spans by PARTY too (embedCeremonyValuesIntoHtml's match), so a
+    // signer's own place/date/time fills — without bleeding onto a stamped
+    // co-party span.
+
+    /** A single-seller attestation block: un-stamped ceremony spans (the Premilla shape). */
+    private function unstampedSellerCeremonyBlock(): string
+    {
+        return '<div class="sig-party-block"><p class="sig-text">Thus done and signed by the Seller at '
+             . '<span class="sig-field" data-marker-party="seller" data-marker-type="location"></span> on this '
+             . '<span class="sig-field" data-marker-party="seller" data-marker-type="day"></span> day of '
+             . '<span class="sig-field" data-marker-party="seller" data-marker-type="month"></span> 20'
+             . '<span class="sig-field" data-marker-party="seller" data-marker-type="year"></span> at '
+             . '<span class="sig-field" data-marker-party="seller" data-marker-type="time"></span> am / pm.</p>'
+             . '<span data-marker-party="seller" data-marker-type="signature" data-name="Premilla Swepath"></span></div>';
+    }
+
+    public function test_bakeInk_binds_unstamped_ceremony_spans_by_party_even_when_not_sole(): void
+    {
+        // The exact defect: her values ARE captured. Prove they bind onto her
+        // un-stamped ceremony spans via the party fallback — even with
+        // soleOfRole=false (so it's the NEW party path doing the work, not the
+        // pre-existing sole-of-role alias).
+        $baked = app(CanonicalInkComposer::class)->bakeInk(
+            $this->unstampedSellerCeremonyBlock(),
+            $this->seller(1, 'Premilla Swepath'),
+            [],
+            [],
+            ['seller_location' => 'rytyuhi', 'seller_day' => '23', 'seller_month' => 'July', 'seller_year' => '26', 'seller_time' => '05:06'],
+            false, // NOT sole-of-role — the party fallback must still bind ceremony text
+        );
+
+        $this->assertStringContainsString('>rytyuhi<', $baked, "seller's captured place binds to her location span");
+        $this->assertStringContainsString('>23<', $baked, "seller's captured day binds");
+        $this->assertStringContainsString('>July<', $baked, "seller's captured month binds");
+        $this->assertStringContainsString('>26<', $baked, "seller's captured year binds");
+        $this->assertStringContainsString('>05:06<', $baked, "seller's captured time binds");
+    }
+
+    public function test_bakeInk_ceremony_party_fallback_never_bleeds_onto_stamped_co_party(): void
+    {
+        // Two IDENTITY-STAMPED seller day spans (a properly cloned 2-seller doc).
+        // seller_1 signs → only seller_1's stamped span fills; seller_2's stays
+        // blank. The party fallback is gated on absent identity, so it cannot bleed.
+        $html = '<span data-marker-party="seller" data-marker-type="day" data-recipient-identity="seller_1"></span>'
+              . '<span data-marker-party="seller" data-marker-type="day" data-recipient-identity="seller_2"></span>';
+
+        $baked = app(CanonicalInkComposer::class)->bakeInk(
+            $html,
+            $this->seller(1, 'Alice'),
+            [],
+            [],
+            ['seller_day' => '23'],
+            false,
+        );
+
+        $this->assertMatchesRegularExpression('/data-recipient-identity="seller_1"[^>]*>23</', $baked, "seller_1's own span fills");
+        $this->assertMatchesRegularExpression('/data-recipient-identity="seller_2"[^>]*>\s*</', $baked, "seller_2's span must stay blank — no bleed");
+        $this->assertSame(1, substr_count($baked, '>23<'), 'exactly one span filled');
+    }
+
+    public function test_bakeInk_agent_ceremony_still_fills_no_regression(): void
+    {
+        $html = '<span data-marker-party="agent" data-marker-type="day"></span>';
+        $agent = new SignatureRequest();
+        $agent->party_role = 'agent';
+        $agent->role_index = 1;
+        $agent->signer_name = 'Shelly';
+
+        $baked = app(CanonicalInkComposer::class)->bakeInk(
+            $html, $agent, [], [], ['agent_day' => '23'], true, // agent is sole-of-role
+        );
+        $this->assertStringContainsString('>23<', $baked, "agent's ceremony still fills exactly as before");
+    }
+
+    public function test_applyCeremonyValues_repairs_frozen_render_and_is_role_scoped_and_idempotent(): void
+    {
+        // The doc-456 render shape: agent's day already drawn, seller's blank.
+        $frozen = '<span data-marker-party="seller" data-marker-type="day"></span>'
+                . '<span data-marker-party="seller" data-marker-type="location"></span>'
+                . '<span data-marker-party="agent" data-marker-type="day">23</span>';
+
+        $values = ['seller_day' => '23', 'seller_location' => 'rytyuhi', 'agent_day' => '23'];
+        $out = app(CanonicalInkComposer::class)->applyCeremonyValues($frozen, $values);
+
+        $this->assertMatchesRegularExpression('/data-marker-party="seller" data-marker-type="day"[^>]*>23</', $out, "seller's day repaired");
+        $this->assertMatchesRegularExpression('/data-marker-type="location"[^>]*>rytyuhi</', $out, "seller's place repaired");
+        // Cross-role safety: seller_day must not have overwritten the agent span (still its own 23, one agent span).
+        $this->assertSame(1, substr_count($out, 'data-marker-party="agent"'), 'agent span untouched in count');
+
+        // Idempotent: a second pass yields the same document.
+        $again = app(CanonicalInkComposer::class)->applyCeremonyValues($out, $values);
+        $this->assertSame($out, $again, 'applyCeremonyValues is idempotent');
+    }
+
+    public function test_applyCeremonyValues_does_not_cross_roles(): void
+    {
+        // Only a seller value is captured; an agent span must NOT be filled by it.
+        $html = '<span data-marker-party="agent" data-marker-type="day"></span>';
+        $out = app(CanonicalInkComposer::class)->applyCeremonyValues($html, ['seller_day' => '23']);
+        $this->assertStringNotContainsString('>23<', $out, 'seller value never lands on an agent span');
+    }
 }

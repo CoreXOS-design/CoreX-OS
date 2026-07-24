@@ -217,12 +217,32 @@ class SignaturePdfService
         $signedPaginated  = $document->signed_paginated_html;
 
         if (is_string($signedPaginated) && trim($signedPaginated) !== '') {
-            return $signedPaginated;
+            return $this->withCeremonyValues($signedPaginated, $webTemplateData);
         }
         if (trim($canonicalHtml) !== '') {
-            return $canonicalHtml; // v>=1 (baked ink) or v0 (structure) — both paginated at render
+            return $this->withCeremonyValues($canonicalHtml, $webTemplateData); // v>=1 (baked) or v0 (structure)
         }
-        return (string) ($webTemplateData['merged_html'] ?? '');
+        return $this->withCeremonyValues((string) ($webTemplateData['merged_html'] ?? ''), $webTemplateData);
+    }
+
+    /**
+     * Re-apply EVERY party's captured ceremony values (place/date/time) onto their
+     * own spans in the resolved render source. `ceremony_values` is the source of
+     * truth for what each signer entered; a frozen signed_paginated_html or a
+     * canonical baked by the old strict binding can show a party's spans blank.
+     * Re-binding here — the ONE place both the filed/emailed PDF (generate) and
+     * the live download (buildInjectedRenderHtml) read — makes the rendered PDF
+     * faithful and repairs already-signed docs on a no-re-sign re-render. Party-
+     * scoped + idempotent; fail-safe returns the HTML unchanged on any error.
+     */
+    private function withCeremonyValues(string $html, array $webTemplateData): string
+    {
+        $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
+        if (! is_array($ceremonyValues) || $ceremonyValues === [] || trim($html) === '') {
+            return $html;
+        }
+
+        return app(CanonicalInkComposer::class)->applyCeremonyValues($html, $ceremonyValues);
     }
 
     /**

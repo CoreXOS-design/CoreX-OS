@@ -118,6 +118,21 @@ class CanonicalInkComposer
             // ── Ceremony values ── text fields (location/day/month/year/time/
             // am_pm) keyed "{party}_{fieldType}"; fill this signer's owned
             // markers of that field type.
+            //
+            // Ceremony spans carry NO data-name (only the signature cell does), so
+            // markerBelongsToSigner's name-rescue cannot bind them. An un-stamped
+            // ceremony span (a single-recipient / un-cloned attestation block) then
+            // depends solely on the sole-of-role party fallback — and a party whose
+            // marker token is not in the alias set, or who is not counted sole, is
+            // left blank. That is the "seller's captured place/date/time dropped
+            // from the render" defect: her values ARE in $ceremonyValues but never
+            // bind. Bind such UN-STAMPED spans by PARTY as well — the exact match
+            // embedCeremonyValuesIntoHtml() already uses (data-marker-party equals
+            // the key's party, or starts with it). The party fallback is gated on
+            // the ABSENCE of data-recipient-identity, so a cloned co-party span
+            // (seller_1 vs seller_2, which IS identity-stamped) stays strictly
+            // identity-scoped and never bleeds. Signatures/initials above are
+            // untouched — this only widens the CEREMONY-text binding.
             foreach ($ceremonyValues as $key => $value) {
                 if (trim((string) $value) === '') {
                     continue;
@@ -126,12 +141,16 @@ class CanonicalInkComposer
                 if (count($parts) < 2) {
                     continue;
                 }
+                $keyParty  = strtolower($parts[0]);
                 $fieldType = $parts[1];
                 foreach ($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]') as $el) {
-                    if ($el instanceof \DOMElement && $ownsMarker($el)) {
-                        $el->textContent = (string) $value;
-                        $el->setAttribute('style', ($el->getAttribute('style') ?: '') . 'font-weight:500;');
-                        $el->setAttribute('data-signed', 'true');
+                    if (! $el instanceof \DOMElement) {
+                        continue;
+                    }
+                    $ownedByParty = $el->getAttribute('data-recipient-identity') === ''
+                        && $this->ceremonyPartyMatches(strtolower($el->getAttribute('data-marker-party')), $keyParty);
+                    if ($ownsMarker($el) || $ownedByParty) {
+                        $this->stampCeremonyFilled($el, (string) $value);
                     }
                 }
             }
@@ -148,6 +167,104 @@ class CanonicalInkComposer
             ]);
             return $canonicalHtml;
         }
+    }
+
+    /**
+     * Render-time re-application of EVERY captured ceremony value onto its own
+     * party's spans — the repair path for docs signed BEFORE the party-binding
+     * fix above, applied where the PDF is actually assembled
+     * (SignaturePdfService::resolveRenderHtml).
+     *
+     * `ceremony_values` (keyed "{party}_{fieldType}") is the source of truth: a
+     * signer provided those place/date/time values. A frozen signed_paginated_html
+     * or a canonical baked by the OLD strict binding can still show a party's
+     * spans blank; this paints the captured values back onto the exact spans they
+     * came from — the key's party IS that span's data-marker-party, by
+     * construction of the capture (rawParty + '_' + fieldType) — so the rendered
+     * PDF is faithful and an already-signed document repairs on a no-re-sign
+     * re-render. Party-scoped (agent values never touch seller spans) and
+     * idempotent (re-writing the same value is a no-op). Fail-safe: any parse/DOM
+     * error returns the HTML unchanged — a document that keeps its state is always
+     * safer than a 500 at render.
+     *
+     * @param  array<string,string> $ceremonyValues  captured "{party}_{fieldType}" => value
+     */
+    public function applyCeremonyValues(string $html, array $ceremonyValues): string
+    {
+        if (trim($html) === '' || $ceremonyValues === []) {
+            return $html;
+        }
+
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath = new \DOMXPath($dom);
+
+            foreach ($ceremonyValues as $key => $value) {
+                if (trim((string) $value) === '') {
+                    continue;
+                }
+                $parts = explode('_', (string) $key, 2);
+                if (count($parts) < 2) {
+                    continue;
+                }
+                $keyParty  = strtolower($parts[0]);
+                $fieldType = $parts[1];
+                foreach ($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]') as $el) {
+                    if (! $el instanceof \DOMElement) {
+                        continue;
+                    }
+                    if (! $this->ceremonyPartyMatches(strtolower($el->getAttribute('data-marker-party')), $keyParty)) {
+                        continue;
+                    }
+                    $this->stampCeremonyFilled($el, (string) $value);
+                }
+            }
+
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            return trim((string) $out);
+        } catch (\Throwable $e) {
+            Log::error('CanonicalInkComposer::applyCeremonyValues failed — HTML returned unchanged', [
+                'error' => $e->getMessage(),
+                'line'  => $e->getLine(),
+            ]);
+            return $html;
+        }
+    }
+
+    /**
+     * Ceremony party-match — the SAME binding embedCeremonyValuesIntoHtml() uses
+     * (SignatureController::embedCeremonyValuesIntoHtml): the span's
+     * data-marker-party equals the ceremony key's party, or starts with it. Reused
+     * by bakeInk's un-stamped-span fallback and by applyCeremonyValues so both
+     * paths bind ceremony text identically.
+     */
+    private function ceremonyPartyMatches(string $elParty, string $keyParty): bool
+    {
+        if ($elParty === '' || $keyParty === '') {
+            return false;
+        }
+
+        return $elParty === $keyParty || str_starts_with($elParty, $keyParty);
+    }
+
+    /**
+     * Write a ceremony text value into its span. Idempotent: the emphasis style is
+     * added only once, so repeated re-renders (applyCeremonyValues runs on every
+     * PDF assembly) never accrete duplicate `font-weight:500;` declarations.
+     */
+    private function stampCeremonyFilled(\DOMElement $el, string $value): void
+    {
+        $el->textContent = $value;
+        $style = $el->getAttribute('style') ?: '';
+        if (! str_contains($style, 'font-weight:500;')) {
+            $el->setAttribute('style', $style . 'font-weight:500;');
+        }
+        $el->setAttribute('data-signed', 'true');
     }
 
     /**
