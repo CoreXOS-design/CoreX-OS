@@ -98,7 +98,7 @@
 @endpush
 
 @section('corex-content')
-<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px 0; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin-top: -16px; margin-bottom: -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
     {{-- ── Header bar (UI_DESIGN_SYSTEM.md §2.4 Pattern A — branded header).
          Full-width rounded-md branded card with the exact px-6 py-5
@@ -110,7 +110,7 @@
          bleed now); the map body below aligns to the same edges. flex-wrap
          lets the right-hand control cluster drop below the title on narrow
          screens instead of overflowing (§6.5 responsive Pattern A rule). --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 16px 0 12px; padding: 4px 0 14px; flex-shrink: 0; z-index: 500; border-bottom: 1px solid var(--border);">
+    <div class="map-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; margin-bottom: 12px; padding-top: 4px; padding-bottom: 14px; flex-shrink: 0; z-index: 500; border-bottom: 1px solid var(--border);">
         <div style="min-width: 0;" data-tour="re-map-intro">
             <div style="display: flex; align-items: center; gap: 12px;">
                 <h1 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0; line-height: 1.2;">CoreX Map</h1>
@@ -155,7 +155,7 @@
     </div>
 
     {{-- ── Seller View banner ────────────────────────────────────────────── --}}
-    <div id="seller-banner" style="display: none; margin: 0 0 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
+    <div id="seller-banner" class="map-body" style="display: none; margin-top: 0; margin-bottom: 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
         Seller view active — owner/contact info hidden
     </div>
 
@@ -163,7 +163,7 @@
          (matching the Properties / Contacts pages); horizontal margin is 0 so
          it aligns edge-for-edge with the header, and the rounded border +
          overflow:hidden frame the map. ─────────────────────────────────────── --}}
-    <div style="display: flex; flex: 1; min-height: 0; margin: 0 0 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+    <div class="map-body" style="display: flex; flex: 1; min-height: 0; margin-top: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
 
         {{-- Left rail. Phase A.3.1 — restructured into scope-first layout:
              stock-scope pills → compact layer icons → search → collapsible

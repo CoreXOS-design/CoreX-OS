@@ -3249,4 +3249,18 @@ html.dark .corex-sidebar {
     border-color: var(--border) !important;
 }
 
+/* --- 9. CoreX Map — full-bleed header line (AT-336) ------------------------ */
+/* The map is a full-bleed app shell inside <main>'s p-4/lg:p-6 padding. Bleed the
+   root to the content edges so the header's bottom border connects edge-to-edge
+   like the standard page header; the header re-adds matching inner padding, and
+   the framed map body / banners re-inset via margin so the map itself is unchanged. */
+#corex-map-root { margin-left: -1rem; margin-right: -1rem; }
+#corex-map-root .map-header { padding-left: 1rem; padding-right: 1rem; }
+#corex-map-root .map-body { margin-left: 1rem; margin-right: 1rem; }
+@media (min-width: 1024px) {
+    #corex-map-root { margin-left: -1.5rem; margin-right: -1.5rem; }
+    #corex-map-root .map-header { padding-left: 1.5rem; padding-right: 1.5rem; }
+    #corex-map-root .map-body { margin-left: 1.5rem; margin-right: 1.5rem; }
+}
+
 /* End AT-336 restyle block */
