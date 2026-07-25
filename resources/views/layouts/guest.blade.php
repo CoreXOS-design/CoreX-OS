@@ -19,191 +19,146 @@
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
 
         <style>
-            /* ── AT-336 guest restyle: LIGHT / white auth. ──
-               Agency brand tokens aren't injected on unauthenticated pages, so pin the
-               CoreX corporate brand here. The card is now WHITE, so the neutral tokens
-               resolve to the LIGHT slate palette (matching the app's light theme) rather
-               than the previous dark-card overrides. This block loads after corex.css so
-               at equal specificity it wins. All shared guest views (auth, demo T&C, gate)
-               inherit these, and dark-text-on-white now reads correctly everywhere. */
+            /* ── AT-336 guest restyle: DARK GLASS (concept 3), animated. ──
+               Agency tokens aren't injected pre-auth, so pin CoreX brand here and set
+               the neutral tokens to values tuned for the frosted DARK card, so every
+               shared guest view (auth, demo) reads light-on-dark correctly. */
             :root {
-                --brand-default: #0b2a4a;
-                --brand-button:  #00b4d8;
-                --brand-icon:    #0ea5e9;
-                --brand-sidebar: #33c4e0;
+                --brand-default:  #0b2a4a;
+                --brand-button:   #0ea5e9;
+                --brand-icon:     #38bdf8;
+                --brand-sidebar:  #33c4e0;
 
-                --text-primary:   #0f172a;   /* slate-900 */
-                --text-secondary: #334155;   /* slate-700 */
-                --text-muted:     #64748b;   /* slate-500 */
-                --surface:        #ffffff;
-                --surface-2:      #f8fafc;   /* slate-50  */
-                --border:         #e2e8f0;   /* slate-200 */
-                --border-hover:   #cbd5e1;   /* slate-300 */
-
-                --ds-crimson:     #dc2626;
-                --ds-red:         #dc2626;
+                --text-primary:   #f1f6fc;
+                --text-secondary: #b6c6da;
+                --text-muted:     #8ba0b8;
+                --surface:        rgba(255, 255, 255, 0.05);
+                --surface-2:      rgba(255, 255, 255, 0.05);
+                --border:         rgba(255, 255, 255, 0.13);
+                --border-hover:   rgba(255, 255, 255, 0.24);
+                --ds-crimson:     #f87171;
+                --ds-red:         #f87171;
             }
 
-            body { min-height: 100vh; background: #ffffff; }
+            body { min-height: 100vh; }
 
-            /* ── Split-screen shell ── */
-            .login-shell { min-height: 100vh; display: flex; }
-
-            /* Right: white form panel (always shown, centred) */
-            .login-form-panel {
-                flex: 1 1 0%;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 2rem 1.25rem;
-                background: var(--surface-2);   /* slate-50 so the white card lifts */
-                min-width: 0;
-            }
-
-            /* Left: branded, animated panel — fills the empty space (hidden on small screens) */
-            .login-brand-panel {
-                position: relative;
-                overflow: hidden;
-                flex: 1 1 0%;
-                display: none;
-                flex-direction: column;
-                justify-content: space-between;
-                padding: 3.5rem;
-                color: #fff;
+            /* ── Full-screen animated dark stage ── */
+            .login-shell {
+                position: relative; overflow: hidden; min-height: 100vh;
+                display: flex; align-items: center; justify-content: center; padding: 2rem 1.25rem;
                 background:
-                    radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--brand-default) 80%, #000) 0%, var(--brand-default) 55%, #06182b 100%);
+                    radial-gradient(70em 46em at 78% -12%, #133a55 0%, transparent 55%),
+                    radial-gradient(55em 40em at 8% 112%, #0c2b40 0%, transparent 60%),
+                    #060d16;
             }
-            @media (min-width: 1024px) { .login-brand-panel { display: flex; } }
+            /* Vignette */
+            .login-shell::after {
+                content: ""; position: absolute; inset: 0; pointer-events: none;
+                background: radial-gradient(120% 120% at 50% 45%, transparent 58%, rgba(0,0,0,.55) 100%);
+            }
 
-            /* Drifting aurora orbs (GPU-friendly transform/opacity only) */
-            .orb { position: absolute; border-radius: 9999px; filter: blur(70px); opacity: 0.55; pointer-events: none; }
-            .orb-1 { width: 460px; height: 460px; top: -120px; left: -80px;
-                     background: radial-gradient(circle, var(--brand-button) 0%, transparent 70%); animation: drift1 18s ease-in-out infinite; }
-            .orb-2 { width: 380px; height: 380px; bottom: -100px; right: -60px;
-                     background: radial-gradient(circle, var(--brand-icon) 0%, transparent 70%); animation: drift2 22s ease-in-out infinite; }
-            .orb-3 { width: 300px; height: 300px; top: 40%; left: 30%;
-                     background: radial-gradient(circle, #7c3aed 0%, transparent 70%); opacity: 0.35; animation: drift3 26s ease-in-out infinite; }
-            @keyframes drift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(60px,40px) scale(1.15); } }
-            @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-50px,-40px) scale(1.1); } }
-            @keyframes drift3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,-30px) scale(1.2); } }
+            /* Drifting aurora glow */
+            .bg-orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; pointer-events: none; will-change: transform; }
+            .bg-orb.o1 { width: 34rem; height: 34rem; top: -10rem; left: -8rem;  background: radial-gradient(circle, #22d3ee 0%, transparent 68%); animation: drift1 20s ease-in-out infinite; }
+            .bg-orb.o2 { width: 28rem; height: 28rem; bottom: -9rem; right: -6rem; background: radial-gradient(circle, #0ea5e9 0%, transparent 68%); animation: drift2 26s ease-in-out infinite; }
+            .bg-orb.o3 { width: 22rem; height: 22rem; top: 46%; left: 40%; background: radial-gradient(circle, #7c3aed 0%, transparent 70%); opacity: .32; animation: drift3 32s ease-in-out infinite; }
+            @keyframes drift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(4rem,3rem) scale(1.14); } }
+            @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-3.5rem,-2.5rem) scale(1.1); } }
+            @keyframes drift3 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(2.5rem,-2rem) scale(1.2); } }
 
-            /* Faint moving grid overlay for texture */
-            .brand-grid {
-                position: absolute; inset: 0; pointer-events: none; opacity: 0.10;
+            /* Faint panning grid */
+            .bg-grid {
+                position: absolute; inset: 0; pointer-events: none; opacity: .06;
                 background-image:
-                    linear-gradient(to right, rgba(255,255,255,0.6) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(255,255,255,0.6) 1px, transparent 1px);
-                background-size: 44px 44px;
-                mask-image: radial-gradient(120% 120% at 50% 50%, #000 40%, transparent 100%);
-                animation: gridpan 30s linear infinite;
+                    linear-gradient(to right, rgba(255,255,255,.7) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(255,255,255,.7) 1px, transparent 1px);
+                background-size: 46px 46px;
+                -webkit-mask: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
+                        mask: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
+                animation: gridpan 26s linear infinite;
             }
-            @keyframes gridpan { from { background-position: 0 0; } to { background-position: 44px 44px; } }
+            @keyframes gridpan { from { background-position: 0 0; } to { background-position: 46px 46px; } }
 
-            .brand-content { position: relative; z-index: 1; }
-            .brand-logo-tub {
-                width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center;
-                background: color-mix(in srgb, #fff 14%, transparent);
-                box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 30%, transparent);
+            /* Breathing halo behind the card */
+            .bg-halo {
+                position: absolute; width: 40rem; height: 40rem; border-radius: 50%; pointer-events: none;
+                top: 50%; left: 50%; margin: -20rem 0 0 -20rem;
+                background: radial-gradient(circle, rgba(56,189,248,.28) 0%, transparent 62%);
+                filter: blur(30px); animation: halo 6s ease-in-out infinite;
             }
-            .brand-logo-tub span { width: 18px; height: 18px; border-radius: 6px; background: var(--brand-icon); display: block; }
-            .brand-features li { display: flex; align-items: center; gap: 0.625rem; }
-            .brand-features svg { flex-shrink: 0; }
+            @keyframes halo { 0%,100% { opacity: .55; transform: scale(1); } 50% { opacity: .9; transform: scale(1.08); } }
+
+            /* ── Centred content ── */
+            .login-stack {
+                position: relative; z-index: 1; width: 100%; max-width: {{ $maxWidth }};
+                display: flex; flex-direction: column; align-items: center;
+                animation: rise 750ms cubic-bezier(.22,.61,.36,1) both;
+            }
+            @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+            .login-word { display: flex; align-items: center; gap: .625rem; margin-bottom: 1.35rem; }
+            .login-word .tub { width: 36px; height: 36px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
+                               background: rgba(56,189,248,.16); box-shadow: inset 0 0 0 1px rgba(56,189,248,.4); }
+            .login-word .tub span { width: 16px; height: 16px; border-radius: 5px; background: var(--brand-icon); display: block; }
+            .login-word .txt { font-size: 1.2rem; font-weight: 800; letter-spacing: -.03em; color: #eaf2fb; }
+            .login-word .txt b { color: var(--brand-icon); font-weight: 800; }
+
+            /* ── Frosted dark glass card ── */
+            .login-card {
+                width: 100%;
+                background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+                border: 1px solid rgba(255,255,255,.12);
+                border-radius: 16px;
+                backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+                box-shadow: 0 30px 60px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+            }
+            .login-card label { color: var(--text-secondary); font-size: .75rem; font-weight: 500; }
+            .login-card input[type="email"], .login-card input[type="password"], .login-card input[type="text"] {
+                background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.13); color: #eef4fb; border-radius: 9px;
+                transition: border-color 150ms, box-shadow 150ms, background 150ms;
+            }
+            .login-card input::placeholder { color: #6f8398; }
+            .login-card input[type="email"]:focus, .login-card input[type="password"]:focus, .login-card input[type="text"]:focus {
+                border-color: var(--brand-icon); box-shadow: 0 0 0 3px rgba(56,189,248,.22);
+                outline: none; background: rgba(255,255,255,.08);
+            }
+            .login-card input[type="checkbox"] { accent-color: var(--brand-icon); }
+            .login-card .remember-label { color: var(--text-secondary); }
+            .login-card .forgot-link { color: var(--brand-icon); font-size: .75rem; font-weight: 500; text-decoration: none; transition: color 150ms; }
+            .login-card .forgot-link:hover { color: #7dd3fc; }
+            .login-card .error-text { color: var(--ds-crimson); font-size: .75rem; }
+            .login-card .session-status { color: #34d399; font-size: .75rem; margin-bottom: 1rem; }
+            /* Cyan CTA with a soft glow */
+            .login-card .corex-btn-primary {
+                background: linear-gradient(90deg, #38bdf8, #0ea5e9); color: #04121f;
+                box-shadow: 0 8px 22px -6px rgba(56,189,248,.5);
+            }
+            .login-card .corex-btn-primary:hover { filter: brightness(1.06); box-shadow: 0 10px 26px -6px rgba(56,189,248,.6); }
+
+            .login-foot { position: relative; z-index: 1; margin-top: 1.75rem; text-align: center; color: rgba(255,255,255,.32); font-size: .6875rem; }
 
             @media (prefers-reduced-motion: reduce) {
-                .orb, .brand-grid { animation: none !important; }
+                .bg-orb, .bg-grid, .bg-halo, .login-stack { animation: none !important; }
             }
-
-            /* ── White login card ── */
-            .login-card {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04);
-                border-radius: 12px;
-            }
-            .login-card label { color: var(--text-secondary); font-size: 0.75rem; font-weight: 500; }
-            .login-card input[type="email"],
-            .login-card input[type="password"],
-            .login-card input[type="text"] {
-                background: var(--surface-2);
-                border: 1px solid var(--border);
-                color: var(--text-primary);
-                border-radius: 8px;
-            }
-            .login-card input::placeholder { color: var(--text-muted); }
-            .login-card input[type="email"]:focus,
-            .login-card input[type="password"]:focus,
-            .login-card input[type="text"]:focus {
-                border-color: var(--brand-button);
-                box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-button) 18%, transparent);
-                outline: none;
-                background: #fff;
-            }
-            .login-card input[type="checkbox"] { accent-color: var(--brand-button); }
-            .login-card .remember-label { color: var(--text-secondary); }
-            .login-card .forgot-link { color: var(--brand-icon); font-size: 0.75rem; font-weight: 500; text-decoration: none; transition: color 150ms; }
-            .login-card .forgot-link:hover { color: var(--brand-button); }
-            .login-card .error-text { color: var(--ds-crimson); font-size: 0.75rem; }
-            .login-card .session-status { color: #059669; font-size: 0.75rem; margin-bottom: 1rem; }
         </style>
     </head>
     <body class="font-sans antialiased">
         <div class="login-shell">
+            {{-- animated backdrop --}}
+            <div class="bg-orb o1"></div>
+            <div class="bg-orb o2"></div>
+            <div class="bg-orb o3"></div>
+            <div class="bg-grid"></div>
+            <div class="bg-halo"></div>
 
-            {{-- LEFT — branded, animated panel (fills the empty space; lg+ only) --}}
-            <aside class="login-brand-panel">
-                <div class="orb orb-1"></div>
-                <div class="orb orb-2"></div>
-                <div class="orb orb-3"></div>
-                <div class="brand-grid"></div>
-
-                {{-- Top: wordmark --}}
-                <div class="brand-content" style="display:flex; align-items:center; gap:0.75rem;">
-                    <span class="brand-logo-tub"><span></span></span>
-                    <span style="font-size:1.125rem; font-weight:800; letter-spacing:-0.03em;">CoreX <span style="color:var(--brand-icon);">Os</span></span>
+            {{-- centred content --}}
+            <div class="login-stack">
+                <div class="login-word">
+                    <span class="tub"><span></span></span>
+                    <span class="txt">CoreX <b>Os</b></span>
                 </div>
 
-                {{-- Middle: headline + features --}}
-                <div class="brand-content" style="max-width:30rem;">
-                    <h1 style="font-size:2.25rem; line-height:1.1; font-weight:800; letter-spacing:-0.03em; margin-bottom:1rem;">
-                        The real estate<br>operating system.
-                    </h1>
-                    <p style="font-size:0.95rem; line-height:1.6; color:rgba(255,255,255,0.7); margin-bottom:2rem;">
-                        Properties, deals, compliance and people — everything your agency runs on, in one place.
-                    </p>
-                    <ul class="brand-features" style="display:flex; flex-direction:column; gap:0.875rem; font-size:0.875rem; color:rgba(255,255,255,0.85);">
-                        <li>
-                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="var(--brand-icon)" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                            One graph linking properties, contacts, deals &amp; agents
-                        </li>
-                        <li>
-                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="var(--brand-icon)" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                            E-signatures, FICA &amp; portal syndication built in
-                        </li>
-                        <li>
-                            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="var(--brand-icon)" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                            Built for agents — not for screens
-                        </li>
-                    </ul>
-                </div>
-
-                {{-- Bottom: copyright --}}
-                <div class="brand-content" style="font-size:0.6875rem; color:rgba(255,255,255,0.4);">
-                    &copy; {{ date('Y') }} CoreX OS. All rights reserved.
-                </div>
-            </aside>
-
-            {{-- RIGHT — white form panel --}}
-            <main class="login-form-panel">
-                {{-- Compact wordmark — mobile only (the brand panel carries it on desktop) --}}
-                <div class="mb-6 lg:hidden" style="display:flex; align-items:center; gap:0.625rem;">
-                    <span style="width:34px; height:34px; border-radius:11px; display:inline-flex; align-items:center; justify-content:center; background:color-mix(in srgb, var(--brand-default) 12%, transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand-default) 25%, transparent);">
-                        <span style="width:15px; height:15px; border-radius:5px; background:var(--brand-default); display:block;"></span>
-                    </span>
-                    <span style="font-size:1.125rem; font-weight:800; letter-spacing:-0.03em; color:var(--text-primary);">CoreX <span style="color:var(--brand-icon);">Os</span></span>
-                </div>
-
-                <div class="login-card w-full" style="max-width: {{ $maxWidth }}; padding: 2.25rem 2rem;">
+                <div class="login-card" style="padding: 2.25rem 2rem;">
                     @if($heading)
                     <div class="mb-6" style="font-size:1.25rem; font-weight:700; letter-spacing:-0.02em; color:var(--text-primary);">
                         {{ $heading }}
@@ -213,11 +168,8 @@
                     {{ $slot }}
                 </div>
 
-                <div class="mt-6 text-center lg:hidden" style="color:var(--text-muted); font-size:0.6875rem;">
-                    &copy; {{ date('Y') }} CoreX OS. All rights reserved.
-                </div>
-            </main>
-
+                <div class="login-foot">&copy; {{ date('Y') }} CoreX OS. All rights reserved.</div>
+            </div>
         </div>
     </body>
 </html>
