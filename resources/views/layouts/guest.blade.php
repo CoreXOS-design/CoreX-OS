@@ -116,12 +116,12 @@
             .login-card .forgot-link:hover { color: #7dd3fc; }
             .login-card .error-text { color: var(--ds-crimson); font-size: .75rem; }
             .login-card .session-status { color: #34d399; font-size: .75rem; margin-bottom: 1rem; }
-            /* Cyan CTA with a soft glow */
+            /* White CTA */
             .login-card .corex-btn-primary {
-                background: linear-gradient(90deg, #38bdf8, #0ea5e9); color: #04121f;
-                box-shadow: 0 8px 22px -6px rgba(56,189,248,.5);
+                background: #ffffff; color: #0b2a4a; font-weight: 700;
+                box-shadow: 0 8px 22px -8px rgba(0,0,0,.5);
             }
-            .login-card .corex-btn-primary:hover { filter: brightness(1.06); box-shadow: 0 10px 26px -6px rgba(56,189,248,.6); }
+            .login-card .corex-btn-primary:hover { background: #eef4fb; box-shadow: 0 10px 26px -8px rgba(0,0,0,.6); }
 
             .login-foot { position: relative; z-index: 1; margin-top: 1.75rem; text-align: center; color: rgba(255,255,255,.32); font-size: .6875rem; }
 
@@ -141,7 +141,6 @@
             {{-- centred content --}}
             <div class="login-stack">
                 <div class="login-word">
-                    <span class="tub"><span></span></span>
                     <span class="txt">CoreX <b>Os</b></span>
                 </div>
 
