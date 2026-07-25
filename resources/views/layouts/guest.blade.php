@@ -121,7 +121,10 @@
                 background: #ffffff; color: #0b2a4a; font-weight: 700;
                 box-shadow: 0 8px 22px -8px rgba(0,0,0,.5);
             }
-            .login-card .corex-btn-primary:hover { background: #eef4fb; box-shadow: 0 10px 26px -8px rgba(0,0,0,.6); }
+            .login-card .corex-btn-primary:hover {
+                background: #ffffff;
+                box-shadow: 0 0 0 3px rgba(56,189,248,.3), 0 8px 30px -4px rgba(56,189,248,.65);
+            }
 
             .login-foot { position: relative; z-index: 1; margin-top: 1.75rem; text-align: center; color: rgba(255,255,255,.32); font-size: .6875rem; }
 
