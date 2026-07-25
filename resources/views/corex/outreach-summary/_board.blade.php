@@ -39,18 +39,18 @@
 
     {{-- Page header — suppressed when embedded (the host page carries its own). --}}
     @unless($embedded)
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="os-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Outreach Summary</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold text-white leading-tight">WhatsApp Outreach Summary</h1>
+                <p class="text-xs text-white/60">
                     Where every agent's WhatsApp seller pitches stand. Each count is the number of
                     contacts pitched on WhatsApp who are now in that state — click any number to open
                     that exact list.
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>

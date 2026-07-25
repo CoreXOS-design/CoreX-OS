@@ -10,8 +10,8 @@
                 <p class="text-sm text-white/60">Link your mailbox so your client email is captured to the agency archive (a legal 5-year requirement). Your password is stored encrypted and is never shown back to anyone.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('agent.portal') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);" data-tour="portal-comm-capture-back">My Portal</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('agent.portal') }}" class="corex-btn-outline" data-tour="portal-comm-capture-back">My Portal</a>
             </div>
         </div>
     </div>

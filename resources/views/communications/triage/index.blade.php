@@ -91,19 +91,19 @@
                 <div class="px-5 py-4 space-y-3">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">First name <span class="text-red-500">*</span></label>
-                        <input type="text" name="first_name" required class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="first_name" required class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Last name</label>
-                        <input type="text" name="last_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="last_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
-                        <input type="text" name="phone" x-model="phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="phone" x-model="phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
-                        <input type="email" name="email" x-model="email" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="email" name="email" x-model="email" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <p class="text-xs" style="color: var(--text-muted);">A phone or email is required.</p>
                 </div>

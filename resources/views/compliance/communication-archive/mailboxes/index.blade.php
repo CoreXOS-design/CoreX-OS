@@ -10,7 +10,7 @@
                 <p class="text-sm text-white/60">Agency-held IMAP mailboxes polled into the Communication Archive.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Archive</a>
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-sm">Archive</a>
                 <a href="{{ route('compliance.comm-mailboxes.create') }}" class="corex-btn-primary text-sm">Add Mailbox</a>
             </div>
         </div>

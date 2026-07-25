@@ -88,12 +88,12 @@
         @if($canManageBackfill)
         <form method="POST" action="{{ route('communications.wa-devices.transcription-language') }}" class="shrink-0 flex items-center gap-2">
             @csrf
-            <select name="language" class="text-xs rounded px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
+            <select name="language" class="text-xs rounded-md px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
                 @foreach($transcriptionLanguages as $code => $label)
                     <option value="{{ $code }}" @selected($transcriptionLanguage === $code)>{{ $label }}</option>
                 @endforeach
             </select>
-            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
+            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
                     style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
                 Save
             </button>
@@ -114,7 +114,7 @@
             @csrf
             <div class="flex-1 min-w-[220px]">
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">WhatsApp number (optional)</label>
-                <input type="text" name="wa_number" placeholder="e.g. 0821234567" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <input type="text" name="wa_number" placeholder="e.g. 0821234567" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <button type="submit" class="corex-btn-primary">Register Device &amp; Issue Token</button>
         </form>

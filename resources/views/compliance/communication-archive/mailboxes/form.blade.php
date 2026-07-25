@@ -8,14 +8,14 @@
 
     <div class="p-4 lg:p-6">
         <div class="max-w-2xl">
-            <form method="POST" action="{{ $isEdit ? route('compliance.comm-mailboxes.update', $mailbox) : route('compliance.comm-mailboxes.store') }}" class="space-y-5">
+            <form method="POST" action="{{ $isEdit ? route('compliance.comm-mailboxes.update', $mailbox) : route('compliance.comm-mailboxes.store') }}" class="rounded-md p-5 lg:p-6 space-y-5" style="background: var(--surface); border: 1px solid var(--border);">
                 @csrf
                 @if($isEdit) @method('PUT') @endif
 
                 <div>
                     <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">Email Address *</label>
                     <input type="email" name="email_address" value="{{ old('email_address', $mailbox->email_address) }}" required
-                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @error('email_address') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                 </div>
 
@@ -23,13 +23,13 @@
                     <div class="sm:col-span-2">
                         <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">IMAP Host *</label>
                         <input type="text" name="imap_host" value="{{ old('imap_host', $mailbox->imap_host) }}" required placeholder="imap.example.com"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         @error('imap_host') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">Port *</label>
                         <input type="number" name="imap_port" value="{{ old('imap_port', $mailbox->imap_port ?? 993) }}" required
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         @error('imap_port') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -37,14 +37,14 @@
                 <div>
                     <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">Username *</label>
                     <input type="text" name="username" value="{{ old('username', $mailbox->username) }}" required autocomplete="off"
-                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @error('username') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                 </div>
 
                 <div>
                     <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">Password {{ $isEdit ? '(leave blank to keep current)' : '*' }}</label>
                     <input type="password" name="password" autocomplete="new-password" {{ $isEdit ? '' : 'required' }}
-                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Stored encrypted at rest. Never displayed back.</p>
                     @error('password') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                 </div>
@@ -53,7 +53,7 @@
                     <div>
                         <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">Poll interval (minutes) *</label>
                         <input type="number" name="poll_interval_minutes" value="{{ old('poll_interval_minutes', $mailbox->poll_interval_minutes ?? 15) }}" required min="1" max="1440"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         @error('poll_interval_minutes') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                     </div>
                     <div class="flex flex-col justify-end gap-2">

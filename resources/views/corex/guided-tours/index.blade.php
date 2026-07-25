@@ -5,14 +5,16 @@
 @section('corex-content')
 <style>
     .corex-tour-card:hover {
-        border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border)) !important;
+        border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, var(--border)) !important;
         box-shadow: 0 6px 20px rgba(0,0,0,0.10);
-        transform: translateY(-2px);
     }
     /* Hover affordance for the Start-tour CTA — CSS :hover instead of inline
        onmouseover JS (UI_DESIGN_SYSTEM.md §5 rule 11). */
     .corex-tour-start { transition: filter 300ms ease; }
     .corex-tour-start:hover { filter: brightness(1.08); }
+    /* Search placeholder — neutral token (the page-banner neutraliser does not
+       catch the placeholder-white/50 utility). */
+    .corex-tour-search::placeholder { color: var(--text-faint); }
 </style>
 @php
     // Searchable text per group, in the same order the directory renders, so the
@@ -52,8 +54,8 @@
                 <input type="search" x-model="q"
                        placeholder="Search tours…"
                        aria-label="Search tours"
-                       class="w-full rounded-md border-0 pl-9 pr-3 py-2 text-sm text-white placeholder-white/50 focus:outline-none focus:ring-2"
-                       style="background: rgba(255,255,255,0.12); --tw-ring-color: var(--brand-button, #0ea5e9);">
+                       class="corex-tour-search w-full rounded-md border-0 pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:ring-2"
+                       style="background: rgba(255,255,255,0.12); --tw-ring-color: var(--brand-icon, #0ea5e9);">
             </div>
         </div>
     </div>
@@ -85,7 +87,7 @@
                      style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start gap-3">
                         <span class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0"
-                              style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 14%, transparent); color: var(--brand-button, #0ea5e9);">
+                              style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9);">
                             @if($tour['external'])
                                 {{-- External entry (e.g. Mobile app): a phone, not a "?" —
                                      the card links out instead of running a tour. --}}
@@ -152,7 +154,7 @@
              style="background: var(--surface); border: 1px solid var(--border);">
             <p class="text-base font-semibold" style="color: var(--text-primary);">No tours match your search</p>
             <p class="mt-1 text-sm" style="color: var(--text-secondary);">
-                Try a different keyword, or <button type="button" @click="q = ''" class="underline" style="color: var(--brand-button, #0ea5e9);">clear the search</button>.
+                Try a different keyword, or <button type="button" @click="q = ''" class="underline" style="color: var(--brand-icon, #0ea5e9);">clear the search</button>.
             </p>
         </div>
     @endif

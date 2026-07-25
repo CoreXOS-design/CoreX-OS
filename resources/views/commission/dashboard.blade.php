@@ -279,7 +279,7 @@
                          style="border:1px solid var(--border);">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                                 style="background:var(--brand-icon,#0ea5e9);">
+                                 style="background:var(--brand-default,#0b2a4a);">
                                 {{ collect(explode(' ', $agent['name']))->map(fn($w) => strtoupper(substr($w, 0, 1)))->take(2)->join('') }}
                             </div>
                             <div class="text-sm font-medium" style="color:var(--text-primary);">{{ $agent['name'] }}</div>

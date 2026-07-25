@@ -12,8 +12,8 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-                <div class="text-xs" style="color: rgba(255,255,255,0.7);">
-                    Total: <span class="font-semibold text-white">{{ $leads->total() }}</span>
+                <div class="text-xs" style="color: var(--text-muted);">
+                    Total: <span class="font-semibold" style="color: var(--text-primary);">{{ $leads->total() }}</span>
                 </div>
             </div>
         </div>
