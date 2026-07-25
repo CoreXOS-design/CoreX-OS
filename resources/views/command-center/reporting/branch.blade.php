@@ -11,7 +11,7 @@
             </div>
             <div class="flex items-center gap-2">
                 @if($branches->isNotEmpty())
-                    <select onchange="window.location.href=this.value" class="text-xs rounded-md px-2 py-1" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);">
+                    <select onchange="window.location.href=this.value" class="text-xs rounded-md px-2 py-1" style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
                         @foreach($branches as $b)
                             <option value="{{ route('command-center.reporting.branch', ['branch_id' => $b->id, 'days' => $days]) }}" {{ $b->id == $branchId ? 'selected' : '' }}>{{ $b->name }}</option>
                         @endforeach
@@ -19,8 +19,8 @@
                 @endif
                 @foreach([7 => '7d', 30 => '30d', 90 => '90d'] as $d => $label)
                     <a href="{{ route('command-center.reporting.branch', ['days' => $d, 'branch_id' => $branchId]) }}"
-                       class="text-xs px-2 py-1 rounded-md no-underline {{ $days == $d ? 'text-white' : 'text-white/50' }}"
-                       style="{{ $days == $d ? 'background: var(--brand-button, #0ea5e9);' : '' }}">{{ $label }}</a>
+                       class="text-xs px-2 py-1 rounded-md no-underline {{ $days == $d ? 'font-semibold' : '' }}"
+                       style="{{ $days == $d ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);' }}">{{ $label }}</a>
                 @endforeach
             </div>
         </div>

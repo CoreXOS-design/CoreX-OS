@@ -69,7 +69,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="task-intro">
                 <h1 class="text-xl font-bold text-white leading-tight">Tasks</h1>
-                <div class="flex items-center gap-3 mt-1 text-sm flex-wrap" style="color: rgba(255,255,255,0.65);">
+                <div class="flex items-center gap-3 mt-1 text-sm flex-wrap" style="color: var(--text-muted);">
                     <span>{{ number_format($summary['open']) }} open</span>
                     @if($summary['overdue'] > 0)
                         <span class="inline-flex items-center gap-1.5">
@@ -83,13 +83,13 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- View mode: Board / List --}}
-                <div class="inline-flex rounded-md overflow-hidden" data-tour="task-view" style="background: rgba(255,255,255,0.12);">
+                <div class="inline-flex rounded-md overflow-hidden" data-tour="task-view" style="background: var(--surface-2); border: 1px solid var(--border);">
                     @foreach(['kanban' => 'Board', 'list' => 'List'] as $vKey => $vLabel)
                         <a href="{{ route('command-center.tasks', array_merge(request()->query(), ['view' => $vKey])) }}"
                            class="px-3 py-1.5 text-xs font-semibold transition-colors"
-                           style="{{ $currentView === $vKey ? 'background: rgba(255,255,255,0.2); color: #fff;' : 'color: rgba(255,255,255,0.75);' }}">
+                           style="{{ $currentView === $vKey ? 'background: var(--brand-icon); color: #fff;' : 'color: var(--text-muted);' }}">
                             {{ $vLabel }}
                         </a>
                     @endforeach

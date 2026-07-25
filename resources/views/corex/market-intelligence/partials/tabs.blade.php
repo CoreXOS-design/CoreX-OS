@@ -48,8 +48,8 @@
                               white-space: nowrap; border-bottom: 2px solid transparent; color: var(--text-muted, #9ca3af);
                               border-top-left-radius: 4px; border-top-right-radius: 4px;';
                 $activeStyle = 'padding: 10px 16px; text-decoration: none; font-size: 0.875rem; font-weight: 600;
-                                white-space: nowrap; border-bottom: 2px solid var(--brand-button, #0ea5e9); color: var(--brand-button, #0ea5e9);
-                                background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, transparent);
+                                white-space: nowrap; border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9);
+                                background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);
                                 border-top-left-radius: 4px; border-top-right-radius: 4px;';
             @endphp
             <a href="{{ route($tab['route']) }}"

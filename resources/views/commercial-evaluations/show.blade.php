@@ -46,8 +46,7 @@
                 @endif
                 <p class="text-xs text-white/40 mt-0.5">Created {{ $evaluation->created_at->format('Y-m-d') }}</p>
             </div>
-            <a href="{{ route('commercial-evaluations.index') }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+            <a href="{{ route('commercial-evaluations.index') }}" class="corex-btn-outline">
                 &larr; All Evaluations
             </a>
         </div>

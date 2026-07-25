@@ -58,8 +58,7 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
                     Presentations
                 </a>
             </div>
@@ -75,19 +74,19 @@
             <label for="from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
             <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
                    class="w-full rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
             <label for="to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
             <input id="to" type="date" name="to" value="{{ $to->toDateString() }}"
                    class="w-full rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
             <label for="outcome" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
             <select id="outcome" name="outcome"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach(PresentationOutcome::ALL_OUTCOMES as $o)
                     <option value="{{ $o }}" @selected($outcomeFilter === $o)>{{ $outcomeLabel($o)[0] }}</option>
@@ -98,7 +97,7 @@
             <label for="reason" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Loss reason</label>
             <select id="reason" name="reason"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($reasonLabels as $k => $v)
                     <option value="{{ $k }}" @selected($reasonFilter === $k)>{{ $v }}</option>
@@ -110,7 +109,7 @@
             <label for="agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
             <select id="agent_id" name="agent_id"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($agents as $a)
                     <option value="{{ $a->id }}" @selected((int) $agentFilter === (int) $a->id)>{{ $a->name }}</option>

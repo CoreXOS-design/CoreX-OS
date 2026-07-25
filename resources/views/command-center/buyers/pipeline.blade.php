@@ -13,27 +13,27 @@
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
                 {{-- Pipeline scope toggle (Layer 3) --}}
-                <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);">
+                <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'own'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? 'own') === 'own' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Mine</a>
+                       style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9);' : '' }}">Mine</a>
                     @if($canSeeBranch ?? false)
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'branch'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? '') === 'branch' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Branch</a>
+                       style="{{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-icon, #0ea5e9);' : '' }}">Branch</a>
                     @endif
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'agency'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ ($pipelineScope ?? '') === 'agency' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">All</a>
+                       style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-icon, #0ea5e9);' : '' }}">All</a>
                 </div>
                 {{-- View toggle --}}
-                <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);">
+                <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ $view === 'kanban' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ $view === 'kanban' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">Kanban</a>
+                       style="{{ $view === 'kanban' ? 'background: var(--brand-icon, #0ea5e9);' : '' }}">Kanban</a>
                     <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'list'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap {{ $view === 'list' ? 'text-white' : 'text-white/60' }}"
-                       style="{{ $view === 'list' ? 'background: var(--brand-button, #0ea5e9);' : '' }}">List</a>
+                       style="{{ $view === 'list' ? 'background: var(--brand-icon, #0ea5e9);' : '' }}">List</a>
                 </div>
             </div>
         </div>
@@ -43,9 +43,9 @@
          "N buyers" badge click from the prospecting tab). --}}
     @if(!empty($contextListing))
         <div class="rounded-md px-4 py-3 flex items-center justify-between gap-3"
-             style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-button, #0ea5e9) 30%, transparent);">
+             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);">
             <div class="min-w-0">
-                <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-button, #0ea5e9);">
+                <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-icon, #0ea5e9);">
                     Filtered to buyers matching prospecting listing
                 </div>
                 <div class="text-sm font-semibold truncate mt-0.5" style="color: var(--text-primary);">
@@ -65,7 +65,7 @@
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
                 <a href="{{ route('market-intelligence.show', $contextListing->id) }}"
-                   class="text-xs no-underline hover:underline" style="color: var(--brand-button, #0ea5e9);">View listing →</a>
+                   class="text-xs no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">View listing →</a>
                 <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->except('prospecting_listing_id'), [])) }}"
                    class="text-xs no-underline hover:underline" style="color: var(--text-muted);">Clear filter</a>
             </div>

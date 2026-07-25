@@ -110,16 +110,16 @@
          bleed now); the map body below aligns to the same edges. flex-wrap
          lets the right-hand control cluster drop below the title on narrow
          screens instead of overflowing (§6.5 responsive Pattern A rule). --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 16px 0 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 16px 0 12px; padding: 4px 0 14px; flex-shrink: 0; z-index: 500; border-bottom: 1px solid var(--border);">
         <div style="min-width: 0;" data-tour="re-map-intro">
             <div style="display: flex; align-items: center; gap: 12px;">
-                <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
+                <h1 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0; line-height: 1.2;">CoreX Map</h1>
                 <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
             </div>
-            <p style="margin: 2px 0 0; font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
+            <p style="margin: 2px 0 0; font-size: 0.875rem; color: var(--text-muted); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-            @include('layouts.partials.tour-header-launcher')
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- Base-layer toggle --}}
             <div id="base-layer-toggle" data-tour="re-map-baselayer" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 <button data-base="streets" class="base-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Streets</button>

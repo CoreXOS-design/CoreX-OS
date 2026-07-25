@@ -15,17 +15,17 @@
      x-data="outreachQueuePage({ csrf: @js(csrf_token()), sendAllowed: {{ $sendAllowed ? 'true' : 'false' }} })">
 
     {{-- Page header --}}
-    <div data-tour="oq-intro" class="rounded-md px-6 py-5 corex-page-banner">
+    <div data-tour="oq-intro" class="corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div class="min-w-0">
-                <h1 class="text-xl font-bold text-white leading-tight">Outreach Queue</h1>
-                <p class="text-sm text-white/60 mt-1 max-w-3xl">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outreach Queue</h1>
+                <p class="text-xs mt-1 max-w-3xl" style="color: var(--text-muted);">
                     Messages you prepared earlier — ready to send now. Open each one: it pre-fills WhatsApp and
                     you tap Send in WhatsApp to deliver it. "Sent" records the dispatch (CoreX opens the chat; you send it).
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>

@@ -14,7 +14,7 @@
                 @foreach([30 => '30 days', 90 => '90 days', 365 => 'Year'] as $d => $label)
                     <a href="{{ route('command-center.reporting.agency', ['days' => $d]) }}"
                        class="text-xs font-semibold px-2.5 py-1 rounded-md no-underline whitespace-nowrap {{ $days == $d ? 'text-white' : 'text-white/60 hover:text-white' }}"
-                       style="{{ $days == $d ? 'background: var(--brand-button, #0ea5e9);' : 'background: rgba(255,255,255,0.08);' }} transition: all 150ms ease;">{{ $label }}</a>
+                       style="{{ $days == $d ? 'background: var(--brand-icon, #0ea5e9);' : 'background: rgba(255,255,255,0.08);' }} transition: all 150ms ease;">{{ $label }}</a>
                 @endforeach
             </div>
         </div>

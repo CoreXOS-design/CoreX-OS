@@ -35,7 +35,7 @@
             <label for="filter-category" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Category</label>
             <select id="filter-category" name="category" onchange="this.form.submit()" data-tour="cc-oversight-category"
                     class="list-header-filter rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All categories</option>
                 @foreach($categories as $cat)
                     <option value="{{ $cat }}" @selected($filters['category'] === $cat)>{{ ucwords(str_replace('_', ' ', $cat)) }}</option>
@@ -46,7 +46,7 @@
             <label for="filter-agent" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
             <select id="filter-agent" name="agent_id" onchange="this.form.submit()" data-tour="cc-oversight-agent"
                     class="list-header-filter rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All agents</option>
                 @foreach($agents as $a)
                     <option value="{{ $a->id }}" @selected($filters['agent_id'] === $a->id)>{{ $a->name }}</option>
@@ -121,7 +121,7 @@
                                                 <label for="nudge-message-{{ $row['agent_id'] }}-{{ $loop->index }}" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Message</label>
                                                 <textarea id="nudge-message-{{ $row['agent_id'] }}-{{ $loop->index }}" name="message" rows="4" required
                                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">Hi {{ $row['agent_name'] }}, please action this {{ ucwords(str_replace('_', ' ', $row['category'])) }}: {{ $row['summary'] }}</textarea>
+                                                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">Hi {{ $row['agent_name'] }}, please action this {{ ucwords(str_replace('_', ' ', $row['category'])) }}: {{ $row['summary'] }}</textarea>
                                                 <div class="mt-4 flex justify-end gap-2">
                                                     <button type="button" @click="openNudge = false" class="corex-btn-outline">Cancel</button>
                                                     <button type="submit" class="corex-btn-primary">Send Nudge</button>

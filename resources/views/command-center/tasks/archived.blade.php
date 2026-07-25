@@ -2,10 +2,11 @@
 
 @section('corex-content')
 @php
+    // Token-based pillar chips — mirrors command-center/tasks/index.blade.php
     $pillarStyle = [
-        'property' => ['bg' => 'rgba(249,115,22,0.15)',  'fg' => '#f97316', 'label' => 'Property'],
-        'deal'     => ['bg' => 'rgba(59,130,246,0.15)',  'fg' => '#3b82f6', 'label' => 'Deal'],
-        'contact'  => ['bg' => 'rgba(139,92,246,0.15)',  'fg' => '#8b5cf6', 'label' => 'Contact'],
+        'property' => ['var' => '--ds-amber',   'label' => 'Property'],
+        'deal'     => ['var' => '--ds-navy',    'label' => 'Deal'],
+        'contact'  => ['var' => '--brand-icon', 'label' => 'Contact'],
     ];
 @endphp
 
@@ -27,7 +28,7 @@
     </div>
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-2 text-sm" style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534;">
+        <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--ds-green);">
             {{ session('success') }}
         </div>
     @endif
@@ -57,7 +58,7 @@
                         <span class="text-xs" style="color:var(--text-muted);">{{ $dayTasks->count() }} task(s)</span>
                     </div>
                     <div class="corex-panel-body p-0">
-                        <div class="divide-y" style="border-color:var(--border-default);">
+                        <div class="divide-y" style="border-color:var(--border);">
                             @foreach($dayTasks as $task)
                                 @php
                                     $tag = $task->pillarTag();
@@ -70,7 +71,7 @@
                                         <div class="flex items-center gap-1.5 flex-wrap">
                                             @if($tag && isset($pillarStyle[$tag]))
                                                 <span class="text-[9px] font-bold uppercase px-1 py-px rounded"
-                                                      style="background:{{ $pillarStyle[$tag]['bg'] }}; color:{{ $pillarStyle[$tag]['fg'] }}; letter-spacing:0.5px;">
+                                                      style="background: color-mix(in srgb, var({{ $pillarStyle[$tag]['var'] }}) 15%, transparent); color: var({{ $pillarStyle[$tag]['var'] }}); letter-spacing:0.5px;">
                                                     {{ $pillarStyle[$tag]['label'] }}
                                                 </span>
                                             @endif
