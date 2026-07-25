@@ -66,19 +66,6 @@
             @keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-3.5rem,-2.5rem) scale(1.1); } }
             @keyframes drift3 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(2.5rem,-2rem) scale(1.2); } }
 
-            /* Faint panning grid */
-            .bg-grid {
-                position: absolute; inset: 0; pointer-events: none; opacity: .06;
-                background-image:
-                    linear-gradient(to right, rgba(255,255,255,.7) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(255,255,255,.7) 1px, transparent 1px);
-                background-size: 46px 46px;
-                -webkit-mask: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
-                        mask: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
-                animation: gridpan 26s linear infinite;
-            }
-            @keyframes gridpan { from { background-position: 0 0; } to { background-position: 46px 46px; } }
-
             /* Breathing halo behind the card */
             .bg-halo {
                 position: absolute; width: 40rem; height: 40rem; border-radius: 50%; pointer-events: none;
@@ -90,7 +77,7 @@
 
             /* ── Centred content ── */
             .login-stack {
-                position: relative; z-index: 1; width: 100%; max-width: {{ $maxWidth }};
+                position: relative; z-index: 1; width: 100%; max-width: max({{ $maxWidth }}, 480px);
                 display: flex; flex-direction: column; align-items: center;
                 animation: rise 750ms cubic-bezier(.22,.61,.36,1) both;
             }
@@ -115,6 +102,7 @@
             .login-card label { color: var(--text-secondary); font-size: .75rem; font-weight: 500; }
             .login-card input[type="email"], .login-card input[type="password"], .login-card input[type="text"] {
                 background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.13); color: #eef4fb; border-radius: 9px;
+                padding: 0.72rem 0.9rem; font-size: 0.925rem;
                 transition: border-color 150ms, box-shadow 150ms, background 150ms;
             }
             .login-card input::placeholder { color: #6f8398; }
@@ -138,7 +126,7 @@
             .login-foot { position: relative; z-index: 1; margin-top: 1.75rem; text-align: center; color: rgba(255,255,255,.32); font-size: .6875rem; }
 
             @media (prefers-reduced-motion: reduce) {
-                .bg-orb, .bg-grid, .bg-halo, .login-stack { animation: none !important; }
+                .bg-orb, .bg-halo, .login-stack { animation: none !important; }
             }
         </style>
     </head>
@@ -148,7 +136,6 @@
             <div class="bg-orb o1"></div>
             <div class="bg-orb o2"></div>
             <div class="bg-orb o3"></div>
-            <div class="bg-grid"></div>
             <div class="bg-halo"></div>
 
             {{-- centred content --}}
@@ -158,7 +145,7 @@
                     <span class="txt">CoreX <b>Os</b></span>
                 </div>
 
-                <div class="login-card" style="padding: 2.25rem 2rem;">
+                <div class="login-card" style="padding: 2.75rem 2.5rem;">
                     @if($heading)
                     <div class="mb-6" style="font-size:1.25rem; font-weight:700; letter-spacing:-0.02em; color:var(--text-primary);">
                         {{ $heading }}
