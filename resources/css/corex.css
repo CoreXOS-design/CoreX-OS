@@ -3027,9 +3027,11 @@ html.dark .corex-ui-v2 {
 
 /* --- 4. Sidebar upgrade (spec §5) — global (it IS the sidebar) ------------- */
 /* Wordmark only — the brand tub that used to sit before "CoreX Os" is gone. */
+/* inline-flex drops the literal space between "CoreX" and "Os" — gap restores it. */
 .corex-sidebar-logo > span:first-child {
     display: inline-flex;
     align-items: center;
+    gap: 0.3em;
 }
 
 /* Active nav row: brand 10% bg + ring 25% + left accent bar + brand icon */
