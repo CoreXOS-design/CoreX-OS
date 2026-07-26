@@ -25,18 +25,11 @@
 
     {{-- ===== PROGRESS BAR (sticky header) ===== --}}
     <div style="background: var(--surface); border-bottom: 1px solid var(--border);" class="px-6 py-3.5 flex-shrink-0">
-        <div class="flex items-center justify-between mb-3">
-            <h2 class="text-base font-bold leading-tight flex items-center gap-2" style="color: var(--text-primary);" data-tour="esign-title">
-                <span class="whitespace-nowrap">E-Sign Document —</span>
-                <input type="text"
-                       x-model="documentName"
-                       class="bg-transparent font-normal text-sm border-0 border-b border-transparent
-                              focus:border-[color:var(--border-hover)] outline-none transition-colors px-0 py-0"
-                       style="min-width:200px; max-width:500px; color: var(--text-secondary);"
-                       :size="Math.max(20, (documentName || '').length + 2)"
-                       placeholder="Document name..."
-                />
-            </h2>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+            <div data-tour="esign-title">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">E-Sign Document</h1>
+                <p class="text-xs" style="color: var(--text-muted);" x-text="documentName ? documentName : 'Prepare a document and send it for signature'"></p>
+            </div>
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <span class="text-xs" style="color: var(--text-muted);" x-text="'Step ' + currentStep + ' of 6'"></span>
@@ -91,6 +84,14 @@
         <div class="overflow-y-auto flex flex-col"
              :style="'background: var(--surface); width:' + leftPanelPx + 'px; min-width:250px; max-width:50vw;'">
             <div class="flex-1 p-6 pb-24">
+
+            {{-- Document name — separated out of the header into its own field, always visible --}}
+            <div class="mb-6 pb-6" style="border-bottom: 1px solid var(--border);">
+                <label class="block text-xs font-semibold mb-1.5" style="color: var(--text-secondary);">Document name</label>
+                <input type="text" x-model="documentName" placeholder="e.g. Offer to Purchase — 12 Beach Rd"
+                       class="w-full rounded-md px-3 py-2 text-sm outline-none transition-colors focus:border-[color:var(--brand-icon)]"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
+            </div>
 
             {{-- ======== STEP 1: Template Selection ======== --}}
             <div x-show="currentStep === 1" x-cloak>
