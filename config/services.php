@@ -74,6 +74,22 @@ return [
             'fast'    => env('ANTHROPIC_FAST_MODEL', 'claude-haiku-4-5'),
             'quality' => env('ANTHROPIC_QUALITY_MODEL', 'claude-sonnet-4-6'),
         ],
+
+        // Ellie's chat model, overridable on its own so the cost/quality tier
+        // can be changed from .env without a deploy — and reverted just as
+        // fast if answers degrade. Ellie's loop makes several calls per
+        // question (tool selection + synthesis), so she is the surface where
+        // the model tier is felt hardest in both directions: quality AND cost.
+        // Null → falls back to models.quality. Spec: .ai/specs/ellie-v2.md §4.
+        //
+        // Tiers, cheapest first (prices per million tokens, in/out):
+        //   claude-haiku-4-5   $1/$5    cheapest; weakest at tool choice
+        //   claude-sonnet-4-6  $3/$15   current default
+        //   claude-sonnet-5    $3/$15   ($2/$10 intro to 2026-08-31) — NOTE:
+        //     adaptive thinking is ON by default there and max_tokens caps
+        //     thinking + answer together, so raise MAX_TOKENS in
+        //     EllieAgentService or send thinking.disabled before switching.
+        'ellie_model' => env('ELLIE_MODEL'),
         'timeout'     => (int) env('ANTHROPIC_TIMEOUT', 30),
         'max_retries' => (int) env('ANTHROPIC_MAX_RETRIES', 3),
         'enabled'     => filter_var(env('ANTHROPIC_ENABLED', true), FILTER_VALIDATE_BOOLEAN),

@@ -1,6 +1,16 @@
 # Spec: Ellie
 
-**Status:** Live (KB + web search + Navigation Atlas + Tour Knowledge) — pillar awareness and document review are Phase 2
+**Status:** Live — **rebuilt as a tool-using assistant 2026-07-26. See `.ai/specs/ellie-v2.md`.**
+
+> **Ellie v2 (live).** Ellie's reasoning loop moved out of the Python service and
+> into Laravel, and she now calls tools on demand instead of having retrieval
+> guessed for her up front. **Pillar Awareness below is BUILT** — `my_listings`,
+> `my_deals`, `my_performance`, `find_contact`, `find_property`, all read-only and
+> permission-scoped. See `.ai/specs/ellie-v2.md` for the toolkit, the agent loop
+> and the retrieval repairs.
+>
+> **Correction:** the "Web Search" section below was never true. The Python
+> service has no web-search path and never did. Ellie has no internet access.
 
 > **Navigation Atlas (live).** Ellie answers "where do I go to…" questions with the
 > real, permission-filtered page link. See `.ai/specs/ellie-navigation-atlas.md`.
@@ -63,7 +73,7 @@ User highlights a clause in a DocuPerfect document → asks Ellie → Ellie refe
 - Feeds back into knowledge base (reviewed clauses become training data)
 - Requires full spec before build
 
-### Ellie: Pillar Awareness
+### ~~Ellie: Pillar Awareness~~ — BUILT 2026-07-26 (`.ai/specs/ellie-v2.md` §3.2)
 Ellie can query live data from the four pillars when answering questions:
 - "What's the current rental for Unit 7 Margate Gardens?" → queries Property + Deal
 - "Has John Smith completed his FICA?" → queries Contact + Compliance

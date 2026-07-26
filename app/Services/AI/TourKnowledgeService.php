@@ -28,12 +28,25 @@ class TourKnowledgeService
         $this->nav = $nav;
     }
 
+    /**
+     * Minimum share of the question a tour must account for to be offered.
+     * See score() for why this is a ratio and not an absolute point total.
+     */
+    private const MIN_COVERAGE = 0.70;
+
     private const STOP_WORDS = [
         'where', 'do', 'i', 'to', 'a', 'an', 'the', 'is', 'are', 'can', 'how',
         'go', 'get', 'find', 'take', 'me', 'show', 'open', 'of', 'for', 'on',
         'in', 'at', 'my', 'want', 'need', 'would', 'like', 'please', 'and', 'or',
         'with', 'new', 'page', 'you', 'ellie', 'hey', 'hi', 'what', 'add', 'set',
         'up', 'does', 'this', 'that', 'from', 'have', 'has', 'it', 'be', 'use',
+        // Generic filler that carries no feature meaning. These were diluting
+        // coverage and pushing correct tours under the floor — "how does the
+        // commercial evaluation work in the system" spent half its tokens on
+        // "work" and "system" and lost the Commercial Evaluations walkthrough.
+        'work', 'works', 'system', 'program', 'thing', 'things', 'there', 'here',
+        'step', 'steps', 'way', 'should', 'could', 'will', 'make', 'made', 'doing',
+        'about', 'into', 'out', 'when', 'which', 'who', 'why', 'been', 'was',
     ];
 
     /**
@@ -60,9 +73,22 @@ class TourKnowledgeService
 
             [$score, $titleHits] = $this->score($words, $tour);
 
-            // Require at least one hit in the title/description (not just a
-            // passing mention deep in a step body) and a meaningful total.
-            if ($titleHits < 1 || $score < 4) {
+            // Require a hit in the title/description (not just a passing mention
+            // deep in a step body) AND enough of the question to be accounted for.
+            //
+            // The old bar was an ABSOLUTE `score < 4`, which a long question could
+            // clear on noise alone: "step by step how to make a viewing pack"
+            // returned the "Document packs" walkthrough (score 9) — a different
+            // feature — and "Client want to leave me a review where does he do it"
+            // returned "Reviewing & assigning a split pack", matched purely on
+            // review/Reviewing. Injecting the wrong tour is worse than injecting
+            // none, because the system prompt tells the model to follow the steps
+            // exactly, so Ellie confidently describes the wrong feature.
+            //
+            // Coverage is normalised by the number of meaningful query tokens, so
+            // a precise short match can no longer be beaten by a long noisy one.
+            // Spec: .ai/specs/ellie-v2.md §5.2.
+            if ($titleHits < 1 || $score < self::MIN_COVERAGE) {
                 continue;
             }
 
@@ -147,7 +173,14 @@ class TourKnowledgeService
     }
 
     /**
-     * @return array{0:float,1:int} [score, titleHits]
+     * Normalised relevance: how much of the QUESTION this tour accounts for,
+     * on a 0..1 scale, rather than how many points it can accumulate.
+     *
+     * A title/description hit is worth full credit, a step-body hit partial —
+     * a tour whose title names the thing you asked about is answering you; one
+     * that merely mentions it in passing on step 7 is not.
+     *
+     * @return array{0:float,1:int} [coverage 0..1, titleHits]
      */
     private function score(array $words, array $tour): array
     {
@@ -158,19 +191,60 @@ class TourKnowledgeService
             $stepText .= ' ' . mb_strtolower(($step['title'] ?? '') . ' ' . ($step['body'] ?? ''));
         }
 
-        $score = 0.0;
+        $credit    = 0.0;
         $titleHits = 0;
+        $skipNext  = false;
 
-        foreach ($words as $word) {
-            if (str_contains($titleDesc, $word)) {
-                $score += 3.0;
+        foreach (array_values($words) as $i => $word) {
+            if ($skipNext) {
+                $skipNext = false;
+                continue;
+            }
+
+            // Compound check first: users split words CoreX joins. "whistle
+            // blower" must find the "whistleblower" tour, and "where house"
+            // must find "warehouse". Credit both tokens as one confident hit.
+            $next = $words[$i + 1] ?? null;
+            if ($next !== null) {
+                $joined = $word . $next;
+                if ($this->mentions($titleDesc, $joined)) {
+                    $credit    += 2.0;
+                    $titleHits += 2;
+                    $skipNext   = true;
+                    continue;
+                }
+                if ($this->mentions($stepText, $joined)) {
+                    $credit  += 0.7;
+                    $skipNext = true;
+                    continue;
+                }
+            }
+
+            if ($this->mentions($titleDesc, $word)) {
+                $credit += 1.0;
                 $titleHits++;
-            } elseif (str_contains($stepText, $word)) {
-                $score += 1.0;
+            } elseif ($this->mentions($stepText, $word)) {
+                $credit += 0.35;
             }
         }
 
-        return [$score, $titleHits];
+        $coverage = $credit / max(count($words), 1);
+
+        return [$coverage, $titleHits];
+    }
+
+    /**
+     * Whole-word-ish containment.
+     *
+     * Plain `str_contains` created false friends that injected the wrong
+     * walkthrough — "review" matched "Reviewing & assigning a split pack", and
+     * "pack" matched inside unrelated compound words. Anchoring on a word
+     * boundary keeps legitimate stem matches (listing/listings) while dropping
+     * the accidental substring hits.
+     */
+    private function mentions(string $haystack, string $word): bool
+    {
+        return (bool) preg_match('/\b' . preg_quote($word, '/') . '/u', $haystack);
     }
 
     /**
