@@ -4,14 +4,10 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
-use App\Services\PermissionService;
-use App\Services\PropertyCostService;
+use App\Services\AI\Ellie\EllieAgentService;
 
 class EllieController extends Controller
 {
@@ -20,24 +16,23 @@ class EllieController extends Controller
         $user = Auth::user();
 
         // Load user's conversations
-          $showArchived = $request->query('archived') == '1';
+        $showArchived = $request->query('archived') == '1';
 
-          $conversationsQuery = AiConversation::where('user_id', $user->id);
+        $conversationsQuery = AiConversation::where('user_id', $user->id);
 
-          if (!$showArchived) {
-              $conversationsQuery->where(function ($q) {
-                  $q->whereNull('status')->orWhere('status', 'active');
-              });
-          }
+        if (!$showArchived) {
+            $conversationsQuery->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', 'active');
+            });
+        }
 
-          $conversations = $conversationsQuery
-              ->orderByDesc('last_message_at')
-              ->orderByDesc('id')
-              ->limit(50)
-              ->get();
+        $conversations = $conversationsQuery
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get();
 
-          // ELLIE_ACTIONS_2026
-// ELLIE_NEW_CONVO_2026
+        // ELLIE_NEW_CONVO_2026
         // If user clicked New, create a fresh conversation and redirect to it
         if ($request->query('new') == '1') {
             $c = AiConversation::create([
@@ -74,21 +69,33 @@ class EllieController extends Controller
         ]);
     }
 
-
-    public function send(Request $request)
+    /**
+     * Answer one message.
+     *
+     * ELLIE_V2_2026 — this used to be ~340 lines of keyword heuristics that
+     * guessed what to retrieve BEFORE the model saw the question, then made a
+     * single tool-less call to the Python service. That capped Ellie at roughly
+     * 60% useful: she could not expand "OTP" to "Offer to Purchase", could not
+     * re-search when the first attempt came back thin, and could not read a
+     * single row of live data — so agents were told "I don't have access to
+     * that" about documents that were embedded and searchable the whole time.
+     *
+     * Retrieval now happens through tools the model calls on demand, inside
+     * Laravel where permissions and Eloquent live. The deterministic shortcuts
+     * that used to sit here (prime rate, transfer costs) are tools too, so the
+     * model decides when they apply instead of a str_contains() guess.
+     *
+     * Spec: .ai/specs/ellie-v2.md.
+     */
+    public function send(Request $request, EllieAgentService $ellie)
     {
-        \Log::info('ELLIE_SEND_RUNTIME', ['file' => __FILE__, 'line' => __LINE__, 'user_id' => (int)(auth()->id() ?? 0)]);
-        \Log::info('ELLIE_SEND_REQ', [
-            'user_id' => (int)(auth()->id() ?? 0),
-            'content_type' => (string)request()->header('content-type', ''),
-            'xrw' => (string)request()->header('x-requested-with', ''),
-            'has_msg' => request()->filled('message') || (is_array(request()->json()->all()) && array_key_exists('message', request()->json()->all())),
-        ]);
         $user = Auth::user();
 
         $data = $request->validate([
             'conversation_id' => 'nullable|integer',
-            'message' => 'required|string|max:20000',
+            'message'         => 'required|string|max:20000',
+            'page_path'       => 'nullable|string|max:512',
+            'page_title'      => 'nullable|string|max:255',
         ]);
 
         // Create or load conversation
@@ -104,450 +111,61 @@ class EllieController extends Controller
             ]);
         }
 
+        // Prior turns for context — fetched BEFORE the new message is stored so
+        // the agent service receives history and the current message separately.
+        $history = AiMessage::where('conversation_id', $conversation->id)
+            ->whereIn('role', ['user', 'assistant'])
+            ->orderByDesc('id')
+            ->take(10)
+            ->get()
+            ->reverse()
+            ->map(fn ($m) => ['role' => $m->role, 'content' => (string) $m->content])
+            ->values()
+            ->all();
+
         // Store user message
-        $userMsg = AiMessage::create([
+        AiMessage::create([
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'role' => 'user',
             'content' => $data['message'],
         ]);
-        // Call local AI service (same pipeline as /internal/ai-chat-proxy)
 
-          // ELLIE_PRIME_RATE_OVERRIDE_2026
-          $msgLower = function_exists('mb_strtolower') ? mb_strtolower((string)$data['message']) : strtolower((string)$data['message']);
-          $looksLikeRateQuestion =
-              (str_contains($msgLower, 'prime') && str_contains($msgLower, 'rate')) ||
-              (str_contains($msgLower, 'interest') && str_contains($msgLower, 'rate')) ||
-              (str_contains($msgLower, 'lending') && str_contains($msgLower, 'rate'));
-
-          if ($looksLikeRateQuestion) {
-              $prime = DB::table('performance_settings')->where('key', 'sa_prime_rate')->value('value');
-              $primeUpdated = DB::table('performance_settings')->where('key', 'sa_prime_rate_updated_at')->value('value');
-              if (!empty($prime)) {
-                  $reply = "SA Prime Lending Rate (from HF Coastal Performance Settings): {$prime}%"
-                      . (!empty($primeUpdated) ? " (last updated {$primeUpdated})." : ".");
-
-                  AiMessage::create([
-                      'conversation_id' => $conversation->id,
-                      'user_id' => $user->id,
-                      'role' => 'assistant',
-                      'content' => $reply,
-                  ]);
-
-                  $conversation->update(['last_message_at' => now()]);
-
-                  \Log::info('ELLIE_SEND_RES', [
-
-                      'user_id' => (int)(auth()->id() ?? 0),
-
-                      'ok' => true,
-
-                  ]);
-
-
-                  return response()->json([
-                      'ok' => true,
-                      'conversation_id' => $conversation->id,
-                      'reply' => $reply,
-                      'redirect' => route('ellie.index', ['conversation_id' => $conversation->id]),
-                  ]);
-              }
-          }
-
-        // ELLIE_CONTEXT_V1_2026
-        // ELLIE_CONTEXT_V2_PERFORMANCE_INJECTION_2026
-        $perfSvc = app(\App\Services\Agent\AgentPerformanceService::class);
-        $snapshot = $perfSvc->getMonthlySnapshot($user, now());
-
-          // ELLIE_QUICK_ANSWERS_2026
-          // Handle common questions deterministically (more reliable than LLM guesswork).
-          $msgLower2 = function_exists('mb_strtolower') ? mb_strtolower((string)$data['message']) : strtolower((string)$data['message']);
-
-          $scope = PermissionService::getDataScope($user, 'ellie'); $isAdminish = $scope === 'all' || $scope === 'branch';
-
-          $asksMyPerformance =
-              (str_contains($msgLower2, 'my performance') || str_contains($msgLower2, 'how am i doing'));
-
-            $asksTodayTarget =
-                // targets / target for today (including plural + common typos)
-                (str_contains($msgLower2, 'target for today') ||
-                 str_contains($msgLower2, 'targets for today') ||
-                 str_contains($msgLower2, 'today target') ||
-                 str_contains($msgLower2, 'today targets') ||
-                 (str_contains($msgLower2, 'target') && str_contains($msgLower2, 'today')) ||
-                 (str_contains($msgLower2, 'targets') && str_contains($msgLower2, 'today')) ||
-                 // common phrasing without "today"
-                 str_contains($msgLower2, 'daily target') ||
-                 str_contains($msgLower2, 'daily targets') ||
-                 str_contains($msgLower2, 'my daily target') ||
-                 str_contains($msgLower2, 'my daily targets'));
-
-          $asksPointsToday =
-              (str_contains($msgLower2, 'activity point') && str_contains($msgLower2, 'today')) ||
-              (str_contains($msgLower2, 'points') && str_contains($msgLower2, 'need') && str_contains($msgLower2, 'today')) ||
-              (str_contains($msgLower2, 'points do i need') && str_contains($msgLower2, 'today'));
-
-            \Log::info('ELLIE_QUICK_FLAGS', [
-                'user_id' => (int)($user->id ?? 0),
-                'role' => (string)($user->role ?? ''),
-                'msg' => (string)$msgLower2,
-                'isAdminish' => (bool)$isAdminish,
-                'asksTodayTarget' => (bool)$asksTodayTarget,
-                'asksPointsToday' => (bool)$asksPointsToday,
-            ]);
-
-
-          if ($isAdminish && $asksMyPerformance) {
-              $reply = "Hi {$user->name}! You’re currently logged in as **" . ($user->role ?? 'admin') . "**.\n\n"
-                     . "Personal performance/targets are calculated for **agents** (worksheet + activity + deals/listings). "
-                     . "So Ellie can’t show *your* personal numbers in an admin/branch manager profile.\n\n"
-                     . "✅ Use an **Agent** login to ask: “What’s my pipeline?” “How many listings?” “What’s my target for today?”\n"
-                     . "Or ask me admin/BM questions like: “What should we focus on this week?” (and I’ll guide strategy).";
-
-              AiMessage::create([
-                  'conversation_id' => $conversation->id,
-                  'user_id' => $user->id,
-                  'role' => 'assistant',
-                  'content' => $reply,
-              ]);
-              $conversation->update(['last_message_at' => now()]);
-
-              \Log::info('ELLIE_SEND_RES', ['user_id' => (int)(auth()->id() ?? 0), 'ok' => true, 'mode' => 'quick_admin_my_performance']);
-
-              return response()->json([
-                  'ok' => true,
-                  'conversation_id' => $conversation->id,
-                  'reply' => $reply,
-              ]);
-          }
-
-          if (!$isAdminish && ($asksTodayTarget || $asksPointsToday)) {
-              $daysLeft = (int)($snapshot['remaining']['days_left'] ?? 0);
-              $dealsPerDay = (float)($snapshot['pace']['deals_per_day'] ?? 0);
-              $valuePerDay = (float)($snapshot['pace']['value_per_day'] ?? 0);
-
-              $pointsTarget = (float)($snapshot['actuals']['points_target'] ?? 0);
-              $pointsActual = (float)($snapshot['actuals']['points_actual'] ?? 0);
-
-              $replyLines = [];
-              $replyLines[] = "Here’s your **target for today** (based on your current month pace):";
-
-              if ($dealsPerDay > 0) {
-                  $replyLines[] = "• **Deals pace:** " . number_format($dealsPerDay, 2) . " deals/day";
-              }
-              if ($valuePerDay > 0) {
-                  $replyLines[] = "• **Value pace:** R " . number_format($valuePerDay, 0) . " per day";
-              }
-
-              if ($pointsTarget > 0) {
-                  $replyLines[] = "• **Activity points (month):** " . number_format($pointsActual, 0) . " / " . number_format($pointsTarget, 0);
-              }
-
-              if ($daysLeft > 0) {
-                  $replyLines[] = "• **Days left this month:** " . $daysLeft;
-              }
-
-              $replyLines[] = "";
-              $replyLines[] = "If you want, ask: **“What should I do next today?”** and I’ll give you a short action plan.";
-
-              $reply = implode("\n", $replyLines);
-
-              AiMessage::create([
-                  'conversation_id' => $conversation->id,
-                  'user_id' => $user->id,
-                  'role' => 'assistant',
-                  'content' => $reply,
-              ]);
-              $conversation->update(['last_message_at' => now()]);
-
-              \Log::info('ELLIE_SEND_RES', ['user_id' => (int)(auth()->id() ?? 0), 'ok' => true, 'mode' => 'quick_today_target']);
-
-              return response()->json([
-                  'ok' => true,
-                  'conversation_id' => $conversation->id,
-                  'reply' => $reply,
-              ]);
-          }
-
-          // ELLIE_TRANSFER_COSTS_SHORTCUT_2026
-          $asksTransferCost = $this->detectsTransferCostQuery($msgLower2);
-          if ($asksTransferCost) {
-              $extractedPrice = $this->extractPriceFromMessage($data['message']);
-              if ($extractedPrice > 0) {
-                  $reply = $this->buildTransferCostReply($extractedPrice);
-
-                  AiMessage::create([
-                      'conversation_id' => $conversation->id,
-                      'user_id' => $user->id,
-                      'role' => 'assistant',
-                      'content' => $reply,
-                  ]);
-                  $conversation->update(['last_message_at' => now()]);
-
-                  \Log::info('ELLIE_SEND_RES', ['user_id' => (int)(auth()->id() ?? 0), 'ok' => true, 'mode' => 'quick_transfer_costs']);
-
-                  return response()->json([
-                      'ok' => true,
-                      'conversation_id' => $conversation->id,
-                      'reply' => $reply,
-                  ]);
-              }
-          }
-
-        // ELLIE_CONTEXT_V2_PIPELINE_LISTINGS_2026
-          $pipelineDealsCount = 0;
-          $pipelineValue = 0.0;
-          $listingsActive = 0;
-          $listingsStale = 0;
-
-          try {
-              $pendingStatuses = ['Pending', 'Granted'];
-
-              $pipelineSub = DB::table('deal_money_lines as dml')
-                  ->join('deals as d', 'd.id', '=', 'dml.deal_id')
-                  ->where('dml.user_id', (int)$user->id)
-                  ->whereNull('dml.deleted_at') // exclude rebuilt-over (trashed) projection rows
-                  ->whereIn('d.accepted_status', $pendingStatuses)
-                  ->groupBy('dml.deal_id')
-                  ->selectRaw('dml.deal_id as deal_id, MAX(d.property_value) as property_value_raw');
-
-              $pipeline = DB::query()
-                  ->fromSub($pipelineSub, 't')
-                  ->selectRaw('COUNT(*) as deals_count')
-                  ->selectRaw('COALESCE(SUM(property_value_raw),0) as value_raw')
-                  ->first();
-
-              $pipelineDealsCount = (int)($pipeline->deals_count ?? 0);
-              $pipelineValue = (float)($pipeline->value_raw ?? 0);
-
-              // Listings (active + stale)
-              $listingsActive = (int) DB::table('listing_stocks')
-                  ->where('user_id', (int)$user->id)
-                  ->where(function ($q) {
-                      $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
-                        ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
-                  })
-                  ->count();
-
-              $listingsStale = (int) DB::table('listing_stocks')
-                  ->where('user_id', (int)$user->id)
-                  ->where(function ($q) {
-                      $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
-                        ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
-                  })
-                  ->where('is_stale', 1)
-                  ->count();
-          } catch (\Throwable $e) {
-              \Log::warning('ELLIE_PIPELINE_LISTINGS_ERROR', ['error' => $e->getMessage()]);
-          }
-
-        // ELLIE_NEXT_ACTIONS_ENGINE_2026
-        $nextActions = [];
-
-        $dealsTarget = (int)($snapshot['derived_targets']['deals_needed'] ?? 0);
-        $valueTarget = (float)($snapshot['derived_targets']['value_target'] ?? 0);
-        $pointsTarget = (float)($snapshot['actuals']['points_target'] ?? 0);
-
-        if ($dealsTarget <= 0 && $valueTarget <= 0 && $pointsTarget <= 0) {
-            $nextActions[] = 'Complete your Worksheet for this month so Ellie can set accurate targets (income, deals, listings, activity points).';
-        }
-
-        if (($pipelineDealsCount ?? 0) > 0) {
-            $nextActions[] = 'Push your pending pipeline: follow up and move deals from Pending/Granted to Registered.';
-        } else {
-            $nextActions[] = 'Build pipeline today: 10 quality follow-ups + 2 new listing leads + book 1 appointment.';
-        }
-
-        if (($listingsStale ?? 0) > 0) {
-            $nextActions[] = 'You have stale listings—do price/feedback updates and relaunch marketing on the oldest ones.';
-        }
-
-        $pa = (float)($snapshot['actuals']['points_actual'] ?? 0);
-        if ($pointsTarget > 0 && $pa < ($pointsTarget * 0.6)) {
-            $nextActions[] = 'Your activity points are behind—focus on high-weight activities first (calls, follow-ups, appointments).';
-        }
-        $ctx = [
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'role' => $user->role ?? null,
-                'branch_id' => $user->branch_id ?? null,
+        $answer = $ellie->answer(
+            message: $data['message'],
+            user: $user,
+            history: $history,
+            pageContext: [
+                'path'  => $data['page_path'] ?? null,
+                'title' => $data['page_title'] ?? null,
             ],
-            'performance' => [
-                'period' => $snapshot['period'] ?? null,
+        );
 
-                'income_target' => $snapshot['derived_targets']['value_target'] ?? 0,
-                'income_actual' => $snapshot['actuals']['sales_value'] ?? 0,
-                'income_gap' => $snapshot['remaining']['value'] ?? 0,
+        $reply = $answer['reply'];
 
-                'deals_target' => $snapshot['derived_targets']['deals_needed'] ?? 0,
-                'deals_actual' => $snapshot['actuals']['deals_count'] ?? 0,
-                'deals_gap' => $snapshot['remaining']['deals'] ?? 0,
-
-                'activity_points' => $snapshot['actuals']['points_actual'] ?? 0,
-                'activity_target' => $snapshot['actuals']['points_target'] ?? 0,
-
-                'days_left' => $snapshot['remaining']['days_left'] ?? 0,
-                'deals_per_day_required' => $snapshot['pace']['deals_per_day'] ?? 0,
-                'value_per_day_required' => $snapshot['pace']['value_per_day'] ?? 0,
-
-                'progress_deals_pct' => $snapshot['progress']['deals_pct'] ?? null,
-                'progress_value_pct' => $snapshot['progress']['value_pct'] ?? null,
-                'progress_points_pct' => $snapshot['progress']['points_pct'] ?? null,
-            ],
-            // Pipeline/listings will be injected next (Phase 1b)
-            'pipeline' => [
-                'value_pending' => $pipelineValue,
-                'deals_count' => $pipelineDealsCount,
-            ],
-            'listings' => [
-                'active' => $listingsActive,
-                'stale' => $listingsStale,
-            ],
-            'next_actions' => $nextActions,
-        ];
-
-        // ELLIE_HISTORY_V1_2026
-        // Fetch last 10 messages for conversation history context
-        $history = \App\Models\AiMessage::where('conversation_id', $conversation->id)
-            ->whereIn('role', ['user', 'assistant'])
-            ->orderBy('created_at', 'desc')
-            ->take(10)
-            ->get()
-            ->reverse()
-            ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
-            ->values()
-            ->toArray();
-
-        // ELLIE_KNOWLEDGE_BASE_2026
-        // Search knowledge base for relevant document chunks
-        $knowledgeContext = '';
-        $knowledgeSources = [];
-        $searchService = app(\App\Services\AI\KnowledgeSearchService::class);
-
-        \Log::info('ELLIE_KB_GATE', [
-            'user_id' => (int)($user->id ?? 0),
-            'message_preview' => mb_substr($data['message'], 0, 80),
-            'should_search' => $searchService->shouldSearch($data['message']),
+        \Log::info('ELLIE_SEND_RES', [
+            'user_id'    => (int) $user->id,
+            'ok'         => (bool) $answer['ok'],
+            'tools_used' => $answer['tools_used'],
         ]);
 
-        if ($searchService->shouldSearch($data['message'])) {
-            $results = $searchService->search($data['message'], 3);
-            $knowledgeContext = $results['context'];
-            $knowledgeSources = $results['sources'];
-
-            \Log::info('ELLIE_KB_RESULT', [
-                'user_id' => (int)($user->id ?? 0),
-                'context_length' => strlen($knowledgeContext),
-                'sources_count' => count($knowledgeSources),
-                'source_titles' => array_map(fn($s) => $s['title'] ?? '?', $knowledgeSources),
-            ]);
-        }
-
-        // ELLIE_NAVIGATION_ATLAS_2026
-        // "Where do I go to…" questions — resolve real, permission-filtered page
-        // links from the Navigation Atlas and prepend them so Ellie answers with
-        // the actual destination + a working link. Spec: .ai/specs/ellie-navigation-atlas.md
-        $navService = app(\App\Services\AI\NavigationAtlasService::class);
-        if ($navService->isNavigationQuery($data['message'])) {
-            $nav = $navService->buildContext($data['message'], $user, 3);
-            if ($nav['context'] !== '') {
-                $knowledgeContext = trim($nav['context'] . "\n\n" . $knowledgeContext);
-                $knowledgeSources = array_merge($nav['sources'], $knowledgeSources);
-
-                \Log::info('ELLIE_NAV_RESULT', [
-                    'user_id' => (int)($user->id ?? 0),
-                    'matches' => array_map(fn($s) => $s['title'] ?? '?', $nav['sources']),
-                ]);
-            }
-        }
-
-        // ELLIE_TOUR_KNOWLEDGE_2026
-        // "How do I do X" — the 88 guided tours are step-by-step, agent-facing
-        // walkthroughs. Inject the matching tour's steps so Ellie explains the
-        // actual workflow, not just where the page is. Permission-gated via
-        // TourRegistry::visibleTo. Spec: .ai/specs/ellie-tour-knowledge.md
-        $tourService = app(\App\Services\AI\TourKnowledgeService::class);
-        $tours = $tourService->buildContext($data['message'], $user, 2);
-        if ($tours['context'] !== '') {
-            $knowledgeContext = trim($knowledgeContext . "\n\n" . $tours['context']);
-            $knowledgeSources = array_merge($knowledgeSources, $tours['sources']);
-
-            \Log::info('ELLIE_TOUR_RESULT', [
-                'user_id' => (int)($user->id ?? 0),
-                'matches' => array_map(fn($s) => $s['title'] ?? '?', $tours['sources']),
-            ]);
-        }
-
-        $resp = Http::timeout(120)
-            ->acceptJson()
-            ->asJson()
-            ->post('http://127.0.0.1:3100/chat', [
-                'message' => $data['message'],
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'role' => $user->role ?? null,
-                    'branch_id' => $user->branch_id ?? null,
-                ],
-                'context' => $ctx,
-                'history' => $history,
-                'knowledge_context' => $knowledgeContext,
-            ]);
-
-        if (!$resp->successful()) {
-            $reply = 'AI service error (' . $resp->status() . ').';
-        } else {
-            $payload = $resp->json();
-            $reply = '';
-            $sources = [];
-            $mode = null;
-            if (is_array($payload)) {
-                $reply = (string)($payload['reply'] ?? '');
-                $mode = $payload['mode'] ?? null;
-                $sources = is_array($payload['sources'] ?? null) ? $payload['sources'] : [];
-                if ($reply === '') {
-                    $reply = json_encode($payload);
-                }
-            } else {
-                $reply = (string)$resp->body();
-            }
-            if (!empty($sources)) {
-                $lines = [];
-                foreach ($sources as $src) {
-                    if (!is_array($src)) continue;
-                    $u = (string)($src['url'] ?? '');
-                    if ($u === '') continue;
-                    $t = (string)($src['title'] ?? 'Source');
-                    $lines[] = "- " . $t . ": " . $u;
-                }
-                if (!empty($lines)) {
-                    $reply .= "\n\nSources:\n" . implode("\n", $lines);
-                }
-            }
-            if (!is_string($reply) || trim($reply) === '') {
-                $reply = 'Sorry, I could not respond.';
-            }
-        }
-
         // Store assistant message
-        $aiMsg = AiMessage::create([
+        AiMessage::create([
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'role' => 'assistant',
             'content' => $reply,
         ]);
 
-          // ELLIE_AUTOTITLE_2026
-          // Auto-title conversation after first exchange (only if title is empty)
-          if (empty($conversation->title)) {
-              $title = $this->generateAutoTitle((string)($data['message'] ?? ''), (string)$reply);
-              if ($title !== '') {
-                  $conversation->title = $title;
-                  $conversation->save();
-              }
-          }
-
+        // ELLIE_AUTOTITLE_2026
+        // Auto-title conversation after first exchange (only if title is empty)
+        if (empty($conversation->title)) {
+            $title = $this->generateAutoTitle((string)($data['message'] ?? ''), (string)$reply);
+            if ($title !== '') {
+                $conversation->title = $title;
+                $conversation->save();
+            }
+        }
 
         // Update conversation timestamp
         $conversation->update([
@@ -708,78 +326,4 @@ class EllieController extends Controller
                 'conversation_id' => $conversation->id,
             ]);
         }
-
-        // ELLIE_TRANSFER_COST_HELPERS_2026
-        private function detectsTransferCostQuery(string $msgLower): bool
-        {
-            return (str_contains($msgLower, 'transfer cost') ||
-                    str_contains($msgLower, 'transfer costs') ||
-                    str_contains($msgLower, 'transfer duty') ||
-                    str_contains($msgLower, 'transfer fees') ||
-                    (str_contains($msgLower, 'how much') && str_contains($msgLower, 'transfer')) ||
-                    (str_contains($msgLower, 'cost to transfer') || str_contains($msgLower, 'cost of transfer')) ||
-                    (str_contains($msgLower, 'conveyancing') && str_contains($msgLower, 'fee')) ||
-                    (str_contains($msgLower, 'bond registration') && str_contains($msgLower, 'cost')) ||
-                    (str_contains($msgLower, 'bond cost') || str_contains($msgLower, 'bond costs')));
-        }
-
-        private function extractPriceFromMessage(string $message): float
-        {
-            // Match patterns like: R2,500,000 / R 2 500 000 / 2500000 / 2.5m / R2.5M / 2,500,000
-            $msg = str_replace(["\n", "\r"], ' ', $message);
-
-            // Try "R X.Xm" or "X.Xm" pattern first (e.g., "R2.5m", "1.5m")
-            if (preg_match('/R?\s*([\d.]+)\s*[mM]/u', $msg, $m)) {
-                return (float) $m[1] * 1000000;
-            }
-
-            // Try "R 1 500 000" or "R1,500,000" or "R1500000"
-            if (preg_match('/R\s*([\d\s,]+)/u', $msg, $m)) {
-                $clean = preg_replace('/[\s,]/', '', $m[1]);
-                $val = (float) $clean;
-                if ($val >= 50000) return $val;
-            }
-
-            // Try bare number >= 100000
-            if (preg_match('/([\d,\s]{6,})/u', $msg, $m)) {
-                $clean = preg_replace('/[\s,]/', '', $m[1]);
-                $val = (float) $clean;
-                if ($val >= 100000) return $val;
-            }
-
-            return 0;
-        }
-
-        private function buildTransferCostReply(float $price): string
-        {
-            $zar = fn(float $v) => 'R ' . number_format($v, 2, '.', ',');
-
-            $transfer = PropertyCostService::calcTransferCosts($price);
-            $bond = PropertyCostService::calcBondCosts($price);
-
-            $lines = [];
-            $lines[] = "**Transfer Costs** for {$zar($price)}:";
-            $lines[] = "";
-            $lines[] = "**TRANSFER (property into buyer's name):**";
-            $lines[] = "- Conveyancing fee: {$zar($transfer['conveyancing_fee'])}";
-            $lines[] = "- Posts & petties: {$zar($transfer['posts_petties'])}";
-            $lines[] = "- VAT (15%): {$zar($transfer['vat'])}";
-            $lines[] = "- Deeds office: {$zar($transfer['deeds_office'])}";
-            $lines[] = "- Transfer duty: {$zar($transfer['transfer_duty'])}";
-            $lines[] = "- **TOTAL Transfer: {$zar($transfer['total'])}**";
-            $lines[] = "";
-            $lines[] = "**BOND REGISTRATION** (if 100% bond at same amount):";
-            $lines[] = "- Conveyancing fee: {$zar($bond['conveyancing_fee'])}";
-            $lines[] = "- Posts & petties: {$zar($bond['posts_petties'])}";
-            $lines[] = "- VAT (15%): {$zar($bond['vat'])}";
-            $lines[] = "- Deeds office: {$zar($bond['deeds_office'])}";
-            $lines[] = "- **TOTAL Bond: {$zar($bond['total'])}**";
-            $lines[] = "";
-            $lines[] = "**GRAND TOTAL: {$zar($transfer['total'] + $bond['total'])}**";
-            $lines[] = "";
-            $lines[] = "_Fees based on Law Society Guideline Tariff 2025 (Van Dyk & Swart). Actual fees may vary by attorney. Additional costs apply (bank fees ~R6,038, FICA R1,265/person, clearance cert R950)._";
-
-            return implode("\n", $lines);
-        }
-
 }

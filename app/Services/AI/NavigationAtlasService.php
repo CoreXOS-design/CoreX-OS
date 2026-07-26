@@ -43,7 +43,28 @@ class NavigationAtlasService
     ];
 
     /**
+     * Relevance floor for offering a destination.
+     *
+     * A match must clear FLOOR_DEFAULT to be offered at all. When the phrasing is
+     * explicitly navigational ("where do I…", "take me to…") the user has already
+     * told us what they want, so a weaker keyword match is still the right answer
+     * and the lower floor applies.
+     *
+     * These replace the old hard gate. Previously a question that did not contain
+     * one of the INTENT_PHRASES was never scored at all, so confident matches were
+     * thrown away — "How do i manually add a buyer in my buyer pipeline" scored
+     * 12.0 against Buyer Pipeline and was discarded, and Ellie answered "I don't
+     * have documented steps for that". Scoring now always runs; the floor, not the
+     * phrasing, decides. Spec: .ai/specs/ellie-v2.md §5.1.
+     */
+    private const FLOOR_DEFAULT    = 2.0;
+    private const FLOOR_NAVIGATION = 1.0;
+
+    /**
      * Does this message look like a navigation ("where do I go") question?
+     *
+     * NOTE: this is a CONFIDENCE SIGNAL, not a gate. It lowers the relevance floor
+     * for a match; it never decides whether the atlas runs.
      */
     public function isNavigationQuery(string $message): bool
     {
@@ -79,6 +100,10 @@ class NavigationAtlasService
             return [];
         }
 
+        // Explicitly navigational phrasing earns a lower relevance floor — the
+        // user has already said they want to be taken somewhere.
+        $floor = $this->isNavigationQuery($query) ? self::FLOOR_NAVIGATION : self::FLOOR_DEFAULT;
+
         $scored = [];
 
         foreach ($registry as $routeName => $entry) {
@@ -87,7 +112,7 @@ class NavigationAtlasService
             }
 
             $score = $this->score($rawLower, $queryWords, $entry);
-            if ($score <= 0) {
+            if ($score < $floor) {
                 continue;
             }
 
