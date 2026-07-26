@@ -174,7 +174,7 @@ class DocxParserService
 
     /**
      * Send numbered blank list to AI for field assignment.
-     * Uses ImporterAiService dual-engine: Claude → OpenAI → empty.
+     * Uses ImporterAiService: Claude → regex fallback.
      * Merge is a direct lookup — no similarity matching, no index shifting possible.
      */
     protected function parseFieldsWithAi(string $plainText, array $regexFields): ?array
