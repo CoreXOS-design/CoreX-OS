@@ -3315,4 +3315,20 @@ html.dark .corex-template-card {
     box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);
 }
 
+/* --- System Updates pop-up — card width ----------------------------------- */
+/* Declared ONCE because TWO surfaces render this card: the live modal
+   (layouts/partials/system-update-modal) and the admin Preview page, which
+   promises "exactly what every CoreX user will see". A width copied into both
+   drifts the moment one is edited, and the preview then quietly misrepresents
+   what is about to be broadcast to every user of every agency.
+
+   50% of the viewport on desktop. The max() floor keeps it readable on a phone,
+   where half a screen is too narrow for a release note; the companion `w-full`
+   caps the card to the space actually available, so that floor can never
+   overflow a small screen. */
+.corex-su-modal-card {
+    width: 100%;
+    max-width: max(360px, 50vw);
+}
+
 /* End AT-336 restyle block */

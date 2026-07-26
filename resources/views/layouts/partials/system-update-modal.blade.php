@@ -44,8 +44,8 @@
     <div class="absolute inset-0" style="background:rgba(0,0,0,0.55);" @click="close()"></div>
 
     {{-- Card --}}
-    <div class="relative w-full rounded-md shadow-2xl overflow-hidden"
-         style="max-width:520px; background:var(--surface); border:1px solid var(--border);"
+    <div class="relative w-full corex-su-modal-card rounded-md shadow-2xl overflow-hidden"
+         style="background:var(--surface); border:1px solid var(--border);"
          @click.stop>
 
         {{-- Header --}}

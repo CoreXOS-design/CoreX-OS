@@ -25,8 +25,8 @@
 
     {{-- The modal, rendered inline on a scrim so it reads exactly as it will in situ. --}}
     <div class="rounded-md flex items-center justify-center p-6" style="background:rgba(0,0,0,0.55);">
-        <div class="w-full rounded-md shadow-2xl overflow-hidden"
-             style="max-width:520px; background:var(--surface); border:1px solid var(--border);">
+        <div class="w-full corex-su-modal-card rounded-md shadow-2xl overflow-hidden"
+             style="background:var(--surface); border:1px solid var(--border);">
 
             <div class="flex items-start justify-between gap-3 px-5 py-4"
                  style="border-bottom:1px solid var(--border);">
