@@ -8,20 +8,20 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="tools-pdf-suite-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">PDF Suite</h1>
-                <p class="text-sm text-white/60">Nine tools for everything you need to do with a PDF — split, compress, merge, rotate, redact, enhance and more.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Suite</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Nine tools for everything you need to do with a PDF — split, compress, merge, rotate, redact, enhance and more.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('access_settings')
                     @if(\Illuminate\Support\Facades\Route::has('admin.splitter.doc-types.index'))
                     <a href="{{ route('admin.splitter.doc-types.index') }}"
                        title="PDF Suite Settings"
                        aria-label="PDF Suite Settings"
-                       class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                       style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                       onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                       onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                       class="inline-flex items-center justify-center rounded-md transition-colors"
+                       style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+                       onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)';"
+                       onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)';">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="3"/>
@@ -73,7 +73,7 @@
                 <a href="{{ route($t['route']) }}"
                    @if($loop->first) data-tour="tools-pdf-suite-first-card" @endif
                    @if($t['icon'] === 'redact') data-tour="tools-pdf-suite-redact-card" @endif
-                   class="group block rounded-md transition-all duration-300 hover:-translate-y-0.5"
+                   class="group pdf-suite-card block rounded-md transition-colors duration-150"
                    style="background: var(--surface); border: 1px solid var(--border); text-decoration: none; min-height: 180px;">
                     <div class="p-6 h-full flex flex-col">
                         <div class="flex items-center justify-center w-12 h-12 rounded-md mb-4 transition-all duration-300"
@@ -103,9 +103,11 @@
 </div>
 
 <style>
-    .group:hover {
+    /* Scoped to the suite's own tool cards — the previous bare `.group:hover`
+       selector leaked onto every `.group` element in the app shell. */
+    .pdf-suite-card:hover {
         box-shadow: 0 4px 20px -4px color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);
-        border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, var(--border)) !important;
+        border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 50%, var(--border)) !important;
     }
 </style>
 @endsection

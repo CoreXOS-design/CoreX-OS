@@ -8,11 +8,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Calculation History</h1>
-                <p class="text-sm text-white/60">Saved deposit interest calculations.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Calculation History</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Saved deposit interest calculations.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('deposit-interest-calculator.index') }}" class="corex-btn-primary inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('deposit-interest-calculator.index') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -46,7 +46,7 @@
                        placeholder="Search by property name..."
                        onchange="this.form.submit()"
                        class="list-header-filter w-full"
-                       style="padding-left: 2.25rem;">
+                       style="padding-left: 2.25rem; background: var(--surface-2);">
             </div>
 
             @if(request('search'))

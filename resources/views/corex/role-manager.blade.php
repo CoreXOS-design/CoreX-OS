@@ -6,8 +6,8 @@
 /* ── Role Manager: scoped component styles ── */
 #rm-root .rm-scope-btn { transition: all 300ms; }
 #rm-root .rm-scope-btn[data-active="true"] { color: #fff; font-weight: 600; }
-#rm-root .rm-scope-btn[data-scope="none"][data-active="true"] { background: var(--text-secondary); }
-#rm-root .rm-scope-btn[data-scope="own"][data-active="true"] { background: var(--brand-button, #0ea5e9); }
+#rm-root .rm-scope-btn[data-scope="none"][data-active="true"] { background: var(--border-hover); color: var(--text-primary); }
+#rm-root .rm-scope-btn[data-scope="own"][data-active="true"] { background: var(--brand-icon, #0ea5e9); }
 #rm-root .rm-scope-btn[data-scope="branch"][data-active="true"] { background: var(--ds-amber, #f59e0b); }
 #rm-root .rm-scope-btn[data-scope="all"][data-active="true"] { background: var(--ds-green, #059669); }
 </style>
@@ -16,10 +16,12 @@
     <div x-cloak class="w-full space-y-5 pb-6">
 
         {{-- Page header --}}
-        <div class="rounded-md px-6 py-5 corex-page-banner flex items-center justify-between">
-            <div>
-                <h1 class="text-xl font-bold text-white tracking-tight leading-tight">Role Manager</h1>
-                <p class="text-sm text-white/60 mt-0.5">Manage roles, permissions & user assignments.</p>
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Role Manager</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Manage roles, permissions &amp; user assignments.</p>
+                </div>
             </div>
         </div>
 
@@ -27,17 +29,17 @@
         <div class="flex gap-1 rounded-md p-1 w-fit" style="background:var(--surface-2);">
             <button type="button" @click="activeTab = 'permissions'"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
-                    :style="activeTab === 'permissions' ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
+                    :style="activeTab === 'permissions' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 Permissions Matrix
             </button>
             <button type="button" @click="activeTab = 'users'"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
-                    :style="activeTab === 'users' ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
+                    :style="activeTab === 'users' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 User Roles
             </button>
             <button type="button" @click="activeTab = 'roles'"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
-                    :style="activeTab === 'roles' ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
+                    :style="activeTab === 'roles' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 Roles
             </button>
         </div>
@@ -140,7 +142,7 @@
                                 <div class="px-2 pb-1" x-show="matchesFeature('{{ $moduleKey }}', '{{ addslashes($moduleData['label']) }}')">
                                     <button type="button"
                                             @click="selectedFeature = '{{ $moduleKey }}'; syncUrl()"
-                                            :style="selectedFeature === '{{ $moduleKey }}' ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'color:var(--text-secondary);'"
+                                            :style="selectedFeature === '{{ $moduleKey }}' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'color:var(--text-secondary);'"
                                             class="w-full text-left px-3 py-2 rounded-md text-xs font-medium transition-all duration-300"
                                             :class="selectedFeature !== '{{ $moduleKey }}' ? 'hover:opacity-80' : ''">
                                         {{ $moduleData['label'] }}
@@ -209,13 +211,13 @@
                                                         @if($role->is_owner)
                                                             <input type="checkbox" checked disabled
                                                                    class="w-5 h-5 rounded-md opacity-50 cursor-not-allowed"
-                                                                   style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                   style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                         @else
                                                             <input type="checkbox"
                                                                    x-model="matrix['{{ $perm->key }}']['{{ $role->name }}']"
                                                                    @change="scheduleSave()"
                                                                    class="w-5 h-5 rounded-md cursor-pointer"
-                                                                   style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                   style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                         @endif
                                                         <span class="text-xs" style="color:var(--text-muted);" x-text="matrix['{{ $perm->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
                                                     </label>
@@ -255,7 +257,7 @@
                                                                                handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', next);
                                                                            "
                                                                            class="w-5 h-5 rounded-md cursor-pointer"
-                                                                           style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                           style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                                     <span class="text-xs" style="color:var(--text-muted);"
                                                                           x-text="['branch','all'].includes(scopeMatrix['{{ $fViewKey }}']?.['{{ $role->name }}']) ? 'On' : 'Off'"></span>
                                                                 </label>
@@ -324,13 +326,13 @@
                                                             @if($role->is_owner)
                                                                 <input type="checkbox" checked disabled
                                                                        class="w-5 h-5 rounded-md opacity-50 cursor-not-allowed"
-                                                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                       style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                             @else
                                                                 <input type="checkbox"
                                                                        x-model="matrix['{{ $fAp->key }}']['{{ $role->name }}']"
                                                                        @change="handleActionChange('{{ $moduleKey }}', '{{ $action }}', '{{ $role->name }}')"
                                                                        class="w-5 h-5 rounded-md cursor-pointer"
-                                                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);"
+                                                                       style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);"
                                                                        :disabled="scopeMatrix['{{ $fViewKey ?? '' }}']?.['{{ $role->name }}'] === 'none'">
                                                             @endif
                                                             <span class="text-xs" style="color:var(--text-muted);" x-text="matrix['{{ $fAp->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
@@ -357,13 +359,13 @@
                                                             @if($role->is_owner)
                                                                 <input type="checkbox" checked disabled
                                                                        class="w-5 h-5 rounded-md opacity-50 cursor-not-allowed"
-                                                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                       style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                             @else
                                                                 <input type="checkbox"
                                                                        x-model="matrix['{{ $fOp->key }}']['{{ $role->name }}']"
                                                                        @change="scheduleSave()"
                                                                        class="w-5 h-5 rounded-md cursor-pointer"
-                                                                       style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                       style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
                                                             @endif
                                                             <span class="text-xs" style="color:var(--text-muted);" x-text="matrix['{{ $fOp->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
                                                         </label>
@@ -570,7 +572,7 @@
          @click.self="showRoleModal = false"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-        <div class="rounded-md shadow-xl w-full max-w-lg mx-4 overflow-hidden" style="background:var(--surface);" @click.stop>
+        <div class="rounded-md shadow-xl w-full max-w-lg mx-4 overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @click.stop>
             <div class="px-6 py-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                 <h3 class="font-semibold text-sm" style="color:var(--text-primary);" x-text="editRoleId ? 'Edit Role' : 'Add New Role'"></h3>
             </div>
@@ -682,7 +684,7 @@
          @click.self="showDeleteModal = false"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-        <div class="rounded-md shadow-xl w-full max-w-md mx-4 overflow-hidden" style="background:var(--surface);" @click.stop>
+        <div class="rounded-md shadow-xl w-full max-w-md mx-4 overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @click.stop>
             <div class="px-6 py-4"
                  style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border-bottom:1px solid var(--border);">
                 <h3 class="font-semibold text-sm" style="color: var(--ds-crimson);">Delete Role</h3>
@@ -742,7 +744,7 @@
          @click.self="showCopyModal = false"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
-        <div class="rounded-md shadow-xl w-full max-w-lg mx-4 overflow-hidden" style="background:var(--surface);" @click.stop>
+        <div class="rounded-md shadow-xl w-full max-w-lg mx-4 overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @click.stop>
             <div class="px-6 py-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                 <h3 class="font-semibold text-sm" style="color:var(--text-primary);">Bulk Copy Permissions</h3>
                 <p class="text-xs mt-0.5" style="color:var(--text-muted);">Copy all permissions from one role to one or more target roles. This saves immediately.</p>
@@ -774,7 +776,7 @@
                                 <input type="checkbox" name="target_roles[]" value="{{ $role->name }}"
                                        :disabled="copySource === '{{ $role->name }}'"
                                        class="w-4 h-4 rounded-md cursor-pointer"
-                                       style="accent-color:var(--brand-button,#0ea5e9);">
+                                       style="accent-color:var(--brand-icon,#0ea5e9);">
                                 <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white whitespace-nowrap"
                                       style="background:{{ $role->color }};">
                                     {{ $role->label }}
@@ -812,8 +814,8 @@
 <div x-show="copyToast" x-cloak
      x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
      x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-2"
-     class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-lg text-sm font-medium text-white"
-     style="background:var(--brand-default,#0b2a4a);">
+     class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-md shadow-lg text-sm font-medium"
+     style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
     <span x-text="copyToastMsg"></span>
 </div>
 
