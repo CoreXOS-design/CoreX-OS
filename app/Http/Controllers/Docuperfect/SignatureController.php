@@ -102,7 +102,11 @@ class SignatureController extends Controller
                 // 1. Create a Docuperfect Document record for this standalone upload
                 $document = Document::create([
                     'name'             => $request->input('document_name'),
-                    'owner_id'         => $user->id,
+                    // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's document files under the
+                    // AGENT, never the assistant. Document::scopeVisibleTo() resolves the agent's
+                    // 'own' as [agent] only, so an assistant-owned row is invisible to the very
+                    // person it was prepared for. ownershipUserId() is a no-op for everyone else.
+                    'owner_id'         => $user->ownershipUserId(),
                     'branch_id'        => $user->branch_id,
                     'document_type'    => 'rental_upload_send',
                     'property_address' => $request->input('property_reference'),

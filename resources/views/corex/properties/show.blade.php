@@ -57,6 +57,10 @@
         'readonlyMessage' => 'You can view this listing, but only its agent can change it. Ask your agent if something needs updating.',
     ])
 
+    {{-- AT-267 — "added by {assistant}" (show_attribution). Renders nothing unless an assistant
+         actually changed this listing and their agent has attribution switched on. --}}
+    <x-assistant-attribution type="property" :id="$property->id" />
+
     {{-- AT-262 (Johan's ruling): a duplicated / switched-type listing is a completable
          DRAFT — the matching fields were copied onto the new type; the rest is the agent's
          to finish. Save is lenient here; full requirements bite at completion / syndication.

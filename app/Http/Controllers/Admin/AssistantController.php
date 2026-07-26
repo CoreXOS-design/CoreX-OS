@@ -163,6 +163,68 @@ class AssistantController extends Controller
     }
 
     /**
+     * Correct an assistant's own details — the U in CRUD (AUDIT 2026-07-26, F5).
+     *
+     * There was no update path at all: the group shipped list/view/create/reassign/revoke/restore,
+     * and assistants are excluded from the User Management directory (they are managed here, not
+     * there). So a typo in a name, email, cell or Title at creation was permanent through the UI,
+     * and the per-assistant Title added later could only ever be set once.
+     *
+     * Scope is deliberately their IDENTITY only. Who they work for is `reassign()` (it re-seeds
+     * the matrix against a new ceiling); what they may do is the agent's matrix page. Neither
+     * belongs on an "edit details" form.
+     */
+    public function edit(Request $request, AssistantAssignment $assignment)
+    {
+        abort_unless($request->user()->hasPermission('assistants.create'), 403);
+
+        $assignment->load(['assistant', 'assignedAgent']);
+
+        return view('admin.assistants.edit', ['assignment' => $assignment]);
+    }
+
+    public function update(Request $request, AssistantAssignment $assignment)
+    {
+        abort_unless($request->user()->hasPermission('assistants.create'), 403);
+
+        $assistant = $assignment->assistant;
+        abort_unless($assistant !== null, 404);
+
+        $data = $request->validate([
+            'name'          => ['required', 'string', 'max:255'],
+            'surname'       => ['required', 'string', 'max:255'],
+            // Unique across live users EXCEPT this one — otherwise saving the form without
+            // touching the email would fail against the assistant's own row.
+            'email'         => ['required', 'email', 'max:255', Rule::unique('users', 'email')->whereNull('deleted_at')->ignore($assistant->id)],
+            'cell'          => ['required', 'string', 'max:50'],
+            'phone'         => ['nullable', 'string', 'max:50'],
+            'title'         => ['nullable', 'string', 'max:60'],
+            'fica_required' => ['nullable', 'in:0,1'],
+        ]);
+
+        $assistant->forceFill([
+            // `users.name` is the FULL name — there is no surname column (same as store()).
+            'name'  => trim($data['name'] . ' ' . $data['surname']),
+            'email' => strtolower(trim($data['email'])),
+            'cell'  => $data['cell'],
+            'phone' => $data['phone'] ?? null,
+
+            'assistant_title' => trim($data['title'] ?? '') !== '' ? trim($data['title']) : null,
+
+            // BUILD_STANDARD §6.1 — the checkbox only writes when the form actually rendered it,
+            // so a future partial save can never silently clear an agency's FICA requirement.
+            'fica_required' => $request->has('fica_required')
+                ? (bool) $data['fica_required']
+                : $assistant->fica_required,
+        ])->save();
+        // NB `role` and `is_admin` are re-pinned by User::saving() regardless of what lands here.
+
+        return redirect()
+            ->route('admin.assistants.show', $assignment)
+            ->with('success', "{$assistant->name}'s details have been updated.");
+    }
+
+    /**
      * Move an assistant to a different agent.
      *
      * The old assignment is soft-deleted — it keeps its matrix (the model cascades the

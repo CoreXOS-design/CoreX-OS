@@ -297,6 +297,17 @@ class PermissionService
      */
     public static function mutationScope(User $user, string $module): ?string
     {
+        // AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+        // When it is off, the assistant's MUTATION breadth is nothing at all, on every module.
+        // This sits FIRST and returns null (not 'own'), because null is what every per-record
+        // guard and every scopeVisibleTo() already reads as "no rows" — so switching the toggle
+        // off needs no new branch in any of the six call sites, and a guard added tomorrow
+        // inherits the behaviour for free. VIEW breadth (getDataScope) is deliberately untouched:
+        // the assistant still sees everything they saw before, they just cannot change it.
+        if (! $user->canMutateRecords()) {
+            return null;
+        }
+
         $scope = static::getDataScope($user, $module);
 
         if ($scope !== null && $user->is_assistant) {

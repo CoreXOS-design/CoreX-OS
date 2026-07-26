@@ -44,7 +44,9 @@ class PortalLeadController extends Controller
 
         $leads = $query->paginate(25)->withQueryString();
 
-        $agents = User::query()->orderBy('name')->get(['id', 'name']);
+        // AT-267 / AUDIT 2026-07-26 (F4) — a lead is never assigned to an assistant; they hold no
+        // book of their own and the lead would leave the practitioner's pipeline.
+        $agents = User::query()->where('is_assistant', false)->orderBy('name')->get(['id', 'name']);
 
         return view('corex.portal-leads.index', [
             'leads'    => $leads,

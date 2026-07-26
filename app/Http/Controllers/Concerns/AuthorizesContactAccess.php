@@ -51,6 +51,15 @@ trait AuthorizesContactAccess
             return true;
         }
 
+        // AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+        // Contacts do not resolve through PermissionService::mutationScope() (they are scoped by
+        // the global ContactScope instead), so the toggle has to be read here as well. This is
+        // also what renders the contact page read-only: $canEdit on corex/contacts/show is this
+        // method, so switching the toggle off greys the page out rather than 403ing on save.
+        if (! $user->canMutateRecords()) {
+            return false;
+        }
+
         // dataIdentityIds() = [assignedAgentId, assistantSelfId]. An assistant may mutate the
         // agent's own contacts (created_by_user_id ∈ that set), never another agent's — even one
         // in the branch the assistant can see.

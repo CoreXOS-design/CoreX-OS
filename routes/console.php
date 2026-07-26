@@ -75,6 +75,14 @@ Schedule::command('corex:billing-reconcile')->dailyAt('03:00')->withoutOverlappi
 // over consciously). Idempotent; 04:15 keeps it clear of the 03:00/03:30 windows.
 Schedule::command('assistants:sync-matrix')->dailyAt('04:15')->withoutOverlapping();
 
+// AUDIT 2026-07-26 (F6) — assistant activity-log retention. LogAssistantActivity appends a row
+// per successful record-scoped assistant request (including GETs), so the table only ever grows.
+// AssistantActivityLog::prunable() keeps 12 months. Explicitly model-scoped rather than a bare
+// `model:prune`: an unscoped sweep would pick up every Prunable model in app/Models, which is not
+// a decision this line gets to make on their behalf.
+Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog::class]])
+    ->dailyAt('04:30')->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.

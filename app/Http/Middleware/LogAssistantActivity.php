@@ -89,6 +89,8 @@ class LogAssistantActivity
 
         [$subjectId, $subjectLabel] = $this->identify($subject);
 
+        $this->notifyAgent($assignment, $user, $action, $subject, $subjectSlug, $subjectLabel);
+
         AssistantActivityLog::create([
             'agency_id'               => $assignment->agency_id,
             'assistant_assignment_id' => $assignment->id,
@@ -103,6 +105,66 @@ class LogAssistantActivity
             'method'                  => $request->method(),
             'created_at'              => now(),
         ]);
+    }
+
+    /**
+     * AT-267 / AUDIT 2026-07-26 (F1) — "Notify me when {assistant} adds or changes something".
+     *
+     * The third control-page toggle. It is fired from HERE rather than from each create/update
+     * path because this middleware is already the single chokepoint every assistant request
+     * passes through — the alternative is a notify() call sprinkled across thirty controllers,
+     * which is exactly how the ownership routing ended up with the two gaps this audit found.
+     *
+     * Only CHANGES notify. An 'opened' is not something the agent asked to hear about, and
+     * treating a read as an action would bury the real signal within an hour.
+     *
+     * Everything else is the gateway's job and is deliberately not re-implemented here: channel
+     * selection, the agent's own per-event preference, open-hours, and the per-(user, event,
+     * subject) cooldown that stops a busy afternoon on one listing becoming forty alerts.
+     *
+     * Never throws — the caller wraps this, but a notification failure must not cost the
+     * assistant the page they are on, so the log write below still happens either way.
+     */
+    private function notifyAgent(
+        $assignment,
+        $user,
+        string $action,
+        mixed $subject,
+        string $subjectSlug,
+        ?string $subjectLabel
+    ): void {
+        if ($action === 'opened' || ! $assignment->notify_on_action) {
+            return;
+        }
+
+        $agent = $assignment->assignedAgent;
+
+        // The dispatcher keys dedup + cooldown on a real Model; a raw id cannot be a subject.
+        if (! $agent || ! $subject instanceof \Illuminate\Database\Eloquent\Model) {
+            return;
+        }
+
+        $verb  = $action === 'deleted' ? 'deleted' : 'updated';
+        $what  = $subjectLabel !== null ? $subjectSlug . ' ' . $subjectLabel : 'a ' . $subjectSlug;
+
+        try {
+            app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire(
+                $agent,
+                'assistant.acted_on_behalf',
+                $subject,
+                [
+                    'title' => $user->name . ' ' . $verb . ' one of your records',
+                    'body'  => $user->name . ' (' . $user->assistantTitle() . ') ' . $verb . ' ' . $what . '.',
+                    'subject_label' => $subjectLabel,
+                    // A DISCRETE event: each change is a new fact, so now() is the correct dedup
+                    // key (see NotificationDispatcher's threshold_hit_at contract). The cooldown,
+                    // not the threshold, is what stops repeats on the same record.
+                    'threshold_hit_at' => now(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('AT-267 assistant action notification failed: ' . $e->getMessage());
+        }
     }
 
     /** opened / edited / deleted — or null when this verb/route is not worth logging. */

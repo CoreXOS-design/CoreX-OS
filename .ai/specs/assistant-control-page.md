@@ -59,14 +59,23 @@ switchboard uses. Item 1's "toggle to turn on/off" per surface IS that checkbox.
 
 ## Build phases (each ends green on `tests/Feature/Assistants/*`)
 
-| Phase | Scope |
-|---|---|
-| **1** | Migration: 4 settings columns on `assistant_assignments` + `daily_activity_entries.on_behalf_of_user_id`. `AssistantAssignment` casts + defaults. |
-| **2** | Control-page behaviour panel (blade + saver) — the 4 toggles, auto-save like the matrix. Wizard/settings parity per non-negotiable #10a if these count as agency settings (they are per-assignment, so likely not wizard — confirm). |
-| **3** | Ownership routing for the remaining create surfaces, gated by `acts_as_agent`. One test each. |
-| **4** | `can_manage_my_records` gate on edit/delete + the `dataIdentityIds` visibility sweep. |
-| **5** | Attribution partial (item 3) + drop-in on calendar/daily/record headers. |
-| **6** | `AssistantActedOnBehalf` notification (item 4) + the daily-activity actor column stamp (item 5). |
+| Phase | Scope | Status |
+|---|---|---|
+| **1** | Migration: settings columns on `assistant_assignments`. `AssistantAssignment` casts + defaults. | ✅ shipped `1d69ba4f` |
+| **2** | Control-page behaviour panel (blade + saver) — the toggles, auto-save like the matrix. Per-assignment, so NOT a Setup Wizard item (non-negotiable #10a does not apply — confirmed). | ✅ shipped `1d69ba4f` |
+| **3** | Ownership routing for the remaining create surfaces. One test each. | ✅ shipped `d8f0b68a`; the last two create sites (e-sign wizard, viewing packs) closed by the 2026-07-26 audit (F3) |
+| **4** | `can_manage_my_records` gate on edit/delete + the `dataIdentityIds` visibility sweep. | ✅ shipped 2026-07-26 (audit F1) |
+| **5** | Attribution partial (item 3) + drop-in on record headers. | ✅ shipped 2026-07-26 (audit F1) |
+| **6** | `AssistantActedOnBehalf` notification (item 4) + the daily-activity actor column stamp (item 5). | ⚠️ notification shipped 2026-07-26 (audit F1) as the `assistant.acted_on_behalf` catalogue row fired from `LogAssistantActivity`. **The `daily_activity_entries.on_behalf_of_user_id` column is still outstanding** — it needs a migration + `schema:dump` + a demo/live migrate, so it is scheduled work, not an audit fix. |
+
+> ⚠️ **The lesson from phases 4–6, worth keeping.** Phases 1–3 shipped and 4–6 did not — but the
+> Phase-2 UI advertising all of them shipped anyway. For five days the control page told agents
+> that `can_manage_my_records` restricted their assistant's edit and delete rights, and it
+> restricted nothing. Found by the 2026-07-26 post-ship audit
+> (`.ai/audits/2026-07-26-assistant-feature-postship-audit.md` F1); enforcement shipped the same
+> day. **Never ship the switch ahead of the thing it switches** — a control that does nothing is
+> worse than an absent one, because it stops the user looking for the real one. This is the same
+> rule `NotificationEventTypeSeeder` states for the retired notification toggles.
 
 ## Decisions (Johan, 2026-07-19) — LOCKED
 

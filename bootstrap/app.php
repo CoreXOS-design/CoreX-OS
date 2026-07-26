@@ -49,6 +49,17 @@ return Application::configure(basePath: dirname(__DIR__))
             // AT-267 — records which records an assistant opens/edits. No-op for
             // everyone who is not an assistant (a single bool check).
             \App\Http\Middleware\LogAssistantActivity::class,
+            // AT-267 / AUDIT 2026-07-26 (F1) — layer 2 of the agent's "can edit & delete my
+            // records" toggle. GLOBAL on purpose: only a fraction of CoreX's mutating routes
+            // pass through a per-record guard, and a hand-picked list of the rest is the thing
+            // that goes stale. Denies PUT/PATCH/DELETE for an assistant whose agent switched
+            // the toggle off; inert (one boolean) for everyone else.
+            \App\Http\Middleware\DenyAssistantRecordMutation::class,
+        ]);
+
+        // ...and the same on the API group, so the mobile app cannot do what the web cannot.
+        $middleware->api(append: [
+            \App\Http\Middleware\DenyAssistantRecordMutation::class,
         ]);
 
         // EnsureDemoGrant MUST run BEFORE Authenticate.

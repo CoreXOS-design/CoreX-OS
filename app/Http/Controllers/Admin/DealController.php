@@ -177,7 +177,8 @@ public function index(Request $request)
             })->values();
         }
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         // Branch context for Branch Commission column
@@ -201,7 +202,8 @@ public function index(Request $request)
         $actingBranchId = $user?->actingBranchManagerId();
         $defaultBranchId = $actingBranchId ?: $user?->effectiveBranchId();
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
 
         // Branch-scope users should only see (and use) their branch
         $branches = Branch::orderBy('name');
@@ -230,7 +232,8 @@ public function index(Request $request)
         $this->authorizeDeal($deal);
 
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         return view('admin.deals.form', [

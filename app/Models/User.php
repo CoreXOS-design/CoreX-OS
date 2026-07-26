@@ -917,6 +917,34 @@ class User extends Authenticatable
         return (bool) ($this->activeAssistantAssignment()?->can_download_documents);
     }
 
+    /**
+     * AT-267 — may this user EDIT and DELETE records, or only add and view them?
+     *
+     * The agent's control-page toggle, `assistant_assignments.can_manage_my_records`:
+     * "{Assistant} can edit & delete my records, not just add them". ON by default (an
+     * assistant who cannot change anything is barely an assistant); when the agent switches
+     * it OFF the assistant keeps every VIEW and every CREATE their matrix grants and loses
+     * every UPDATE and DELETE.
+     *
+     * AUDIT 2026-07-26 (F1) — this toggle shipped on the page in Phase 2 and its enforcement
+     * (Phase 4) never did, so for five days the page told agents they had restricted their
+     * assistant when they had not. A visible switch that does nothing is worse than no switch:
+     * it stops the agent looking for the real control. Same reasoning, verbatim, as the
+     * soft-retired notification toggles in NotificationEventTypeSeeder.
+     *
+     * True for everyone who is not an assistant. Fails CLOSED for an assistant with no live
+     * assignment — exactly like canDownloadDocuments(), and for the same reason: an unresolvable
+     * assistant is a degraded assistant, and a degraded assistant does not get write access.
+     */
+    public function canMutateRecords(): bool
+    {
+        if (! $this->is_assistant) {
+            return true;
+        }
+
+        return (bool) ($this->activeAssistantAssignment()?->can_manage_my_records);
+    }
+
     // --- Permission helpers (delegate to PermissionService) ---
 
     public function hasPermission(string $key): bool

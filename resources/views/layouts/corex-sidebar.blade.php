@@ -105,7 +105,7 @@
             });
         }
 
-        $switchUsers = $query->orderBy('name')->get(['id','name','email','role','is_assistant','assistant_title']);
+        $switchUsers = $query->orderBy('name')->get(['id','name','email','role']);
     }
 
     // ── Active group detection (ONE mechanism: routeIs) ──
@@ -1536,6 +1536,31 @@
         </a>
         @endif
         @endpermission
+
+        {{-- PDF Splitter — its OWN entry (AUDIT 2026-07-26 F7).
+
+             The link above points at tools.pdf_suite.hub, which is gated
+             `permission:access_pdf_suite`. Until this entry existed, that single link was the
+             only navigation into EITHER tool, so a user holding access_pdf_splitter and not
+             access_pdf_suite had no way to reach the Splitter they are permitted to use
+             (non-negotiable #2). Rendered only when the Suite link is NOT already shown, so a
+             user with both permissions still sees one entry, not two. --}}
+        @unless(auth()->check() && auth()->user()->hasPermission('access_pdf_suite'))
+        @permission('access_pdf_splitter')
+        @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index'))
+        <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-nav-item {{ request()->routeIs('tools.pdf_splitter.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M8 13h8"/>
+                <path d="M8 17h8"/>
+                <path d="M8 9h2"/>
+            </svg>
+            <span>PDF Splitter</span>
+        </a>
+        @endif
+        @endpermission
+        @endunless
         @endfeature
         @endif
 
@@ -2232,13 +2257,10 @@
                     <form method="POST" action="{{ route('impersonate.start', ['user' => $su->id]) }}">
                         @csrf
                         <button type="submit" class="corex-switch-item">
-                            <div class="text-xs" style="color:var(--text-primary);">
-                                {{ $su->name }}
-                                @if($su->is_assistant ?? false)
-                                    <span class="ml-1 px-1 py-0.5 rounded text-[0.625rem] font-semibold align-middle"
-                                          style="background:var(--surface-2); color:var(--text-secondary);">{{ trim($su->assistant_title ?? '') !== '' ? $su->assistant_title : 'Assistant' }}</span>
-                                @endif
-                            </div>
+                            {{-- No assistant badge here (AUDIT 2026-07-26 F8): the query above
+                                 excludes is_assistant users outright, so a badge for them was
+                                 unreachable code that implied assistants are impersonable. --}}
+                            <div class="text-xs" style="color:var(--text-primary);">{{ $su->name }}</div>
                             <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $su->email }} · {{ $su->role }}</div>
                         </button>
                     </form>

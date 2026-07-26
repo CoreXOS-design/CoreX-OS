@@ -22,6 +22,10 @@
             'readonlyMessage' => 'You can view this deal, but only its agent can change it. Ask your agent if something needs updating.',
         ])
 
+        {{-- AT-267 — "added by {assistant}" (show_attribution). Renders nothing unless an assistant
+             actually changed this deal and their agent has attribution switched on. --}}
+        <x-assistant-attribution type="deal" :id="$deal->id" />
+
         <div>
             <h2 class="ds-section-header">Timeline</h2>
             <div class="ds-section-sub mb-4">System-created events + user actions.</div>

@@ -127,7 +127,8 @@ class DealRegisterController extends Controller
             $paidNotSettledDeals = $allPaidDeals->filter(fn ($d) => ! isset($settledPaidSet[(int) $d->id]))->values();
         }
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         $branchIdContext = (int) $request->input('branch_id');
@@ -276,7 +277,8 @@ class DealRegisterController extends Controller
         $actingBranchId  = $user?->actingBranchManagerId();
         $defaultBranchId = $actingBranchId ?: $user?->effectiveBranchId();
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
 
         $branches = Branch::orderBy('name');
         if ($scope === 'branch') {
@@ -319,7 +321,8 @@ class DealRegisterController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
 
-        $agents   = User::orderBy('name')->get();
+        $agents   = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         return view('dr2.create', [

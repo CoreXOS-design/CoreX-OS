@@ -354,7 +354,11 @@ class ViewingPackController extends Controller
             // authenticated agent; we still pass the buyer's for non-auth paths.
             'agency_id'  => $buyer->agency_id,
             'contact_id' => $buyer->id,
-            'agent_id'   => $request->user()->id,
+            // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's work is ALWAYS the agent's
+            // (assistant-control-page.md §Decisions 2). agent_id is both the owner AND the
+            // buyer-facing contact on the pack, so filing it under the assistant hid the pack
+            // from the agent it was built for AND put the assistant's name in front of the buyer.
+            'agent_id'   => $request->user()->ownershipUserId(),
             'status'     => ViewingPack::STATUS_DRAFT,
             'title'      => $this->defaultTitle($buyer),
         ]);
@@ -490,7 +494,8 @@ class ViewingPackController extends Controller
             'agency_id'         => $calendarEvent->agency_id ?? $buyer->agency_id,
             'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
             'contact_id'        => $buyer->id,
-            'agent_id'          => $request->user()->id,
+            // AT-267 / AUDIT 2026-07-26 (F3) — see store(): ownership is always the agent.
+            'agent_id'          => $request->user()->ownershipUserId(),
             'calendar_event_id' => $calendarEvent->id,
             'tour_at'           => $calendarEvent->event_date,
             'status'            => ViewingPack::STATUS_DRAFT,

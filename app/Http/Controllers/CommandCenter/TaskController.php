@@ -25,6 +25,13 @@ class TaskController extends Controller
     private function authorizeTask(CommandTask $task): void
     {
         $user  = $task ? auth()->user() : null;
+
+        // AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+        // Tasks carry their own scope resolution (taskScope, not mutationScope), so the toggle is
+        // read explicitly here. Adding a task is still allowed — store() does not call this.
+        abort_if($user && ! $user->canMutateRecords(), 403,
+            'Editing and deleting records is switched off for your assistant account. You can still add new ones.');
+
         $scope = $user?->is_assistant ? 'own' : PermissionService::taskScope($user);
         abort_unless(CommandTask::visibleTo($user, $scope)->whereKey($task->getKey())->exists(), 403);
     }

@@ -531,6 +531,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/create',                       [\App\Http\Controllers\Admin\AssistantController::class, 'create'])->name('create');
         Route::post('/',                            [\App\Http\Controllers\Admin\AssistantController::class, 'store'])->name('store');
         Route::get('/{assignment}',                 [\App\Http\Controllers\Admin\AssistantController::class, 'show'])->name('show');
+        // AUDIT 2026-07-26 (F5) — the missing U. Assistants are excluded from the User Management
+        // directory, so without this a typo in a name/email/cell/Title was permanent through the UI.
+        Route::get('/{assignment}/edit',            [\App\Http\Controllers\Admin\AssistantController::class, 'edit'])->name('edit');
+        Route::put('/{assignment}',                 [\App\Http\Controllers\Admin\AssistantController::class, 'update'])->name('update');
         Route::post('/{assignment}/reassign',       [\App\Http\Controllers\Admin\AssistantController::class, 'reassign'])->name('reassign');
         Route::post('/{assignment}/revoke',         [\App\Http\Controllers\Admin\AssistantController::class, 'revoke'])->name('revoke');
         Route::post('/{assignment}/restore',        [\App\Http\Controllers\Admin\AssistantController::class, 'restore'])->name('restore')->withTrashed();

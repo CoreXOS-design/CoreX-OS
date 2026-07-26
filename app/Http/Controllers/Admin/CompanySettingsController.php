@@ -45,7 +45,10 @@ class CompanySettingsController extends Controller
                 : $agencies->first();
         }
 
-        $agents = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        // AT-267 / AUDIT 2026-07-26 (F4) — assistants are never a selectable agent in company
+        // settings (default agent, targets, allocations): they are an extension of an agent, not
+        // a practitioner in their own right.
+        $agents = User::where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(['id', 'name']);
 
         $branches = Branch::orderBy('name')->get();
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);

@@ -109,7 +109,7 @@
                 ['key' => 'can_manage_my_records', 'label' => $assistant?->name . ' can edit & delete my records, not just add them',
                  'desc' => 'When off, ' . $assistant?->name . ' can add to and view your book, but cannot change or remove records you already have.'],
                 ['key' => 'show_attribution', 'label' => 'Show "added by ' . $assistant?->name . '" on things they do',
-                 'desc' => 'A small tag on your calendar and records so you can see at a glance what ' . $assistant?->name . ' handled.'],
+                 'desc' => 'A small "last updated by ' . $assistant?->name . '" tag on any listing, contact or deal they changed, so you can see at a glance what they handled. Their work is still filed as yours either way.'],
                 ['key' => 'notify_on_action', 'label' => 'Notify me when ' . $assistant?->name . ' adds or changes something',
                  'desc' => 'An in-app notification each time ' . $assistant?->name . ' acts on your behalf. Off by default to keep things quiet.'],
                 ['key' => 'can_download_documents', 'label' => $assistant?->name . ' can download documents',

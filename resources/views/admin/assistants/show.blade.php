@@ -21,7 +21,14 @@
                     {{ $assistant?->assistantTitle() ?? 'Assistant' }} to <strong class="text-white/90">{{ $agent?->name ?? '—' }}</strong>
                 </p>
             </div>
-            <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline">Back to Assistants</a>
+            <div class="flex items-center gap-2">
+                {{-- AUDIT 2026-07-26 (F5) — the entry point to the previously-missing edit surface.
+                     Non-negotiable #2: the page exists the same day its navigation does. --}}
+                @if(!$assignment->trashed())
+                    <a href="{{ route('admin.assistants.edit', $assignment) }}" class="corex-btn-outline">Edit details</a>
+                @endif
+                <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline">Back to Assistants</a>
+            </div>
         </div>
     </div>
 

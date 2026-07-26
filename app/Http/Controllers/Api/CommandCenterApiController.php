@@ -30,16 +30,32 @@ class CommandCenterApiController extends Controller
      */
     private function authorizeTask(CommandTask $task): void
     {
-        $user  = auth()->user();
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
         $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::taskScope($user);
         abort_unless(CommandTask::visibleTo($user, $scope)->whereKey($task->getKey())->exists(), 403);
     }
 
     private function authorizeEvent(CalendarEvent $event): void
     {
-        $user  = auth()->user();
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
         $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::calendarScope($user);
         abort_unless(CalendarEvent::visibleTo($user, $scope)->whereKey($event->getKey())->exists(), 403);
+    }
+
+    /**
+     * AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+     *
+     * Tasks and calendar events resolve their own scope (taskScope / calendarScope) rather than
+     * PermissionService::mutationScope(), so the toggle is read explicitly on both guards. Both
+     * guards are called only from the UPDATE/DELETE paths — creating stays available, which is
+     * the whole point of the toggle ("not just add them").
+     */
+    private function assertMayMutateRecords(?\App\Models\User $user): void
+    {
+        abort_if($user && ! $user->canMutateRecords(), 403,
+            'Editing and deleting records is switched off for your assistant account. You can still add new ones.');
     }
 
     /**

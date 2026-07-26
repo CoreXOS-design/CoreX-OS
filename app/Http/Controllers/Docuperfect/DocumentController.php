@@ -100,17 +100,19 @@ class DocumentController extends Controller
         $user = $request->user();
         $document = Document::with(['template', 'template.branches'])->findOrFail($id);
 
-        // Access check
-        $scope = PermissionService::getDataScope($user, 'documents');
-        if ($scope === 'branch') {
-            if ($document->branch_id !== $user->effectiveBranchId()) {
-                abort(403);
-            }
-        } elseif ($scope !== 'all') {
-            if ((int)$document->owner_id !== (int)$user->id) {
-                abort(403);
-            }
-        }
+        // Access check.
+        //
+        // AUDIT 2026-07-26 (F2) — this was the ONE method in the class left on the pre-H5 bare
+        // `owner_id === $user->id` test while every mutator below moved to guardDocument().
+        // store() files an assistant's document under the AGENT (ownershipUserId(), :91) and then
+        // redirects HERE — so an assistant was 403'd on the redirect that follows their own
+        // create. guardDocument() resolves 'own' through dataIdentityIds() = [agent, self], which
+        // is the same set Document::scopeVisibleTo() uses, so LIST and OPEN can no longer disagree.
+        //
+        // forEdit: FALSE deliberately — this is the document VIEWER as well as the editor, so it
+        // authorizes at VIEW breadth. The save/rename/archive paths below re-guard at mutation
+        // breadth, which is where an assistant is pinned to the agent's own book.
+        $this->guardDocument($document, forEdit: false);
 
         $template = $document->template;
         $namedFields = NamedField::orderBy('sort_order')->get();
