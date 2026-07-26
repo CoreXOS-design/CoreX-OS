@@ -87,8 +87,33 @@
             .login-word .tub { width: 36px; height: 36px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
                                background: rgba(56,189,248,.16); box-shadow: inset 0 0 0 1px rgba(56,189,248,.4); }
             .login-word .tub span { width: 16px; height: 16px; border-radius: 5px; background: var(--brand-icon); display: block; }
-            .login-word .txt { font-size: 1.2rem; font-weight: 800; letter-spacing: -.03em; color: #eaf2fb; }
+            .login-word .txt { font-size: 2.7rem; font-weight: 800; letter-spacing: -.03em; color: #eaf2fb; }
             .login-word .txt b { color: var(--brand-icon); font-weight: 800; }
+
+            /* Shimmer — a light glint sweeps the wordmark, then rests. Each part
+               carries its own base/highlight pair so "Os" keeps the brand cyan.
+               @supports-guarded: a browser without background-clip:text keeps the
+               solid colours above instead of painting the text transparent. */
+            @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+                .login-word .txt   { --shimmer-base: #eaf2fb;          --shimmer-hi: #ffffff; }
+                .login-word .txt b { --shimmer-base: var(--brand-icon); --shimmer-hi: #b8f0ff; }
+                .login-word .txt,
+                .login-word .txt b {
+                    background-image: linear-gradient(100deg,
+                        var(--shimmer-base) 42%, var(--shimmer-hi) 50%, var(--shimmer-base) 58%);
+                    background-size: 300% 100%;
+                    background-position: 0% 50%;
+                    background-repeat: no-repeat;
+                    -webkit-background-clip: text; background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    animation: wordShimmer 6s ease-in-out infinite;
+                }
+            }
+            @keyframes wordShimmer {
+                0%   { background-position: 100% 50%; }
+                40%  { background-position: 0% 50%; }
+                100% { background-position: 0% 50%; }
+            }
 
             /* ── Frosted dark glass card ── */
             .login-card {
@@ -130,6 +155,8 @@
 
             @media (prefers-reduced-motion: reduce) {
                 .bg-orb, .bg-halo, .login-stack { animation: none !important; }
+                /* Parks at background-position 0% 50% — the flat base colour. */
+                .login-word .txt, .login-word .txt b { animation: none !important; }
             }
         </style>
     </head>

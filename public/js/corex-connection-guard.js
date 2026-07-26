@@ -34,6 +34,12 @@
     var PING_URL     = '/api/v1/csrf-token';
     var PING_TIMEOUT = 3000; // ms — fail-OPEN past this; never hold a save hostage
     var MUTATING     = { POST: 1, PUT: 1, PATCH: 1, DELETE: 1 };
+    // AT-336 restyle — the guard's own chrome (popup + toast) is built in JS, so it
+    // carries the design-system tokens inline: the Inter stack, and var(--surface/
+    // --border/--text-*/--shadow/--brand-button) so the popup follows the live
+    // html.dark theme instead of being hardcoded light. Fallbacks keep it readable
+    // if the guard ever loads on a page without corex.css.
+    var FONT_STACK = 'font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
 
     var Guard = {
         _online: (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true,
@@ -81,22 +87,23 @@
             overlay.setAttribute('role', 'alertdialog');
             overlay.style.cssText =
                 'position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;' +
-                'background:rgba(15,23,42,.55);font-family:Figtree,-apple-system,Segoe UI,Roboto,sans-serif;';
+                'background:rgba(2,6,23,.55);' + FONT_STACK;
             var card = document.createElement('div');
             card.style.cssText =
-                'background:#fff;max-width:420px;width:calc(100% - 2rem);border-radius:12px;padding:1.5rem 1.5rem 1.25rem;' +
-                'box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center;';
+                'background:var(--surface,#ffffff);border:1px solid var(--border,rgba(0,0,0,0.07));' +
+                'max-width:420px;width:calc(100% - 2rem);border-radius:8px;padding:1.5rem 1.5rem 1.25rem;' +
+                'box-shadow:0 20px 60px var(--shadow,rgba(0,0,0,.35));text-align:center;';
             card.innerHTML =
-                '<div style="font-size:2rem;line-height:1;margin-bottom:.5rem;">📶</div>' +
-                '<div style="font-weight:700;font-size:1.05rem;color:#0f172a;margin-bottom:.35rem;">You got disconnected</div>' +
-                '<div style="font-size:.9rem;color:#475569;line-height:1.5;margin-bottom:1.1rem;">' +
+                '<div style="font-weight:700;font-size:1rem;line-height:1.25;color:var(--text-primary,#111827);margin-bottom:.35rem;">You got disconnected</div>' +
+                '<div style="font-size:.8125rem;color:var(--text-secondary,#4b5563);line-height:1.5;margin-bottom:1.1rem;">' +
                 'Your work is safe on this screen — nothing was lost. Click below to reconnect, then try again.</div>';
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = 'Click here to reconnect';
             btn.style.cssText =
-                'background:#0ea5e9;color:#fff;border:0;border-radius:8px;padding:.6rem 1rem;font-weight:700;' +
-                'font-size:.9rem;cursor:pointer;width:100%;';
+                'background:var(--brand-button,#0ea5e9);color:#fff;border:0;border-radius:6px;padding:.6rem 1rem;' +
+                'font-weight:600;font-size:.8125rem;cursor:pointer;width:100%;' +
+                'box-shadow:0 4px 12px color-mix(in srgb, var(--brand-button,#0ea5e9) 25%, transparent);' + FONT_STACK;
             btn.addEventListener('click', function () {
                 btn.disabled = true; btn.textContent = 'Reconnecting…';
                 self.ping().then(function (ok) {
@@ -126,8 +133,8 @@
             t.textContent = msg;
             t.style.cssText =
                 'position:fixed;top:16px;right:16px;z-index:2147483647;background:#059669;color:#fff;' +
-                'font-family:Figtree,sans-serif;font-size:.85rem;font-weight:600;padding:.5rem .85rem;' +
-                'border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.2);';
+                'font-size:.8125rem;font-weight:600;padding:.5rem .85rem;' +
+                'border-radius:6px;box-shadow:0 4px 12px var(--shadow,rgba(0,0,0,.2));' + FONT_STACK;
             document.body.appendChild(t);
             setTimeout(function () { t.remove(); }, 3000);
         },

@@ -23,17 +23,19 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <a href="{{ route('corex.contacts.show', $contact) }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
-                    ← Back to {{ trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'contact' }}
-                </a>
-                <h1 class="text-xl font-bold text-white leading-tight mt-1">Compose Seller Pitch</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compose Seller Pitch</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Defensible, data-backed pitch via {{ $channel === 'whatsapp' ? 'WhatsApp' : 'Email' }}.
                     Every claim is sourced live; every send is recorded for PPRA compliance.
                 </p>
             </div>
-            {{-- AT-121 — guided-tour "?" launcher (navy header → default variant). --}}
-            @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- AT-121 — guided-tour "?" launcher (flat neutral header → surface variant). --}}
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.contacts.show', $contact) }}" class="corex-btn-outline text-xs no-underline">
+                    ← Back to {{ trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'contact' }}
+                </a>
+            </div>
         </div>
     </div>
 

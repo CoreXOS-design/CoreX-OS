@@ -4,13 +4,19 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <a href="{{ url()->previous() }}" class="inline-flex items-center gap-1 text-xs no-underline" style="color: rgba(255,255,255,0.7);">
-            ← Back
-        </a>
-        <h1 class="text-xl font-bold text-white leading-tight mt-1">Compose pitch about this property</h1>
-        <p class="text-sm text-white/60">
-            Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
-        </p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compose pitch about this property</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ url()->previous() }}" class="corex-btn-outline text-xs no-underline">
+                    ← Back
+                </a>
+            </div>
+        </div>
     </div>
 
     @if($errors->any())
@@ -100,15 +106,15 @@
                             class="px-3 py-1.5 text-xs font-semibold border-0"
                             style="background: var(--surface-2); color: var(--text-secondary); cursor:pointer;"
                             :style="mode === 'search'
-                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                ? 'background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
                         Search existing
                     </button>
                     <button type="button" @click="mode = 'create'; selected = null"
                             class="px-3 py-1.5 text-xs font-semibold border-0"
-                            style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;"
+                            style="background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;"
                             :style="mode === 'create'
-                                ? 'background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;'
+                                ? 'background: var(--brand-icon, #0ea5e9); color:#fff; cursor:pointer;'
                                 : 'background: var(--surface-2); color: var(--text-secondary); cursor:pointer;'">
                         Create new
                     </button>
@@ -210,14 +216,13 @@
         <div class="flex items-center gap-2 flex-wrap mt-4">
             <button type="submit"
                     :disabled="mode === 'search' && !selected"
-                    class="px-6 py-2.5 text-sm font-semibold rounded-md border-0"
-                    style="background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;"
+                    class="corex-btn-primary px-6 py-2.5 text-sm"
                     :style="(mode === 'search' && !selected)
-                        ? 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'
+                        ? 'background: var(--surface-2); color: var(--text-muted); box-shadow:none; cursor:not-allowed;'
                         : 'background: var(--brand-button, #0ea5e9); color:#ffffff; cursor:pointer;'">
                 <span x-text="mode === 'search' ? 'Link & continue →' : 'Create / link & continue →'"></span>
             </button>
-            <a href="{{ url()->previous() }}" class="text-sm" style="color: var(--text-muted);">Cancel</a>
+            <a href="{{ url()->previous() }}" class="corex-btn-outline text-sm no-underline">Cancel</a>
         </div>
     </form>
 </div>

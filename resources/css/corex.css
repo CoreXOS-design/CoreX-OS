@@ -3026,26 +3026,10 @@ html.dark .corex-ui-v2 {
 }
 
 /* --- 4. Sidebar upgrade (spec §5) — global (it IS the sidebar) ------------- */
-/* Brand tub around the wordmark, drawn with CSS only (no HTML change).
-   Outer layer = tint tub; inner square = solid brand block. */
+/* Wordmark only — the brand tub that used to sit before "CoreX Os" is gone. */
 .corex-sidebar-logo > span:first-child {
     display: inline-flex;
     align-items: center;
-    gap: 0.625rem;
-}
-.corex-sidebar-logo > span:first-child::before {
-    content: "";
-    width: 32px;
-    height: 32px;
-    border-radius: 12px;
-    flex-shrink: 0;
-    /* Built from --brand-icon (the bright accent), not --brand-default: the
-       agency's brand-default is a deep navy that disappears on the #020617
-       sidebar. The 14px inner block + soft tub read clearly in both themes. */
-    background:
-        linear-gradient(var(--brand-icon, #6366f1), var(--brand-icon, #6366f1)) center / 14px 14px no-repeat,
-        color-mix(in srgb, var(--brand-icon, #6366f1) 18%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent);
 }
 
 /* Active nav row: brand 10% bg + ring 25% + left accent bar + brand icon */

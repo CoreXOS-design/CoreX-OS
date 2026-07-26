@@ -310,17 +310,19 @@
             $fbMeta = $fb && isset($reactionMeta[$fb->reaction]) ? $reactionMeta[$fb->reaction] : null;
         @endphp
 
-        <div class="rounded-md overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
-             style="background: var(--surface); border: 1px solid var(--border); {{ $isHidden ? 'opacity:.45; filter:grayscale(.85);' : '' }}"
+        {{-- AT-336 — the shared property-card recipe (.pcard-v2): --surface + 1px
+             --border + 8px radius + the theme card shadow + brand hover glow. --}}
+        <div class="pcard-v2 overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
+             style="{{ $isHidden ? 'opacity:.45; filter:grayscale(.85);' : '' }}"
              @if($isHidden) title="Hidden from this match — click Unhide to restore" @endif>
 
             {{-- Thumbnail --}}
-            <div class="relative flex-shrink-0 overflow-hidden" style="width: 140px; min-height: 100px; background: var(--surface-2);">
+            <div class="relative flex-shrink-0 overflow-hidden" style="width: 140px; min-height: 100px; background: linear-gradient(135deg, var(--surface-2), var(--surface));">
                 @if($thumb)
                 <img src="{{ $thumb }}" alt="{{ $property->title }}" class="absolute inset-0 w-full h-full object-cover">
                 @else
                 <div class="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-8 h-8 opacity-30" style="color: var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-8 h-8" style="color: var(--text-muted); opacity: 0.5;"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
                 </div>
                 @endif
                 @if($isHidden)
@@ -386,7 +388,7 @@
                         {{ $property->title ?: 'Untitled Property' }}
                     </div>
                     <div class="flex items-center gap-3 text-xs flex-wrap" style="color: var(--text-muted);">
-                        <span class="font-semibold text-sm" style="color: var(--brand-icon);">{{ $property->formattedPrice() }}</span>
+                        <span class="font-semibold text-sm tabular-nums" style="color: var(--text-primary);">{{ $property->formattedPrice() }}</span>
                         @if($property->suburb)<span>{{ $property->suburb }}</span>@endif
                         @foreach([[$property->beds,'Beds'],[$property->baths,'Baths'],[$property->garages,'Gar']] as [$v,$l])
                         @if($v)<span>{{ $v }} {{ $l }}</span>@endif

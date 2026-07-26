@@ -236,11 +236,11 @@
         <div style="display:flex;gap:8px;">
             <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='flex';window.__corexSendInit && window.__corexSendInit();"
                     class="corex-btn-primary">
-                📧 Send to Recipient
+                Send to Recipient
             </button>
             <button type="button" onclick="document.getElementById('share-link-modal').style.display='flex'"
                     class="corex-btn-outline">
-                🔗 Generate Link Only
+                Generate Link Only
             </button>
         </div>
     </div>
@@ -262,7 +262,7 @@
                 · avg {{ floor($shareLinkSummary['avg_duration_seconds'] / 60) }}m {{ $shareLinkSummary['avg_duration_seconds'] % 60 }}s on page
             @endif
             @if($shareLinkSummary['any_flagged'])
-                · <span style="color: var(--ds-amber, #f59e0b); font-weight: 600;">⚠ at least one flagged access</span>
+                · <span style="color: var(--ds-amber, #f59e0b); font-weight: 600;">at least one flagged access</span>
             @endif
         </div>
         @endif
@@ -298,7 +298,7 @@
                             <span style="color: var(--text-muted);">Untargeted</span>
                         @endif
                         @if($sl->flagged_at)
-                            <span class="ds-badge ds-badge-warning" title="{{ $sl->flagged_reason }}" style="margin-left:6px;">⚠ Flagged</span>
+                            <span class="ds-badge ds-badge-warning" title="{{ $sl->flagged_reason }}" style="margin-left:6px;">Flagged</span>
                         @endif
                     </td>
                     <td style="padding:8px 6px;">
@@ -360,7 +360,7 @@
 
 {{-- Generate Share Link modal --}}
 <div id="share-link-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.4);z-index:9999;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--surface);border-radius:8px;max-width:480px;width:100%;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,0.2);">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:480px;width:100%;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,0.2);color:var(--text-primary);">
         <div class="flex items-center justify-between mb-3">
             <h3 style="font-size:1rem;font-weight:600;margin:0;">Generate share link</h3>
             <button type="button" onclick="document.getElementById('share-link-modal').style.display='none'"
@@ -386,7 +386,7 @@
 
             <div style="margin-bottom:12px;">
                 <label for="recipient_contact_id" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Recipient (optional)</label>
-                <select name="recipient_contact_id" id="recipient_contact_id" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                <select name="recipient_contact_id" id="recipient_contact_id" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;">
                     <option value="">— Untargeted —</option>
                     @foreach($contactsForLink as $c)
                         <option value="{{ $c->id }}">{{ trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id) }}</option>
@@ -396,14 +396,14 @@
 
             <div style="margin-bottom:12px;">
                 <label for="recipient_label" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Or free-text label</label>
-                <input type="text" name="recipient_label" id="recipient_label" maxlength="200" placeholder="e.g. Seller WhatsApp" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                <input type="text" name="recipient_label" id="recipient_label" maxlength="200" placeholder="e.g. Seller WhatsApp" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;">
             </div>
 
             <div style="margin-bottom:16px;">
                 <label for="expires_days" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Expires in (days)</label>
                 <input type="number" name="expires_days" id="expires_days" min="1" max="365"
                        value="{{ optional(\App\Models\Agency::find($presentation->agency_id))->snapshot_link_default_expiry_days ?? 21 }}"
-                       style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                       style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;">
             </div>
 
             <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -429,15 +429,6 @@
             'market_article' => 'Market Article',
             'other'          => 'Other',
         ];
-        $docTypeIcons = [
-            'suburb_stats'   => '📊',
-            'vicinity_sales' => '📍',
-            'cma'            => '📋',
-            'market_article' => '📰',
-            'other'          => '📄',
-            'unknown'        => '❓',
-            'application/pdf' => '📄',
-        ];
 
         // Upload status summary
         $uploadsByType = $presentation->uploads->groupBy('type');
@@ -452,7 +443,7 @@
         <div class="mb-4 px-3 py-2 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
             <div class="flex items-center gap-2 text-xs">
                 @if(empty($missingTypes))
-                    <span class="font-semibold" style="color: var(--ds-green, #059669);">Documents: {{ count($presentTypes) }}/3 uploaded ✓</span>
+                    <span class="font-semibold" style="color: var(--ds-green, #059669);">Documents: {{ count($presentTypes) }}/3 uploaded</span>
                 @else
                     <span class="font-semibold" style="color: var(--text-secondary);">Documents: {{ count($presentTypes) }}/3</span>
                     <span style="color: var(--text-muted);">— missing:
@@ -471,7 +462,6 @@
                 <li class="pres-doc-row">
                     {{-- Row 1: File header --}}
                     @php
-                        $uIcon = $docTypeIcons[$upload->type] ?? '📄';
                         $uTypeLabel = $docTypeLabels[$upload->type] ?? $upload->type;
                         $uIsKnownType = in_array($upload->type, ['suburb_stats', 'vicinity_sales', 'cma', 'market_article', 'other']);
                         $uExtStatus = $upload->extraction_status ?? 'pending';
@@ -488,7 +478,6 @@
                     @endphp
                     <div class="flex items-start justify-between gap-2">
                         <div class="flex items-center gap-2 min-w-0 flex-wrap">
-                            <span class="text-lg shrink-0 leading-none">{{ $uIcon }}</span>
                             <div class="min-w-0">
                                 <span class="font-semibold" style="color: var(--text-primary);">{{ $uTypeLabel }}</span>
                                 <span class="ml-1 truncate" style="color: var(--text-muted);">{{ $upload->original_filename ?? basename($upload->file_path) }}</span>
@@ -936,7 +925,6 @@
                     @foreach($libraryDocs as $libDoc)
                         <li class="pres-doc-row flex items-center justify-between">
                             <div class="flex items-center gap-2 min-w-0">
-                                <span class="shrink-0" style="color: var(--text-muted);">&#128206;</span>
                                 <span class="truncate font-medium" style="color: var(--text-primary);">{{ $libDoc->title ?? $libDoc->original_name }}</span>
                                 <span class="ds-badge ds-badge-info">
                                     {{ $libDoc->doc_type }}
@@ -959,7 +947,7 @@
 
 {{-- ── PHASE 6: Send-to-Recipient modal ──────────────────────────────── --}}
 <div id="send-presentation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:9999;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--surface);border-radius:8px;max-width:780px;width:100%;max-height:92vh;overflow:auto;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.22);">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:780px;width:100%;max-height:92vh;overflow:auto;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.22);color:var(--text-primary);">
         <div class="flex items-center justify-between mb-3">
             <h3 style="font-size:1.0625rem;font-weight:600;margin:0;">Send presentation: {{ \Illuminate\Support\Str::limit($presentation->property_address ?: ('Presentation #' . $presentation->id), 60) }}</h3>
             <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='none'"
@@ -1005,9 +993,9 @@
             <details style="margin-top:10px;">
                 <summary style="font-size:0.75rem;color:var(--brand-button);cursor:pointer;">+ Add ad-hoc recipient</summary>
                 <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                    <input type="text" id="adhoc-name" placeholder="Name" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
-                    <input type="email" id="adhoc-email" placeholder="Email" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
-                    <input type="tel" id="adhoc-phone" placeholder="Phone" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+                    <input type="text" id="adhoc-name" placeholder="Name" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;">
+                    <input type="email" id="adhoc-email" placeholder="Email" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;">
+                    <input type="tel" id="adhoc-phone" placeholder="Phone" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;">
                     <button type="button" onclick="window.__corexSendAddAdhoc()" class="corex-btn-outline corex-btn-xs">Add</button>
                 </div>
                 <div id="adhoc-list" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);"></div>
@@ -1060,10 +1048,10 @@
                 <summary style="font-size:0.75rem;color:var(--text-secondary);cursor:pointer;font-weight:600;">Customise message templates</summary>
                 <div style="margin-top:10px;">
                     <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Email subject</label>
-                    <input type="text" id="send-subject" maxlength="300" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;margin-top:4px;margin-bottom:8px;"
+                    <input type="text" id="send-subject" maxlength="300" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;margin-top:4px;margin-bottom:8px;"
                            value="{{ optional(\App\Models\Agency::find($presentation->agency_id))->email_default_subject_template }}">
                     <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Email body</label>
-                    <textarea id="send-body" rows="8" maxlength="8000" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;margin-top:4px;font-family:inherit;">{{ optional(\App\Models\Agency::find($presentation->agency_id))->email_default_body_template }}</textarea>
+                    <textarea id="send-body" rows="8" maxlength="8000" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;margin-top:4px;font-family:inherit;">{{ optional(\App\Models\Agency::find($presentation->agency_id))->email_default_body_template }}</textarea>
                     <div style="font-size:0.625rem;color:var(--text-muted);margin-top:4px;">
                         Placeholders: <code>{recipient_first_name}</code> <code>{property_address}</code> <code>{agent_name}</code> <code>{agency_name}</code> <code>{presentation_url}</code>
                     </div>
@@ -1245,11 +1233,10 @@
 
     function renderResults(results, summary) {
         const lines = results.map(r => {
-            const emoji = r.status === 'failed' ? '✗' : '✓';
             const colour = r.status === 'failed' ? '#dc2626' : 'var(--ds-green,#16a34a)';
             let row = '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;font-size:0.8125rem;">'
-                + '<span style="color:' + colour + ';font-weight:600;">' + emoji + '</span> '
-                + escHtml(r.recipient) + ' — ' + r.channel + ' / ' + r.mode + ' · ' + r.status;
+                + escHtml(r.recipient) + ' — ' + r.channel + ' / ' + r.mode + ' · '
+                + '<span style="color:' + colour + ';font-weight:600;">' + r.status + '</span>';
             if (r.whatsapp_url) {
                 const waRedirect = @json(route('corex.deliveries.whatsapp-redirect', '__ID__')).replace('__ID__', r.delivery_id);
                 row += ' · <a href="' + waRedirect + '" target="_blank" style="color:var(--brand-button);">Open WhatsApp →</a>';
@@ -1331,7 +1318,7 @@
                         Generate Summary
                     </button>
                 @else
-                    <select id="ai-variant-select" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                    <select id="ai-variant-select" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;">
                         @foreach($aiVariants as $v)
                             <option value="{{ $v->id }}" data-desc="{{ $v->description }}" {{ $latestVersion->ai_variant_id === $v->id ? 'selected' : '' }}>
                                 {{ $v->display_name }}
@@ -1347,7 +1334,7 @@
             <div>
                 <label style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Summary text (editable)</label>
                 <textarea id="ai-summary-text" rows="9" maxlength="5000"
-                          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;font-family:inherit;line-height:1.55;">{{ $currentSummary }}</textarea>
+                          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;font-family:inherit;line-height:1.55;">{{ $currentSummary }}</textarea>
                 <div style="display:flex;justify-content:space-between;font-size:0.6875rem;color:var(--text-muted);margin-top:4px;">
                     <span id="ai-summary-meta">
                         @if($latestVersion->ai_summary_generated_at)
@@ -1957,7 +1944,8 @@
 </div>
 
 {{-- Live debug indicator (visible when window.PRESENTATIONS_LIVE_DEBUG = true) --}}
-<div id="live-debug-indicator" class="hidden fixed top-2 right-2 z-50 bg-gray-900 text-green-400 text-xs font-mono rounded-lg shadow-lg px-3 py-2 max-w-xs opacity-90">
+<div id="live-debug-indicator" class="hidden fixed top-2 right-2 z-50 text-xs font-mono rounded-lg shadow-lg px-3 py-2 max-w-xs opacity-90"
+     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--ds-green, #059669);">
     <div>Live: <span id="ldi-status">OFF</span></div>
     <div>Last poll: <span id="ldi-poll-time">-</span></div>
     <div>HTTP: <span id="ldi-http-status">-</span></div>

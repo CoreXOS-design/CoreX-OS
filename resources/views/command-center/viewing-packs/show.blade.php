@@ -172,11 +172,11 @@
                          drop off first on narrow widths. --}}
                     <ul class="space-y-1">
                         <template x-for="m in filtered()" :key="m.id">
-                            <li class="flex items-center gap-2 rounded px-2 py-1" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <li class="flex items-center gap-2 rounded-md px-2 py-1" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <span class="text-sm truncate min-w-0 flex-1" style="color: var(--text-primary);" :title="m.address" x-text="m.address"></span>
                                 <span class="text-xs flex-shrink-0 truncate max-w-[7rem] hidden md:block" style="color: var(--text-muted);" x-show="m.suburb" x-text="m.suburb"></span>
                                 <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);" x-show="m.price" x-text="'R ' + Number(m.price).toLocaleString('en-ZA')"></span>
-                                <span class="text-xs flex-shrink-0 opacity-70 hidden lg:block" style="color: var(--text-muted);" x-show="m.ref" x-text="m.ref"></span>
+                                <span class="text-xs flex-shrink-0 hidden lg:block" style="color: var(--text-faint);" x-show="m.ref" x-text="m.ref"></span>
                                 <span class="ds-badge ds-badge-success flex-shrink-0" title="Canonical match score" x-text="m.score + '%'"></span>
                                 <template x-if="m.added">
                                     <span class="text-xs flex-shrink-0" style="color: var(--text-muted);">Added</span>
@@ -434,10 +434,10 @@
                 <div class="flex items-center gap-3 flex-shrink-0" x-show="!loading && !loadError" x-cloak>
                     {{-- AT-160 item 1 — undo / redo the last redaction action (Ctrl+Z / Ctrl+Shift+Z) --}}
                     <div class="flex items-center gap-1">
-                        <button type="button" class="text-xs px-2 py-1 rounded" title="Undo (Ctrl+Z)"
+                        <button type="button" class="text-xs px-2 py-1 rounded-md" title="Undo (Ctrl+Z)"
                                 @click="undo()" :disabled="!canUndo()"
                                 :style="{ border:'1px solid var(--border)', color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canUndo() ? '1' : '0.5', cursor: canUndo() ? 'pointer' : 'default' }">Undo</button>
-                        <button type="button" class="text-xs px-2 py-1 rounded" title="Redo (Ctrl+Shift+Z)"
+                        <button type="button" class="text-xs px-2 py-1 rounded-md" title="Redo (Ctrl+Shift+Z)"
                                 @click="redo()" :disabled="!canRedo()"
                                 :style="{ border:'1px solid var(--border)', color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: canRedo() ? '1' : '0.5', cursor: canRedo() ? 'pointer' : 'default' }">Redo</button>
                     </div>

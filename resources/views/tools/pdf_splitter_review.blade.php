@@ -44,26 +44,27 @@
     border:1px solid color-mix(in srgb, var(--ds-crimson, #ef4444) 25%, var(--border));
     color:var(--ds-crimson);
 }
-#spr .card { background: var(--surface); border: 1px solid var(--border); border-radius:6px; }
+#spr .card { background: var(--surface); border: 1px solid var(--border); border-radius:6px; box-shadow: var(--pv2-shadow); }
 #spr .toolbar {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     background: var(--surface); border: 1px solid var(--border);
     border-left: 3px solid var(--brand-icon, #0ea5e9);
     border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 12px;
+    box-shadow: var(--pv2-shadow);
 }
 #spr .tb-label { font-size:.75rem; font-weight:600; color:var(--text-muted); white-space:nowrap; }
 #spr select.tb-select {
     font-size:.82rem; padding:5px 8px; border:1px solid var(--border);
-    border-radius:6px; background:var(--surface); color:var(--text-primary); cursor:pointer;
+    border-radius:6px; background:var(--surface-2); color:var(--text-primary); cursor:pointer;
 }
 #spr button.tb-btn {
     font-size:.78rem; font-weight:600; padding:5px 12px;
     border-radius:6px; border:1px solid var(--border); cursor:pointer;
-    background:var(--surface-2, var(--surface)); color:var(--text-secondary);
-    transition: all 300ms; white-space:nowrap;
+    background:transparent; color:var(--text-secondary);
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; white-space:nowrap;
 }
-#spr button.tb-btn:hover { opacity:.85; }
-#spr .tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:16px; }
+#spr button.tb-btn:hover { background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
+#spr .tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:16px; box-shadow: var(--pv2-shadow); }
 #spr table { width:100%; border-collapse:collapse; }
 #spr thead th {
     background:var(--surface-2, var(--surface)); color:var(--text-muted); font-size:.72rem;
@@ -81,13 +82,13 @@
 #spr .thumb-cell .pg-num { font-weight:700; color:var(--brand-icon, #0ea5e9); font-size:.8rem; margin-top:2px; display:block; }
 #spr select.lbl-select {
     font-size:.82rem; padding:5px 7px; border:1px solid var(--border);
-    border-radius:6px; background:var(--surface); color:var(--text-primary); cursor:pointer;
+    border-radius:6px; background:var(--surface-2); color:var(--text-primary); cursor:pointer;
     width:100%; min-width:150px;
 }
 #spr .snippet { font-size:.74rem; color:var(--text-secondary); max-width:280px;
     overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 #spr .snippet.empty { color:var(--text-muted); font-style:italic; }
-#spr .score-tip { font-size:.68rem; color:var(--text-muted); }
+#spr .score-tip { font-size:.68rem; color:var(--text-faint); }
 #spr .role-group { margin-bottom:6px; }
 #spr .role-title { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:2px; }
 #spr .chip {
@@ -106,22 +107,40 @@
 #spr .btn-gen { background:var(--brand-button, #0ea5e9); color:#fff; border:none; border-radius:6px;
     padding:0.625rem 1.5rem; font-size:.875rem; font-weight:600; cursor:pointer; transition: all 300ms; }
 #spr .btn-gen:hover { filter: brightness(1.1); }
-#spr .btn-gen.secondary { background:var(--surface); color:var(--text-secondary); border:1px solid var(--border); }
+#spr .btn-gen.secondary {
+    background:transparent; color:var(--text-secondary); border:1px solid var(--border);
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+#spr .btn-gen.secondary:hover { filter:none; background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
 #spr .btn-gen:disabled { opacity:.5; cursor:not-allowed; }
-#spr .btn-back { font-size:.85rem; color:var(--text-muted); text-decoration:none; padding:4px 0; }
+#spr .btn-back {
+    display:inline-flex; align-items:center; font-size:.75rem; font-weight:600;
+    color:var(--text-secondary); text-decoration:none; padding:0.375rem 0.875rem;
+    border:1px solid var(--border); border-radius:6px; background:transparent;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+#spr .btn-back:hover { background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
 #spr [x-cloak] { display:none !important; }
 </style>
 
+{{-- Header (flat neutral bar — full-bleed, outside the centred .wrap so its
+     bottom border connects edge-to-edge like the Properties/worksheet header) --}}
+<div class="rounded-md px-6 py-5 corex-page-banner mb-5">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Pack Splitter &mdash; Review &amp; Assign</h1>
+            <p class="text-xs" style="color: var(--text-muted);">Set each page's document type, then tick the contact(s) it belongs to.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium" style="color: var(--text-muted);">
+                <strong style="color: var(--text-secondary);">{{ $base }}</strong> &middot; {{ $pCount }} pages
+            </span>
+        </div>
+    </div>
+</div>
+
 <div id="spr" x-data="splitterReview()" x-cloak>
 <div class="wrap">
-
-    {{-- Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner mb-5">
-        <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter — Review &amp; Assign</h1>
-        <p class="text-sm text-white/60">
-            <strong>{{ $base }}</strong> · {{ $pCount }} pages · Set each page's document type, then tick the contact(s) it belongs to.
-        </p>
-    </div>
 
     @if($errors->any())
         <div class="alert alert-error">
@@ -146,7 +165,7 @@
                    class="w-full px-3 py-2 rounded-md text-sm"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <div x-show="propResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
-                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: var(--pv2-shadow);">
                 <template x-for="r in propResults" :key="r.id">
                     <button type="button" @click="pickProp(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <div class="flex items-center gap-2">
@@ -177,7 +196,7 @@
 
     {{-- Deal target (WS3 · D4 — register users only, optional) --}}
     @if(!empty($canLinkDeal))
-    <div class="card p-4 mb-4" style="border-left: 3px solid #2dd4bf;" x-show="property">
+    <div class="card p-4 mb-4" style="border-left: 3px solid var(--ds-teal, #14b8a6);" x-show="property">
         <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
                 Also file to a deal <span style="color: var(--text-muted); text-transform:none;">(optional)</span>
@@ -190,7 +209,7 @@
                    class="w-full px-3 py-2 rounded-md text-sm"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <div x-show="dealResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
-                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: var(--pv2-shadow);">
                 <template x-for="d in dealResults" :key="d.id">
                     <button type="button" @click="pickDeal(d)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <span class="font-mono" x-text="d.reference"></span>
@@ -214,10 +233,10 @@
 
     {{-- FICA toggle (compliance users only) --}}
     @if(!empty($canFica))
-    <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid #8b5cf6;" x-show="property">
+    <div class="card p-4 mb-4" data-tour="spr-fica" style="border-left: 3px solid var(--ds-purple, #7c3aed);" x-show="property">
         <label class="flex items-start gap-3" :class="ficaHasTargets ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'">
             <input type="checkbox" :checked="ficaChecked" @change="ficaOverride = $event.target.checked" :disabled="!ficaHasTargets"
-                   class="mt-0.5 rounded w-4 h-4" style="accent-color:#8b5cf6;">
+                   class="mt-0.5 rounded w-4 h-4" style="accent-color: var(--ds-purple, #7c3aed);">
             <span>
                 <span class="text-sm font-semibold" style="color: var(--text-primary);">Start wet-ink FICA verification(s) from this pack</span>
                 <span x-show="ficaHasTargets" class="block text-xs mt-1" style="color: var(--text-muted);">
