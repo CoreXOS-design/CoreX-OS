@@ -166,15 +166,23 @@
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-compliance">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Compliance Overview</h3>
                 @php $dotColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)', 'grey' => 'var(--text-muted)', 'missing' => 'var(--text-muted)']; @endphp
-                <div class="space-y-2">
-                    @foreach([
+                @php
+                    // AT-267 §10 / AUDIT 2026-07-26 (F9) — filtered against the keys
+                    // computeComplianceStatus() actually produced, rather than a second hardcoded
+                    // list. An assistant holds no FFC / PI / tax clearance, so those keys are
+                    // absent for them. Deriving the rows from the data means the controller stays
+                    // the single source of truth and this card can never desync from it again.
+                    $overviewItems = array_filter([
                         'ffc_number' => 'FFC Number',
                         'ffc_certificate' => 'FFC Certificate',
                         'ffc_expiry' => 'FFC Expiry',
                         'id_copy' => 'ID Copy',
                         'pi_insurance' => 'PI Insurance',
                         'tax_clearance' => 'Tax Clearance',
-                    ] as $key => $label)
+                    ], fn ($label, $key) => array_key_exists($key, $complianceStatus), ARRAY_FILTER_USE_BOTH);
+                @endphp
+                <div class="space-y-2">
+                    @foreach($overviewItems as $key => $label)
                     @php $item = $complianceStatus[$key]; @endphp
                     <div class="flex items-center justify-between py-1.5 px-3" style="border:1px solid var(--border); border-radius:6px;">
                         <div class="flex items-center gap-2">
@@ -1180,6 +1188,14 @@
                     ['key' => 'rmcp_acknowledged', 'label' => 'FICA Training & RMCP Acknowledgement', 'action_tab' => null, 'action_text' => 'Acknowledge RMCP', 'action_route' => true],
                     ['key' => 'employee_screening', 'label' => 'Employee Screening', 'action_tab' => null, 'action_text' => 'View records', 'action_route' => 'screening'],
                 ];
+
+                // AT-267 §10 / AUDIT 2026-07-26 (F9) — same rule as the overview card above: show
+                // exactly the items computeComplianceStatus() produced. An assistant is not a
+                // practitioner, so FFC / PI / tax-clearance rows are simply not in the data.
+                $complianceItems = array_values(array_filter(
+                    $complianceItems,
+                    fn ($ci) => array_key_exists($ci['key'], $complianceStatus)
+                ));
             @endphp
 
             <div class="divide-y" style="border-color:var(--border);">

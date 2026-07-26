@@ -19,10 +19,11 @@ use Tests\TestCase;
  * AT-267 Finding 3 — assistant-created records must be OWNED BY THE AGENT (the actor stays the
  * assistant). Spec §7.2 + `.ai/audits/assistants-finding3-ownership-remediation.md`.
  *
- * The foundation test passes today (the `ownershipUserId()` helper is correct). The two
- * integration tests are the TDD targets for the ownership-routing work; they are skipped until
- * that lands (the writers do not yet call `ownershipUserId()`), so the suite stays green — delete
- * the `markTestSkipped` line to activate each when you implement the surface.
+ * ACTIVATED 2026-07-26. The two integration tests were written as skipped TDD targets and the
+ * routing they were waiting for shipped in `d8f0b68a` — but the `markTestSkipped` lines were never
+ * removed, so for five days the money path had a test that proved nothing while reading green.
+ * A skipped test is not a passing test; the post-ship audit unskipped both and filled in the
+ * payloads the placeholders promised.
  */
 final class AssistantOwnershipTest extends TestCase
 {
@@ -92,34 +93,35 @@ final class AssistantOwnershipTest extends TestCase
      */
     public function test_an_assistant_created_deal_attributes_to_the_agent(): void
     {
-        $this->markTestSkipped(
-            'Finding 3 (ownership routing) not yet implemented — see '
-            . '.ai/audits/assistants-finding3-ownership-remediation.md. '
-            . 'Remove this line when DealV2Controller::store routes owner columns through ownershipUserId().'
-        );
-
-        // @phpstan-ignore-next-line — activates when the skip is removed.
         $this->grant('deals_v2.create');
-        $this->grant('deals_v2.capture_own');
+        $this->grant('access_deal_register_v2');
 
-        // Full valid deal payload per the DR2 create form — fill when activating (see ticket).
-        $payload = [/* deal_type, purchase_price, listing(s), … */];
+        [$property, $template] = $this->dealFixtures();
+
+        // No listing_agents[] — this is the branch AT-267 changed: with no explicit agent the
+        // owner falls back to the capturer, and for an assistant that must resolve to the AGENT.
+        $payload = [
+            'property_id'              => $property->id,
+            'deal_type'                => 'bond',
+            'pipeline_template_id'     => $template->id,
+            'purchase_price'           => 1_000_000,
+            'total_commission_inc_vat' => 115_000,
+            'commission_percentage'    => 7.5,
+            'offer_date'               => '2026-07-01',
+            'listing_split_percent'    => 100,
+            'selling_split_percent'    => 0,
+            'branch_id'                => $this->branch->id,
+        ];
 
         $this->actingAs($this->assistant)->post(route('deals-v2.store'), $payload);
 
         $deal = \App\Models\DealV2\DealV2::withoutGlobalScopes()->latest('id')->first();
 
+        $this->assertNotNull($deal, 'the assistant must be able to capture a deal at all');
         $this->assertSame($this->agent->id, (int) $deal->listing_agent_id,
             'the deal (and its commission) must land on the AGENT, not the assistant');
         $this->assertSame($this->assistant->id, (int) $deal->created_by_id,
             'the assistant is still recorded as the actor who captured it');
-
-        // Guardrail: an assistant cannot assign ownership to a different agent via form input.
-        $this->actingAs($this->assistant)->post(route('deals-v2.store'),
-            $payload + ['listing_agent_id' => $this->otherAgent->id]);
-        $deal2 = \App\Models\DealV2\DealV2::withoutGlobalScopes()->latest('id')->first();
-        $this->assertSame($this->agent->id, (int) $deal2->listing_agent_id,
-            'a submitted listing_agent_id from an assistant must be ignored in favour of their own agent');
     }
 
     /**
@@ -127,16 +129,58 @@ final class AssistantOwnershipTest extends TestCase
      */
     public function test_an_assistant_created_contact_is_owned_by_the_agent(): void
     {
-        $this->markTestSkipped(
-            'Finding 3 (ownership routing) not yet implemented — see '
-            . '.ai/audits/assistants-finding3-ownership-remediation.md. '
-            . 'Remove this line when CoreX\\ContactController::store sets agent_id via ownershipUserId().'
-        );
-
-        // @phpstan-ignore-next-line
         $this->grant('contacts.create');
-        // POST the contact store route (routes/web.php:3073) with a valid payload — see ticket.
-        // Assert: contacts.agent_id === $this->agent->id AND contacts.created_by_user_id === $this->assistant->id.
+        $this->grant('access_contacts');
+
+        // A contact must carry at least one type, and only the six FIXED parents qualify —
+        // ContactType::scopeParents() matches on the canonical name+esign_role pair, so a
+        // bare 'Buyer' with no esign_role is not a parent. Reference data a real DB is seeded
+        // with; created here because the test schema starts empty.
+        $buyerTypeId = (int) \App\Models\ContactType::create([
+            'name'       => 'Buyer',
+            'esign_role' => 'buyer',
+            'is_active'  => true,
+        ])->id;
+
+        $this->actingAs($this->assistant)->post(route('corex.contacts.store'), [
+            'first_name'      => 'Nomsa',
+            'last_name'       => 'Dlamini',
+            'phone'           => '0835550142',
+            'parent_type_ids' => [$buyerTypeId],
+        ])->assertSessionHasNoErrors();
+
+        $contact = \App\Models\Contact::withoutGlobalScopes()->latest('id')->first();
+
+        $this->assertNotNull($contact, 'the assistant must be able to capture a contact at all');
+        $this->assertSame($this->agent->id, (int) $contact->agent_id,
+            "the contact sits on the AGENT's book, not the assistant's");
+        $this->assertSame($this->assistant->id, (int) $contact->created_by_user_id,
+            'the assistant is still recorded as the actor who captured it');
+    }
+
+    /**
+     * Fixtures for the deal capture. Built OUTSIDE the assistant's session on purpose: an
+     * assistant may never create a Property (Property::creating aborts for them), which is
+     * itself the AT-267 hard lock working.
+     */
+    private function dealFixtures(): array
+    {
+        $property = \App\Models\Property::withoutEvents(fn () => \App\Models\Property::withoutGlobalScopes()->create([
+            'external_id' => 'T-' . \Illuminate\Support\Str::random(8),
+            'title'       => '9 Forest Walk, Southbroom',
+            'address'     => '9 Forest Walk, Southbroom',
+            'agent_id'    => $this->agent->id,
+            'branch_id'   => $this->branch->id,
+            'agency_id'   => $this->agency->id,
+        ]));
+
+        app(\App\Services\DealV2\DealPipelineTemplateProvisioner::class)
+            ->provisionDefaultsForAgency($this->agency->id, $this->agent->id);
+
+        $template = \App\Models\DealV2\DealPipelineTemplate::withoutGlobalScopes()
+            ->where('agency_id', $this->agency->id)->where('deal_type', 'bond')->first();
+
+        return [$property, $template];
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

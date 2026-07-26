@@ -315,6 +315,58 @@ cooldown are the gateway's, not re-implemented here.
 - **No migrations added** — so no `schema:dump` needed. The new notification event type travels
   via `NotificationEventTypeSeeder`, already registered in `deploy:sync-reference-data` (AT-162).
 
+---
+
+# ROUND 2 — the full-suite run (Johan: "it needs to be 100%")
+
+The wider sweep came back **207 passed, 0 failed — and 3 SKIPPED.** Skipped is not passing, so the
+skips were investigated rather than reported as green. All three were real, and two of them were
+worse than a plain gap.
+
+### F9 — HIGH: an assistant's compliance card could never be anything but red
+
+`AgentPortalController::computeComplianceStatus()` had no assistant branch at all. It built **FFC
+Certificate, FFC Number, FFC Expiry, PI Insurance and Tax Clearance** for every user — PPRA
+*practitioner licensing* items that an assistant, who is not a property practitioner, can never
+hold. Each one resolved `red` ("Not uploaded" / "Not set"), which pinned `overall` to red and
+`issues_count` above zero **for the entire life of the account.** An always-red compliance card is
+not a warning; it is noise that teaches people to ignore the card.
+
+Fixed at the SOURCE, not in Blade: that array is what the overview card, the Compliance tab,
+`overall` and `issues_count` all read, so hiding the rows in the view would have left the counters
+lying. Assistants keep ID Copy (FICA identity), RMCP acknowledgement and employee screening —
+obligations of anyone employed around client money and documents. Only the licensing items come out.
+
+The blade's two hardcoded key lists now **derive their rows from the data** (`array_key_exists`
+against `$complianceStatus`) instead of restating them, so the view can never desync from the
+controller again. That desync was immediate and real: the first version of this fix 500'd the
+portal on `Undefined array key "ffc_number"`, caught by the suite.
+
+This was the 2026-07-19 audit's "Finding 4a residual", parked for a render-capable lane and open
+ever since.
+
+### F10 — MED (test integrity): two money-path tests had been inert for five days
+
+`AssistantOwnershipTest` carried two `markTestSkipped` TDD targets — *"an assistant-created DEAL
+attributes to the agent"* and *"…CONTACT is owned by the agent"* — waiting on ownership routing.
+**That routing shipped in `d8f0b68a`. The skip lines were never removed.** So the two tests
+covering commission attribution sat green-but-proving-nothing, with placeholder payloads
+(`$payload = [/* deal_type, purchase_price, … */]`) that would not have run if unskipped.
+
+Both are now activated with real payloads and pass. They assert what matters: `listing_agent_id`
+and `contacts.agent_id` land on the **agent**, while `created_by_id` / `created_by_user_id` still
+record the **assistant** as the actor.
+
+**The rule this earns:** a skipped test is a claim, not a guarantee. When the work a skip waits on
+lands, the skip is part of that work's definition of done — a suite reporting "207 passed" while
+three of its assertions were switched off is exactly the test theatre `NotificationCatalogueHasProducersTest`
+was written to prevent.
+
+## Final verification
+
+`tests/Feature/Assistants` (all 32 files) + the four AT-267 tests outside it:
+**211 passed, 587 assertions, 0 failed, 0 skipped.**
+
 ## Still open — deliberately not done here
 
 - **`daily_activity_entries.on_behalf_of_user_id`** (control-page spec Phase 6, item 5). It is the

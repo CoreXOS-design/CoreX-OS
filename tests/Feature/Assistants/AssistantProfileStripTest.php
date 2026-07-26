@@ -91,22 +91,60 @@ final class AssistantProfileStripTest extends TestCase
     }
 
     /**
-     * Finding 4a RESIDUAL — the compliance overview card + Compliance tab still list practitioner
-     * items (FFC / PI / Tax) for an assistant because computeComplianceStatus() is not yet reduced
-     * (audit Finding 4a, deferred to the render lane). Skip-guarded until that lands.
+     * Finding 4a RESIDUAL — closed 2026-07-26 (post-ship audit F9).
+     *
+     * An assistant is not a property practitioner: no FFC, no professional indemnity cover, no
+     * practitioner tax clearance. Listing those items resolved every one of them 'red' against a
+     * requirement the person can never satisfy, which pinned `overall` red and `issues_count`
+     * above zero for the life of the account — an always-red card is noise, not a warning.
+     *
+     * Asserts the DATA, not the markup: computeComplianceStatus() is the source the card, the
+     * Compliance tab, `overall` and `issues_count` all read, so reducing it in Blade alone would
+     * have left the counters lying.
      */
     public function test_compliance_items_are_reduced_for_an_assistant(): void
     {
-        $this->markTestSkipped(
-            'Finding 4a residual — computeComplianceStatus() FFC/PI/Tax/PPRA reduction not yet '
-            . 'built (see .ai/audits/assistants-feature-audit-2026-07-19.md). Remove this line when '
-            . 'the compliance surfaces stop listing practitioner items for assistants.'
-        );
+        $status = $this->complianceStatusFor($this->assistant);
 
-        // @phpstan-ignore-next-line — activates when the skip is removed.
-        $response = $this->actingAs($this->assistant)->get(route('agent.portal'));
-        $response->assertDontSee('PI Insurance');
-        $response->assertDontSee('Tax Clearance');
+        foreach (['ffc_certificate', 'pi_insurance', 'tax_clearance', 'ffc_number', 'ffc_expiry'] as $practitionerOnly) {
+            $this->assertArrayNotHasKey($practitionerOnly, $status,
+                "{$practitionerOnly} is a practitioner licensing item — an assistant can never hold it");
+        }
+
+        // What an assistant IS still accountable for: FICA identity, and the obligations of anyone
+        // employed around client money and documents.
+        $this->assertArrayHasKey('id_copy', $status, 'FICA identity still applies to an assistant');
+        $this->assertArrayHasKey('rmcp_acknowledged', $status);
+        $this->assertArrayHasKey('employee_screening', $status);
+    }
+
+    /** A normal agent keeps every practitioner item — the reduction must not leak sideways. */
+    public function test_a_normal_agent_keeps_the_practitioner_compliance_items(): void
+    {
+        $status = $this->complianceStatusFor($this->agent);
+
+        foreach (['ffc_certificate', 'pi_insurance', 'tax_clearance', 'ffc_number', 'ffc_expiry'] as $practitionerOnly) {
+            $this->assertArrayHasKey($practitionerOnly, $status,
+                "{$practitionerOnly} must still be assessed for a practitioner");
+        }
+    }
+
+    /**
+     * computeComplianceStatus() is private, so read the array the way the page does — off the
+     * rendered view's data. Asserting the data rather than the HTML keeps this test honest about
+     * what it proves: `overall` and `issues_count` are computed from these keys, so a Blade-only
+     * hide would still leave the counters wrong and this test would still (correctly) fail.
+     */
+    private function complianceStatusFor(\App\Models\User $user): array
+    {
+        $status = $this->actingAs($user)
+            ->get(route('agent.portal'))
+            ->assertSuccessful()
+            ->viewData('complianceStatus');
+
+        $this->assertIsArray($status, 'the portal must expose complianceStatus to the view');
+
+        return $status;
     }
 
     public function test_a_normal_agent_still_sees_everything(): void
