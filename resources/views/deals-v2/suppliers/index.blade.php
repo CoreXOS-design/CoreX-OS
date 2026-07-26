@@ -9,14 +9,14 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Supplier Directory</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Supplier Directory</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Reusable service providers (electrician for the COC, entomologist, attorneys, bond originator…).
                     Pick them on a deal, or add "the one we always use" once here for reuse.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -51,14 +51,14 @@
                 <label for="sp-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name <span class="text-red-500">*</span></label>
                 <input id="sp-name" name="name" required maxlength="191"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        placeholder="e.g. Sparky Electrical">
             </div>
             <div>
                 <label for="sp-specialty" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Specialty <span class="text-red-500">*</span></label>
                 <select id="sp-specialty" name="specialty" required
                         class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @foreach($specialties as $s)
                         <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
                     @endforeach
@@ -68,23 +68,23 @@
                 <label for="sp-company" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company</label>
                 <input id="sp-company" name="company" maxlength="191"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="sp-email" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
                 <input id="sp-email" name="email" type="email" maxlength="191"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="sp-phone" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
                 <input id="sp-phone" name="phone" maxlength="50"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="flex items-end">
                 <label class="inline-flex items-center gap-2 text-sm pb-2" style="color: var(--text-secondary);">
-                    <input type="checkbox" name="is_preferred" value="1" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                    <input type="checkbox" name="is_preferred" value="1" class="rounded" style="accent-color: var(--brand-button);">
                     Preferred for this specialty
                 </label>
             </div>
@@ -126,13 +126,13 @@
                             <td class="px-4 py-3 text-right whitespace-nowrap">
                                 @if($p->is_active && !$p->is_preferred)
                                     <form method="POST" action="{{ route('deals-v2.suppliers.preferred', $p) }}" class="inline">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">Set preferred</button>
+                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">Set preferred</button>
                                     </form>
                                 @endif
                                 @if($p->is_active)
                                     <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline ml-3"
                                           onsubmit="return confirm('Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it.');">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--ds-crimson, #c41e3a);">Deactivate</button>
+                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--ds-crimson);">Deactivate</button>
                                     </form>
                                 @endif
                             </td>
@@ -141,7 +141,7 @@
                         {{-- (DR2 respec) A firm holds MULTIPLE contact persons (attorney + working
                              contact). List them + add/remove inline. Soft-delete keeps history. --}}
                         @if($p->is_active)
-                        <tr style="background: var(--surface-2, #f8fafc);">
+                        <tr style="background: var(--surface-2);">
                             <td colspan="5" class="px-4 py-3">
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)
@@ -154,7 +154,7 @@
                                         </span>
                                         <form method="POST" action="{{ route('deals-v2.suppliers.contacts.deactivate', $c) }}" class="inline"
                                               onsubmit="return confirm('Remove this contact? Historic deals keep resolving.');">
-                                            @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson, #c41e3a);">Remove</button>
+                                            @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson);">Remove</button>
                                         </form>
                                     </div>
                                 @empty
@@ -167,7 +167,7 @@
                                     <input type="text" name="contact_person" placeholder="Contact (assistant/paralegal)" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <input type="email" name="email" placeholder="Email" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                    <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">+ Add contact</button>
+                                    <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">+ Add contact</button>
                                 </form>
                             </td>
                         </tr>

@@ -11,13 +11,13 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">New Agent Application</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Agent Application</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Start the onboarding process for a new agent — the onboarding checklist is seeded automatically.
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline">Back to Pipeline</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline text-xs no-underline">Back to Pipeline</a>
             </div>
         </div>
     </div>

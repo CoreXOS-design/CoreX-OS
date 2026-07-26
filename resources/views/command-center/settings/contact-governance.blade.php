@@ -9,12 +9,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Contact Governance</h1>
-                <p class="text-sm text-white/60">Agency-wide sharing, duplicate, freshness and retention rules for contacts.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contact Governance</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Agency-wide sharing, duplicate, freshness and retention rules for contacts.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('command-center.settings') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('command-center.settings') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Settings
                 </a>

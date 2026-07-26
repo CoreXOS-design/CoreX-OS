@@ -145,10 +145,15 @@
         // Compliance. Exclude them here so they fall through to the communication
         // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
-    } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
+    } elseif (request()->routeIs('command-center.*')
+        && !request()->routeIs('command-center.buyers.*', 'command-center.settings.contact-governance*')) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
         // (AT-76 move), so it must NOT resolve to the Dashboard group. Excluded
         // here and added to the real-estate matcher below.
+        // Contact Governance shares the command-center.* route prefix but its nav
+        // link is a ROOT-level item (not in the Dashboard panel), so it must leave
+        // $activeGroup null — otherwise the sidebar opens Dashboard on a page whose
+        // link isn't in it.
         $activeGroup = 'command-center';
     } elseif (request()->routeIs('corex.dashboard', 'corex.dashboard.oversight')) {
         // Today / Oversight live in the Command Center submenu but are also

@@ -10,13 +10,13 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Agent Onboarding Pipeline</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agent Onboarding Pipeline</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ number_format($totalPending) }} application{{ $totalPending !== 1 ? 's' : '' }} in progress
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('onboarding.create') }}" class="corex-btn-primary no-underline">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('onboarding.create') }}" class="corex-btn-primary text-xs no-underline">
                     New Application
                 </a>
             </div>

@@ -26,15 +26,15 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Agency Billing</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agency Billing</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     What every agency pays CoreX — {{ now()->format('F Y') }}. Prices follow headcount automatically
                     unless you set a custom amount or a discount.
                 </p>
             </div>
-            <div class="text-left md:text-right">
-                <div class="text-xs uppercase tracking-wider text-white/50">Monthly recurring revenue</div>
-                <div class="text-3xl font-bold text-white leading-tight">{{ Zar::format($totals['mrr_zar']) }}</div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs uppercase tracking-wider" style="color: var(--text-faint);">Monthly recurring revenue</span>
+                <span class="text-sm font-bold tabular-nums" style="color: var(--text-primary);">{{ Zar::format($totals['mrr_zar']) }}</span>
             </div>
         </div>
     </div>
@@ -118,8 +118,8 @@
                                 <div class="text-xs" style="color:var(--ds-amber,#f59e0b);">No active users — nothing to bill</div>
                             @endif
                         </td>
-                        <td class="px-4 py-3 text-right" style="color:var(--text-primary);">{{ $quote->seats }}</td>
-                        <td class="px-4 py-3 text-right" style="color:var(--text-secondary);">
+                        <td class="px-4 py-3 text-right tabular-nums" style="color:var(--text-primary);">{{ $quote->seats }}</td>
+                        <td class="px-4 py-3 text-right tabular-nums" style="color:var(--text-secondary);">
                             {{ $quote->branches }}
                             @if($quote->billableBranches > 0)
                                 <span class="text-xs" style="color:var(--text-muted);">(+{{ $quote->billableBranches }} billed)</span>
@@ -130,10 +130,10 @@
                                 {{ $quote->planLabel }}
                             </span>
                         </td>
-                        <td class="px-4 py-3 text-right" style="color:var(--text-secondary);">{{ Zar::format($quote->computedZar) }}</td>
+                        <td class="px-4 py-3 text-right tabular-nums" style="color:var(--text-secondary);">{{ Zar::format($quote->computedZar) }}</td>
                         <td class="px-4 py-3">
                             @if($quote->basis === BillingQuote::BASIS_CUSTOM)
-                                <span class="text-xs font-medium" style="color:var(--ds-navy,#0b2a4a);">Custom amount</span>
+                                <span class="text-xs font-medium" style="color:var(--brand-icon,#0ea5e9);">Custom amount</span>
                                 @if($quote->customAmountNote)
                                     <div class="text-xs" style="color:var(--text-muted);">{{ Str::limit($quote->customAmountNote, 40) }}</div>
                                 @endif
@@ -152,12 +152,11 @@
                                 <span class="text-xs" style="color:var(--text-muted);">Automatic</span>
                             @endif
                         </td>
-                        <td class="px-4 py-3 text-right font-semibold" style="color:var(--text-primary);">
+                        <td class="px-4 py-3 text-right font-semibold tabular-nums" style="color:var(--text-primary);">
                             {{ Zar::format($quote->payableZar) }}
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <button type="button" @click="open = !open" class="text-xs font-medium underline"
-                                    style="color:var(--brand-icon,#0ea5e9);"
+                            <button type="button" @click="open = !open" class="corex-btn-outline text-xs"
                                     x-text="open ? 'Close' : 'Edit'">Edit</button>
                         </td>
                     </tr>
@@ -288,9 +287,9 @@
                                                   placeholder="Why these terms — who agreed them, when.">{{ old('notes', $sub->notes) }}</textarea>
                                     </div>
 
-                                    <div class="flex items-center gap-3">
-                                        <button type="submit" class="corex-btn-primary text-sm">Save pricing</button>
-                                        <button type="button" @click="open = false" class="text-sm" style="color:var(--text-secondary);">Cancel</button>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <button type="submit" class="corex-btn-primary text-xs">Save pricing</button>
+                                        <button type="button" @click="open = false" class="corex-btn-outline text-xs">Cancel</button>
                                     </div>
                                 </form>
                             </div>

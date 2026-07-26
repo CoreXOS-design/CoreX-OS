@@ -9,11 +9,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Knowledge Base</h1>
-                <p class="text-sm text-white/60">Ellie's training documents &amp; agent resources</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Knowledge Base</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Ellie's training documents &amp; agent resources</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <button type="button" @click="openCreate()" class="corex-btn-primary text-sm inline-flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" @click="openCreate()" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
                     <i class="fas fa-plus text-[10px]"></i> New Category
                 </button>
             </div>
@@ -127,12 +127,12 @@
             @forelse($categories as $idx => $cat)
                 <div class="rounded-md p-4 transition-all duration-300 relative"
                      style="background: var(--surface); border: 1px solid var(--border);"
-                     onmouseover="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onmouseout="this.style.borderColor='var(--border)'">
+                     onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border)'">
                     <div class="flex items-start justify-between gap-2">
                         <a href="{{ route('admin.knowledge.category', $cat->id) }}" class="flex-1 block" style="text-decoration:none;color:inherit;">
                             <div class="flex items-center gap-3 mb-2">
                                 @if($cat->icon)
-                                    <i class="fas {{ $cat->icon }} text-lg" style="color: var(--brand-icon, #0ea5e9);"></i>
+                                    <i class="fas {{ $cat->icon }} text-lg" style="color: var(--brand-icon);"></i>
                                 @endif
                                 <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $cat->name }}</div>
                             </div>
@@ -140,7 +140,7 @@
                                 <div class="text-xs mb-1" style="color: var(--text-muted);">{{ Str::limit($cat->description, 60) }}</div>
                             @endif
                             <div class="text-xs" style="color: var(--text-secondary);">{{ $cat->documents_count }} {{ Str::plural('document', $cat->documents_count) }}</div>
-                            <div class="text-xs mt-1.5 font-medium" style="color: var(--brand-icon, #0ea5e9);">View &rarr;</div>
+                            <div class="text-xs mt-1.5 font-medium" style="color: var(--brand-icon);">View &rarr;</div>
                         </a>
                         <div class="flex items-center gap-1 shrink-0">
                             {{-- Reorder arrows --}}
@@ -159,7 +159,7 @@
                                 <span class="p-1" style="color: var(--border);"><i class="fas fa-arrow-down text-xs"></i></span>
                             @endif
                             {{-- Edit --}}
-                            <button type="button" @click="openEdit({{ $cat->id }}, {{ Js::from($cat->name) }}, {{ Js::from($cat->description) }}, {{ Js::from($cat->icon) }})" class="p-1 transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--brand-icon, #0ea5e9)'" onmouseout="this.style.color='var(--text-muted)'" title="Edit category">
+                            <button type="button" @click="openEdit({{ $cat->id }}, {{ Js::from($cat->name) }}, {{ Js::from($cat->description) }}, {{ Js::from($cat->icon) }})" class="p-1 transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--brand-icon)'" onmouseout="this.style.color='var(--text-muted)'" title="Edit category">
                                 <i class="fas fa-pencil-alt text-xs"></i>
                             </button>
                             {{-- Delete --}}
@@ -221,7 +221,7 @@
                                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                        placeholder="e.g. fa-building">
                                 <span class="shrink-0 w-8 h-8 flex items-center justify-center rounded-md" style="background: var(--surface-2);">
-                                    <i class="fas" :class="form.icon || 'fa-folder'" style="color: var(--brand-icon, #0ea5e9);"></i>
+                                    <i class="fas" :class="form.icon || 'fa-folder'" style="color: var(--brand-icon);"></i>
                                 </span>
                             </div>
                             <div class="text-xs mt-1" style="color: var(--text-muted);">FontAwesome class, e.g. fa-building, fa-book, fa-gavel</div>
@@ -347,7 +347,7 @@
                                         <button type="submit"
                                                 class="text-xs px-2 py-0.5 rounded-md font-medium transition-all duration-300"
                                                 style="{{ $doc->is_ellie_enabled
-                                                    ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);'
+                                                    ? 'background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);'
                                                     : 'background: var(--surface-2); color: var(--text-muted);' }}"
                                                 title="{{ $doc->is_ellie_enabled ? 'Disable Ellie' : 'Enable Ellie' }}">
                                             {{ $doc->is_ellie_enabled ? 'ON' : 'OFF' }}
@@ -370,7 +370,7 @@
                                 <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y') }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <div class="flex items-center justify-end gap-2">
-                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon, #0ea5e9);">Preview</a>
+                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon);">Preview</a>
                                         <form action="{{ route('admin.knowledge.reprocess', $doc->id) }}" method="POST" class="inline">
                                             @csrf
                                             <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--ds-amber);">Reprocess</button>

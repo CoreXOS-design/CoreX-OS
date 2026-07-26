@@ -8,11 +8,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">New Pipeline Template</h1>
-                <p class="text-sm text-white/60">Create a pipeline, then add the steps deals will follow through each stage.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Pipeline Template</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Create a pipeline, then add the steps deals will follow through each stage.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     Back
                 </a>
@@ -64,7 +64,7 @@
                 <label class="inline-flex items-center gap-2 cursor-pointer">
                     <input type="hidden" name="is_default" value="0">
                     <input type="checkbox" name="is_default" value="1" {{ old('is_default') ? 'checked' : '' }}
-                           class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                           class="rounded" style="accent-color: var(--brand-button);">
                     <span class="text-sm" style="color: var(--text-secondary);">Set as default template for this deal type</span>
                 </label>
             </div>

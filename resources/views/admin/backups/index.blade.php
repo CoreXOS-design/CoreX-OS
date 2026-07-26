@@ -23,16 +23,18 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Backups</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Backups</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Off-box encrypted backup (restic → Hetzner Storage Box) — status, health, snapshots and history.
                 </p>
             </div>
-            <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold"
-                  style="background: color-mix(in srgb, {{ $accent }} 18%, transparent); color: {{ $accent }};">
-                <span style="width:8px;height:8px;border-radius:9999px;background:{{ $accent }};display:inline-block;"></span>
-                {{ $stateLbl }}
-            </span>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
+                      style="background: color-mix(in srgb, {{ $accent }} 18%, transparent); color: {{ $accent }};">
+                    <span style="width:8px;height:8px;border-radius:9999px;background:{{ $accent }};display:inline-block;"></span>
+                    {{ $stateLbl }}
+                </span>
+            </div>
         </div>
     </div>
 
@@ -96,7 +98,7 @@
             <div class="flex flex-col gap-1">
                 <label for="stale_alarm_hours" class="text-xs uppercase tracking-wide" style="color: var(--text-muted, #64748b);">Alarm if no successful backup within (hours)</label>
                 <input type="number" id="stale_alarm_hours" name="stale_alarm_hours" min="1" max="720" value="{{ old('stale_alarm_hours', $threshold) }}"
-                       class="w-40 rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       class="w-40 rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 @error('stale_alarm_hours')<span style="color: var(--ds-crimson, #c41e3a);" class="text-xs">{{ $message }}</span>@enderror
             </div>
             <button type="submit" class="corex-btn-outline">Save threshold</button>

@@ -8,8 +8,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Misfiled Documents</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Misfiled Documents</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Contact-only documents (ID, FICA, POR) that were filed to a property or left unfiled with
                     <strong>no contact assigned</strong>. Refile each to the correct person — the wrong property link is
                     removed per the document type's Save-to rule. Nothing is ever hard-deleted.
@@ -93,14 +93,14 @@
                                         @csrf
                                         <select name="contact_ids[]" multiple size="{{ min(4, max(2, $src->contacts->count())) }}"
                                                 required class="rounded-md px-2 py-1 text-sm"
-                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                             @foreach($src->contacts as $c)
                                                 <option value="{{ $c->id }}">
                                                     {{ trim(($c->first_name ?? '').' '.($c->last_name ?? '')) ?: ('Contact #'.$c->id) }}@if($c->pivot?->role) — {{ ucfirst($c->pivot->role) }}@endif
                                                 </option>
                                             @endforeach
                                         </select>
-                                        <button type="submit" class="corex-btn-primary text-sm justify-center">Refile</button>
+                                        <button type="submit" class="corex-btn-primary text-xs justify-center">Refile</button>
                                     </form>
                                     @endpermission
                                 @else

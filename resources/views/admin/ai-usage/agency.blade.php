@@ -8,22 +8,22 @@
 @endphp
 <div class="w-full space-y-5">
 
-    {{-- Page header (branded) --}}
+    {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="text-xs text-white/60 hover:text-white transition-colors">&larr; AI Usage &amp; Cost</a>
-                <h1 class="text-xl font-bold text-white leading-tight mt-1">{{ $agency->name }}</h1>
-                <p class="text-sm text-white/60">Where the AI spend came from and who drove it — {{ $monthLabel }}.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $agency->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Where the AI spend came from and who drove it — {{ $monthLabel }}.</p>
             </div>
-            <form method="GET" class="flex items-end gap-2">
-                <div>
-                    <label class="block text-xs font-medium mb-1 text-white/60">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                </div>
-                <button type="submit" class="corex-btn-primary text-sm">View</button>
-            </form>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="corex-btn-outline text-xs">&larr; AI Usage &amp; Cost</a>
+                <form method="GET" class="flex items-center gap-2">
+                    <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
+                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <button type="submit" class="corex-btn-primary text-xs">View</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -49,7 +49,7 @@
                         <span class="font-mono" style="color:var(--text-secondary);">R {{ number_format($s['cost'], 2) }} · {{ number_format($s['gens']) }}</span>
                     </div>
                     <div class="ds-progress-track">
-                        <div class="ds-progress-bar ds-bar-navy" style="width: {{ max(2, ($s['cost'] / $maxSource) * 100) }}%;"></div>
+                        <div class="ds-progress-bar" style="width: {{ max(2, ($s['cost'] / $maxSource) * 100) }}%; background: var(--brand-icon);"></div>
                     </div>
                 </div>
                 @empty

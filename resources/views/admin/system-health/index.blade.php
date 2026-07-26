@@ -13,17 +13,17 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-semibold" style="color:#fff;">Server Health</h1>
-                <p class="text-sm mt-1" style="color:rgba(255,255,255,0.7);">Live server vitals · read-only · auto-refresh every 10s</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Server Health</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Live server vitals · read-only · auto-refresh every 10s</p>
             </div>
-            <div class="flex items-center gap-3">
-                <span class="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded"
-                      style="background:rgba(255,255,255,0.1); color:#fff;">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 text-xs px-3 py-1.5 rounded-md"
+                      style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">
                     <span class="inline-block w-2 h-2 rounded-full"
                           :style="ok ? 'background: var(--ds-green,#16a34a); box-shadow:0 0 6px var(--ds-green,#16a34a);' : 'background: var(--ds-amber,#d97706);'"></span>
                     <span x-text="ok ? 'Live' : (loading ? 'Loading…' : 'Stale')"></span>
                 </span>
-                <span class="text-xs" style="color:rgba(255,255,255,0.6);" x-text="updatedLabel"></span>
+                <span class="text-xs" style="color: var(--text-muted);" x-text="updatedLabel"></span>
             </div>
         </div>
     </div>
@@ -39,7 +39,7 @@
             </div>
             <div class="flex items-end gap-4">
                 <div class="flex-1">
-                    <div class="text-3xl font-semibold" style="color: var(--text);">
+                    <div class="text-3xl font-bold tabular-nums" style="color: var(--text-primary);">
                         <span x-text="fmt(d.cpu?.util1_pct)"></span><span class="text-lg" style="color:var(--text-muted);">%</span>
                     </div>
                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">1-min load-based utilisation</div>
@@ -49,13 +49,13 @@
                     <polyline :points="spark" fill="none" stroke="var(--brand-icon, #14b8a6)" stroke-width="1.5" />
                 </svg>
             </div>
-            <div class="mt-4" style="height:8px; background: var(--surface-alt); border-radius:2px; overflow:hidden;">
+            <div class="mt-4" style="height:8px; background: var(--surface-2); border-radius:2px; overflow:hidden;">
                 <div :style="`width:${clampPct(d.cpu?.util1_pct)}%; height:100%; background:${utilColor(d.cpu?.util1_pct)}; transition:width .4s;`"></div>
             </div>
             <div class="grid grid-cols-3 gap-2 mt-3 text-center">
                 <template x-for="k in ['load1','load5','load15']" :key="k">
-                    <div class="rounded p-2" style="background: var(--surface-alt);">
-                        <div class="text-sm font-mono" style="color: var(--text);" x-text="fmt(d.cpu?.[k])"></div>
+                    <div class="rounded-md p-2" style="background: var(--surface-2); border:1px solid var(--border);">
+                        <div class="text-sm font-mono" style="color: var(--text-primary);" x-text="fmt(d.cpu?.[k])"></div>
                         <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);" x-text="k.replace('load','') + '-min'"></div>
                     </div>
                 </template>
@@ -68,24 +68,24 @@
                 <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Memory</h2>
                 <span class="text-xs" style="color: var(--text-muted);"><span x-text="gb(d.memory?.total_mb)"></span> GB total</span>
             </div>
-            <div class="text-3xl font-semibold" style="color: var(--text);">
+            <div class="text-3xl font-bold tabular-nums" style="color: var(--text-primary);">
                 <span x-text="fmt(d.memory?.used_pct)"></span><span class="text-lg" style="color:var(--text-muted);">%</span>
                 <span class="text-sm font-normal" style="color: var(--text-muted);">used</span>
             </div>
-            <div class="mt-3" style="height:8px; background: var(--surface-alt); border-radius:2px; overflow:hidden;">
+            <div class="mt-3" style="height:8px; background: var(--surface-2); border-radius:2px; overflow:hidden;">
                 <div :style="`width:${clampPct(d.memory?.used_pct)}%; height:100%; background:${utilColor(d.memory?.used_pct)}; transition:width .4s;`"></div>
             </div>
             <div class="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div class="rounded p-2" style="background: var(--surface-alt);">
-                    <div class="text-sm font-mono" style="color: var(--text);"><span x-text="gb(d.memory?.used_mb)"></span></div>
+                <div class="rounded-md p-2" style="background: var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-sm font-mono" style="color: var(--text-primary);"><span x-text="gb(d.memory?.used_mb)"></span></div>
                     <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">Used GB</div>
                 </div>
-                <div class="rounded p-2" style="background: var(--surface-alt);">
-                    <div class="text-sm font-mono" style="color: var(--text);"><span x-text="gb(d.memory?.available_mb)"></span></div>
+                <div class="rounded-md p-2" style="background: var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-sm font-mono" style="color: var(--text-primary);"><span x-text="gb(d.memory?.available_mb)"></span></div>
                     <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">Avail GB</div>
                 </div>
-                <div class="rounded p-2" style="background: var(--surface-alt);">
-                    <div class="text-sm font-mono" style="color: var(--text);">
+                <div class="rounded-md p-2" style="background: var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-sm font-mono" style="color: var(--text-primary);">
                         <span x-text="fmt(d.memory?.swap_used_pct)"></span><span class="text-xs">%</span>
                     </div>
                     <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">Swap used</div>
@@ -104,14 +104,14 @@
             <template x-for="disk in (d.disks || [])" :key="disk.path">
                 <div>
                     <div class="flex items-center justify-between text-sm mb-1">
-                        <span style="color: var(--text);"><span x-text="disk.label"></span>
+                        <span style="color: var(--text-primary);"><span x-text="disk.label"></span>
                             <span class="text-xs font-mono ml-1" style="color: var(--text-muted);" x-text="disk.path"></span></span>
-                        <span class="font-mono" style="color: var(--text);">
+                        <span class="font-mono" style="color: var(--text-primary);">
                             <span x-text="fmt(disk.used_gb)"></span> / <span x-text="fmt(disk.total_gb)"></span> GB
                             (<span x-text="fmt(disk.used_pct)"></span>%)
                         </span>
                     </div>
-                    <div style="height:10px; background: var(--surface-alt); border-radius:2px; overflow:hidden;">
+                    <div style="height:10px; background: var(--surface-2); border-radius:2px; overflow:hidden;">
                         <div :style="`width:${clampPct(disk.used_pct)}%; height:100%; background:${diskColor(disk.state)}; transition:width .4s;`"></div>
                     </div>
                 </div>
@@ -126,32 +126,32 @@
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
 
             {{-- Queues --}}
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Queue depth</div>
                 <template x-for="q in (d.corex?.queues || [])" :key="q.queue">
                     <div class="flex items-center justify-between text-sm py-0.5">
-                        <span style="color: var(--text);" x-text="q.queue"></span>
-                        <span class="font-mono" :style="q.depth > 50 ? 'color: var(--ds-amber,#d97706);' : 'color: var(--text);'" x-text="q.depth"></span>
+                        <span style="color: var(--text-primary);" x-text="q.queue"></span>
+                        <span class="font-mono" :style="q.depth > 50 ? 'color: var(--ds-amber,#d97706);' : 'color: var(--text-primary);'" x-text="q.depth"></span>
                     </div>
                 </template>
                 <div class="flex items-center justify-between text-sm py-0.5 mt-1 pt-1" style="border-top:1px solid var(--border);">
                     <span style="color: var(--text-muted);">oldest job</span>
-                    <span class="font-mono" style="color: var(--text);" x-text="age(d.corex?.oldest_job_s)"></span>
+                    <span class="font-mono" style="color: var(--text-primary);" x-text="age(d.corex?.oldest_job_s)"></span>
                 </div>
             </div>
 
             {{-- Jobs / failed --}}
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Failed jobs</div>
-                <div class="text-2xl font-semibold" :style="(d.corex?.failed_jobs > 0) ? 'color: var(--ds-amber,#d97706);' : 'color: var(--text);'"
+                <div class="text-2xl font-bold tabular-nums" :style="(d.corex?.failed_jobs > 0) ? 'color: var(--ds-amber,#d97706);' : 'color: var(--text-primary);'"
                      x-text="fmt(d.corex?.failed_jobs)"></div>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">in failed_jobs table</div>
             </div>
 
             {{-- FPM pool --}}
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">php8.3-fpm pool</div>
-                <div class="text-2xl font-semibold" style="color: var(--text);">
+                <div class="text-2xl font-bold tabular-nums" style="color: var(--text-primary);">
                     <span x-text="fmt(d.corex?.fpm?.active)"></span><span class="text-sm" style="color:var(--text-muted);"> active</span>
                 </div>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">
@@ -160,9 +160,9 @@
             </div>
 
             {{-- MySQL --}}
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">MySQL connections</div>
-                <div class="text-2xl font-semibold" style="color: var(--text);">
+                <div class="text-2xl font-bold tabular-nums" style="color: var(--text-primary);">
                     <span x-text="fmt(d.corex?.mysql?.connected)"></span>
                     <span class="text-sm" style="color:var(--text-muted);">/ <span x-text="fmt(d.corex?.mysql?.max)"></span></span>
                 </div>
@@ -172,9 +172,9 @@
 
         {{-- Backups --}}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">Off-box backup (restic)</div>
-                <div class="text-sm font-mono" style="color: var(--text);" x-text="fmt(d.backups?.offbox?.last_success)"></div>
+                <div class="text-sm font-mono" style="color: var(--text-primary);" x-text="fmt(d.backups?.offbox?.last_success)"></div>
                 <div class="text-xs mt-1">
                     <span :style="d.backups?.offbox?.stale ? 'color: var(--ds-red,#dc2626);' : 'color: var(--ds-green,#16a34a);'"
                           x-text="d.backups?.offbox?.state ? d.backups.offbox.state : '—'"></span>
@@ -182,14 +182,14 @@
                         · <span x-text="fmt(d.backups?.offbox?.hours_since)"></span>h ago</span>
                 </div>
             </div>
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">Latest local DB dump</div>
-                <div class="text-sm font-mono" style="color: var(--text);" x-text="fmt(d.backups?.local_dump?.at)"></div>
+                <div class="text-sm font-mono" style="color: var(--text-primary);" x-text="fmt(d.backups?.local_dump?.at)"></div>
                 <div class="text-xs mt-1 truncate" style="color: var(--text-muted);" x-text="d.backups?.local_dump?.name || '—'"></div>
             </div>
-            <div class="rounded p-3" style="background: var(--surface-alt);">
+            <div class="rounded-md p-3" style="background: var(--surface-2); border:1px solid var(--border);">
                 <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">Hetzner volume images</div>
-                <div class="text-sm" style="color: var(--text);">Provider-side snapshots</div>
+                <div class="text-sm" style="color: var(--text-primary);">Provider-side snapshots</div>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">daily ~22:13 UTC</div>
             </div>
         </div>
