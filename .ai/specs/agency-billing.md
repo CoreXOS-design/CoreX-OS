@@ -53,7 +53,7 @@ Branches are read (for the extra-branch fee). Property / Contact / Deal are unto
 
 | # | Decision |
 |---|---|
-| **D1** | **A billable seat is any active, non-deleted user on the agency.** `users.agency_id = X AND is_active = 1 AND deleted_at IS NULL`. Role is irrelevant — an admin, a principal and an agent all occupy a seat. Deactivated or archived users **do not** count. CoreX System Owners carry `agency_id = NULL` and therefore never count against any agency. |
+| **D1** | **A billable seat is any active, non-deleted user on the agency.** `users.agency_id = X AND is_active = 1 AND deleted_at IS NULL`. Role is otherwise irrelevant — an admin, a principal and an agent all occupy a seat. Deactivated or archived users **do not** count. CoreX System Owners carry `agency_id = NULL` and therefore never count against any agency. **Amendment (Johan, 2026-07-22):** an **Assistant** (`users.is_assistant = 1`) is **NOT** a billable seat and is excluded from the seat query. An assistant is an extension of one agent — their work lands on that agent's book — so billing a second seat for them would charge the same practitioner slot twice. They keep their own login; they simply do not add to the charged headcount. Assistants are also hidden from the `/admin/users` directory (they are managed on Company → Assistants). Enforced in `SubscriptionPricingService::billableSeats()` (`AND is_assistant = 0`) and covered by `SubscriptionPricingServiceTest::test_assistants_do_not_occupy_a_billable_seat`. |
 | **D2** | **The plan auto-tracks headcount.** ≤ 10 seats → **CoreX Team**. The 11th seat → **CoreX Agency**, automatically. **The plans are two price shapes, not two feature sets — both get full access to everything.** There is no feature gating anywhere in CoreX based on plan. |
 | **D2a** | **Extra branches are billed on both plans** (first branch free, R750/month each thereafter). An 8-agent agency with 2 branches is on Team **and** pays R750 for the second branch. |
 | **D3** | **Every plan switch emails `andre@corexos.co.za` and `johan@corexos.co.za`**, sent via the existing `corex` mailer (`config/mail.php` → `mail.mailers.corex`, from `mail@corexos.co.za`). |
@@ -206,6 +206,7 @@ trivially testable and safe to call on every page render.
 User::withoutGlobalScope(AgencyScope::class)   // owner context has no tenant; see §9
     ->where('agency_id', $agency->id)
     ->where('is_active', 1)
+    ->where('is_assistant', 0)                  // assistants are not billable seats (D1 amendment)
     ->whereNull('deleted_at')                   // SoftDeletes already applies this
     ->count();
 ```

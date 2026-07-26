@@ -32,6 +32,15 @@ class AdManagerController extends Controller
      */
     private function adScope(User $user): string
     {
+        // AT-267 — an assistant may build ads for ANY of the agency's listings.
+        // Every ad carries the LISTING agent's own contact details (never the
+        // assistant's — Property::adData() reads $property->agent), so widening
+        // the pool cannot misattribute a listing. They own no listings themselves,
+        // so an 'own' scope would leave them with an empty Ad Manager.
+        if ($user->is_assistant) {
+            return 'all';
+        }
+
         $scope = PermissionService::getDataScope($user, 'ad_manager');
 
         return in_array($scope, ['all', 'branch'], true) ? $scope : 'own';

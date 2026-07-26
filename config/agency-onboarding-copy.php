@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\AgencyApiKeyController;
 use App\Http\Controllers\Admin\CompanySettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
+use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -87,6 +89,70 @@ return [
         ],
     ],
 
+    // ── Feature switchboard (spec: agency-onboarding-feature-switchboard.md) ──
+    // A consolidated front door onto switches that already exist. Every toggle
+    // fans to its EXISTING canonical saver (no parallel flag system). Turning a
+    // feature OFF here skips its dedicated detail step (adaptive step-gating).
+    'capabilities' => [
+        'title' => 'What CoreX can do — turn features on or off',
+        'intro' => 'CoreX is modular. Switch on the parts your agency uses and leave the rest off — '
+            . 'everything you turn on is set up in the steps that follow, and everything you turn off is '
+            . 'skipped. Nothing here is permanent; you can change any of it later from Settings.',
+        'what' => [
+            'title' => 'Your CoreX toolkit',
+            'body'  => 'Think of this as the menu of everything CoreX can do for your agency. Each switch below '
+                . 'turns a whole capability on or off. Turn one ON and the next few steps walk you through '
+                . 'setting it up; turn one OFF and CoreX skips its setup and keeps it out of your agents\' way — '
+                . 'you can always come back and switch it on later. Set the shape of the product here first, and '
+                . 'the rest of this wizard tailors itself to the tools you chose.',
+        ],
+        // The auto-derived MODULE toggles (spec: corex-feature-registry.md §7) render
+        // above these six capability toggles, and post their feature key to
+        // FeatureSettingsController@update (agency_features). The six below keep their
+        // own store field names + canonical savers.
+        'partial' => 'agency-setup.steps.capabilities-modules',
+        'savers' => [
+            ['controller' => SettingsController::class,        'method' => 'updateMarketingEnabled'],
+            ['controller' => SettingsController::class,        'method' => 'updateSyndicationPortals'],
+            ['controller' => SettingsController::class,        'method' => 'updateMatchesEnabled'],
+            ['controller' => SettingsController::class,        'method' => 'updateSplitBranches'],
+            ['controller' => AgencyApiKeyController::class,     'method' => 'toggleWebsite', 'pass_agency' => true],
+            ['controller' => FeatureSettingsController::class,  'method' => 'update'],
+        ],
+        'controls' => [
+            ['key' => 'marketing_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Marketing',
+             'explain' => 'Whether CoreX runs its marketing tooling for your listings — social posts, brochures and campaign tracking attached to each property.',
+             'affects' => 'Whether the Marketing area and its buttons appear for your agents when they open a listing. Off hides the tools; nothing already created is deleted.'],
+
+            ['key' => 'matches_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Core Matches',
+             'explain' => 'Whether CoreX matches every new listing against your buyers\' wishlists in the background, so the right buyer surfaces the moment a fitting property lands.',
+             'affects' => 'Whether your agents are told who to call when a new listing lands. Off means no match alerts — and the Core Matches setup step is skipped.'],
+
+            ['key' => 'split_branches_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Multi-branch offices',
+             'explain' => 'Whether your agency runs as more than one branch, each with its own agents and its own book of properties, contacts and deals.',
+             'affects' => 'Whether agents are grouped by branch and whether a branch is credited on commission. With it on, an agent in one branch will not see another branch\'s data — decide it with your principal.'],
+
+            ['key' => 'website_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Public website',
+             'explain' => 'Whether your agency\'s public CoreX website — your agents, listings and branches — is live and reachable to the public.',
+             'affects' => 'Whether your public site is online or offline. Off takes the whole public site down without touching any of your internal data.'],
+
+            ['key' => 'syndication_p24_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'heading' => 'Property portals',
+             'label' => 'Publish to Property24',
+             'explain' => 'Whether CoreX pushes your active mandates to Property24 automatically when a listing is marked to syndicate.',
+             'affects' => 'Whether a syndicating listing is sent to Property24. Nothing sends with this off, even with your P24 credentials saved.'],
+
+            ['key' => 'syndication_pp_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Publish to Private Property',
+             'explain' => 'The same as Property24 above, for the Private Property portal.',
+             'affects' => 'Whether a syndicating listing is sent to Private Property. Needs your PP credentials saved against the agency first.'],
+        ],
+    ],
+
     'branding' => [
         'title' => 'Your logo & agency colours',
         'intro' => 'Upload your logo and CoreX will read your brand colours straight out of it. '
@@ -120,14 +186,26 @@ return [
                 . 'against another, and what decides which office a deal\'s commission is credited to. The short '
                 . 'code you give each branch appears on deal references and reports.',
         ],
+        // Multi-branch isolation (split_branches_enabled) is switched on in the
+        // Capabilities step (spec §3.2 — one home per switch); it is deliberately
+        // NOT re-added here. This step manages the branch list itself, and — from
+        // AT-267 — surfaces the Assistants settings so they reach the wizard
+        // (non-negotiable #10a). updateAssistants()'s boolean writes are all
+        // $request->has()-guarded (§6.1), so this step posting a subset cannot wipe
+        // a setting it never rendered.
         'savers' => [
-            ['controller' => SettingsController::class, 'method' => 'updateSplitBranches'],
+            ['controller' => SettingsController::class, 'method' => 'updateAssistants'],
         ],
         'controls' => [
-            ['key' => 'split_branches_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Keep each branch\'s data separate',
-             'explain' => 'Turn this on if your offices should operate as separate books — an agent in one branch will not see another branch\'s properties, contacts or deals. Leave it off if your team works one shared pool of stock.',
-             'affects' => 'What an agent standing in one office can see of another office\'s work. Turning it on later will hide records people are used to seeing, so decide this with your principal.'],
+            ['key' => 'assistants_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Allow agents to have assistants',
+             'explain' => 'An assistant is a person who works for one of your agents — a PA, or the office administrator who does an agent\'s paperwork. They get their own login instead of borrowing the agent\'s, and they start with a copy of that agent\'s permissions, which the agent then switches off item by item. An assistant can never do more than the agent they work for, and can never create or import a listing.',
+             'affects' => 'What this changes: an "Assistants" page appears under Company for your admins, and any agent who has an assistant gets a "My Assistants" entry in their sidebar to control what that assistant may do. Everything the assistant does is recorded as being on their agent\'s behalf, so your audit trail stops saying the agent did work they did not do.'],
+
+            ['key' => 'assistant_fica_required_default', 'source' => 'agency', 'type' => 'toggle', 'default' => 1,
+             'label' => 'New assistants must complete FICA verification',
+             'explain' => 'Whether a newly-created assistant is asked for their identity documents — an ID copy and proof of residence — as part of their onboarding. This sets the default; you can still change it for an individual assistant when you create them.',
+             'affects' => 'What this changes: when on, a new assistant sees a Compliance tab on their profile asking for an ID copy and proof of residence, and they appear on your compliance dashboards. When off, that tab is hidden and they are skipped by compliance reminders.'],
         ],
         'aux_partial' => 'agency-setup.steps.branches',
     ],
@@ -156,37 +234,25 @@ return [
 
     'properties' => [
         'title' => 'Properties & listings',
-        'intro' => 'How your property lists behave, where your listings get published, and the dropdown '
-            . 'options your agents pick from when they capture a property.',
+        // Marketing and portal syndication are switched on in the Capabilities
+        // step (spec §3.2 — one home per switch). This step keeps only how the
+        // property list itself behaves for your agents.
+        'intro' => 'How your property list behaves day to day for your agents.',
         'what' => [
-            'title' => 'What syndication means',
-            'body'  => 'Syndication is CoreX pushing your listings out to the public property portals — '
-                . 'Property24 and Private Property — automatically, so your agents capture a property once '
-                . 'instead of re-typing it into each portal. It only works once your portal credentials are '
-                . 'saved against the agency, so leave these off until those are in place.',
+            'title' => 'Your listings, your way',
+            'body'  => 'Whether CoreX markets your listings, and whether it publishes them to Property24 and '
+                . 'Private Property, you already chose back in the Capabilities step. Here you set how the '
+                . 'Properties list itself behaves — how much of your stock an agent sees at a time when they '
+                . 'open the page in the field or at a desk.',
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
-            ['controller' => SettingsController::class, 'method' => 'updateMarketingEnabled'],
-            ['controller' => SettingsController::class, 'method' => 'updateSyndicationPortals'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Properties per page',
              'explain' => 'How many listings load at a time on the Properties page. A smaller number loads faster on a phone in the field; a larger number means less clicking at a desk.',
              'affects' => 'How many properties an agent scrolls through before paging to the next set.'],
-            ['key' => 'marketing_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
-             'label' => 'Marketing tools',
-             'explain' => 'Switches on the marketing panel attached to each property — social posts, brochures and campaign tracking.',
-             'affects' => 'Whether agents see the marketing tab and its buttons when they open a property. Turning it off hides the tools; it does not delete anything already created.'],
-            ['key' => 'syndication_p24_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Publish listings to Property24',
-             'explain' => 'When on, a listing you mark for syndication is sent to Property24 automatically, and updates to it are pushed through as you make them.',
-             'affects' => 'Whether your stock appears on Property24. Needs your P24 username and password saved against the agency first — without them, nothing sends.'],
-            ['key' => 'syndication_pp_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Publish listings to Private Property',
-             'explain' => 'The same as above, for the Private Property portal.',
-             'affects' => 'Whether your stock appears on Private Property. Needs your PP credentials saved against the agency first.'],
         ],
     ],
 
@@ -246,17 +312,16 @@ return [
                 . 'and you immediately see who to phone; open a buyer and you see everything that fits them. '
                 . 'It is the difference between a listing sitting for a week and a listing sold on day one.',
         ],
+        // The Core Matches master switch (matches_enabled) lives in the
+        // Capabilities step (spec §3.2). This whole step is GATED on it — it only
+        // appears when Core Matches is on — so it configures how Matches works,
+        // never whether it is on.
         'savers' => [
-            ['controller' => SettingsController::class, 'method' => 'updateMatchesEnabled'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesShowOnProperties'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesVisibilityScope'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesWaMessage'],
         ],
         'controls' => [
-            ['key' => 'matches_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
-             'label' => 'Turn Core Matches on',
-             'explain' => 'The master switch. With it on, CoreX scores every new property against every buyer wishlist in your database, in the background, as properties are captured.',
-             'affects' => 'Whether your agents get told who to call when a new listing lands. Off, and buyer wishlists are stored but never acted on.'],
             ['key' => 'matches_show_on_properties', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
              'label' => 'Show matching buyers on the property page',
              'explain' => 'Adds a panel to each property listing the buyers whose wishlist it fits, best fit first.',

@@ -40,8 +40,14 @@ class DuplicateCleanupController extends Controller
 
     public function dismiss(Request $request, int $clusterId)
     {
+        // AT-267 (audit 2026-07-21) — this used a raw DB update by id with NO agency scope (no
+        // Eloquent global scope to save it), so any user could dismiss any agency's cluster by id.
+        // Bound it to the caller's effective agency, mirroring index().
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
+
         DB::table('contact_duplicate_clusters')
             ->where('id', $clusterId)
+            ->where('agency_id', $agencyId)
             ->update([
                 'status' => 'dismissed',
                 'reviewed_by_user_id' => auth()->id(),

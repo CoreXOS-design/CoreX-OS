@@ -895,8 +895,10 @@ class DemoDataSeeder extends Seeder
         ];
 
         foreach ($demo as $key => $value) {
+            // company_* stay platform-global — write the NULL-agency row, pinning
+            // the match so a per-agency override (any other key) is never touched.
             DB::table('performance_settings')->updateOrInsert(
-                ['key' => $key],
+                ['key' => $key, 'agency_id' => null],
                 ['value' => $value, 'updated_at' => now(), 'created_at' => now()]
             );
         }

@@ -77,7 +77,8 @@ class DocumentFiling extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('agent_id', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        if ($scope === 'own') return $query->whereIn('agent_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }

@@ -34,6 +34,11 @@ use Illuminate\Http\Response;
  */
 class AmendmentController extends Controller
 {
+    // AT-267 H5 — approve/reject bound a DocumentAmendment by id (no global scope) and checked only
+    // the manage_documents key, so any holder could act on ANY agency's amendment. Add the per-record
+    // guard on the underlying document.
+    use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+
     public function __construct(private readonly SignatureService $signatureService) {}
 
     public function review(Request $request, DocumentAmendment $amendment): Response
@@ -42,6 +47,8 @@ class AmendmentController extends Controller
         if (! $user->hasPermission('manage_documents')) {
             abort(403);
         }
+        abort_unless($amendment->document !== null, 404);
+        $this->guardDocument($amendment->document);
 
         $amendment->load(['template', 'document']);
 
@@ -69,6 +76,8 @@ class AmendmentController extends Controller
         if (! $user->hasPermission('manage_documents')) {
             abort(403);
         }
+        abort_unless($amendment->document !== null, 404);
+        $this->guardDocument($amendment->document);
 
         $amendment->load('template');
 
@@ -102,6 +111,8 @@ class AmendmentController extends Controller
         if (! $user->hasPermission('manage_documents')) {
             abort(403);
         }
+        abort_unless($amendment->document !== null, 404);
+        $this->guardDocument($amendment->document);
 
         $validated = $request->validate([
             'reason' => ['nullable', 'string', 'max:2000'],
@@ -124,6 +135,8 @@ class AmendmentController extends Controller
         if (! $user->hasPermission('manage_documents')) {
             abort(403);
         }
+        abort_unless($amendment->document !== null, 404);
+        $this->guardDocument($amendment->document);
 
         $validated = $request->validate([
             'reason' => ['nullable', 'string', 'max:2000'],

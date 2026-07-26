@@ -82,7 +82,10 @@
                             <div class="px-4 py-2 text-xs text-gray-500 uppercase">View As</div>
 
                             @foreach(\App\Models\Role::allRoles(auth()->user()?->effectiveAgencyId()) as $viewRole)
-                                @if(!$viewRole->is_owner)
+                                {{-- Assistant is a separate identity, not a role (AT-267). Its role is
+                                     deliberately zero-grant, so "View As Assistant" shows an empty UI —
+                                     exclude it here just as the Role Manager and Switch User picker do. --}}
+                                @if(!$viewRole->is_owner && $viewRole->name !== 'assistant')
                                 <form method="POST" action="{{ route('admin.viewas.update') }}">@csrf
                                     <input type="hidden" name="role" value="{{ $viewRole->name }}">
                                     <button type="submit" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"

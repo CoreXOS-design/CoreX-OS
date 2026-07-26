@@ -16,6 +16,8 @@ use App\Services\SlidingScaleService;
 
 class DealController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesDealAccess;
+
     private function isLocked(Deal $deal): bool
     {
         return (string)($deal->commission_status ?? '') === 'Paid';
@@ -51,6 +53,7 @@ class DealController extends Controller
     public function addRemark(Request $request, Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.create'), 403);
+        $this->authorizeDeal($deal);
 
         $data = $request->validate([
             'remark' => ['required', 'string', 'max:2000'],
@@ -74,6 +77,7 @@ class DealController extends Controller
 public function log(Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+        $this->authorizeDeal($deal, forEdit: false); // pure read — assistant may view at agent breadth
 
         $logs = DealLog::query()
             ->where('deal_id', $deal->id)
@@ -82,7 +86,11 @@ public function log(Deal $deal)
 
         $actors = User::whereIn('id', $logs->pluck('actor_user_id')->filter()->unique()->values())->get()->keyBy('id');
 
-        return view('admin.deals.log', compact('deal', 'logs', 'actors'));
+        // AT-267 — may the current user EDIT this deal? An assistant may VIEW a colleague's deal at
+        // the agent's breadth but only EDIT the agent's own; the page renders read-only when false.
+        $canEdit = $this->canMutateDeal($deal);
+
+        return view('admin.deals.log', compact('deal', 'logs', 'actors', 'canEdit'));
     }
 
 
@@ -169,7 +177,8 @@ public function index(Request $request)
             })->values();
         }
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         // Branch context for Branch Commission column
@@ -193,7 +202,8 @@ public function index(Request $request)
         $actingBranchId = $user?->actingBranchManagerId();
         $defaultBranchId = $actingBranchId ?: $user?->effectiveBranchId();
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
 
         // Branch-scope users should only see (and use) their branch
         $branches = Branch::orderBy('name');
@@ -219,9 +229,11 @@ public function index(Request $request)
     }public function edit(Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+        $this->authorizeDeal($deal);
 
 
-        $agents = User::orderBy('name')->get();
+        $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
+            ->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
         return view('admin.deals.form', [
@@ -286,7 +298,7 @@ public function index(Request $request)
     public function update(Request $request, Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
-
+        $this->authorizeDeal($deal);
 
         return $this->persistDeal($deal, $request);
     }
@@ -295,6 +307,7 @@ public function index(Request $request)
     public function quickUpdate(Request $request, Deal $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+        $this->authorizeDeal($deal);
 
         $oldAccepted = (string)($deal->accepted_status ?? '');
         $oldCommission = (string)($deal->commission_status ?? '');
@@ -627,6 +640,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
 
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal);
 
         $deal->load('agents');
 
@@ -660,6 +674,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
 
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal);
 
         // Allow settlement save if marking paid (needed to populate paid_at)
         if ($this->isLocked($deal) && !$request->boolean('mark_paid')) {
@@ -931,6 +946,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
     {
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal);
 
         $deal->load('agents');
 
@@ -981,6 +997,7 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
     {
         // BM_SETTLEMENT_GUARD
         abort_unless(auth()->user()?->hasPermission('settle_deals'), 403);
+        $this->authorizeDeal($deal);
 
         $deal->load('agents');
 

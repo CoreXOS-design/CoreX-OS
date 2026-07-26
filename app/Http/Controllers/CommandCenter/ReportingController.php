@@ -52,7 +52,7 @@ class ReportingController extends Controller
         }
 
         $branches = in_array($user->role, ['admin', 'super_admin', 'owner'])
-            ? \App\Models\Branch::withoutGlobalScopes()->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))   // AT-253 Rule 17->get(['id', 'name'])
+            ? \App\Models\Branch::withoutGlobalScopes()->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))->get(['id', 'name']) // AT-253 Rule 17
             : collect();
 
         return view('command-center.reporting.branch', [

@@ -244,7 +244,13 @@ class Communication extends Model
             if ($scope === 'branch' && $user->effectiveBranchId()) {
                 $outer->whereHas('owner', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()));
             } else {
-                $outer->where('owner_user_id', $user->id); // 'own', or 'branch' with no branch id
+                // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else this
+                // is exactly [$user->id]. An assistant who has been granted communications.view
+                // by their agent sees the agent's threads — handling the agent's correspondence
+                // is the job. The participant (b) and grant (c) branches below are unchanged:
+                // they key off the acting user's OWN mailboxes and OWN grants, which an
+                // assistant does not inherit.
+                $outer->whereIn('owner_user_id', $user->dataIdentityIds()); // 'own', or 'branch' with no branch id
             }
 
             // (b) OR — participant visibility, THREAD-LEVEL (AT-127). A user who was

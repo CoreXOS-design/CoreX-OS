@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
+use App\Models\Concerns\StampsOnBehalfOf;
 
 class PropertyAuditLog extends Model
 {
-    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, StampsOnBehalfOf;
 
     /** A child's branch is its parent's branch, never the acting user's. */
     protected function branchParent(): array

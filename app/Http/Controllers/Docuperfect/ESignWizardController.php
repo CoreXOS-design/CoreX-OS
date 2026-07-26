@@ -1939,7 +1939,11 @@ class ESignWizardController extends Controller
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
-                'owner_id'         => $user->id,
+                // AT-267 / AUDIT 2026-07-26 (F3) — an assistant's document files under the AGENT.
+                // Document::scopeVisibleTo() resolves an agent's 'own' as [agent] only, so an
+                // assistant-owned OTP/mandate was invisible to the practitioner it was prepared
+                // for. ownershipUserId() returns $user->id for everyone who is not an assistant.
+                'owner_id'         => $user->ownershipUserId(),
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
@@ -4195,7 +4199,7 @@ class ESignWizardController extends Controller
             'name' => $docName,
             'template_id' => $template->id,
             'fields_json' => $fields,
-            'owner_id' => $user->id,
+            'owner_id' => $user->ownershipUserId(), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
             'branch_id' => $user->effectiveBranchId(),
             'document_type' => $template->template_type,
             'property_address' => $propertyAddress,
@@ -4395,7 +4399,7 @@ class ESignWizardController extends Controller
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
-                'owner_id'         => $user->id,
+                'owner_id'         => $user->ownershipUserId(), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
@@ -4531,7 +4535,10 @@ class ESignWizardController extends Controller
     public function downloadDocument(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        // AT-267 / AUDIT 2026-07-26 (F3) — documents an assistant builds are owned by the AGENT,
+        // so an owner_id === self lookup 404s the assistant on their own work. dataIdentityIds()
+        // is [self] for everyone else, so this is a no-op outside the assistant case.
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId);
         $document->load('template');
 
         $mergedHtml = $document->web_template_data['merged_html'] ?? null;
@@ -4552,7 +4559,7 @@ class ESignWizardController extends Controller
         set_time_limit(120);
 
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId); // AT-267 / AUDIT 2026-07-26 (F3)
         $mergedHtml = $document->web_template_data['merged_html'] ?? '';
 
         if (empty($mergedHtml)) {
@@ -4646,7 +4653,7 @@ class ESignWizardController extends Controller
     public function wetInkAgentUpload(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds()) // AT-267 / AUDIT 2026-07-26 (F3)
             ->with('signatureTemplate.requests')
             ->findOrFail($documentId);
 
@@ -4710,7 +4717,7 @@ class ESignWizardController extends Controller
     public function wetInkAgentApprove(Request $request, $documentId)
     {
         $user = $request->user();
-        $document = Document::where('owner_id', $user->id)
+        $document = Document::whereIn('owner_id', $user->dataIdentityIds()) // AT-267 / AUDIT 2026-07-26 (F3)
             ->with('signatureTemplate.requests')
             ->findOrFail($documentId);
 

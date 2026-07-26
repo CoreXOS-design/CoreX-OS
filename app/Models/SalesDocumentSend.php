@@ -73,7 +73,8 @@ class SalesDocumentSend extends Model
             });
         }
 
-        if ($scope === 'own') return $query->where('sent_by', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        if ($scope === 'own') return $query->whereIn('sent_by', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }

@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ContactMatchController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     /**
      * Canonical feature token list for the wishlist chip selectors
      * (must_have_features, nice_to_have_features, deal_breakers).
@@ -48,7 +50,10 @@ class ContactMatchController extends Controller
 
         $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
-            ->where('created_by_user_id', $user->id)
+            // AT-267 — an assistant works the assigned agent's book (dataIdentityIds() = [agentId,
+            // selfId]); everyone else is [$user->id]. Keying on $user->id alone left this page inert
+            // for assistants (they own no matches).
+            ->whereIn('created_by_user_id', $user->dataIdentityIds())
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
             ->get();
@@ -80,10 +85,14 @@ class ContactMatchController extends Controller
         $user = auth()->user();
 
         // Scope: whole agency, or just the viewer's branch when branch-split is on.
+        // Mirror the canonical BranchScope gate exactly — a `branches.view_all`
+        // holder (principal / agency admin) is NEVER branch-limited, even when
+        // acting-as-branch, so their agent-filter dropdown matches the data they
+        // can actually see. Omitting this check clamped their dropdown alone.
         $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
         $splitOn  = (bool) ($agency?->split_branches_enabled);
         $branchId = $user->effectiveBranchId();
-        $branchLimited = $splitOn && $branchId;
+        $branchLimited = $splitOn && $branchId && !$user->hasPermission('branches.view_all');
 
         // Agents available in the filter dropdown.
         $agentsQuery = User::agencyMembers()
@@ -159,6 +168,7 @@ class ContactMatchController extends Controller
 
     public function store(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $this->validatePayload($request);
         $data['contact_id']         = $contact->id;
         $data['created_by_user_id'] = auth()->id();
@@ -202,6 +212,7 @@ class ContactMatchController extends Controller
 
     public function update(Request $request, Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $match->update($this->validatePayload($request));
 
@@ -211,6 +222,7 @@ class ContactMatchController extends Controller
 
     public function setStatus(Request $request, Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $status = $request->validate([
             'status' => 'required|in:active,paused,fulfilled,expired',
@@ -239,6 +251,7 @@ class ContactMatchController extends Controller
 
     public function toggleHide(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
 
         // Resolve through the scoped model so only an in-agency property id can be
@@ -260,6 +273,7 @@ class ContactMatchController extends Controller
 
     public function destroy(Contact $contact, ContactMatch $match)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
         $match->delete();
 
@@ -273,6 +287,7 @@ class ContactMatchController extends Controller
      */
     public function convertToDeal(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
+        $this->authorizeContact($contact);
         abort_if($match->contact_id !== $contact->id, 403);
 
         // Resolve through the scoped Property model. The {property} route segment

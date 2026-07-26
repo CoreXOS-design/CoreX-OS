@@ -34,11 +34,23 @@
         </div>
     @endif
 
+    @if (session('error'))
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--ds-crimson);">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.71-3L13.71 4a2 2 0 00-3.42 0L3.36 16a2 2 0 001.71 3z"/>
+            </svg>
+            <div class="flex-1">{{ session('error') }}</div>
+        </div>
+    @endif
+
     @forelse ($cards as $card)
-        @php $agency = $card['agency']; $counts = $card['counts']; $portals = $card['portals']; $events = $card['events']; @endphp
+        @php $agency = $card['agency']; $counts = $card['counts']; $portals = $card['portals']; $events = $card['events']; $agents = $card['agents']; $agentCounts = $card['agentCounts']; @endphp
         <div class="rounded-md overflow-hidden"
              style="background: var(--surface); border: 1px solid var(--border);"
-             x-data="{ historyOpen: false, createOpen: false }">
+             x-data="{ historyOpen: false, createOpen: false, agentsOpen: false }">
             {{-- Agency header --}}
             <div class="flex items-center justify-between gap-4 px-5 py-4" style="border-bottom: 1px solid var(--border);">
                 <div class="flex items-center gap-3 min-w-0">
@@ -137,6 +149,108 @@
                                         </form>
                                     @endif
                                 </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+
+            {{-- Agents — the LAST step of onboarding. Properties land above via
+                 the portal; once they are in, the agency's agents get their
+                 invite links from here. Agency-scoped, so it covers every agent
+                 run this agency has had. --}}
+            <div class="px-4 pb-4" style="border-top: 1px solid var(--border); padding-top: 1rem;">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Agents</div>
+                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">Last step — invite them once their properties are in.</div>
+                    </div>
+
+                    @if ($agentCounts['pending'] > 0)
+                        @php
+                            $confirmMsg = 'Send invite links to ' . $agentCounts['pending'] . ' ' . str('agent')->plural($agentCounts['pending'])
+                                . ' at ' . $agency->name . '? Each one gets an email to set their password and activate their account.';
+                        @endphp
+                        <form method="POST" action="{{ route('admin.importer.agency.invite-agents', $agency) }}" onsubmit="return confirm({{ Js::from($confirmMsg) }});">
+                            @csrf
+                            <button type="submit" class="corex-btn-primary">
+                                Send invite links ({{ number_format($agentCounts['pending']) }})
+                            </button>
+                        </form>
+                    @elseif ($agentCounts['total'] > 0)
+                        <span class="text-xs" style="color: var(--text-muted);">
+                            Every imported agent has been invited or is already active.
+                        </span>
+                    @endif
+                </div>
+
+                @if ($agentCounts['total'] === 0)
+                    <div class="rounded-md py-6 px-6 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <p class="text-sm" style="color: var(--text-muted);">
+                            No agents imported for this agency yet. Import the agents CSV from the importer first —
+                            listings bind to their agent on import.
+                        </p>
+                    </div>
+                @else
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-2">
+                        @foreach ([
+                            'Imported' => $agentCounts['total'],
+                            'Not invited' => $agentCounts['pending'],
+                            'Invited' => $agentCounts['invited'],
+                            'Active' => $agentCounts['active'],
+                        ] as $label => $val)
+                            <div class="rounded-md p-2 text-center" style="background: var(--surface-2);">
+                                <div style="color: var(--text-muted);">{{ $label }}</div>
+                                <div class="font-semibold" style="color: var(--text-primary);">{{ number_format((int) $val) }}</div>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <button type="button" @click="agentsOpen = !agentsOpen"
+                            class="w-full flex items-center justify-between px-3 py-2 rounded-md text-left text-sm transition-colors"
+                            style="background: var(--surface-2); color: var(--text-primary);">
+                        <span>Show agents <span class="text-xs" style="color: var(--text-muted);">({{ number_format($agentCounts['total']) }})</span></span>
+                        <svg class="w-4 h-4 transition-transform" :class="agentsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--text-muted);">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+
+                    <div x-show="agentsOpen" x-cloak class="mt-2 space-y-1">
+                        @foreach ($agents as $agent)
+                            @php
+                                $state = $agent->is_active ? 'active' : ($agent->invited_at ? 'invited' : 'pending');
+                                $stateBadge = match ($state) {
+                                    'active'  => ['ds-badge-success', 'Active'],
+                                    'invited' => ['ds-badge-info', 'Invited ' . $agent->invited_at->diffForHumans()],
+                                    default   => ['ds-badge-default', 'Not invited'],
+                                };
+                            @endphp
+                            <div class="rounded-md p-3 flex flex-wrap items-center gap-3"
+                                 style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <div class="min-w-[160px] flex-1">
+                                    <div class="text-sm font-medium truncate" style="color: var(--text-primary);">{{ $agent->name }}</div>
+                                    <div class="text-xs truncate" style="color: var(--text-muted);">
+                                        {{ $agent->email ?: 'No email address on file' }}
+                                    </div>
+                                </div>
+
+                                <span class="ds-badge {{ $stateBadge[0] }}">{{ $stateBadge[1] }}</span>
+
+                                @if ($state === 'active')
+                                    {{-- Already set a password. Nothing to invite them to. --}}
+                                @elseif (blank($agent->email))
+                                    <span class="text-xs" style="color: var(--ds-amber);">Add an email address to invite</span>
+                                @else
+                                    @php
+                                        $agentConfirm = ($state === 'invited' ? 'Re-send' : 'Send') . ' an invite link to ' . $agent->email . '?';
+                                    @endphp
+                                    <form method="POST" action="{{ route('admin.importer.agent.invite', $agent->id) }}" class="inline" onsubmit="return confirm({{ Js::from($agentConfirm) }});">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-outline">
+                                            {{ $state === 'invited' ? 'Re-send' : 'Send invite' }}
+                                        </button>
+                                    </form>
+                                @endif
                             </div>
                         @endforeach
                     </div>

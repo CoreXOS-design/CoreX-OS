@@ -8,9 +8,20 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class ProspectingListing extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /**
+     * Branch follows the capturing agent — set here (not the acting user) so a
+     * queued/import capture with no auth still resolves the right branch.
+     */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'captured_by_user_id'];
+    }
 
     protected $fillable = [
         'agency_id',

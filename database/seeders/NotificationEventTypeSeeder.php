@@ -121,6 +121,19 @@ class NotificationEventTypeSeeder extends Seeder
             // push (the alarm must not depend on FCM being configured on the environment it warns about).
             // The security log is the guaranteed record — this is the human-facing half.
             $this->row('security.permissions_unavailable', 'agent', 'Security', 'CoreX permissions are unavailable (all access denied)', 'none', null, null, null, 50, false, null, inApp: true, email: true, push: false),
+
+            // AT-267 / AUDIT 2026-07-26 (F1) — "Notify me when {assistant} adds or changes
+            // something", the third of the control-page toggles that shipped on the page with no
+            // producer behind it. Fired by LogAssistantActivity, which is already the one
+            // chokepoint every assistant request passes through.
+            //
+            // IN-APP ONLY, deliberately. This is a per-CHANGE alert, not a daily summary — an
+            // agent with a busy assistant would get a mailbox full of "Thandi edited 14 Beach
+            // Road" and turn the whole thing off, which is how a useful signal gets killed. The
+            // gateway's per-(user, event, subject) cooldown throttles the in-app stream on top.
+            // The assignment's own `notify_on_action` defaults OFF, so this stays silent until an
+            // agent explicitly asks for it.
+            $this->row('assistant.acted_on_behalf', 'agent', 'My activity', 'My assistant added or changed something', 'none', null, null, null, 60, false, null, inApp: true, email: false, push: false),
         ];
     }
 

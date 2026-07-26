@@ -34,7 +34,12 @@ class CalendarEventService
     public function createManual(array $data, User $user): CalendarEvent
     {
         return CalendarEvent::create(array_merge($data, [
-            'user_id'       => $data['user_id'] ?? $user->id,
+            // AT-267 §7.2 — an assistant works the AGENT's calendar: the event is OWNED by the
+            // agent (appears on their day as if they added it), while created_by_id records the
+            // assistant as the actual actor. ownershipUserId() is the agent for an assistant and
+            // self for everyone else, so a normal user is unaffected. An assistant is clamped to
+            // their agent — a submitted user_id cannot redirect the event to another practitioner.
+            'user_id'       => $user->isAssistant() ? $user->ownershipUserId() : ($data['user_id'] ?? $user->id),
             'created_by_id' => $user->id,
             'event_type'    => $data['event_type'] ?? 'manual',
             // category MUST be set — both web and mobile GETs apply

@@ -19,8 +19,11 @@ use Illuminate\Support\Str;
  */
 class ContactTestimonialController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function store(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $this->validateInput($request);
 
         $contact->testimonials()->create([
@@ -40,6 +43,7 @@ class ContactTestimonialController extends Controller
 
     public function update(Request $request, Contact $contact, ContactTestimonial $testimonial)
     {
+        $this->authorizeContact($contact);
         abort_unless($testimonial->contact_id === $contact->id, 404);
 
         $data = $this->validateInput($request);
@@ -58,6 +62,7 @@ class ContactTestimonialController extends Controller
 
     public function destroy(Contact $contact, ContactTestimonial $testimonial)
     {
+        $this->authorizeContact($contact);
         abort_unless($testimonial->contact_id === $contact->id, 404);
 
         // Soft delete; the observer fires testimonial.removed if it was published.

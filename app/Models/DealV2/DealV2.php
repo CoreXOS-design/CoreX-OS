@@ -295,13 +295,19 @@ class DealV2 extends Model
         }
 
         if ($scope === 'branch') {
-            return $query->where('branch_id', $user->branch_id);
+            // effectiveBranchId() honours an admin's view_as_branch_id override —
+            // the same "user's branch" the canonical BranchScope filters on. Reading
+            // raw branch_id here was a second, divergent interpretation.
+            return $query->where('branch_id', $user->effectiveBranchId());
         }
 
-        return $query->where(function ($q) use ($user) {
-            $q->where('listing_agent_id', $user->id)
-              ->orWhere('selling_agent_id', $user->id)
-              ->orWhere('created_by_id', $user->id);
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        $identityIds = $user->dataIdentityIds();
+
+        return $query->where(function ($q) use ($identityIds) {
+            $q->whereIn('listing_agent_id', $identityIds)
+              ->orWhereIn('selling_agent_id', $identityIds)
+              ->orWhereIn('created_by_id', $identityIds);
         });
     }
 

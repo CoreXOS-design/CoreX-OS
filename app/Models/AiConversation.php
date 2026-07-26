@@ -32,7 +32,14 @@ class AiConversation extends Model
 
         if ($scope === 'all') return $query;
 
-        // AI conversations are private — only the owner can see them
+        // AI conversations are private — only the owner can see them.
+        //
+        // AT-267 — DELIBERATELY NOT dataIdentityIds(). This is the one model on the
+        // PRIVATE_TO_SELF allowlist (AssistantVisibilityCoverageTest): an assistant must NOT
+        // read their Assigned Agent's Ellie conversations. Not everything an agent can see is
+        // something the agent meant to delegate — an agent talks to Ellie the way they'd think
+        // out loud, about their own deals, their own targets, sometimes their own colleagues.
+        // Handing that to an assistant is a privacy breach, not a feature.
         return $query->where('user_id', $user->id);
     }
 

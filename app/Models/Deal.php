@@ -804,11 +804,14 @@ public function listingPool()
             });
         }
 
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
+        // A deal an assistant captured is the AGENT's deal (it is stamped to them), so the
+        // assistant sees the agent's deal book — which is the only way they can work it.
         if ($scope === 'own') {
             return $query->whereIn('id', function ($sub) use ($user) {
                 $sub->select('deal_id')
                     ->from('deal_user')
-                    ->where('user_id', $user->id);
+                    ->whereIn('user_id', $user->dataIdentityIds());
             });
         }
 

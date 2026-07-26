@@ -22,6 +22,43 @@ use Illuminate\Support\Facades\DB;
 class CommandCenterApiController extends Controller
 {
     /**
+     * AT-267 H1 (audit 2026-07-21) — per-record guards. tasksUpdate/Destroy/Complete/UpdateStatus
+     * and calendarUpdate/Destroy bound a record by id and ran with NO owner check, so any user
+     * could edit/reassign (assigned_to)/delete ANY task or calendar event in the agency by id
+     * (task hijack). These gate every mutation through the SAME scope the list uses; an assistant
+     * is clamped to 'own' — the assigned agent's task list — never another agent's.
+     */
+    private function authorizeTask(CommandTask $task): void
+    {
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
+        $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::taskScope($user);
+        abort_unless(CommandTask::visibleTo($user, $scope)->whereKey($task->getKey())->exists(), 403);
+    }
+
+    private function authorizeEvent(CalendarEvent $event): void
+    {
+        $user = auth()->user();
+        $this->assertMayMutateRecords($user);
+        $scope = $user?->is_assistant ? 'own' : \App\Services\PermissionService::calendarScope($user);
+        abort_unless(CalendarEvent::visibleTo($user, $scope)->whereKey($event->getKey())->exists(), 403);
+    }
+
+    /**
+     * AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+     *
+     * Tasks and calendar events resolve their own scope (taskScope / calendarScope) rather than
+     * PermissionService::mutationScope(), so the toggle is read explicitly on both guards. Both
+     * guards are called only from the UPDATE/DELETE paths — creating stays available, which is
+     * the whole point of the toggle ("not just add them").
+     */
+    private function assertMayMutateRecords(?\App\Models\User $user): void
+    {
+        abort_if($user && ! $user->canMutateRecords(), 403,
+            'Editing and deleting records is switched off for your assistant account. You can still add new ones.');
+    }
+
+    /**
      * Classes an agent may create manually from the mobile app — mirrors
      * CalendarController::MANUAL_CREATABLE_CLASSES. Surfaced verbatim by
      * calendarOptions() so the app never offers (or POSTs) a class the web
@@ -317,6 +354,7 @@ class CommandCenterApiController extends Controller
 
     public function calendarUpdate(Request $request, CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         $data = $request->validate([
             'title'         => 'sometimes|required|string|max:255',
             'event_date'    => 'sometimes|required|date',
@@ -376,6 +414,7 @@ class CommandCenterApiController extends Controller
 
     public function calendarDestroy(Request $request, CalendarEvent $calendarEvent): JsonResponse
     {
+        $this->authorizeEvent($calendarEvent);
         // Cancel cascade — notify attendees + cancel invitations (parity with web destroy)
         $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
             ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
@@ -537,7 +576,10 @@ class CommandCenterApiController extends Controller
         ]);
 
         $data = $request->all();
-        $data['assigned_to']   = $request->user()->id;
+        // AT-267 — an assistant's work is filed as the AGENT. ownershipUserId() = the assigned agent
+        // for an assistant, and $user->id for everyone else, so a task an assistant creates lands on
+        // the agent's board (never the assistant's).
+        $data['assigned_to']   = $request->user()->ownershipUserId();
         $data['task_type']     = $data['task_type'] ?? 'custom';
         $data['send_reminder'] = $request->boolean('send_reminder', true);
 
@@ -549,12 +591,14 @@ class CommandCenterApiController extends Controller
 
     public function tasksComplete(CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $task->markDone();
         return response()->json(['ok' => true]);
     }
 
     public function tasksUpdateStatus(Request $request, CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $request->validate(['status' => 'required|in:todo,in_progress,awaiting,done,dismissed']);
 
         $service = new TaskService();
@@ -565,6 +609,7 @@ class CommandCenterApiController extends Controller
 
     public function tasksUpdate(Request $request, CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $data = $request->validate([
             'title'         => 'sometimes|required|string|max:255',
             'task_type'     => 'nullable|string|max:50',
@@ -592,6 +637,7 @@ class CommandCenterApiController extends Controller
      */
     public function tasksDestroy(CommandTask $task): JsonResponse
     {
+        $this->authorizeTask($task);
         $task->delete();
         return response()->json(['ok' => true]);
     }

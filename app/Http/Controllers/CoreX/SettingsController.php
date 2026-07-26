@@ -219,7 +219,7 @@ class SettingsController extends Controller
         // the settings rail.
 
         // Agents list for email signature preview selector
-        $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $data['agents'] = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(['id', 'name']); // AT-267: exclude assistants
 
         // Feature Settings tab: Dashboard — settings mode + agency dashboard settings
         $data['dashboardSettingsMode'] = $data['agency']->dashboard_settings_mode ?? 'user';
@@ -424,15 +424,26 @@ class SettingsController extends Controller
 
     public function updateMarketingEnabled(Request $request)
     {
-        $enabled = $request->boolean('marketing_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1). This saver is now
+        // a multi-caller (settings page AND the onboarding switchboard). A form
+        // that owns the toggle posts a hidden "0" companion, so a rendered-but-
+        // unchecked box still arrives and still saves false; an ABSENT field
+        // means the caller never rendered the control — leave the value alone.
+        if ($request->has('marketing_enabled')) {
+            // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+            PerformanceSetting::set('marketing_enabled', $request->boolean('marketing_enabled') ? 1 : 0);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Marketing setting updated.');
     }
 
     public function updateSyndicationPortals(Request $request)
     {
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
         foreach (['syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
-            PerformanceSetting::updateOrCreate(['key' => $key], ['value' => $request->boolean($key) ? 1 : 0]);
+            if ($request->has($key)) {
+                // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+                PerformanceSetting::set($key, $request->boolean($key) ? 1 : 0);
+            }
         }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
     }
@@ -582,8 +593,12 @@ class SettingsController extends Controller
 
     public function updateMatchesEnabled(Request $request)
     {
-        $enabled = $request->boolean('matches_enabled');
-        PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => $enabled ? 1 : 0]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (settings page AND the onboarding switchboard). Absent ⇒ leave alone.
+        if ($request->has('matches_enabled')) {
+            // Per-agency write (multi-tenancy #7) — set() stamps the current agency.
+            PerformanceSetting::set('matches_enabled', $request->boolean('matches_enabled') ? 1 : 0);
+        }
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Core Matches setting updated.');
     }
 
@@ -870,13 +885,72 @@ class SettingsController extends Controller
             return back()->with('error', 'No agency found.');
         }
 
-        $agency->update([
-            'split_branches_enabled' => $request->boolean('split_branches_enabled'),
-        ]);
+        // Saver-precondition guard (spec §3.4 / parent §6.1) — multi-caller
+        // (company-settings page AND the onboarding switchboard). Absent means
+        // the caller never rendered the toggle — leave the column alone.
+        if ($request->has('split_branches_enabled')) {
+            $agency->update([
+                'split_branches_enabled' => $request->boolean('split_branches_enabled'),
+            ]);
+        }
 
         $state = $agency->split_branches_enabled ? 'ON' : 'OFF';
         return redirect()->route('corex.settings', ['tab' => 'agency'])
             ->with('success', "Split Branches turned {$state}.");
+    }
+
+    /**
+     * AT-267 — the Assistants toggle + the FICA default for new assistants.
+     *
+     * `assistants_enabled` is the kill switch AND the safe default: it ships OFF for every
+     * agency, and it is the first thing AssistantPermissionResolver checks. Turning it off gives
+     * every assistant zero permissions instantly, which is the safe direction to fail — an
+     * assistant can never do MORE harm than a normal user because of this switch, only less.
+     *
+     * EVERY BOOLEAN WRITE IS GUARDED WITH $request->has() — agency-onboarding-setup.md §6.1.
+     * This saver is shared by Company Settings (which renders both controls) and the Setup Wizard
+     * (whose step may post only a SUBSET). An unguarded $request->boolean() on a field the caller
+     * never rendered reads an absent checkbox as FALSE and silently wipes a setting nobody
+     * touched — which is exactly how an agency would find Assistants mysteriously switched off
+     * after saving an unrelated wizard step.
+     */
+    public function updateAssistants(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'assistants_enabled'              => ['nullable', 'boolean'],
+            'assistant_fica_required_default' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        $payload = [];
+
+        if ($request->has('assistants_enabled')) {
+            $payload['assistants_enabled'] = $request->boolean('assistants_enabled');
+        }
+
+        if ($request->has('assistant_fica_required_default')) {
+            $payload['assistant_fica_required_default'] = $request->boolean('assistant_fica_required_default');
+        }
+
+        if ($payload === []) {
+            return back();
+        }
+
+        $agency->update($payload);
+
+        $state = $agency->assistants_enabled ? 'ON' : 'OFF';
+
+        return redirect()->route('corex.settings', ['tab' => 'agency'])
+            ->with('success', "Assistants turned {$state}.");
     }
 
     public function updateAgencyDashboardSettings(Request $request)

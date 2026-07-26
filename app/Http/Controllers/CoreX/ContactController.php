@@ -18,6 +18,8 @@ use Illuminate\Support\Str;
 
 class ContactController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -25,13 +27,19 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter: always default to the current user's own contacts on a
-        // fresh visit. An explicit ?agent_id= (e.g. "All", or another agent)
-        // applies for that browse only and is NOT persisted across visits.
+        // AT-267 — an assistant owns NO contacts of their own; every list defaults to the agent
+        // they work under. $ownerId is the assigned agent for an assistant, and the user
+        // themselves for everyone else, so the page loads the agent's book rather than an empty
+        // "my records" view.
+        $ownerId = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
+
+        // Agent filter: default to the owner's own contacts on a fresh visit (the assigned agent
+        // for an assistant). An explicit ?agent_id= (e.g. "All", or another agent) applies for that
+        // browse only and is NOT persisted across visits.
         if ($request->has('agent_id')) {
             $filterAgentId = $request->query('agent_id', '');
         } elseif ($canPickAgent) {
-            $filterAgentId = (string) $user->id;
+            $filterAgentId = (string) $ownerId;
         } else {
             $filterAgentId = '';
         }
@@ -56,8 +64,10 @@ class ContactController extends Controller
             }
             // 'all' scope with no filter = show all contacts
         } else {
-            // 'own' scope: agents see only their own (ContactScope also enforces this)
-            $query->where('created_by_user_id', $user->id);
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book — dataIdentityIds() = [agentId, selfId] —
+            // never the assistant's own empty id.
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
         }
 
         // AT-91 — WhatsApp Outreach Summary drill-through. ?channel=whatsapp
@@ -263,6 +273,14 @@ class ContactController extends Controller
         // returned ~0 results whenever the user hadn't first flipped the list to
         // "All Contacts" — the exact bug this closes. filterAgentId is therefore
         // pinned to '' (full scope) and any inherited ?agent_id is ignored.
+        //
+        // MERGE NOTE (QA2 -> Staging, 2026-07-26): AT-267 added a per-agent default here
+        // (assistant -> their assigned agent). It is deliberately NOT carried across — it is
+        // the exact narrowing AT-273 exists to remove, and re-applying it would return this
+        // page to ~0 results. AT-267's intent is unharmed: '' means "no EXTRA agent filter",
+        // and an assistant is still bounded by ContactScope::applyAssistant() to their agent's
+        // breadth, so they see their agent's book here rather than nothing. The AT-267 default
+        // remains in force on index(), which is the list AT-267 was actually about.
         $filterAgentId = '';
 
         $query = Contact::query();
@@ -275,8 +293,9 @@ class ContactController extends Controller
                 $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $user->branch_id));
             }
         } else {
-            // 'own' scope: agents see only their own (ContactScope also enforces this).
-            $query->where('created_by_user_id', $user->id);
+            // 'own' scope: agents see only their own (ContactScope also enforces this). For an
+            // assistant this is the assigned agent's book via dataIdentityIds().
+            $query->whereIn('created_by_user_id', $user->dataIdentityIds());
         }
 
         return $query;
@@ -393,6 +412,7 @@ class ContactController extends Controller
         $agencyAgents = \App\Models\User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('agency_id', $contact->agency_id)
             ->where('is_active', true)
+            ->where('is_assistant', false) // AT-267 — an assistant is never a responsible agent
             ->orderBy('name')
             ->get(['id', 'name']);
         $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
@@ -745,7 +765,14 @@ class ContactController extends Controller
             ->paginate(50, ['*'], 'history')
             ->appends(['tab' => 'history']);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog'));
+        // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
+        // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view
+        // renders read-only when false so no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateContact($contact);
+
+        // MERGE NOTE (QA2 -> Staging, 2026-07-26): both sides added a view variable here —
+        // AT-321-C's $fullAuditLog and AT-267's $canEdit. They are independent; both are kept.
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
@@ -1088,6 +1115,7 @@ class ContactController extends Controller
 
     public function update(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'first_name'      => 'required|string|max:100',
             'last_name'       => 'required|string|max:100',
@@ -1200,6 +1228,7 @@ class ContactController extends Controller
      */
     public function updatePropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'unit_number'        => 'nullable|string|max:50',
             'floor_number'       => 'nullable|string|max:50',
@@ -1348,6 +1377,7 @@ class ContactController extends Controller
      */
     public function clearPropertyAddress(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $columns = [
             'unit_number', 'floor_number', 'unit_section_block', 'complex_name',
             'street_number', 'street_name', 'suburb', 'city', 'province',
@@ -1363,6 +1393,7 @@ class ContactController extends Controller
 
     public function touch(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'last_contacted_at' => 'required|date',
         ]);
@@ -1380,6 +1411,7 @@ class ContactController extends Controller
      */
     public function toggleBirthdayReminder(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         if (! $contact->birthday) {
             return back()->with('error', 'Add a date of birth before setting a birthday reminder.');
         }
@@ -1403,6 +1435,7 @@ class ContactController extends Controller
      */
     public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'channel' => 'required|in:whatsapp,email',
             'subject' => 'nullable|string|max:1000',
@@ -1457,6 +1490,7 @@ class ContactController extends Controller
 
     public function destroy(Contact $contact)
     {
+        $this->authorizeContact($contact);
         $contact->delete();
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact deleted.');
@@ -1464,6 +1498,7 @@ class ContactController extends Controller
 
     public function recordConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'decision'     => 'nullable|in:given,declined',
@@ -1483,6 +1518,7 @@ class ContactController extends Controller
 
     public function revokeConsent(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $request->validate([
             'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
             'reason' => 'nullable|string|max:500',
@@ -1587,6 +1623,7 @@ class ContactController extends Controller
 
     public function syncTags(Request $request, Contact $contact)
     {
+        $this->authorizeContact($contact);
         $data = $request->validate([
             'tag_ids'   => 'nullable|array',
             'tag_ids.*' => 'integer|exists:contact_tags,id',
@@ -1623,7 +1660,9 @@ class ContactController extends Controller
         $user      = auth()->user();
         $dataScope = PermissionService::getDataScope($user, 'contacts');
 
-        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
+        // AT-267 — an assistant is never a selectable AGENT (they own no data). Exclude them from
+        // the picker on every scope.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where('is_active', 1);
 
         if ($dataScope === 'branch') {
             $branchId = $user->effectiveBranchId();

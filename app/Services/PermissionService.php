@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Assistants\AssistantPermissionResolver;
 
 class PermissionService
 {
@@ -207,6 +208,16 @@ class PermissionService
             return 'all';
         }
 
+        // AT-267 — an assistant's breadth is the narrower of what their agent granted them
+        // and what their agent actually has. Same reasoning as userHasPermission(): this sits
+        // before role resolution so the `assistant` role's (empty) scope rows are never read.
+        //
+        // This answers "how WIDE", not "whose". An assistant's 'own' means the AGENT's own —
+        // that is User::dataIdentityIds(), which every scopeVisibleTo() resolves through.
+        if ($user->is_assistant) {
+            return AssistantPermissionResolver::dataScope($user, $module);
+        }
+
         $role     = $user->effectiveRole();
         $agencyId = $user->effectiveAgencyId();
 
@@ -272,6 +283,41 @@ class PermissionService
     }
 
     /**
+     * The data scope for a MUTATION (edit / delete / any write), as opposed to a view/list.
+     *
+     * Identical to getDataScope() for everyone EXCEPT assistants. An assistant may VIEW at the
+     * assigned agent's full breadth (if the agent is a branch manager or admin, the assistant
+     * SEES the branch / agency) — but may only MUTATE the agent's OWN records. So an assistant's
+     * mutation scope is capped at 'own', which — resolved through User::dataIdentityIds() in
+     * every per-record guard — is exactly the agent's own book. An assistant may never EDIT
+     * another agent's item even when they can see it (Johan's ruling 2026-07-20; spec §7.2).
+     *
+     * View/list paths (scopeVisibleTo, route-model binding) keep using getDataScope(); only the
+     * per-record write guards use this.
+     */
+    public static function mutationScope(User $user, string $module): ?string
+    {
+        // AT-267 / AUDIT 2026-07-26 (F1) — the agent's "can edit & delete my records" toggle.
+        // When it is off, the assistant's MUTATION breadth is nothing at all, on every module.
+        // This sits FIRST and returns null (not 'own'), because null is what every per-record
+        // guard and every scopeVisibleTo() already reads as "no rows" — so switching the toggle
+        // off needs no new branch in any of the six call sites, and a guard added tomorrow
+        // inherits the behaviour for free. VIEW breadth (getDataScope) is deliberately untouched:
+        // the assistant still sees everything they saw before, they just cannot change it.
+        if (! $user->canMutateRecords()) {
+            return null;
+        }
+
+        $scope = static::getDataScope($user, $module);
+
+        if ($scope !== null && $user->is_assistant) {
+            return static::clampScope($scope, 'own'); // caps branch/all down to own
+        }
+
+        return $scope;
+    }
+
+    /**
      * Calendar data-visibility scope for a user (own | branch | all).
      * Reads command_center.calendar.view's scope; defaults to 'own' so a
      * user who reaches the page never accidentally sees the whole agency.
@@ -322,6 +368,21 @@ class PermissionService
             static::auditBreakGlass($user, "userHasPermission({$permissionKey})");
 
             return true;
+        }
+
+        // AT-267 — an ASSISTANT does not resolve permissions from their role. Their role
+        // (`assistant`) holds zero grants by design; everything they can do comes from their
+        // assignment matrix, intersected with their Assigned Agent's LIVE permissions, minus
+        // the property-upload locked set.
+        //
+        // This hook sits BEFORE role resolution deliberately: it means an assistant's
+        // `users.role` value is never consulted for grants at all, so even a mis-set role
+        // (the column defaults to 'agent'!) cannot leak agent permissions to them.
+        //
+        // It sits AFTER the owner bypass because an assistant can never hold an owner role —
+        // and if one somehow did, that is a far bigger problem than this feature.
+        if ($user->is_assistant) {
+            return AssistantPermissionResolver::allows($user, $permissionKey);
         }
 
         $role     = $user->effectiveRole();

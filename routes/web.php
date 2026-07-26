@@ -252,6 +252,7 @@ Route::middleware('auth')->group(function () {
 
     // Phase 7 — refresh request inbox + per-row actions.
     Route::prefix('corex/presentations/refresh-requests')
+        ->middleware('feature:presentations')
         ->name('corex.presentations.refresh-requests.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\Presentation\RefreshRequestController::class, 'index'])
@@ -312,10 +313,10 @@ Route::middleware('auth')->group(function () {
     // ── Admin: Marketing Suppression register (AT-49) ──
     // Identifier-level "suppressed everywhere" list; lifting a row is an opt-in.
     Route::get('/admin/marketing-suppressions', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'index'])
-        ->middleware('permission:marketing_suppressions.view')
+        ->middleware(['permission:marketing_suppressions.view', 'feature:marketing-suppressions'])
         ->name('admin.marketing-suppressions.index');
     Route::post('/admin/marketing-suppressions/{suppression}/lift', [\App\Http\Controllers\Admin\MarketingSuppressionController::class, 'lift'])
-        ->middleware('permission:marketing_suppressions.manage')
+        ->middleware(['permission:marketing_suppressions.manage', 'feature:marketing-suppressions'])
         ->where('suppression', '[0-9]+')
         ->name('admin.marketing-suppressions.lift');
 
@@ -354,6 +355,16 @@ Route::middleware('auth')->group(function () {
         Route::get('/csrf-token', function () {
             return response()->json(['token' => csrf_token()]);
         })->name('csrf-token');
+
+        // P24 importer gallery-completeness reconciliation — owner-only. The
+        // acceptance bar for the parallel importer is "zero galleries
+        // permanently short", and this is how the owner verifies it per agency
+        // without SSH: any nonzero `short`/`incomplete`/`failed` once the image
+        // lane has drained is a listing missing photos. Owner-only because the
+        // importer spans agencies (see admin/importer routes).
+        Route::get('/importer/gallery-reconciliation', [\App\Http\Controllers\Admin\ImporterController::class, 'galleryReconciliation'])
+            ->middleware('owner_only')
+            ->name('importer.gallery-reconciliation');
 
         // AT-178 Event-reminder popup toast — polled from EVERY page by the browser
         // session (components/reminder-toast.blade.php). MUST live in this
@@ -439,25 +450,26 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', fn () => redirect('/my-portal#profile', 301))->name('profile.edit');
     Route::patch('/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])->name('profile.update');
     Route::put('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    // AT-267 §10 — deleting an assistant's account is an admin action, never self-service.
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->middleware('deny_assistant')->name('profile.destroy');
     Route::get('/corex/extension/download', [ProfileController::class, 'downloadExtension'])->name('corex.extension.download');
 
     // Ellie (AI Assistant)
     Route::get('/ellie', [\App\Http\Controllers\EllieController::class, 'index'])
-        ->middleware('permission:access_ellie')->name('ellie.index');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.index');
 
     Route::post('/ellie/send', [\App\Http\Controllers\EllieController::class, 'send'])
-        ->middleware('permission:access_ellie')->name('ellie.send');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.send');
 
     // ELLIE_ROUTES_2026
     Route::post('/ellie/rename', [\App\Http\Controllers\EllieController::class, 'rename'])
-        ->middleware('permission:access_ellie')->name('ellie.rename');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.rename');
 
     Route::post('/ellie/archive', [\App\Http\Controllers\EllieController::class, 'archive'])
-        ->middleware('permission:access_ellie')->name('ellie.archive');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.archive');
 
     Route::post('/ellie/unarchive', [\App\Http\Controllers\EllieController::class, 'unarchive'])
-        ->middleware('permission:access_ellie')->name('ellie.unarchive');
+        ->middleware(['permission:access_ellie', 'feature:ellie'])->name('ellie.unarchive');
 
     // Calculators
     Route::get('/calculators', [\App\Http\Controllers\CalculatorController::class, 'index'])->middleware('permission:access_calculators')->name('calculators.index');
@@ -500,6 +512,48 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:access_branch_assignments')
         ->name('admin.branch-settings.update');
 
+
+    /*
+     | AT-267 — Assistants (admin surface).
+     |
+     | An admin creates the assistant and hands them to an agent. From there the AGENT owns
+     | what they may do (see agent.assistants.* below) and the admin owns whether they exist.
+     |
+     | Full CRUD is the floor (BUILD_STANDARD §1): list, view, create, reassign, revoke,
+     | restore. Revoke is a soft delete — no hard deletes, ever.
+     */
+    // AT-267 H2 — an assistant may NEVER manage assistants (create/reassign/revoke). The controller
+    // gates on hasPermission('assistants.*'), but those keys can seed ON for an assistant of an
+    // admin/BM agent, so an assistant could reassign THEMSELVES to a higher agent and widen their
+    // ceiling. deny_assistant blocks the whole surface regardless of matrix.
+    Route::prefix('admin/assistants')->name('admin.assistants.')->middleware(['agency.required', 'deny_assistant'])->group(function () {
+        Route::get('/',                             [\App\Http\Controllers\Admin\AssistantController::class, 'index'])->name('index');
+        Route::get('/create',                       [\App\Http\Controllers\Admin\AssistantController::class, 'create'])->name('create');
+        Route::post('/',                            [\App\Http\Controllers\Admin\AssistantController::class, 'store'])->name('store');
+        Route::get('/{assignment}',                 [\App\Http\Controllers\Admin\AssistantController::class, 'show'])->name('show');
+        // AUDIT 2026-07-26 (F5) — the missing U. Assistants are excluded from the User Management
+        // directory, so without this a typo in a name/email/cell/Title was permanent through the UI.
+        Route::get('/{assignment}/edit',            [\App\Http\Controllers\Admin\AssistantController::class, 'edit'])->name('edit');
+        Route::put('/{assignment}',                 [\App\Http\Controllers\Admin\AssistantController::class, 'update'])->name('update');
+        Route::post('/{assignment}/reassign',       [\App\Http\Controllers\Admin\AssistantController::class, 'reassign'])->name('reassign');
+        Route::post('/{assignment}/revoke',         [\App\Http\Controllers\Admin\AssistantController::class, 'revoke'])->name('revoke');
+        Route::post('/{assignment}/restore',        [\App\Http\Controllers\Admin\AssistantController::class, 'restore'])->name('restore')->withTrashed();
+        Route::post('/{assignment}/resend-invite',  [\App\Http\Controllers\Admin\AssistantController::class, 'resendInvite'])->name('resend-invite');
+    });
+
+    /*
+     | AT-267 — the agent's own Assistants page.
+     |
+     | Gated by OWNERSHIP inside the controller (agent_user_id === auth id), not by a permission
+     | key: the right to configure your own assistant derives from being their agent, the same
+     | way editing your own profile derives from being that user. A grantable key would allow an
+     | agent to have an assistant they cannot configure.
+     */
+    Route::prefix('my-portal/assistants')->name('agent.assistants.')->middleware('agency.required')->group(function () {
+        Route::get('/',                     [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'index'])->name('index');
+        Route::get('/{assignment}/matrix',  [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'edit'])->name('matrix');
+        Route::post('/{assignment}/matrix', [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'save'])->name('matrix.save');
+    });
 
     Route::get('/admin/users', [App\Http\Controllers\Admin\UserManagementController::class, 'index'])
         ->middleware('permission:manage_users')->name('admin.users');
@@ -617,8 +671,11 @@ Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin
     Route::post('/rows/{row}/resolve-agent', [\App\Http\Controllers\Admin\ImporterController::class, 'resolveAgentRow'])->name('row.resolve-agent');
     Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmBulk'])->name('rows.bulk-confirm');
     Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeBulk'])->name('rows.bulk-exclude');
-    Route::post('/agents/{user}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
-    Route::post('/runs/{run}/invite-all', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAllInvites'])->name('invite.all');
+    // Agent invites — the last step of onboarding, driven from the Property
+    // Onboarding review page once an agency's properties are in. Deliberately
+    // agency-scoped, not run-scoped: see ImporterController::sendAgencyInvites.
+    Route::post('/agents/{userId}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
+    Route::post('/agencies/{agency}/invite-agents', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAgencyInvites'])->name('agency.invite-agents');
 
     // Onboarding portals — admin management
     Route::post('/portals', [\App\Http\Controllers\Admin\ImporterController::class, 'createPortal'])->name('portal.create');
@@ -632,6 +689,9 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
     Route::get('/', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'welcome'])->name('welcome');
     Route::get('/review', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'review'])->name('review');
     Route::get('/status', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'status'])->name('status');
+    // Agent-invite step — sits between property review and finish.
+    Route::get('/invites', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'inviteAgents'])->name('invites');
+    Route::post('/invites/send', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'sendInvites'])->name('invites.send');
     Route::get('/finish', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'finish'])->name('finish');
     Route::post('/rows/{rowId}/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmRow'])->name('row.confirm');
     Route::post('/rows/{rowId}/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'excludeRow'])->name('row.exclude');
@@ -662,7 +722,7 @@ Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group
 });
 
 // ===== DEPOSIT INTEREST CALCULATOR =====
-Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:access_deposit_calculator'])->group(function () {
+Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:access_deposit_calculator', 'feature:calculators'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'index'])->name('deposit-interest-calculator.index');
     Route::get('/calculate', fn () => redirect()->route('deposit-interest-calculator.index'));
     Route::post('/calculate', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'calculate'])->name('deposit-interest-calculator.calculate');
@@ -735,11 +795,11 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
-    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware('permission:view_deals')->name('documents.download');
+    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware(['permission:view_deals', 'deny_assistant_download'])->name('documents.download');
 
     // Proforma Invoices (Accounting pillar) — any agent may generate from Granted onward
     // (server-gated); the endpoint re-checks eligibility, never trusts the hidden button.
-    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware('permission:proforma.generate')->name('proforma.generate');
+    Route::post('/{deal}/proforma', [\App\Http\Controllers\Proforma\ProformaController::class, 'generate'])->whereNumber('deal')->middleware(['permission:proforma.generate', 'feature:proforma-invoices'])->name('proforma.generate');
 
     // AT-228 — party-first document distribution (compose-and-review → send). Matrix does the
     // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
@@ -748,7 +808,7 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
 });
 
 // ===== PROFORMA INVOICES — view/download + ADMIN-ONLY overrides + settings =====
-Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function () {
+Route::prefix('proforma')->middleware(['auth', 'feature:proforma-invoices'])->name('proforma.')->group(function () {
     Route::get('/{invoice}',          [\App\Http\Controllers\Proforma\ProformaController::class, 'show'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('show');
     Route::get('/{invoice}/download', [\App\Http\Controllers\Proforma\ProformaController::class, 'download'])->whereNumber('invoice')->middleware('permission:proforma.generate')->name('download');
     // Admin-only (permission re-checked in the controller too).
@@ -759,7 +819,7 @@ Route::prefix('proforma')->middleware('auth')->name('proforma.')->group(function
 });
 
 // Agency "Proforma Invoices" settings section (admin only).
-Route::middleware(['auth', 'permission:proforma.manage'])->group(function () {
+Route::middleware(['auth', 'permission:proforma.manage', 'feature:proforma-invoices'])->group(function () {
     Route::get('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'index'])->name('admin.proforma-settings');
     Route::put('/admin/proforma-settings',  [\App\Http\Controllers\Admin\ProformaSettingsController::class, 'update'])->name('admin.proforma-settings.update');
 });
@@ -835,7 +895,7 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
     Route::post('/{deal}/providers', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'attach'])->name('deals-v2.providers.attach')->middleware('permission:deals_v2.edit');
     // WS3 (D4) — upload a document directly onto a deal + gated download.
     Route::post('/{deal}/documents', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'storeDocument'])->name('deals-v2.documents.store')->middleware('permission:deals_v2.edit');
-    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'downloadDocument'])->name('deals-v2.documents.download')->middleware('permission:access_deal_register_v2');
+    Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'downloadDocument'])->name('deals-v2.documents.download')->middleware(['permission:access_deal_register_v2', 'deny_assistant_download']);
     // WS4 (§8.3) — distribute documents (matrix-resolved) + revoke a secure link.
     Route::get('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'plan'])->name('deals-v2.distribute.plan')->middleware('permission:deals_v2.distribute_documents');
     Route::post('/{deal}/distribute', [\App\Http\Controllers\DealV2\DealDistributionController::class, 'send'])->name('deals-v2.distribute.send')->middleware('permission:deals_v2.distribute_documents');
@@ -877,7 +937,7 @@ Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
 });
 
 // ===== DEPOSIT TRUST INTEREST =====
-Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:access_trust_interest'])->group(function () {
+Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:access_trust_interest', 'feature:trust-interest'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'index'])->name('admin.deposit-trust-interest.index');
     Route::post('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'store'])->name('admin.deposit-trust-interest.store');
     Route::put('/{record}', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'update'])->name('admin.deposit-trust-interest.update');
@@ -885,7 +945,7 @@ Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:a
 });
 
 // ===== KNOWLEDGE BASE =====
-Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base'])->group(function () {
+Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base', 'feature:knowledge-base'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\KnowledgeController::class, 'index'])->name('admin.knowledge.index');
     Route::get('/category/{id}', [\App\Http\Controllers\Admin\KnowledgeController::class, 'show'])->name('admin.knowledge.category');
     Route::post('/upload', [\App\Http\Controllers\Admin\KnowledgeController::class, 'upload'])->name('admin.knowledge.upload');
@@ -947,8 +1007,8 @@ Route::middleware(['auth','permission:import_listings'])->group(function () {
 });
 
 
-// ===== LISTING STOCK =====
-Route::middleware(['auth','permission:view_listings'])->group(function () {
+// ===== LISTING STOCK ===== (Agency Tracker surface)
+Route::middleware(['auth','permission:view_listings','feature:agency-tracker'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
         ->name('admin.listings.agents');
 
@@ -997,9 +1057,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
     // Ad Manager (bulk) — spec .ai/specs/ad-manager.md §10b
-    Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager');
-    Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.previews');
-    Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required'])->name('tools.ad-manager.generate');
+    Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager');
+    Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.previews');
+    Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.generate');
 
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
@@ -1021,7 +1081,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
-    Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
+    Route::middleware(['permission:access_pdf_suite', 'feature:pdf-suite'])->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
         Route::get('/',              [PdfSuiteController::class, 'hub'])->name('hub');
 
         Route::get('/compress',      [PdfSuiteController::class, 'compress'])->name('compress');
@@ -1050,7 +1110,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Image Converter — HEIC / JPG / PNG / WEBP / BMP / TIFF / GIF → PNG / JPG / WEBP
-    Route::middleware('permission:access_image_converter')->prefix('tools/image-converter')->name('tools.image_converter.')->group(function () {
+    Route::middleware(['permission:access_image_converter', 'feature:image-converter'])->prefix('tools/image-converter')->name('tools.image_converter.')->group(function () {
         Route::get('/',  [ImageConverterController::class, 'index'])->name('index');
         Route::post('/', [ImageConverterController::class, 'run'])->name('run');
     });
@@ -1123,7 +1183,7 @@ Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::c
 Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware('permission:access_listing_stock')->name('bm.listings');
 
     // ===== TV MESSAGES (Admin + BM) =====
-    Route::middleware(['permission:manage_tv_messages'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
         Route::get('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminIndex'])->name('admin.tv-messages');
         Route::post('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminStore'])->name('admin.tv-messages.store');
         Route::post('/admin/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'adminUpdate'])->name('admin.tv-messages.update');
@@ -1135,7 +1195,16 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/admin/tv-code/revoke', [\App\Http\Controllers\Admin\TvCodeController::class, 'revoke'])->name('admin.tv-code.revoke');
         Route::post('/admin/tv-code/generate-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'generateCompany'])->name('admin.tv-code.generate-company');
         Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
+    });
 
+    // ── Agency / branch context switchers ──
+    // CORE navigation (switch active agency/branch, act-as-BM, cross-branch deal attach, and the
+    // /agency/select interstitial). These were nested inside the TV-messages group; the per-agency
+    // feature-registry commit then added `feature:tv-display` to that group, so CheckFeature 404'd
+    // the agency switcher and /agency/select whenever tv-display was off (its default) — which is
+    // why agency switching broke on QA2. Split back out: keep the Staging guard
+    // (permission:manage_tv_messages) but NEVER gate core switching on the TV feature.
+    Route::middleware(['permission:manage_tv_messages'])->group(function () {
         // Agency switcher (super admin)
         Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('owner_only')->name('agency.switch.clear');
         Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('owner_only')->name('agency.switch');
@@ -1159,7 +1228,7 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/agency/select/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectAndRedirect'])->name('agency.select.submit');
     });
 
-    Route::middleware(['permission:manage_tv_messages'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
         Route::get('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmIndex'])->name('bm.tv-messages');
         Route::post('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmStore'])->name('bm.tv-messages.store');
         Route::post('/bm/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'bmUpdate'])->name('bm.tv-messages.update');
@@ -1356,7 +1425,7 @@ Route::post('/internal/ai-chat-proxy', [\App\Http\Controllers\Internal\AiChatPro
 Route::get('/ai-buddy', fn() => redirect()->route('ellie.index'))->middleware('auth')->name('ai.buddy');
 
 // ===== DOCUMENT FILING REGISTER =====
-Route::middleware(['auth', 'permission:access_filing_register'])->group(function () {
+Route::middleware(['auth', 'permission:access_filing_register', 'feature:filing-register'])->group(function () {
     Route::get('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'index'])->name('filing-register.index');
     Route::post('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'store'])->name('filing-register.store');
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
@@ -1660,7 +1729,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Viewing Packs (AT-XX) — buyer-facing pack CRUD. Tenancy via AgencyScope
     //    on the model; {viewingPack} 404s across agencies. Archive = soft delete. ──
     Route::prefix('viewing-packs')->name('corex.viewing-packs.')
-        ->middleware('permission:access_viewing_packs')->group(function () {
+        ->middleware(['permission:access_viewing_packs', 'feature:viewing-packs'])->group(function () {
         Route::get('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'index'])->middleware('permission:viewing_packs.view')->name('index');
         Route::post('/', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'store'])->middleware('permission:viewing_packs.create')->name('store');
         // AT-111 direction 2 — REVERSE link: launch/open a pack FROM an existing
@@ -1678,9 +1747,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // show.blade), not a pack-side scheduler. The old POST schedule route +
         // ViewingPackCalendarService were removed (no parallel scheduling logic).
         // Step 6 — the single buyer-facing PDF (cover + per-property + comparison).
-        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->middleware('permission:viewing_packs.view')->name('buyer-pack');
+        Route::get('/{viewingPack}/buyer-pack', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadBuyerPack'])->middleware(['permission:viewing_packs.view', 'deny_assistant_download'])->name('buyer-pack'); // AT-267 H7
         // Step 7 — the SEPARATE agent sheet PDF (eyes-only; never merged with the buyer pack).
-        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->middleware('permission:viewing_packs.view')->name('agent-sheet');
+        Route::get('/{viewingPack}/agent-sheet', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'downloadAgentSheet'])->middleware(['permission:viewing_packs.view', 'deny_assistant_download'])->name('agent-sheet'); // AT-267 H7
 
         // Step 3 — property selection (Core Match + ad-hoc) + ad-hoc typeahead.
         Route::post('/{viewingPack}/properties', [\App\Http\Controllers\CommandCenter\ViewingPackController::class, 'addProperty'])->middleware('permission:viewing_packs.edit')->name('properties.add');
@@ -1745,7 +1814,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.pdf');
 
     // ── My Leave (agent self-service) ──
-    Route::middleware(['permission:apply_for_leave', 'agency.required'])
+    Route::middleware(['permission:apply_for_leave', 'agency.required', 'feature:leave'])
         ->prefix('my-portal/leave')
         ->name('my-portal.leave.')
         ->group(function () {
@@ -1760,7 +1829,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Agency Documents (staff read-only view) ──
     Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
         Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
-        Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->name('my-portal.agency-documents.download');
+        Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->middleware('deny_assistant_download')->name('my-portal.agency-documents.download');
     });
 
     // ── RMCP Acknowledgement Flow ──
@@ -1784,14 +1853,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── RMCP Compliance Dashboard ──
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])->prefix('compliance/rmcp-dashboard')->name('compliance.rmcp.dashboard.')->group(function () {
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])->prefix('compliance/rmcp-dashboard')->name('compliance.rmcp.dashboard.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'index'])->name('index');
         Route::post('/reminder', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'sendReminder'])->name('reminder');
         Route::get('/report.pdf', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'report'])->name('report');
     });
 
     // ── Employee Screening ──
-    Route::middleware(['permission:manage_employee_screenings', 'agency.required'])
+    Route::middleware(['permission:manage_employee_screenings', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/screenings')
         ->name('compliance.screenings.')
         ->group(function () {
@@ -1806,7 +1875,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{screening}/flag', [\App\Http\Controllers\Compliance\EmployeeScreeningController::class, 'flag'])->name('flag');
     });
 
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/screening-dashboard')
         ->name('compliance.screening.dashboard.')
         ->group(function () {
@@ -1819,17 +1888,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Commission Engine ──
     Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
+        ->middleware('deny_assistant') // AT-267 §10 — assistants have no commission; personal surface
         ->name('commission.dashboard');
+    // AT-267 §10 — the whole commission/revenue engine is off-limits to assistants (they have no
+    // commission of their own and must never see agency finance). deny_assistant on every route,
+    // not just the nav, so direct-URL access is closed too (feature: gates are per-agency, not
+    // per-user, so they do not keep an assistant out on their own).
     Route::get('/commission', [\App\Http\Controllers\Commission\CommissionController::class, 'index'])
-        ->name('commission.index');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.index');
     Route::get('/commission/principal', [\App\Http\Controllers\Commission\CommissionController::class, 'principalDashboard'])
-        ->name('commission.principal');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.principal');
     Route::post('/commission/{entry}/confirm', [\App\Http\Controllers\Commission\CommissionController::class, 'confirm'])
-        ->name('commission.confirm');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.confirm');
     Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
-        ->name('commission.pay');
+        ->middleware(['feature:commission-management', 'deny_assistant'])->name('commission.pay');
     Route::get('/revenue-share/calculator', [\App\Http\Controllers\Commission\RevenueShareController::class, 'calculator'])
-        ->name('revenue-share.calculator');
+        ->middleware('deny_assistant')->name('revenue-share.calculator');
 
     // ── Training (LMS) ──
     Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
@@ -1848,7 +1922,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
 
     // ── Training Help (in-app training docs) ──
-    Route::prefix('training-help')->name('training-help.')->group(function () {
+    Route::prefix('training-help')->middleware('feature:training')->name('training-help.')->group(function () {
         Route::get('/',                              [\App\Http\Controllers\Training\TrainingHelpController::class, 'index'])->name('index');
         Route::get('/search',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'search'])->name('search');
         Route::get('/api/progress',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'progress'])->name('progress');
@@ -1861,7 +1935,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Agent Onboarding ──
-    Route::prefix('onboarding')->group(function () {
+    Route::prefix('onboarding')->middleware('feature:agent-onboarding')->group(function () {
         Route::get('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'index'])->name('onboarding.index');
         Route::get('/create', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'create'])->name('onboarding.create');
         Route::post('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'store'])->name('onboarding.store');
@@ -1924,7 +1998,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // Compliance-officer register (with policy selector via ?policy=)
-    Route::middleware(['permission:access_compliance_dashboard', 'agency.required'])
+    Route::middleware(['permission:access_compliance_dashboard', 'agency.required', 'feature:compliance'])
         ->prefix('compliance/policy-dashboard')
         ->name('compliance.policy.dashboard.')
         ->group(function () {
@@ -1966,7 +2040,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         return redirect('/corex/settings?tab=user');
     })->name('compliance.officer.index')->middleware('permission:manage_compliance_officer');
 
-    Route::middleware(['permission:access_compliance', 'agency.required'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+    Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
@@ -2001,7 +2075,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('compliance.media-encryption.status');
 
     // ── Whistleblower Compliance Reporting ──
-    Route::middleware(['agency.required'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
+    Route::middleware(['agency.required', 'feature:compliance'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'index'])->name('index')->middleware('permission:compliance.whistleblow.view');
         Route::post('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'store'])->name('store')->middleware('permission:compliance.whistleblow.create');
         Route::get('/new', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'create'])->name('create')->middleware('permission:compliance.whistleblow.create');
@@ -2035,13 +2109,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Communication Archive (AT-33) — email/WhatsApp evidence archive viewer.
     // Gated by the dedicated, role-grantable access_communication_archive
     // permission so each agency controls archive visibility per role/user.
-    Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
+    Route::middleware(['permission:access_communication_archive', 'agency.required', 'feature:communications'])->prefix('compliance/communication-archive')->name('compliance.comm-archive.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'index'])->name('index');
         Route::get('/thread/{threadKey}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'thread'])->name('thread')->where('threadKey', '.*');
         Route::get('/message/{communication}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'show'])->name('show');
         // AT-148 — authenticated media serve (WhatsApp voice notes). Streamed from
         // the mounted volume through Laravel; per-thread gated in the controller.
-        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->name('attachment');
+        Route::get('/attachment/{attachment}', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'attachment'])->middleware('deny_assistant_download')->name('attachment'); // AT-267 H7 — streams a stored comms attachment file
         // AT-148 — manual retry for a pending/failed media download.
         Route::post('/attachment/{attachment}/retry', [\App\Http\Controllers\Compliance\CommunicationArchiveController::class, 'retryMedia'])->name('attachment.retry');
         // AT-163 — on-demand voice-note transcription (gated + consent-checked in the controller).
@@ -2051,7 +2125,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Communication Archive — mailbox config (AT-33) — tighter: editing IMAP
     // credentials is admin/compliance-level, separate from viewing the archive.
-    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
+    Route::middleware(['permission:manage_communication_mailboxes', 'agency.required', 'feature:communications'])->prefix('compliance/communication-mailboxes')->name('compliance.comm-mailboxes.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\Compliance\CommunicationMailboxController::class, 'store'])->name('store');
@@ -2061,7 +2135,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── WhatsApp capture device registration (AT-34) — agent self-service. ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/wa-devices')->name('communications.wa-devices.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\Communications\WaDeviceController::class, 'store'])->name('store');
         Route::post('/backfill-toggle', [\App\Http\Controllers\Communications\WaDeviceController::class, 'toggleBackfill'])->name('backfill-toggle'); // AT-135
@@ -2072,7 +2146,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── AT-156 — WhatsApp Capture Linking (My Portal → Tools). In-app QR
     //    pairing; server proxies WAHA, key stays server-side. ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/wa-link')->name('communications.wa-link.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/wa-link')->name('communications.wa-link.')->group(function () {
         Route::get('/status', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'status'])->name('status');
         Route::get('/qr', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'qr'])->name('qr');
         Route::post('/link', [\App\Http\Controllers\Communications\WhatsAppLinkController::class, 'link'])->name('link');
@@ -2082,7 +2156,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── AT-136 — per-agent WhatsApp capture consent (controls body INGESTION;
     //    SEPARATE from the AT-125 contact marketing opt-out). ──
-    Route::middleware(['permission:access_communication', 'agency.required'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
+    Route::middleware(['permission:access_communication', 'agency.required', 'feature:communications'])->prefix('communications/capture')->name('communications.capture.')->group(function () {
         Route::get('/my', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'myCapture'])->name('my');
         Route::post('/decide', [\App\Http\Controllers\Communications\AgentCaptureConsentController::class, 'decide'])->name('decide');
         // Admin/CO review — capability-checked inside (communications.capture_review).
@@ -2091,14 +2165,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Communication Archive — pending triage (AT-36, staff-facing) ──
-    Route::middleware(['permission:triage_communications', 'agency.required'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
+    Route::middleware(['permission:triage_communications', 'agency.required', 'feature:communications'])->prefix('communications/triage')->name('communications.triage.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'index'])->name('index');
         Route::post('/add-contact', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'addContact'])->name('add-contact');
         Route::post('/not-real-estate', [\App\Http\Controllers\Communications\CommunicationTriageController::class, 'notRealEstate'])->name('not-real-estate');
     });
 
     // ── Communication Archive — BM flag register (AT-36, audit; no message content) ──
-    Route::middleware(['permission:view_communication_flag_register', 'agency.required'])->prefix('compliance/communication-flags')->name('compliance.comm-flags.')->group(function () {
+    Route::middleware(['permission:view_communication_flag_register', 'agency.required', 'feature:communications'])->prefix('compliance/communication-flags')->name('compliance.comm-flags.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Communications\CommunicationFlagRegisterController::class, 'index'])->name('index');
     });
 
@@ -2117,7 +2191,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('settings.email-setup.reveal');
 
     // ── Document Verification Queue ──
-    Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
+    Route::middleware(['permission:verify_user_documents', 'agency.required', 'feature:compliance'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
         Route::get('/{userDocument}', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'show'])->name('show');
         Route::post('/{userDocument}/verify', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'verify'])->name('verify');
@@ -2156,7 +2230,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('admin.user.overrides.revoke');
 
     // ── Payroll ──
-    Route::middleware(['permission:manage_payroll', 'agency.required'])
+    Route::middleware(['permission:manage_payroll', 'agency.required', 'feature:payroll'])
         ->prefix('payroll')
         ->name('payroll.')
         ->group(function () {
@@ -2236,7 +2310,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // ── Leave Admin ──
-    Route::middleware(['auth', 'agency.required'])
+    Route::middleware(['auth', 'agency.required', 'feature:leave'])
         ->prefix('payroll/leave')
         ->name('payroll.leave.')
         ->group(function () {
@@ -2298,7 +2372,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // ── Staff Take-On Wizard ──
-    Route::middleware(['permission:manage_staff_take_on', 'agency.required'])
+    Route::middleware(['permission:manage_staff_take_on', 'agency.required', 'feature:staff-take-on'])
         ->prefix('staff-take-on')
         ->name('staff-take-on.')
         ->group(function () {
@@ -2316,7 +2390,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Guided Tours directory (AT-41) — agent self-serve training index. Any
     // authenticated user; the list itself is filtered to the tours they can access.
-    Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->name('corex.guided-tours.index');
+    Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->middleware('feature:guided-tours')->name('corex.guided-tours.index');
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
@@ -2338,6 +2412,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
+    // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
+    Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
     // Build 4 — agency default toggles for which report sections render.
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');
@@ -2460,6 +2536,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->name('from-tracked-property');
             Route::post('/tracked-properties/{trackedProperty}/outreach/compose',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromTrackedProperty'])
+                ->middleware('deny_assistant_property_write') // AT-267 C2 — this path promotes a TP to a Property
                 ->name('store-from-tracked-property');
         });
 
@@ -2488,6 +2565,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Split Branches toggle (Agency Settings tab)
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
+
+    // AT-267 — Assistants toggle (Agency Settings tab). This is the control the Assistants
+    // admin page points at when the feature is off, and the one the Setup Wizard writes.
+    Route::put('/settings/agency/assistants', [CoreXSettingsController::class, 'updateAssistants'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.assistants');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 
@@ -2715,7 +2797,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // Properties — listing sync to website
-    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required'])->name('corex.properties.')->group(function () {
+    // AT-267 — `deny_assistant_property_write` guards the WHOLE group, not a hand-picked list
+    // of routes. An assistant may never create or import a listing, and several creation paths
+    // in here carry no permission key at all (the classic store, every wizard mutation, the
+    // sold-CSV and p24-fix uploads). Gating the group means a property-write route added later
+    // is covered by DEFAULT: it fails closed until someone deliberately adds it to the
+    // middleware's ASSISTANT_MAY allow list. Reads and the allow-listed edits pass straight
+    // through — an assistant is supposed to work the agent's listings, just not create them.
+    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
 
@@ -2738,6 +2827,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('throttle:60,60')
             ->name('sg.save-document');
         Route::get('/{property}/sg/documents/{sgDoc}/download', [\App\Http\Controllers\CoreX\PropertySgController::class, 'download'])
+            ->middleware('deny_assistant_download')
             ->name('sg.download');
 
         // Seller Live Links — agent management
@@ -2881,6 +2971,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
         // Files (Drive) — now uses unified Document model
         Route::post('/{property}/files',                    [\App\Http\Controllers\CoreX\PropertyFileController::class, 'store'])->name('files.store');
+        // AT-267 / POPIA — gated download of a property Drive file (replaces direct /storage URLs).
+        Route::get('/{property}/files/{document}/download', [\App\Http\Controllers\CoreX\PropertyFileController::class, 'download'])->middleware('deny_assistant_download')->name('files.download');
         Route::put('/{property}/files/{document}/tag',      [\App\Http\Controllers\CoreX\PropertyFileController::class, 'updateTag'])->name('files.tag');
         Route::delete('/{property}/files/{document}',       [\App\Http\Controllers\CoreX\PropertyFileController::class, 'destroy'])->name('files.destroy');
         // Contacts
@@ -2966,7 +3058,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
-        ->middleware(['permission:access_portal_leads', 'agency.required'])
+        ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])
         ->name('corex.portal-leads.')
         ->group(function () {
             Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
@@ -2977,7 +3069,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // WhatsApp Outreach Summary board (agents × outreach states).
     // Spec: .ai/specs/whatsapp-outreach-summary.md (AT-91)
     Route::prefix('real-estate/outreach-summary')
-        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->middleware(['permission:outreach.summary.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-summary.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\WhatsappOutreachSummaryController::class, 'index'])->name('index');
@@ -2986,7 +3078,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Part 4 — unified Outreach & Canvassing board (Activity Feed + AT-91 consent
     // funnel). Reuses the AT-91 permission (same audience; embeds the AT-91 board).
     Route::prefix('real-estate/outreach-canvassing')
-        ->middleware(['permission:outreach.summary.view', 'agency.required'])
+        ->middleware(['permission:outreach.summary.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-canvassing.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachCanvassingController::class, 'index'])->name('index');
@@ -2996,7 +3088,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // scoped outreach_queue.view capability (own/branch/all); dispatch + cancel are
     // additionally gated in-controller by their own capabilities + act-own.
     Route::prefix('real-estate/outreach-queue')
-        ->middleware(['permission:outreach_queue.view', 'agency.required'])
+        ->middleware(['permission:outreach_queue.view', 'agency.required', 'feature:outreach'])
         ->name('corex.outreach-queue.')
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'index'])->name('index');
@@ -3050,7 +3142,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Documents (Drive)
         Route::post('/{contact}/documents',                    [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'store'])->name('documents.store');
-        Route::get('/{contact}/documents/{document}/download', [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'download'])->name('documents.download');
+        Route::get('/{contact}/documents/{document}/download', [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'download'])->middleware('deny_assistant_download')->name('documents.download');
         Route::put('/{contact}/documents/{document}/tag',      [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'updateTag'])->name('documents.tag');
         Route::delete('/{contact}/documents/{document}',       [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'destroy'])->name('documents.destroy');
         // Properties
@@ -3118,7 +3210,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
 
 // ===== COMMERCIAL EVALUATIONS =====
-Route::middleware(['auth', 'permission:access_commercial_evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
+Route::middleware(['auth', 'permission:access_commercial_evaluations', 'feature:commercial-evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
     Route::get('/',                                          [\App\Http\Controllers\CommercialEvaluationController::class, 'index'])            ->name('index');
     Route::get('/create',                                   [\App\Http\Controllers\CommercialEvaluationController::class, 'create'])           ->name('create');
     Route::post('/',                                        [\App\Http\Controllers\CommercialEvaluationController::class, 'store'])            ->name('store');
@@ -3156,7 +3248,7 @@ Route::middleware(['auth', 'permission:access_presentations'])->group(function (
 });
 
 // ===== PRESENTATIONS =====
-Route::middleware(['auth', 'permission:access_presentations'])->prefix('presentations')->name('presentations.')->group(function () {
+Route::middleware(['auth', 'permission:access_presentations', 'feature:presentations'])->prefix('presentations')->name('presentations.')->group(function () {
     Route::get('/',       [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])  ->name('index');
     Route::get('/create', [\App\Http\Controllers\Presentation\PresentationController::class, 'create']) ->name('create');
     Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
@@ -3358,8 +3450,10 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
 
     // PDF pack download (P18) — feature-flagged via config('features.presentation_pdf_v1')
     Route::get('/{presentation}/versions/{version}/pdf', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'download'])
+        ->middleware('deny_assistant_download') // AT-267 H7
         ->name('versions.pdf');
     Route::get('/{presentation}/versions/{version}/complete-pack', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'downloadCompletePack'])
+        ->middleware('deny_assistant_download') // AT-267 H7 — ZIP of private evidence PDFs + doc-library files
         ->name('versions.complete-pack');
 
     // Portal captures (extension-based ingestion)
@@ -3382,7 +3476,7 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
 });
 
 // ===== E-SIGN COMPILE STUDIO (AT-177 WS4-S) — internal tool, esign.compiler.* gated =====
-Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view'])
+Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permission:esign.compiler.view', 'feature:docuperfect'])
     ->name('docuperfect.compiler.')->group(function () {
         $c = \App\Http\Controllers\Docuperfect\Compiler\CompileStudioController::class;
         Route::get('/', [$c, 'index'])->name('index');
@@ -3406,7 +3500,7 @@ Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permissi
     });
 
 // ===== DOCUPERFECT =====
-Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect'])->group(function () {
+Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect', 'feature:docuperfect'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'index'])->name('docuperfect.dashboard');
     Route::get('/create', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'create'])->name('docuperfect.create');
 
@@ -3499,7 +3593,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/packs/{pack}/restore', [\App\Http\Controllers\Docuperfect\PackController::class, 'restore'])->name('docuperfect.packs.restore')->withTrashed();
     Route::get('/packs/{id}/launch', [\App\Http\Controllers\Docuperfect\PackController::class, 'showLaunch'])->name('docuperfect.packs.showLaunch');
     Route::post('/packs/{id}/launch', [\App\Http\Controllers\Docuperfect\PackController::class, 'executeLaunch'])->name('docuperfect.packs.launch');
-    Route::get('/attachments/{id}/download', [\App\Http\Controllers\Docuperfect\PackController::class, 'downloadAttachment'])->name('docuperfect.attachments.download');
+    Route::get('/attachments/{id}/download', [\App\Http\Controllers\Docuperfect\PackController::class, 'downloadAttachment'])->middleware('deny_assistant_download')->name('docuperfect.attachments.download');
 
     // Web Packs
     Route::get('/web-packs', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'index'])->name('docuperfect.web-packs.index');
@@ -3524,14 +3618,14 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::delete('/esign/{flow}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'destroy'])->name('docuperfect.esign.destroy');
     Route::post('/esign/{flow}/autosave-fields', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'autosaveFields'])->name('docuperfect.esign.autosaveFields');
     Route::post('/esign/{flow}/prepare-signing', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareSigning'])->name('docuperfect.esign.prepareSigning');
-    Route::post('/esign/{flow}/prepare-download', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareDownload'])->name('docuperfect.esign.prepareDownload');
+    Route::post('/esign/{flow}/prepare-download', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareDownload'])->middleware('deny_assistant_download')->name('docuperfect.esign.prepareDownload');
     Route::post('/esign/{flow}/prepare-wet-ink', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareWetInk'])->name('docuperfect.esign.prepareWetInk');
     Route::get('/esign/{flow}/signing-complete', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'signingComplete'])->name('docuperfect.esign.signingComplete');
     Route::get('/esign/{flow}/wet-ink-confirmation', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'wetInkConfirmation'])->name('docuperfect.esign.wetInkConfirmation');
     Route::post('/esign/wet-ink/{document}/upload', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'wetInkAgentUpload'])->name('docuperfect.esign.wetInkAgentUpload');
     Route::post('/esign/wet-ink/{document}/approve', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'wetInkAgentApprove'])->name('docuperfect.esign.wetInkAgentApprove');
     Route::get('/esign/download/{document}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'downloadDocument'])->name('docuperfect.esign.downloadDocument');
-    Route::get('/esign/download/{document}/pdf', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'downloadDocumentPdf'])->name('docuperfect.esign.downloadDocumentPdf');
+    Route::get('/esign/download/{document}/pdf', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'downloadDocumentPdf'])->middleware('deny_assistant_download')->name('docuperfect.esign.downloadDocumentPdf');
     Route::get('/esign/api/properties', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchProperties'])->name('docuperfect.esign.api.properties');
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
@@ -3660,7 +3754,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // Audit & download
     Route::get('/documents/{document}/signatures/audit', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'audit'])->name('docuperfect.signatures.audit');
-    Route::get('/documents/{document}/signatures/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'download'])->name('docuperfect.signatures.download');
+    Route::get('/documents/{document}/signatures/download', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'download'])->middleware('deny_assistant_download')->name('docuperfect.signatures.download');
 
     // Wet ink inspection
     Route::get('/documents/{document}/signatures/inspect/{signingRequest}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'wetInkReview'])->name('docuperfect.signatures.wetInkReview');
@@ -3705,7 +3799,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/sales/recipient/{recipient}/resend', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'resend'])->name('docuperfect.sales.resend');
     Route::post('/sales/recipient/{recipient}/remind', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'sendManualReminder'])->name('docuperfect.sales.remind');
     Route::post('/sales/{send}/approve/{recipient}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'approveAndSendNext'])->name('docuperfect.sales.approve');
-    Route::get('/sales/{send}/download', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'downloadOriginal'])->name('docuperfect.sales.download');
+    Route::get('/sales/{send}/download', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'downloadOriginal'])->middleware('deny_assistant_download')->name('docuperfect.sales.download');
     Route::post('/sales/documents/{document}/upload-signed', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'uploadSignedDocument'])->name('docuperfect.sales.uploadSigned');
     Route::post('/sales/{send}/cancel', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'cancel'])->name('docuperfect.sales.cancel');
     Route::get('/sales/{send}/review/{recipient}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'reviewUpload'])->name('docuperfect.sales.review');
@@ -3714,7 +3808,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 });
 
 // ===== RENTAL DIVISION =====
-Route::prefix('rental')->middleware(['auth', 'permission:view_rentals'])->name('rental.')->group(function () {
+Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature:rentals'])->name('rental.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'dashboard'])->name('dashboard');
     Route::get('/signatures', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'signatures'])->name('signatures');
     Route::post('/signatures/{document}/assign-metadata', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'assignMetadata'])->name('signatures.assign-metadata');
@@ -3821,12 +3915,13 @@ Route::post('/documents/download/{token}/verify', [\App\Http\Controllers\Docuper
 Route::get('/documents/download/{token}/file', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadSignedFile'])->name('signatures.download.file');
 
 // ===== DOCUMENT LIBRARY =====
-Route::middleware(['auth', 'permission:access_document_library'])->prefix('documents')->name('documents.')->group(function () {
+Route::middleware(['auth', 'permission:access_document_library', 'feature:document-library'])->prefix('documents')->name('documents.')->group(function () {
     Route::get('/library', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'index'])
         ->name('library.index');
     Route::post('/library/upload', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'upload'])
         ->name('library.upload');
     Route::get('/library/{item}/download', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'download'])
+        ->middleware('deny_assistant_download')
         ->name('library.download');
     Route::post('/library/attach', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'attach'])
         ->name('library.attach');
@@ -3842,7 +3937,7 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
 
 // ===== SHARED DRIVE =====
 // Google-Drive-style team file store. Spec: .ai/specs/shared-drive.md
-Route::middleware(['auth', 'permission:access_shared_drive'])
+Route::middleware(['auth', 'permission:access_shared_drive', 'feature:shared-drive'])
     ->prefix('documents/shared-drive')
     ->name('documents.shared-drive.')
     ->group(function () {
@@ -3869,12 +3964,14 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
         Route::post('/upload', [\App\Http\Controllers\Documents\SharedDriveController::class, 'upload'])
             ->name('upload');
         Route::post('/files/bulk-download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'bulkDownload'])
+            ->middleware('deny_assistant_download')
             ->name('files.bulk-download');
         Route::delete('/files/bulk', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFilesBulk'])
             ->name('files.bulk-destroy');
         Route::get('/files/{file}/view', [\App\Http\Controllers\Documents\SharedDriveController::class, 'view'])
             ->name('files.view');
         Route::get('/files/{file}/download', [\App\Http\Controllers\Documents\SharedDriveController::class, 'download'])
+            ->middleware('deny_assistant_download')
             ->name('files.download');
         Route::delete('/files/{file}', [\App\Http\Controllers\Documents\SharedDriveController::class, 'destroyFile'])
             ->name('files.destroy');
@@ -3883,7 +3980,7 @@ Route::middleware(['auth', 'permission:access_shared_drive'])
 // ===== TRACKED PROPERTIES (Prospecting sub-menu) =====
 // Universe of properties CoreX knows about, regardless of mandate status.
 // Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule), Build D.3.
-Route::middleware(['auth', 'permission:access_prospecting'])
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])
     ->prefix('corex/tracked-properties')
     ->name('corex.tracked-properties.')
     ->group(function () {
@@ -3896,7 +3993,7 @@ Route::middleware(['auth', 'permission:access_prospecting'])
         Route::get('/{trackedProperty}', function ($trackedProperty) {
             return redirect('/corex/market-intelligence/opportunities/' . $trackedProperty, 301);
         })->where('trackedProperty', '[0-9]+')->name('show');
-        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->middleware('deny_assistant_property_write')->name('promote'); // AT-267 C2 — promote() creates agency stock
 
         // Phase C3 — address management on the TP detail page.
         Route::post('/{trackedProperty}/address/edit',
@@ -3932,7 +4029,7 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 // legacy POST routes unchanged).
 //
 // Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
-Route::middleware(['auth', 'permission:access_prospecting'])
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])
     ->prefix('corex/market-intelligence')
     ->name('market-intelligence.')
     ->group(function () {
@@ -4062,7 +4159,7 @@ Route::middleware(['auth', 'permission:access_prospecting'])
 // any external bookmarks working) but every handler now lives on
 // MarketIntelligenceController. The controller file ProspectingController
 // .php has been deleted.
-Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
+Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
     Route::get('/', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'work'])->name('index');
 
     Route::get('/snapshot.json', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'snapshotJson'])->name('snapshot');

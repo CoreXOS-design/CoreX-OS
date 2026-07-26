@@ -32,6 +32,9 @@ class PropertyController extends Controller
         $user           = auth()->user();
         $dataScope      = PermissionService::getDataScope($user, 'properties');
         $canPickAgent   = in_array($dataScope, ['all', 'branch']);
+        // AT-267 — an assistant owns NO listings of their own; the list defaults to the agent they
+        // work under. $ownerId is the assigned agent for an assistant, else the user themselves.
+        $ownerId        = $user->isAssistant() ? ($user->assignedAgent()?->id ?? $user->id) : $user->id;
 
         // Agency-wide default ordering (Settings → Properties). 'status_priority'
         // orders by the admin-defined status sequence; otherwise newest first.
@@ -118,7 +121,7 @@ class PropertyController extends Controller
                 $saved = (array) $request->session()->get($SESSION_KEY, []);
                 $filterAgentIds = array_key_exists('agent_ids', $saved)
                     ? $this->parseAgentIds((string) $saved['agent_ids'])
-                    : [(string) $user->id];
+                    : [(string) $ownerId];
             }
         }
 
@@ -144,13 +147,16 @@ class PropertyController extends Controller
             }
             // dataScope 'all' ⇒ no restriction
         } else {
-            // Agent: 'my' = own listings only; 'branch' = all branch listings
+            // Agent: 'my' = own listings only; 'branch' = all branch listings. For an ASSISTANT
+            // "own" is the assigned agent's book (dataIdentityIds() = [agentId, selfId]), never the
+            // assistant's own empty id — so their list loads the agent's listings.
             if ($viewScope === 'branch' && $user->branch_id) {
                 $query->where('branch_id', $user->branch_id);
             } else {
-                $query->where(function ($q) use ($user) {
-                    $q->where('agent_id', $user->id)
-                      ->orWhere('pp_second_agent_id', $user->id);
+                $ids = $user->dataIdentityIds();
+                $query->where(function ($q) use ($ids) {
+                    $q->whereIn('agent_id', $ids)
+                      ->orWhereIn('pp_second_agent_id', $ids);
                 });
             }
         }
@@ -373,7 +379,10 @@ class PropertyController extends Controller
 
     public function show(Property $property)
     {
-        $this->authorizeProperty($property);
+        // Read path: an assistant may VIEW any listing their assigned agent can see (branch/all),
+        // but not edit it. forEdit:false selects view breadth; all write actions keep the default
+        // mutation pin to the agent's own listings. Spec §7.2 (AT-267).
+        $this->authorizeProperty($property, forEdit: false);
         $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
 
         $settingItems = [
@@ -549,10 +558,15 @@ class PropertyController extends Controller
                 ->get();
         }
 
+        // AT-267 — may the current user actually EDIT this listing? An assistant may VIEW a
+        // colleague's listing (above) but not change it; the view renders read-only when false so
+        // no edit affordance is shown that would only 403 on save.
+        $canEdit = $this->canMutateProperty($property);
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms'
+            'aiImageSuggestions', 'propertyComms', 'canEdit'
         ));
     }
 
@@ -631,8 +645,11 @@ class PropertyController extends Controller
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
+        // This path is the just-created listing shown to its creator — always editable. (Assistants
+        // cannot reach property creation at all, so this never renders read-only.)
+        $canEdit   = true;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit'));
     }
 
     /**
@@ -1131,6 +1148,23 @@ class PropertyController extends Controller
             'gallery_images.*' => 'image|max:204800',
         ]);
 
+        // AT-267 H3 — ownership-column injection. agent_id / pp_second_agent_id validate only
+        // exists:users,id (NOT agency-scoped) and there is no reassign gate. So:
+        //   (a) an ASSISTANT may NEVER reassign a listing (ownership change / theft) — pin the
+        //       agent columns to the listing's current values, whatever the payload says;
+        //   (b) for EVERYONE, a reassignment target must belong to THIS listing's agency, so no
+        //       user can move a listing to another agency's practitioner.
+        if ($request->user()?->is_assistant) {
+            unset($data['agent_id'], $data['pp_second_agent_id']);
+        }
+        foreach (['agent_id', 'pp_second_agent_id'] as $agentCol) {
+            if (!empty($data[$agentCol])
+                && (int) $data[$agentCol] !== (int) ($property->{$agentCol} ?? 0)
+                && !User::where('id', $data[$agentCol])->where('agency_id', $property->agency_id)->exists()) {
+                abort(422, 'The selected agent must belong to this agency.');
+            }
+        }
+
         // AT-221 — Layer 1: prevent at capture (see store()).
         $this->guardPortalContent($data['description'] ?? null);
 
@@ -1557,6 +1591,12 @@ class PropertyController extends Controller
 
     public function deleteImage(Request $request, Property $property)
     {
+        // AT-267 — an assistant may NEVER delete a listing's photos, on ANY listing (including their
+        // assigned agent's own). A hard capability rule, not a data-scope one — deleting marketing
+        // photos is destructive and is reserved to the agent. Belt to the deny_assistant_property_write
+        // middleware, and unambiguous at the point of action.
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $request->validate([
@@ -1718,6 +1758,9 @@ class PropertyController extends Controller
      */
     public function deleteRentalImage(Request $request, Property $property)
     {
+        // AT-267 — assistants may never delete listing images (see deleteImage()).
+        abort_if((bool) $request->user()?->is_assistant, 403, 'Assistants cannot delete listing photos.');
+
         $this->authorizeProperty($property);
 
         $data = $request->validate([
@@ -2051,7 +2094,14 @@ class PropertyController extends Controller
 
     public function ad(Property $property)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — an assistant may build an ad for ANY of the agency's listings
+        // (the property is already agency-scoped by route-model binding). The ad
+        // always carries the LISTING agent's own contact details, never the
+        // assistant's, so this cannot misattribute a listing. Everyone else stays
+        // data-scope gated.
+        if (! auth()->user()?->is_assistant) {
+            $this->authorizeProperty($property);
+        }
         $property->load(['agent', 'branch']);
 
         /** @var User $user */
@@ -2101,14 +2151,23 @@ class PropertyController extends Controller
      */
     public function brochure(Property $property, \App\Services\Properties\PropertyBrochureService $service)
     {
-        $this->authorizeProperty($property);
+        // AT-267 — assistants may print a brochure for ANY of the agency's
+        // listings (agency-scoped by binding). Everyone else stays scope-gated.
+        $isAssistant = (bool) auth()->user()?->is_assistant;
+        if (! $isAssistant) {
+            $this->authorizeProperty($property);
+        }
 
         // Agent identity (ad-manager.md §"Agent identity"): ?ad_agent points the
         // footer at another in-scope agent; ?co=1 co-brands with the co-listing
         // agent. AgencyScope on User::find keeps the override inside the agency;
         // an out-of-agency or unknown id silently falls back to the listing agent.
+        //
+        // An ASSISTANT can never repoint the footer — a brochure they produce
+        // always carries the listing agent's own details, never the assistant's
+        // (or any agent they might name in the URL).
         $primary = null;
-        if ($id = (int) request('ad_agent')) {
+        if (! $isAssistant && $id = (int) request('ad_agent')) {
             $primary = User::find($id);
         }
         $secondary = request()->boolean('co') && $property->pp_second_agent_id
@@ -2221,7 +2280,9 @@ class PropertyController extends Controller
                     ->where('id', (int) $agentChoice)
                     ->where('agency_id', $property->agency_id)
                     ->first();
-            } elseif ($agentChoice === 'me' && $authUser) {
+            } elseif ($agentChoice === 'me' && $authUser && ! $authUser->is_assistant) {
+                // AT-267 — an assistant never surfaces themselves on a listing
+                // preview; it falls back to the listing agent below.
                 $displayAgent = $authUser;
             }
 
@@ -2336,7 +2397,9 @@ class PropertyController extends Controller
             $property?->pp_second_agent_id,
         ]);
 
-        $query = User::agencyMembers()->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
+        // AT-267 — an assistant is never a selectable AGENT (they own no listings). Top-level so the
+        // orWhereIn(assignedIds) below can never re-admit one.
+        $query = User::agencyMembers()->where('is_assistant', false)->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
             $q->where('is_active', 1);
 
             if ($scope === 'branch') {
@@ -2478,6 +2541,10 @@ class PropertyController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('properties.edit'), 403);
         $record = Property::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — restore is on the DenyAssistantPropertyWrite allow-list (reversible, no new
+        // stock), but it lacked a per-record guard: a properties.edit holder / an assistant could
+        // un-archive ANY agent's listing by id. Pin it to the acting user's own book.
+        $this->authorizeProperty($record);
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

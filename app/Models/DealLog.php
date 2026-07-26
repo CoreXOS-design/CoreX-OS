@@ -6,9 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\StampsOnBehalfOf;
 class DealLog extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, SoftDeletes, StampsOnBehalfOf;
 
     protected $fillable = [
         'agency_id',

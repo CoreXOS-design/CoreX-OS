@@ -20,6 +20,20 @@ use Illuminate\Support\Str;
 
 class SalesDocumentController extends Controller
 {
+    // AT-267 H5 — the signing-chain mutators bound a Send/Recipient by id with no guard (or a
+    // key-OR-self bypass), and SalesDocumentSend has no global scope. Gate every mutation through
+    // the model's own scope (assistant-aware via sent_by ∈ dataIdentityIds).
+    use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+
+    private function guardSend(?\App\Models\SalesDocumentSend $send): void
+    {
+        abort_unless($send !== null, 404);
+        abort_unless(
+            \App\Models\SalesDocumentSend::visibleTo(auth()->user())->whereKey($send->getKey())->exists(),
+            403
+        );
+    }
+
     /**
      * Sales documents dashboard — grouped by status.
      */
@@ -122,6 +136,7 @@ class SalesDocumentController extends Controller
      */
     public function approveAndSendNext(SalesDocumentSend $send, SalesDocumentRecipient $recipient)
     {
+        $this->guardSend($send);
         $recipient->update(['status' => 'approved']);
 
         // Find next waiting recipient
@@ -169,6 +184,7 @@ class SalesDocumentController extends Controller
     public function markAsReturned(SalesDocumentRecipient $recipient)
     {
         $send = $recipient->documentSend;
+        $this->guardSend($send);
 
         $recipient->update([
             'status'        => 'returned_pending_approval',
@@ -188,6 +204,7 @@ class SalesDocumentController extends Controller
     public function resend(SalesDocumentRecipient $recipient)
     {
         $send = $recipient->documentSend;
+        $this->guardSend($send);
 
         $recipient->update([
             'token'            => Str::random(64),
@@ -209,6 +226,7 @@ class SalesDocumentController extends Controller
     public function sendManualReminder(SalesDocumentRecipient $recipient)
     {
         $send  = $recipient->documentSend;
+        $this->guardSend($send);
         $agent = $send->sender;
 
         Mail::to($recipient->recipient_email)->send(
@@ -384,6 +402,7 @@ class SalesDocumentController extends Controller
         if (!$user->hasPermission('sales_docs.edit') && (int) $document->owner_id !== (int) $user->id) {
             abort(403);
         }
+        $this->guardDocument($document);
 
         $request->validate([
             'signed_files'   => 'required|array|min:1',
@@ -428,6 +447,7 @@ class SalesDocumentController extends Controller
         if (!$user->hasPermission('sales_docs.edit') && (int) $send->sent_by !== (int) $user->id) {
             abort(403);
         }
+        $this->guardSend($send);
 
         $request->validate([
             'rejection_reason' => 'required|string|min:5|max:1000',
@@ -454,6 +474,7 @@ class SalesDocumentController extends Controller
         if (!$user->hasPermission('sales_docs.edit') && (int) $send->sent_by !== (int) $user->id) {
             abort(403);
         }
+        $this->guardSend($send);
 
         if ($recipient->status === 'approved') {
             return redirect()->route('docuperfect.sales')
@@ -541,6 +562,7 @@ class SalesDocumentController extends Controller
         if (!$user->hasPermission('sales_docs.edit') && (int) $send->sent_by !== (int) $user->id) {
             abort(403);
         }
+        $this->guardSend($send);
 
         $request->validate([
             'files'          => 'required|array|min:1',

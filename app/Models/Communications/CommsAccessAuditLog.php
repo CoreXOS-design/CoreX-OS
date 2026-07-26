@@ -3,6 +3,7 @@
 namespace App\Models\Communications;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\Contact;
 use App\Models\User;
 use DomainException;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class CommsAccessAuditLog extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, StampsOnBehalfOf;
 
     public const EVENT_REQUEST            = 'request';
     public const EVENT_GRANT              = 'grant';

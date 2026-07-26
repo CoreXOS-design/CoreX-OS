@@ -6,9 +6,23 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 class CommissionLedger extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+
+    /**
+     * MONEY — the branch is the EARNING agent's (user_id), stamped here rather than
+     * by BelongsToBranch's acting-user default. Commission rows are written from
+     * queue/console with no authenticated user, where the acting-user stamp would
+     * NULL branch_id and hide an agent's own commission from them under Split ON.
+     * InheritsBranchFromParent reads the earning agent's branch context-independently.
+     */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
+    }
 
     protected $table = 'commission_ledger';
 

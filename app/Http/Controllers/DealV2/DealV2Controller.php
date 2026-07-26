@@ -18,6 +18,9 @@ use Illuminate\Http\Request;
 
 class DealV2Controller extends Controller
 {
+    // AT-267 C3 — per-record deal guard for the write paths (edit price/commission by id).
+    use \App\Http\Controllers\Concerns\AuthorizesDealV2Access;
+
     public function __construct(private DealPipelineService $pipelineService)
     {
     }
@@ -220,7 +223,7 @@ class DealV2Controller extends Controller
             ->groupBy('deal_type');
 
         $branches = Branch::orderBy('name')->get();
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
 
         // Pre-build template data for JS (avoid Blade closures in @json)
         $templatesJson = DealPipelineTemplate::active()
@@ -319,10 +322,14 @@ class DealV2Controller extends Controller
             $data['agents'] = $this->buildAgentsFromForm($request);
         }
 
-        // Set listing_agent_id from first listing agent if not explicitly set
+        // Set listing_agent_id from first listing agent if not explicitly set.
+        // AT-267 — for an assistant the deal is the AGENT's (ownershipUserId), never the
+        // assistant's; commission and the deal register file it under the agent. created_by_id
+        // (below) still records the assistant as the capturer. A normal user's ownershipUserId
+        // is themselves, so behaviour is unchanged.
         if (empty($data['listing_agent_id'])) {
             $firstListing = collect($data['agents'] ?? [])->firstWhere('side', 'listing');
-            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->id();
+            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->user()->ownershipUserId();
         }
 
         // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may
@@ -592,7 +599,7 @@ class DealV2Controller extends Controller
         $deal->load(['property', 'contacts', 'agents', 'listingAgent', 'sellingAgent', 'branch',
             'stepInstances' => fn ($q) => $q->orderBy('position')]);
 
-        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(); // AT-267: assistants are never selectable agents
         $branches = Branch::orderBy('name')->get();
         $locked = $deal->isFinanciallyLocked();
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
@@ -617,6 +624,7 @@ class DealV2Controller extends Controller
     public function update(Request $request, DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
+        $this->authorizeDealV2($deal);
 
         $locked = $deal->isFinanciallyLocked();
 

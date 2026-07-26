@@ -36,6 +36,17 @@ class User extends Authenticatable
         'qr_code_slug',
         'qr_reroute_user_id',
         'role',
+        // AT-267 — the assistant resolver hook. NOT a role: an assistant's permissions
+        // come entirely from their assignment matrix. The flag exists because `role`
+        // defaults to 'agent', so a user created without an explicit role IS a full
+        // agent — the resolver must identify an assistant without trusting `role`.
+        'is_assistant',
+        // AT-267 — gates the Compliance tab on My Portal for assistants. Unrelated to
+        // signature_requests.fica_required (the per-recipient e-sign gate).
+        'fica_required',
+        // AT-267 — a per-assistant display title ("PA", "Receptionist", …). A LABEL
+        // only: `role` stays pinned to 'assistant'. Null falls back to "Assistant".
+        'assistant_title',
         'designation',
         'supervised_by',
         'branch_id',
@@ -163,8 +174,11 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'invited_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
+        'is_assistant' => 'boolean',
+        'fica_required' => 'boolean',
         'show_on_website' => 'boolean',
         'exclude_from_p24' => 'boolean',
         'website_order' => 'integer',
@@ -219,6 +233,38 @@ class User extends Authenticatable
      */
     protected static function booted(): void
     {
+        // AT-267 (audit 2026-07-21) — pin an assistant's identity. The assistant's authority is
+        // matrix ∩ agent, resolved through AssistantPermissionResolver, but ~20 sites still read
+        // users.role / is_admin DIRECTLY (bypassing the resolver). If an assistant's role ever drifted
+        // to admin (e.g. an admin editing them in User Management), they would silently gain
+        // agency-wide authority far beyond their agent. An assistant is ALWAYS role='assistant' and
+        // never an admin — enforced structurally here so no write path can escalate them.
+        static::saving(function (self $user) {
+            if ($user->is_assistant) {
+                $user->role = 'assistant';
+                $user->is_admin = false;
+            }
+        });
+
+        // AT-267 E1 (audit 2026-07-21) — persist the assistant FREEZE when an agent is deactivated.
+        // Fail-closed already holds (the resolver denies live on !$agent->is_active), but persisting
+        // the assignment status gives a user-facing state and defence-in-depth. Reversible: the
+        // auto-suspend is undone when the agent is reactivated (only the ones WE froze).
+        static::updated(function (self $user) {
+            if (! $user->wasChanged('is_active')) {
+                return;
+            }
+            $assignments = \App\Models\AssistantAssignment::where('agent_user_id', $user->id);
+            if (! $user->is_active) {
+                (clone $assignments)->where('status', \App\Models\AssistantAssignment::STATUS_ACTIVE)
+                    ->update(['status' => \App\Models\AssistantAssignment::STATUS_SUSPENDED, 'suspend_reason' => 'agent_deactivated']);
+            } else {
+                (clone $assignments)->where('status', \App\Models\AssistantAssignment::STATUS_SUSPENDED)
+                    ->where('suspend_reason', 'agent_deactivated')
+                    ->update(['status' => \App\Models\AssistantAssignment::STATUS_ACTIVE, 'suspend_reason' => null]);
+            }
+        });
+
         static::updating(function (self $user) {
             if (!$user->getOriginal('agency_id') || $user->getOriginal('role') !== 'admin') {
                 return;
@@ -731,6 +777,202 @@ class User extends Authenticatable
         return $this->hasMany(User::class, 'supervised_by');
     }
 
+    // ------------------------------------------------------------------
+    // AT-267 — Assistants
+    //
+    // An Assistant works for one Assigned Agent. Their permissions are the
+    // intersection of (their assignment matrix) ∩ (the agent's LIVE permissions),
+    // minus the property-upload locked set — resolved in AssistantPermissionResolver.
+    //
+    // "Assigned Agent", never "sponsor": users.sponsored_by_user_id already exists
+    // and means the commission mentor, which is an unrelated concept.
+    //
+    // Spec: .ai/specs/assistants-feature-spec.md §6.6, §7
+    // ------------------------------------------------------------------
+
+    /** Memo for the per-request assignment lookup (null = not yet resolved, false = none). */
+    private AssistantAssignment|false|null $assistantAssignmentMemo = null;
+
+    /** Per-request cache of agencies.assistants_enabled, keyed by agency id. */
+    private static array $assistantsEnabledCache = [];
+
+    /** This user's own active assignment — set only when they ARE an assistant. */
+    public function assistantAssignment(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(AssistantAssignment::class, 'assistant_user_id')->active();
+    }
+
+    /** The assistants working for this user (this user being the Assigned Agent). */
+    public function assistantAssignments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(AssistantAssignment::class, 'agent_user_id')->active();
+    }
+
+    /**
+     * The live assignment, or null. Memoised — this is consulted on every permission
+     * check and every visibility scope, so it must not re-query per call.
+     */
+    public function activeAssistantAssignment(): ?AssistantAssignment
+    {
+        if ($this->assistantAssignmentMemo === null) {
+            $this->assistantAssignmentMemo = ($this->is_assistant && static::assistantsEnabledFor($this->agency_id))
+                ? ($this->assistantAssignment()->with('permissions')->first() ?? false)
+                : false;
+        }
+
+        return $this->assistantAssignmentMemo ?: null;
+    }
+
+    /**
+     * The agency kill switch. When OFF, an assistant resolves as a plain user with a
+     * zero-grant role — no inherited permissions, no inherited visibility. Flipping the
+     * switch off must return the system to EXACTLY current behaviour, so the guard lives
+     * here (the one place every assistant code path funnels through) rather than only in
+     * the resolver. Mirrors BranchScope::splitBranchesEnabled().
+     */
+    private static function assistantsEnabledFor(?int $agencyId): bool
+    {
+        if (!$agencyId) {
+            return false;
+        }
+
+        return static::$assistantsEnabledCache[$agencyId] ??= (bool) Agency::withoutGlobalScopes()
+            ->whereKey($agencyId)
+            ->value('assistants_enabled');
+    }
+
+    /** Test hook — the toggle cache is per-request state, not per-test state. */
+    public static function flushAssistantsEnabledCache(): void
+    {
+        static::$assistantsEnabledCache = [];
+    }
+
+    /**
+     * Is the Assistants agency kill switch ON for the agency this user is CURRENTLY
+     * acting in (session switcher / branch-derived, then home agency_id)? This is the
+     * admin-surface reading — it must resolve the same agency the Company Settings
+     * write path targets (SettingsController::updateAssistants → effectiveAgencyId()),
+     * so an owner switched into an agency sees the flag they just toggled there rather
+     * than the flag of their raw home agency_id (which is null for a global owner).
+     * Enforcement paths keep using the assistant's OWN agency_id — that is deliberate.
+     */
+    public function assistantsEnabledForEffectiveAgency(): bool
+    {
+        return static::assistantsEnabledFor($this->effectiveAgencyId());
+    }
+
+    /**
+     * True only when the flag AND a live assignment agree. A stale `is_assistant`
+     * with no assignment is not an assistant — it is a user with no permissions
+     * (the resolver fails closed), never a user who falls back to agent defaults.
+     */
+    public function isAssistant(): bool
+    {
+        return $this->is_assistant && $this->activeAssistantAssignment() !== null;
+    }
+
+    /** The agent this assistant works for, or null. */
+    public function assignedAgent(): ?self
+    {
+        return $this->activeAssistantAssignment()?->assignedAgent;
+    }
+
+    /**
+     * How this assistant is labelled in the UI — their custom title ("PA",
+     * "Receptionist", …) or "Assistant" when none was set. A display label
+     * only; never a permission or role decision.
+     */
+    public function assistantTitle(): string
+    {
+        return trim((string) $this->assistant_title) !== ''
+            ? trim($this->assistant_title)
+            : 'Assistant';
+    }
+
+    /** True when this user has at least one assistant — drives the sidebar entry. */
+    public function hasAssistants(): bool
+    {
+        return $this->assistantAssignments()->exists();
+    }
+
+    /**
+     * The user ids whose records this user may see under an 'own' data scope.
+     *
+     * Normal user: [self]. Assistant: [assigned agent, self] — because an assistant
+     * granted `contacts.view` at scope 'own' must see the AGENT's contacts. Without
+     * this they would see an empty list and the feature would be inert (spec §2.4).
+     *
+     * Every scopeVisibleTo() 'own' branch resolves through here (Prompt D).
+     */
+    public function dataIdentityIds(): array
+    {
+        $agent = $this->isAssistant() ? $this->assignedAgent() : null;
+
+        if (!$agent) {
+            return [$this->id];
+        }
+
+        return [$agent->id, $this->id];
+    }
+
+    /**
+     * The user id a record this user CREATES is owned by.
+     *
+     * Normal user: self. Assistant: the Assigned Agent — so commission, targets,
+     * the deal pipeline and "My Listings" all land on the agent. A deal captured by
+     * an assistant is the AGENT's deal. The assistant is recorded as the actor in the
+     * audit trail (on_behalf_of_user_id, Prompt J), never as the owner.
+     */
+    public function ownershipUserId(): int
+    {
+        return $this->assignedAgent()?->id ?? $this->id;
+    }
+
+    /**
+     * AT-267 — may this user download document files?
+     *
+     * True for everyone except an assistant whose assignment has the "download documents" toggle
+     * off (or who has no active assignment — fail closed). Mirrors the DenyAssistantDownload
+     * middleware for the VIEW layer, so download affordances the middleware cannot gate — direct
+     * public-disk storage URLs ($doc->url(), which never hit the app) — are hidden too.
+     */
+    public function canDownloadDocuments(): bool
+    {
+        if (! $this->is_assistant) {
+            return true;
+        }
+
+        return (bool) ($this->activeAssistantAssignment()?->can_download_documents);
+    }
+
+    /**
+     * AT-267 — may this user EDIT and DELETE records, or only add and view them?
+     *
+     * The agent's control-page toggle, `assistant_assignments.can_manage_my_records`:
+     * "{Assistant} can edit & delete my records, not just add them". ON by default (an
+     * assistant who cannot change anything is barely an assistant); when the agent switches
+     * it OFF the assistant keeps every VIEW and every CREATE their matrix grants and loses
+     * every UPDATE and DELETE.
+     *
+     * AUDIT 2026-07-26 (F1) — this toggle shipped on the page in Phase 2 and its enforcement
+     * (Phase 4) never did, so for five days the page told agents they had restricted their
+     * assistant when they had not. A visible switch that does nothing is worse than no switch:
+     * it stops the agent looking for the real control. Same reasoning, verbatim, as the
+     * soft-retired notification toggles in NotificationEventTypeSeeder.
+     *
+     * True for everyone who is not an assistant. Fails CLOSED for an assistant with no live
+     * assignment — exactly like canDownloadDocuments(), and for the same reason: an unresolvable
+     * assistant is a degraded assistant, and a degraded assistant does not get write access.
+     */
+    public function canMutateRecords(): bool
+    {
+        if (! $this->is_assistant) {
+            return true;
+        }
+
+        return (bool) ($this->activeAssistantAssignment()?->can_manage_my_records);
+    }
+
     // --- Permission helpers (delegate to PermissionService) ---
 
     public function hasPermission(string $key): bool
@@ -741,6 +983,15 @@ class User extends Authenticatable
     public function hasAnyPermission(array $keys): bool
     {
         return PermissionService::userHasAnyPermission($this, $keys);
+    }
+
+    // --- Feature-registry helper (delegate to AgencyFeatureService) ---
+    // Feature = "does this AGENCY use this module" — ORTHOGONAL to permission
+    // ("may this USER touch it"). Spec: .ai/specs/corex-feature-registry.md §3.1.
+
+    public function hasFeature(string $key): bool
+    {
+        return app(\App\Services\Features\AgencyFeatureService::class)->enabled($key);
     }
 
     public function socialAccounts(): \Illuminate\Database\Eloquent\Relations\HasMany

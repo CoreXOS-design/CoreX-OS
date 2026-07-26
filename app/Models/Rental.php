@@ -42,9 +42,10 @@ class Rental extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
+        // AT-267 — an assistant's 'own' is their Assigned Agent's; everyone else: [$user->id].
         if ($scope === 'own') {
             return $query->whereHas('agents', function ($q) use ($user) {
-                $q->where('users.id', $user->id);
+                $q->whereIn('users.id', $user->dataIdentityIds());
             });
         }
 

@@ -104,7 +104,9 @@ class ViewingPack extends Model
         return match ($scope) {
             'all'    => $query,
             'branch' => $query->where($this->qualifyColumn('branch_id'), $user->effectiveBranchId()),
-            'own'    => $query->where($this->qualifyColumn('agent_id'), $user->id),
+            // AT-267 §7.2 — 'own' for an assistant means their AGENT's; dataIdentityIds() is
+            // [self] for a normal user (identical behaviour) and [agent, self] for an assistant.
+            'own'    => $query->whereIn($this->qualifyColumn('agent_id'), $user->dataIdentityIds()),
             default  => $query->whereRaw('1 = 0'),
         };
     }
@@ -117,7 +119,7 @@ class ViewingPack extends Model
         return match ($scope) {
             'all'    => true,
             'branch' => (int) $this->branch_id === (int) $user->effectiveBranchId(),
-            'own'    => (int) $this->agent_id === (int) $user->id,
+            'own'    => in_array((int) $this->agent_id, $user->dataIdentityIds(), true),
             default  => false,
         };
     }

@@ -131,11 +131,15 @@ class AgentPortalController extends Controller
         }
 
         // ── Recent activity ──
-        $recentActivity = CommissionLedger::forUser($user->id)
-            ->orderByDesc('deal_date')
-            ->orderByDesc('created_at')
-            ->limit(5)
-            ->get();
+        // AT-267 §10 — an assistant has no commission of their own; the Recent Activity feed
+        // (which shows commission R amounts) collapses to its empty state for them.
+        $recentActivity = $user->isAssistant()
+            ? collect()
+            : CommissionLedger::forUser($user->id)
+                ->orderByDesc('deal_date')
+                ->orderByDesc('created_at')
+                ->limit(5)
+                ->get();
 
         // ── Social accounts ──
         $socialAccounts = AgentSocialAccount::where('user_id', $user->id)->active()->get();
@@ -218,8 +222,15 @@ class AgentPortalController extends Controller
             $defaultManagedBranchId = $defaultManagedBranchId !== null ? (int) $defaultManagedBranchId : null;
         }
 
+        // AT-267 §10 — a single flag drives every "hide for assistants" gate in the view
+        // (no forked Blade, which would drift). An assistant's own portal shows only profile
+        // photo / identity / ID / proof-of-residence / FICA(if required); commission, PPRA/FFC,
+        // bank, payroll, leave, tools and agent-marketing surfaces are all suppressed.
+        $isAssistant = $user->isAssistant();
+
         return view('agent.portal', compact(
             'user',
+            'isAssistant',
             'documents',
             'articles',
             'outstandingPolicies',
@@ -487,13 +498,35 @@ class AgentPortalController extends Controller
     {
         $items = [];
 
+        // AT-267 §10 / AUDIT 2026-07-26 (F9) — an assistant is NOT a property practitioner.
+        //
+        // They hold no Fidelity Fund Certificate, carry no professional indemnity cover and have
+        // no practitioner tax-clearance obligation — those are PPRA licensing items that attach to
+        // the practitioner, not to their support staff. Listing them anyway did real damage: every
+        // one resolved 'red' ("Not uploaded" / "Not set") against a requirement the person can
+        // never satisfy, which pinned `overall` to red and `issues_count` above zero for the life
+        // of the account. An always-red compliance card is not a warning, it is noise that teaches
+        // people to ignore the card.
+        //
+        // Fixed HERE rather than in the blade because this array is the source: the view's card,
+        // the Compliance tab, `overall` and `issues_count` all read it. Suppressing the rows in
+        // Blade would have left the counters lying. (The Documents tab already filters itself —
+        // portal.blade.php ~:988.)
+        //
+        // KEPT for an assistant: ID Copy (FICA identity), RMCP acknowledgement and employee
+        // screening — those are obligations of anyone employed around client money and documents,
+        // which an assistant certainly is. Only the practitioner-licensing items come out.
+        $isAssistant = $user->isAssistant();
+
         // Document-based compliance items — check with override → provision → individual precedence
-        $docItems = [
-            'ffc_certificate' => 'FFC Certificate',
-            'id_copy'         => 'ID Copy',
-            'pi_insurance'    => 'PI Insurance',
-            'tax_clearance'   => 'Tax Clearance',
-        ];
+        $docItems = $isAssistant
+            ? ['id_copy' => 'ID Copy']
+            : [
+                'ffc_certificate' => 'FFC Certificate',
+                'id_copy'         => 'ID Copy',
+                'pi_insurance'    => 'PI Insurance',
+                'tax_clearance'   => 'Tax Clearance',
+            ];
 
         foreach ($docItems as $docType => $label) {
             // 1. Check per-user override
@@ -545,6 +578,10 @@ class AgentPortalController extends Controller
             }
         }
 
+        // FFC Number + FFC Expiry — practitioner licensing, so skipped entirely for an assistant
+        // (see the note above $docItems). Guarded as one block: an assistant with an FFC number
+        // somehow set on their row still must not be assessed against a certificate they cannot hold.
+        if (! $isAssistant) {
         // FFC Number — no override/provision logic, just direct check
         $ffcOverride = UserComplianceOverride::forUserAndItem($user->id, 'ffc_number');
         if ($ffcOverride) {
@@ -565,6 +602,7 @@ class AgentPortalController extends Controller
         } else {
             $items['ffc_expiry'] = $this->expiryStatus($user->ffc_expiry_date, 'FFC');
         }
+        } // end: practitioner-only FFC items (AT-267 §10 / AUDIT 2026-07-26 F9)
 
         // RMCP — from the structured acknowledgement system
         $rmcpOverride = UserComplianceOverride::forUserAndItem($user->id, 'rmcp_acknowledged');

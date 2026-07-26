@@ -34,6 +34,16 @@ class Property extends Model
     public bool $skipNewListingAutomation = false;
 
     /**
+     * Set by the P24 importer (ConfirmP24PropertyRowJob) so a bulk import — which
+     * saves properties with p24_ref/status set from the export — does NOT make the
+     * PropertyObserver fire live P24 push/deactivation calls. An import is a
+     * snapshot load, not a live edit; without this an import of off-market stock
+     * would hit P24 (or 401) once per listing and churn the portal. Declared (not
+     * dynamic) so it survives PHP 8.2 strictness.
+     */
+    public bool $skipSyndicationAutomation = false;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
@@ -366,6 +376,14 @@ class Property extends Model
         'p24_city_id',
         'p24_province_id',
         'p24_suburb_mismatch',
+        // P24 import completeness (audit run 10, 2026-07-17)
+        'occupation_date',
+        'source_reference',
+        'lightstone_id',
+        'development_id',
+        'eyespy_360_id',
+        'erf_area_unit',
+        'floor_area_unit',
         'pp_syndication_enabled',
         'pp_syndication_status',
         'pp_ref',
@@ -403,6 +421,10 @@ class Property extends Model
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
         'p24_image_signature',
+        'gallery_expected_count',
+        'gallery_stored_count',
+        'gallery_import_status',
+        'p24_source_image_signature',
         'compliance_snapshot_at',
         'compliance_snapshot_data',
         'compliance_evidence_flags',
@@ -428,6 +450,8 @@ class Property extends Model
         'gallery_custom_tags'     => 'array',
         'gallery_upload_keys'     => 'array',
         'rental_upload_keys'      => 'array',
+        'gallery_expected_count'  => 'integer',
+        'gallery_stored_count'    => 'integer',
         'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
@@ -455,6 +479,7 @@ class Property extends Model
         'special_levy'        => 'integer',
         'listed_date'         => 'date',
         'expiry_date'         => 'date',
+        'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
         'baths'               => 'decimal:1',
@@ -507,6 +532,17 @@ class Property extends Model
         parent::boot();
 
         static::creating(function (Property $property) {
+            // AT-267 — the model-level backstop of the property-upload lock. An assistant may NEVER
+            // bring a listing onto the agency's books, on ANY path. Route middleware + the resolver
+            // locked-set cover the KNOWN entry points, but new create paths (promote-to-stock,
+            // outreach compose, legacy mobile create, future ingress) keep appearing and slipping
+            // the hand-maintained route list. This closes the CLASS: any Property::create fired
+            // while an assistant is the acting user is refused. Non-auth ingress (webhooks, imports,
+            // seeders, queued jobs) has no assistant and is unaffected. Spec §9 (make it structural).
+            if ((bool) (auth()->user()?->is_assistant)) {
+                abort(403, 'Assistants cannot create or import listings. Ask the agent to create it.');
+            }
+
             if (empty($property->external_id)) {
                 $property->external_id = (string) Str::uuid();
             }
@@ -1178,7 +1214,10 @@ class Property extends Model
 
         if ($scope === 'all') return $query;
         if ($scope === 'branch') return $query->where('branch_id', $user->effectiveBranchId());
-        if ($scope === 'own') return $query->where('agent_id', $user->id);
+        // AT-267 — 'own' means the acting user's book. For an ASSISTANT that is their
+        // Assigned Agent's book, not their own (dataIdentityIds()); for everyone else this
+        // is exactly [$user->id] and behaviour is unchanged.
+        if ($scope === 'own') return $query->whereIn('agent_id', $user->dataIdentityIds());
 
         return $query->whereRaw('1 = 0');
     }

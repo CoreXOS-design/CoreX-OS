@@ -37,6 +37,7 @@ class SyncReferenceData extends Command
         \Database\Seeders\DemoTncVersionSeeder::class,      // demo T&C v1 — without it EVERY demo prospect is blocked at the clickwrap (AT-230)
         \Database\Seeders\PayrollTaxTableSeeder::class,     // AT-237 C1 — SARS PAYE brackets (GLOBAL, seed-only) — without it PAYE silently R0
         \Database\Seeders\PayrollTaxRebateSeeder::class,    // AT-237 C1 — SARS rebates/thresholds/UIF ceiling/SDL rate (GLOBAL, seed-only)
+        \Database\Seeders\AssistantRoleSeeder::class,       // AT-267 — the zero-grant `assistant` role. users.role is NOT NULL DEFAULT 'agent', so an env WITHOUT this row cannot create an assistant safely: the user would be saved as a full AGENT
     ];
 
     /** Idempotent reference-provisioning commands [name, args]. */

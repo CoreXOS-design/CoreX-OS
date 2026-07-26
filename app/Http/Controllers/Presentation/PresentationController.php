@@ -1778,6 +1778,11 @@ class PresentationController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('presentations.edit'), 403);
         $record = Presentation::onlyTrashed()->findOrFail($id);
+        // AT-267 H4 — per-record: only restore within the acting user's data scope.
+        abort_unless(
+            Presentation::onlyTrashed()->visibleTo(auth()->user())->whereKey($record->getKey())->exists(),
+            403
+        );
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
     }

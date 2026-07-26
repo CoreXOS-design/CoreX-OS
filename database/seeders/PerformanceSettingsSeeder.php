@@ -31,8 +31,11 @@ class PerformanceSettingsSeeder extends Seeder
         ];
 
         foreach ($defaults as $key => $value) {
+            // Global platform defaults live on the NULL-agency row. Pinning the
+            // match to agency_id = null avoids matching (and mass-updating) any
+            // per-agency override rows that may exist (multi-tenancy #7).
             DB::table('performance_settings')->updateOrInsert(
-                ['key' => $key],
+                ['key' => $key, 'agency_id' => null],
                 [
                     'value'      => $value,
                     'updated_at' => now(),

@@ -13,6 +13,11 @@ use Illuminate\Http\Request;
 
 class DocumentController extends Controller
 {
+    // AT-267 H5 — the key-OR-self access checks below let a documents.edit holder (or an assistant
+    // of one) mutate ANY agent's document by id. guardDocument() adds the per-record data-scope pin
+    // (an assistant is clamped to the assigned agent's OWN documents) on top of the existing checks.
+    use \App\Http\Controllers\Concerns\AuthorizesDocumentAccess;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -83,7 +88,7 @@ class DocumentController extends Controller
             'name' => $request->input('name'),
             'template_id' => $template->id,
             'fields_json' => $template->fields_json ?? [],
-            'owner_id' => $user->id,
+            'owner_id' => $user->ownershipUserId(), // AT-267 — file an assistant's document as the agent
             'branch_id' => $user->effectiveBranchId(),
         ]);
 
@@ -95,17 +100,19 @@ class DocumentController extends Controller
         $user = $request->user();
         $document = Document::with(['template', 'template.branches'])->findOrFail($id);
 
-        // Access check
-        $scope = PermissionService::getDataScope($user, 'documents');
-        if ($scope === 'branch') {
-            if ($document->branch_id !== $user->effectiveBranchId()) {
-                abort(403);
-            }
-        } elseif ($scope !== 'all') {
-            if ((int)$document->owner_id !== (int)$user->id) {
-                abort(403);
-            }
-        }
+        // Access check.
+        //
+        // AUDIT 2026-07-26 (F2) — this was the ONE method in the class left on the pre-H5 bare
+        // `owner_id === $user->id` test while every mutator below moved to guardDocument().
+        // store() files an assistant's document under the AGENT (ownershipUserId(), :91) and then
+        // redirects HERE — so an assistant was 403'd on the redirect that follows their own
+        // create. guardDocument() resolves 'own' through dataIdentityIds() = [agent, self], which
+        // is the same set Document::scopeVisibleTo() uses, so LIST and OPEN can no longer disagree.
+        //
+        // forEdit: FALSE deliberately — this is the document VIEWER as well as the editor, so it
+        // authorizes at VIEW breadth. The save/rename/archive paths below re-guard at mutation
+        // breadth, which is where an assistant is pinned to the agent's own book.
+        $this->guardDocument($document, forEdit: false);
 
         $template = $document->template;
         $namedFields = NamedField::orderBy('sort_order')->get();
@@ -148,6 +155,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $data = [];
 
@@ -260,6 +268,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $request->validate([
             'name' => 'required|string|max:255',
@@ -282,6 +291,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         // Block archiving for documents in active signing workflows or active leases
         $sigTemplate = $document->signatureTemplate;
@@ -325,6 +335,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $document->update(['archived_at' => null]);
 
@@ -340,6 +351,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.archive') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $name = $document->name;
         $document->delete();
@@ -359,6 +371,7 @@ class DocumentController extends Controller
         if (!$user->hasPermission('documents.edit') && (int)$document->owner_id !== (int)$user->id) {
             abort(403);
         }
+        $this->guardDocument($document); // AT-267 H5
 
         $request->validate([
             'document_type' => 'required|string',

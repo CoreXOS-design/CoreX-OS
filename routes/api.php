@@ -338,11 +338,15 @@ Route::middleware('auth:sanctum')->group(function () {
             ->name('v1.mobile.visibility');
 
         // ── Prospecting ────────────────────────────────────────────
-        Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->name('v1.prospecting.import');
+        // AT-267 — /import creates tracked-property records and carries NO permission key of
+        // its own; an assistant may never bring a property onto the books by any path.
+        Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── Properties — portal pull ───────────────────────────────
-        Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->name('v1.properties.pull-from-portal');
+        // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no
+        // permission key of its own, and it creates stock.
+        Route::post('/properties/pull-from-portal',          [PropertyPullController::class, 'pullFromPortal'])->middleware('deny_assistant_property_write')->name('v1.properties.pull-from-portal');
         Route::get('/properties/{propertyId}/pull-status',   [PropertyPullController::class, 'pullStatus'])->name('v1.properties.pull-status');
 
         // ── Properties — geocoding (Map strip → AddressResolverService) ──
@@ -360,7 +364,11 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // ── Mobile Properties ────────────────────────────────────────
-        Route::prefix('mobile/properties')->group(function () {
+        // AT-267 — the mobile create + image-upload endpoints had NO permission middleware at
+        // all, so the app was the widest-open route onto the agency's books. Gated at the group
+        // so a new mobile property-write endpoint is covered by default; `update` is on the
+        // middleware's allow list, because editing the agent's listing IS the assistant's job.
+        Route::prefix('mobile/properties')->middleware('deny_assistant_property_write')->group(function () {
             Route::get('/',         [MobilePropertyController::class, 'index'])->name('v1.mobile.properties.index');
             Route::post('/',        [MobilePropertyController::class, 'store'])->name('v1.mobile.properties.store');
 
@@ -434,7 +442,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{contact}/drive',                       [MobileContactComplianceController::class, 'driveIndex'])->name('v1.mobile.contacts.drive.index');
             Route::post('/{contact}/drive',                      [MobileContactComplianceController::class, 'driveStore'])->name('v1.mobile.contacts.drive.store');
             Route::put('/{contact}/drive/{document}',            [MobileContactComplianceController::class, 'driveUpdate'])->name('v1.mobile.contacts.drive.update');
-            Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->name('v1.mobile.contacts.drive.download');
+            Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->middleware('deny_assistant_download')->name('v1.mobile.contacts.drive.download');
             Route::delete('/{contact}/drive/{document}',         [MobileContactComplianceController::class, 'driveDestroy'])->name('v1.mobile.contacts.drive.destroy');
 
             Route::get('/{contact}/fica', [MobileContactComplianceController::class, 'ficaIndex'])->name('v1.mobile.contacts.fica.index');
@@ -579,11 +587,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('legacy.mobile.visibility');
 
     // LEGACY: remove after 2026-08-21
-    Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->name('legacy.prospecting.import');
+    Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('legacy.prospecting.import'); // AT-267 C2
     Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('legacy.prospecting.check-search');
 
     // LEGACY: remove after 2026-08-21
-    Route::post('/properties/pull-from-portal',        [PropertyPullController::class, 'pullFromPortal'])->name('legacy.properties.pull-from-portal');
+    Route::post('/properties/pull-from-portal',        [PropertyPullController::class, 'pullFromPortal'])->middleware('deny_assistant_property_write')->name('legacy.properties.pull-from-portal'); // AT-267 C2
     Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus'])->name('legacy.properties.pull-status');
 
     // LEGACY: remove after 2026-08-21
@@ -596,7 +604,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // LEGACY: remove after 2026-08-21
     Route::prefix('mobile/properties')->group(function () {
         Route::get('/',         [MobilePropertyController::class, 'index'])->name('legacy.mobile.properties.index');
-        Route::post('/',        [MobilePropertyController::class, 'store'])->name('legacy.mobile.properties.store');
+        Route::post('/',        [MobilePropertyController::class, 'store'])->middleware('deny_assistant_property_write')->name('legacy.mobile.properties.store'); // AT-267 C2
         Route::get('/options',        [MobilePropertyController::class, 'options'])->name('legacy.mobile.properties.options');
         Route::get('/spaces/catalog', [MobilePropertyController::class, 'spacesCatalog'])->name('legacy.mobile.properties.spaces.catalog');
         Route::get('/{property}',  [MobilePropertyController::class, 'show'])->name('legacy.mobile.properties.show');
@@ -633,7 +641,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{contact}/drive',                       [MobileContactComplianceController::class, 'driveIndex'])->name('mobile.contacts.drive.index');
         Route::post('/{contact}/drive',                      [MobileContactComplianceController::class, 'driveStore'])->name('mobile.contacts.drive.store');
         Route::put('/{contact}/drive/{document}',            [MobileContactComplianceController::class, 'driveUpdate'])->name('mobile.contacts.drive.update');
-        Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->name('mobile.contacts.drive.download');
+        Route::get('/{contact}/drive/{document}/download',   [MobileContactComplianceController::class, 'driveDownload'])->middleware('deny_assistant_download')->name('mobile.contacts.drive.download');
         Route::delete('/{contact}/drive/{document}',         [MobileContactComplianceController::class, 'driveDestroy'])->name('mobile.contacts.drive.destroy');
 
         Route::get('/{contact}/fica', [MobileContactComplianceController::class, 'ficaIndex'])->name('mobile.contacts.fica.index');
