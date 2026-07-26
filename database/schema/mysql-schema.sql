@@ -608,7 +608,7 @@ DROP TABLE IF EXISTS `agency_features`;
 CREATE TABLE `agency_features` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `feature_key` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `feature_key` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
   `enabled` tinyint(1) NOT NULL DEFAULT '1',
   `updated_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -796,23 +796,6 @@ CREATE TABLE `agency_service_provider_contacts` (
   CONSTRAINT `agency_service_provider_contacts_service_provider_id_foreign` FOREIGN KEY (`service_provider_id`) REFERENCES `agency_service_providers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `agency_service_provider_service_types`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `agency_service_provider_service_types` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `agency_id` bigint unsigned NOT NULL,
-  `service_provider_id` bigint unsigned NOT NULL,
-  `service_type` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `aspst_agency_type_idx` (`agency_id`,`service_type`),
-  KEY `aspst_provider_idx` (`service_provider_id`),
-  CONSTRAINT `aspst_provider_fk` FOREIGN KEY (`service_provider_id`) REFERENCES `agency_service_providers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_service_providers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -838,24 +821,6 @@ CREATE TABLE `agency_service_providers` (
   KEY `agency_service_providers_agency_id_is_preferred_index` (`agency_id`,`is_preferred`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `agency_service_types`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `agency_service_types` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `agency_id` bigint unsigned NOT NULL,
-  `code` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `sort_order` int unsigned NOT NULL DEFAULT '0',
-  `is_active` tinyint(1) NOT NULL DEFAULT '1',
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `agency_service_types_agency_id_code_index` (`agency_id`,`code`),
-  KEY `agency_service_types_agency_id_index` (`agency_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_signing_parties`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -879,15 +844,15 @@ DROP TABLE IF EXISTS `agency_subscriptions`;
 CREATE TABLE `agency_subscriptions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `plan` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'team',
+  `plan` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'team',
   `plan_changed_at` timestamp NULL DEFAULT NULL,
   `custom_amount_zar` decimal(12,2) DEFAULT NULL,
-  `custom_amount_note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `custom_amount_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `discount_percent` decimal(5,2) DEFAULT NULL,
   `discount_months` smallint unsigned DEFAULT NULL,
   `discount_starts_on` date DEFAULT NULL,
-  `discount_note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `discount_note` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -1414,13 +1379,13 @@ CREATE TABLE `assistant_activity_log` (
   `assistant_assignment_id` bigint unsigned NOT NULL,
   `assistant_user_id` bigint unsigned NOT NULL,
   `agent_user_id` bigint unsigned DEFAULT NULL,
-  `action` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `subject_type` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject_type` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `subject_id` bigint unsigned DEFAULT NULL,
-  `subject_label` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `route_name` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `url` varchar(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `method` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `subject_label` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `route_name` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `url` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `method` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `assistant_activity_log_agency_id_foreign` (`agency_id`),
@@ -1441,9 +1406,9 @@ CREATE TABLE `assistant_assignment_permissions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `assistant_assignment_id` bigint unsigned NOT NULL,
-  `permission_key` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `permission_key` varchar(190) COLLATE utf8mb4_unicode_ci NOT NULL,
   `granted` tinyint(1) NOT NULL DEFAULT '0',
-  `scope` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `scope` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_locked` tinyint(1) NOT NULL DEFAULT '0',
   `is_new` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
@@ -1466,17 +1431,17 @@ CREATE TABLE `assistant_assignments` (
   `branch_id` bigint unsigned DEFAULT NULL,
   `assistant_user_id` bigint unsigned NOT NULL,
   `agent_user_id` bigint unsigned NOT NULL,
-  `status` enum('active','suspended','revoked') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `status` enum('active','suspended','revoked') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
   `can_manage_my_records` tinyint(1) NOT NULL DEFAULT '1',
   `show_attribution` tinyint(1) NOT NULL DEFAULT '1',
   `notify_on_action` tinyint(1) NOT NULL DEFAULT '0',
   `can_download_documents` tinyint(1) NOT NULL DEFAULT '1',
-  `suspend_reason` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suspend_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `snapshot_taken_at` timestamp NULL DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `revoked_by_user_id` bigint unsigned DEFAULT NULL,
   `revoked_at` timestamp NULL DEFAULT NULL,
-  `revoke_reason` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `revoke_reason` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -2879,35 +2844,6 @@ CREATE TABLE `communication_attachments` (
   CONSTRAINT `comm_att_comm_fk` FOREIGN KEY (`communication_id`) REFERENCES `communications` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `communication_filing_suspense`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `communication_filing_suspense` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `agency_id` bigint unsigned NOT NULL,
-  `communication_id` bigint unsigned NOT NULL,
-  `channel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'email',
-  `suggested_deal_id` bigint unsigned DEFAULT NULL,
-  `confidence` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'low',
-  `status` varchar(12) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-  `resolved_deal_id` bigint unsigned DEFAULT NULL,
-  `resolved_by_user_id` bigint unsigned DEFAULT NULL,
-  `resolved_at` timestamp NULL DEFAULT NULL,
-  `matched_signal_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `matched_signal_value` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `attorney_provider_id` bigint unsigned DEFAULT NULL,
-  `attorney_provider_contact_id` bigint unsigned DEFAULT NULL,
-  `note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `cfs_agency_comm_uq` (`agency_id`,`communication_id`),
-  KEY `cfs_agency_status_idx` (`agency_id`,`status`),
-  KEY `cfs_agency_deal_idx` (`agency_id`,`suggested_deal_id`),
-  KEY `communication_filing_suspense_agency_id_index` (`agency_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_flag_alerts`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -2964,32 +2900,6 @@ CREATE TABLE `communication_flags` (
   CONSTRAINT `cf_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `cf_contradby_fk` FOREIGN KEY (`contradicted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `cf_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `communication_learned_refs`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `communication_learned_refs` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `agency_id` bigint unsigned NOT NULL,
-  `deal_id` bigint unsigned NOT NULL,
-  `attorney_provider_id` bigint unsigned DEFAULT NULL,
-  `attorney_provider_contact_id` bigint unsigned DEFAULT NULL,
-  `signal_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `signal_value` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `is_verified` tinyint(1) NOT NULL DEFAULT '0',
-  `verified_by_user_id` bigint unsigned DEFAULT NULL,
-  `verified_at` timestamp NULL DEFAULT NULL,
-  `hits` int unsigned NOT NULL DEFAULT '0',
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `deleted_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `clr_agency_signal_uq` (`agency_id`,`signal_type`,`signal_value`),
-  KEY `clr_agency_verified_idx` (`agency_id`,`is_verified`),
-  KEY `clr_agency_firm_idx` (`agency_id`,`attorney_provider_id`),
-  KEY `communication_learned_refs_agency_id_index` (`agency_id`),
-  KEY `communication_learned_refs_deal_id_index` (`deal_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `communication_links`;
@@ -3147,7 +3057,6 @@ CREATE TABLE `communications` (
   `transcript_model` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `transcript_error` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `transcript_at` timestamp NULL DEFAULT NULL,
-  `body_display` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'AT-182 derived display body (email quote stripped); raw body_text untouched. Null → use body_text.',
   `raw_path` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `has_attachments` tinyint(1) NOT NULL DEFAULT '0',
   `content_hash` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -5336,10 +5245,6 @@ CREATE TABLE `document_filing_register` (
   `property_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `seller_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `expiry_date` date DEFAULT NULL,
-  `link_source` enum('manual','auto_address_match','admin_review') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `link_confidence` enum('exact','high','medium','low') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `link_reviewed_at` timestamp NULL DEFAULT NULL,
-  `link_reviewed_by_user_id` bigint unsigned DEFAULT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `captured_by` bigint unsigned NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -5352,10 +5257,8 @@ CREATE TABLE `document_filing_register` (
   KEY `document_filing_register_property_address_index` (`property_address`),
   KEY `document_filing_register_expiry_date_index` (`expiry_date`),
   KEY `document_filing_register_agency_id_idx` (`agency_id`),
-  KEY `dfr_link_reviewer_fk` (`link_reviewed_by_user_id`),
-  KEY `dfr_property_idx` (`property_id`),
-  KEY `dfr_seller_contact_idx` (`seller_contact_id`),
-  CONSTRAINT `dfr_link_reviewer_fk` FOREIGN KEY (`link_reviewed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  KEY `dfr_property_fk` (`property_id`),
+  KEY `dfr_seller_contact_fk` (`seller_contact_id`),
   CONSTRAINT `dfr_property_fk` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   CONSTRAINT `dfr_seller_contact_fk` FOREIGN KEY (`seller_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `document_filing_register_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
@@ -9574,9 +9477,9 @@ CREATE TABLE `properties` (
   `half_baths` tinyint unsigned NOT NULL DEFAULT '0',
   `garages` tinyint NOT NULL DEFAULT '0',
   `size_m2` int unsigned DEFAULT NULL,
-  `floor_area_unit` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `floor_area_unit` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `erf_size_m2` int unsigned DEFAULT NULL,
-  `erf_area_unit` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `erf_area_unit` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `stand_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `erf_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -9605,8 +9508,8 @@ CREATE TABLE `properties` (
   `images_json` json DEFAULT NULL,
   `gallery_expected_count` int unsigned NOT NULL DEFAULT '0',
   `gallery_stored_count` int unsigned NOT NULL DEFAULT '0',
-  `gallery_import_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-  `p24_source_image_signature` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `gallery_import_status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `p24_source_image_signature` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `dawn_images_json` json DEFAULT NULL,
   `noon_images_json` json DEFAULT NULL,
   `dusk_images_json` json DEFAULT NULL,
@@ -9650,16 +9553,16 @@ CREATE TABLE `properties` (
   `p24_hide_address` tinyint(1) NOT NULL DEFAULT '1',
   `youtube_video_id` varchar(11) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `matterport_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `eyespy_360_id` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `eyespy_360_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `virtual_tour_url` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `rental_price_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_syndication_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `p24_syndication_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_stats_synced_at` timestamp NULL DEFAULT NULL,
   `p24_ref` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `source_reference` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `lightstone_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `development_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_reference` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `lightstone_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `development_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_last_submitted_at` timestamp NULL DEFAULT NULL,
   `p24_activated_at` timestamp NULL DEFAULT NULL,
   `p24_last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -12698,7 +12601,7 @@ CREATE TABLE `users` (
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'agent',
   `is_assistant` tinyint(1) NOT NULL DEFAULT '0',
   `fica_required` tinyint(1) NOT NULL DEFAULT '1',
-  `assistant_title` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `assistant_title` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `risk_tier` enum('high','medium','low') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
   `screening_status` enum('never_screened','pre_employment_pending','clear','concerns_flagged','overdue','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'never_screened',
   `screening_due_on` date DEFAULT NULL,
@@ -14165,3 +14068,26 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1013,'2026_07_20_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1014,'2026_07_17_090000_rotate_invite_pending_passwords',252);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1015,'2026_07_24_100001_create_sanctions_list_tables',253);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1016,'2026_07_24_100002_create_fica_tfs_screenings_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1017,'2026_07_14_200001_add_assistant_fields_to_users_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1018,'2026_07_14_200002_create_assistant_assignments_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1019,'2026_07_14_200003_create_assistant_assignment_permissions_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1020,'2026_07_14_200004_add_assistants_settings_to_agencies_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1021,'2026_07_14_200005_seed_assistant_role',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1022,'2026_07_17_120000_add_invited_at_to_users_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1023,'2026_07_17_130000_add_p24_gallery_completeness_to_properties',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1024,'2026_07_17_200000_add_p24_import_completeness_fields_to_properties',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1025,'2026_07_18_000001_create_agency_features_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1026,'2026_07_18_000002_backfill_agency_features',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1027,'2026_07_18_000003_add_agency_id_to_performance_settings',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1028,'2026_07_18_000004_backfill_legacy_deal_branches',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1029,'2026_07_19_000001_add_branch_id_to_deal_v2_child_records',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1030,'2026_07_19_000002_add_branch_id_to_prospecting_and_worksheets',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1031,'2026_07_19_000003_add_branch_id_to_buyer_match_models',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1032,'2026_07_19_000004_backfill_branch_id_for_per_user_activity_models',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1033,'2026_07_19_000005_backfill_branch_id_for_commission_ledger',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1034,'2026_07_19_000006_add_on_behalf_of_user_id_to_audit_tables',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1035,'2026_07_19_000007_add_assistant_control_settings',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1036,'2026_07_21_000001_add_can_download_documents_to_assistant_assignments',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1037,'2026_07_22_120000_add_assistant_title_to_users_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1038,'2026_07_22_130000_create_assistant_activity_log_table',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1039,'2026_07_22_140000_add_is_new_to_assistant_assignment_permissions',254);
