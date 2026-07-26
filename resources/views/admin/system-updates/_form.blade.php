@@ -22,17 +22,33 @@
 <div class="rounded-md p-5 space-y-5"
      style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
 
-    {{-- Type --}}
+    {{-- Type.
+
+         The selected card is styled reactively (Alpine), NOT only from the server-rendered
+         $checked. Server-only styling meant clicking a card moved the native radio dot while
+         the border + tint stayed on whatever was selected at render time — the control looked
+         like it had ignored the click. The server-rendered `style` remains as the initial
+         paint so the correct card is highlighted before Alpine boots (and if it never does);
+         `:style` merges over it on every change. --}}
+    @php $selectedType = old('type', $update->type ?? 'feature'); @endphp
     <div>
         <label class="block text-sm font-semibold mb-2" style="color:var(--text-primary, #111827);">What kind of update is this?</label>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2" x-data="{ type: @js($selectedType) }">
             @foreach($types as $key => $meta)
-                @php $checked = old('type', $update->type ?? 'feature') === $key; @endphp
-                <label class="cursor-pointer px-3 py-2 rounded-md text-sm font-medium"
-                       style="border:1px solid {{ $checked ? "var({$meta['token']}, {$meta['fallback']})" : 'var(--border, rgba(0,0,0,0.07))' }};
-                              background:{{ $checked ? "color-mix(in srgb, var({$meta['token']}, {$meta['fallback']}) 12%, transparent)" : 'transparent' }};
-                              color:var(--text-primary, #111827);">
-                    <input type="radio" name="type" value="{{ $key }}" class="mr-2" @checked($checked)>
+                @php
+                    $checked  = $selectedType === $key;
+                    $onColour = "var({$meta['token']}, {$meta['fallback']})";
+                    $onTint   = "color-mix(in srgb, {$onColour} 12%, transparent)";
+                    $offBd    = 'var(--border, rgba(0,0,0,0.07))';
+                @endphp
+                <label class="cursor-pointer px-3 py-2 rounded-md text-sm font-medium transition"
+                       style="border:1px solid {{ $checked ? $onColour : $offBd }};
+                              background:{{ $checked ? $onTint : 'transparent' }};
+                              color:var(--text-primary, #111827);"
+                       :style="type === '{{ $key }}'
+                           ? { borderColor: '{{ $onColour }}', background: '{{ $onTint }}' }
+                           : { borderColor: '{{ $offBd }}', background: 'transparent' }">
+                    <input type="radio" name="type" value="{{ $key }}" class="mr-2" x-model="type" @checked($checked)>
                     {{ $meta['label'] }}
                 </label>
             @endforeach
