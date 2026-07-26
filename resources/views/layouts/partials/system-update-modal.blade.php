@@ -23,7 +23,15 @@
 @endphp
 
 @if($__suUpdates->isNotEmpty())
-<div x-data="coreXSystemUpdates({{ \Illuminate\Support\Js::from($__suIds) }}, '{{ route('api.v1.system-updates.dismiss') }}')"
+{{-- The dismiss endpoint is addressed RELATIVELY (absolute:false), never as a full
+     route() URL. route() builds from APP_URL, so on any install where APP_URL does not
+     match the host the user is actually browsing (QA/staging clones share a config),
+     the POST leaves the page's origin: the browser blocks it as cross-origin, the
+     session cookie is not attached, the dismissal is never recorded — and because the
+     write is fire-and-forget the failure is silent and the modal returns on EVERY page
+     load. A same-origin path can never do that. The tour engine (the same self-scoped
+     per-user dismissal pattern) has always addressed its endpoint this way. --}}
+<div x-data="coreXSystemUpdates({{ \Illuminate\Support\Js::from($__suIds) }}, '{{ route('api.v1.system-updates.dismiss', [], false) }}')"
      x-show="open"
      x-cloak
      @keydown.escape.window="close()"
@@ -37,24 +45,24 @@
 
     {{-- Card --}}
     <div class="relative w-full rounded-md shadow-2xl overflow-hidden"
-         style="max-width:520px; background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.08));"
+         style="max-width:520px; background:var(--surface); border:1px solid var(--border);"
          @click.stop>
 
         {{-- Header --}}
         <div class="flex items-start justify-between gap-3 px-5 py-4"
-             style="border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
+             style="border-bottom:1px solid var(--border);">
             <div>
-                <div id="system-update-heading" class="text-sm font-bold" style="color:var(--text-primary, #111827);">
+                <div id="system-update-heading" class="text-sm font-bold" style="color:var(--text-primary);">
                     What's new in CoreX
                 </div>
                 @if(count($__suIds) > 1)
-                <div class="text-xs mt-0.5" style="color:var(--text-secondary, #6b7280);">
+                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
                     <span x-text="index + 1"></span> of {{ count($__suIds) }}
                 </div>
                 @endif
             </div>
             <button type="button" @click="close()" aria-label="Close"
-                    class="p-1 rounded-md" style="color:var(--text-secondary, #6b7280);">
+                    class="p-1 rounded-md" style="color:var(--text-secondary);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
@@ -72,15 +80,19 @@
 
         {{-- Footer --}}
         <div class="flex items-center justify-between gap-3 px-5 py-3"
-             style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); background:var(--surface-2, #f7f8fa);">
+             style="border-top:1px solid var(--border); background:var(--surface-2);">
 
-            <div class="text-xs" style="color:var(--text-secondary, #6b7280);">
+            {{-- These carry data-system-update-link for the same reason "Take me there"
+                 does: they navigate AWAY from the modal without ever calling close(), so
+                 without the marker the dismissal is never recorded and the pop-up returns
+                 on the page the user just asked to be taken to. --}}
+            <div class="text-xs" style="color:var(--text-secondary);">
                 @if($__suOverflow > 0)
-                    <a href="{{ route('corex.whats-new.index') }}" style="color:var(--brand-icon, #0ea5e9);">
+                    <a href="{{ route('corex.whats-new.index') }}" data-system-update-link style="color:var(--brand-icon);">
                         + {{ $__suOverflow }} more {{ \Illuminate\Support\Str::plural('update', $__suOverflow) }} — see all
                     </a>
                 @else
-                    <a href="{{ route('corex.whats-new.index') }}" style="color:var(--text-secondary, #6b7280);">
+                    <a href="{{ route('corex.whats-new.index') }}" data-system-update-link style="color:var(--text-secondary);">
                         See all updates
                     </a>
                 @endif
@@ -140,22 +152,32 @@ function coreXSystemUpdates(ids, dismissUrl) {
             if (this.sent || !this.ids.length) return;
             this.sent = true;   // idempotent client-side; the server is idempotent too
 
+            // keepalive lets the request outlive the document. Every link inside the
+            // modal dismisses and THEN navigates, and a plain fetch is cancelled the
+            // moment the browser tears the page down — so the dismissal that fired on
+            // "Take me there" or "See all updates" would be lost precisely when the
+            // user acknowledged an update most emphatically, and the modal would greet
+            // them again on arrival. The payload is a few bytes, far under the 64KB
+            // keepalive ceiling.
+            const body = JSON.stringify({ ids: this.ids });
             const post = window.CoreX?.api?.fetch
                 ? window.CoreX.api.fetch(dismissUrl, {
                       method: 'POST',
+                      keepalive: true,
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ ids: this.ids }),
+                      body,
                   })
                 : fetch(dismissUrl, {
                       method: 'POST',
                       credentials: 'same-origin',
+                      keepalive: true,
                       headers: {
                           'Content-Type': 'application/json',
                           'Accept': 'application/json',
                           'X-Requested-With': 'XMLHttpRequest',
                           'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
                       },
-                      body: JSON.stringify({ ids: this.ids }),
+                      body,
                   });
 
             Promise.resolve(post).catch(() => { /* see docblock — closing always wins */ });

@@ -33,7 +33,7 @@
     </div>
 
     {{-- Title --}}
-    <h2 class="text-lg font-bold leading-snug" style="color:var(--text-primary, #111827);">
+    <h2 class="text-lg font-bold leading-snug" style="color:var(--text-primary);">
         {{ $update->title }}
     </h2>
 
@@ -41,7 +41,7 @@
     @if($imageUrl)
         <img src="{{ $imageUrl }}" alt="{{ $update->title }}"
              class="w-full rounded-md"
-             style="max-height:260px; object-fit:cover; border:1px solid var(--border, rgba(0,0,0,0.07));">
+             style="max-height:260px; object-fit:cover; border:1px solid var(--border);">
     @endif
 
     {{-- Body. Escaped, ALWAYS — never raw HTML.
@@ -51,7 +51,7 @@
          highest-value XSS target in the product. e() escapes first, then nl2br
          adds the line breaks, so a typed <script> appears as visible text.
          Spec §9.3. --}}
-    <div class="text-sm leading-relaxed" style="color:var(--text-secondary, #4b5563);">
+    <div class="text-sm leading-relaxed" style="color:var(--text-secondary);">
         {!! nl2br(e($update->body)) !!}
     </div>
 

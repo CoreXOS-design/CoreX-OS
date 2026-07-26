@@ -7,25 +7,29 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">What's New</h1>
-        <p class="text-sm text-white/60">Everything that has changed in CoreX since you joined.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">What's New</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Everything that has changed in CoreX since you joined.</p>
+            </div>
+        </div>
     </div>
 
     {{-- Type filter --}}
     @php $types = collect(config('system-updates.types', []))->sortBy('sort'); @endphp
-    <div class="flex flex-wrap items-center gap-2 text-sm">
+    <div class="flex flex-wrap items-center gap-2 text-xs">
         <a href="{{ route('corex.whats-new.index') }}"
-           class="px-3 py-1.5 rounded-md"
-           style="background:{{ $activeType === '' ? 'var(--surface-2, #f0f2f8)' : 'transparent' }}; color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
+           class="px-3 py-1.5 rounded-md no-underline"
+           style="background:{{ $activeType === '' ? 'var(--surface-2)' : 'transparent' }}; color:var(--text-primary); border:1px solid var(--border);">
             All
         </a>
         @foreach($types as $key => $meta)
             <a href="{{ route('corex.whats-new.index', ['type' => $key]) }}"
-               class="px-3 py-1.5 rounded-md"
+               class="px-3 py-1.5 rounded-md no-underline"
                style="background:{{ $activeType === $key ? "color-mix(in srgb, var({$meta['token']}, {$meta['fallback']}) 15%, transparent)" : 'transparent' }};
-                      color:{{ $activeType === $key ? "var({$meta['token']}, {$meta['fallback']})" : 'var(--text-primary, #111827)' }};
-                      border:1px solid {{ $activeType === $key ? "var({$meta['token']}, {$meta['fallback']})" : 'var(--border, rgba(0,0,0,0.07))' }};">
+                      color:{{ $activeType === $key ? "var({$meta['token']}, {$meta['fallback']})" : 'var(--text-primary)' }};
+                      border:1px solid {{ $activeType === $key ? "var({$meta['token']}, {$meta['fallback']})" : 'var(--border)' }};">
                 {{ $meta['label'] }}
             </a>
         @endforeach
@@ -33,15 +37,15 @@
 
     @forelse($updates as $update)
         <div class="rounded-md p-5"
-             style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
+             style="background:var(--surface); border:1px solid var(--border);">
 
             <div class="flex items-center justify-between gap-3 mb-3">
-                <span class="text-xs" style="color:var(--text-secondary, #6b7280);">
+                <span class="text-xs" style="color:var(--text-secondary);">
                     {{ $update->published_at?->format('d M Y') }}
                 </span>
                 @if(in_array($update->id, $pendingIds, true))
                     <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide"
-                          style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">
+                          style="background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);">
                         New
                     </span>
                 @endif
@@ -51,7 +55,7 @@
         </div>
     @empty
         <div class="rounded-md p-8 text-center text-sm"
-             style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-secondary, #6b7280);">
+             style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
             @if($activeType !== '')
                 Nothing of that kind yet.
             @else

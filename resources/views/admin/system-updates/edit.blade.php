@@ -5,11 +5,11 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Edit Update</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Update</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     @if($update->trashed())
                         Archived — restore it from the list to show it again.
                     @elseif($update->isPublished())
@@ -19,17 +19,17 @@
                     @endif
                 </p>
             </div>
-            <div class="flex flex-wrap gap-2">
-                <a href="{{ route('admin.system-updates.preview', $update->id) }}" class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.35);">Preview</a>
-                <a href="{{ route('admin.system-updates.show', $update->id) }}" class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.35);">Who's seen it</a>
-                <a href="{{ route('admin.system-updates.index') }}" class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.35);">Back</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.system-updates.preview', $update->id) }}" class="corex-btn-outline text-xs">Preview</a>
+                <a href="{{ route('admin.system-updates.show', $update->id) }}" class="corex-btn-outline text-xs">Who's seen it</a>
+                <a href="{{ route('admin.system-updates.index') }}" class="corex-btn-outline text-xs">Back</a>
             </div>
         </div>
     </div>
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm"
-             style="background:var(--surface-2, #f0f2f8); color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
+             style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
             {{ session('success') }}
         </div>
     @endif
@@ -42,7 +42,7 @@
 
         <div class="flex flex-wrap items-center gap-3">
             <button type="submit" class="corex-btn-primary">Save changes</button>
-            <span class="text-xs" style="color:var(--text-secondary, #6b7280);">
+            <span class="text-xs" style="color:var(--text-secondary);">
                 Saving does not re-show this to people who already closed it.
             </span>
         </div>
@@ -51,8 +51,8 @@
     {{-- Publish state + re-notify. Separate forms so a stray Enter in the editor
          can never publish or re-notify by accident. --}}
     <div class="rounded-md p-5 space-y-4"
-         style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
-        <div class="text-sm font-semibold" style="color:var(--text-primary, #111827);">Publishing</div>
+         style="background:var(--surface); border:1px solid var(--border);">
+        <div class="text-sm font-semibold" style="color:var(--text-primary);">Publishing</div>
 
         <div class="flex flex-wrap items-center gap-3">
             @if($update->isPublished())
@@ -84,7 +84,7 @@
             @endunless
         </div>
 
-        <p class="text-xs" style="color:var(--text-secondary, #6b7280);">
+        <p class="text-xs" style="color:var(--text-secondary);">
             “Re-notify everyone” shows the update again to people who already closed it. Nothing is deleted —
             the record of who saw the original is kept.
         </p>
