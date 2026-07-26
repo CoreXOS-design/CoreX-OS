@@ -38,15 +38,15 @@
         {{-- Sticky top bar with close button --}}
         <div style="display: flex; align-items: center; justify-content: space-between;
                     padding: 10px 14px; border-bottom: 1px solid var(--border);
-                    background: var(--brand-default, #0b2a4a); color: #fff; flex-shrink: 0;">
-            <span style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;">
+                    background: var(--surface-2); color: var(--text-primary); flex-shrink: 0;">
+            <span style="font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary);">
                 Listing details
             </span>
             <button type="button"
                     @click="close()"
                     x-ref="closeBtn"
                     aria-label="Close panel"
-                    style="background: none; border: none; color: #fff; font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0 6px;">
+                    style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0 6px;">
                 ×
             </button>
         </div>

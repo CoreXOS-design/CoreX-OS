@@ -4,15 +4,15 @@
 <div class="space-y-6">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
-    <div class="rounded-md px-6 py-5" data-tour="cc-user-settings-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-user-settings-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Dashboard Settings</h1>
-                <p class="text-sm text-white/60">Customise your reminders, alerts, and calendar preferences.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Dashboard Settings</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Customise your reminders, alerts, and calendar preferences.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline text-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Dashboard
                 </a>
@@ -94,14 +94,14 @@
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Alert after (days idle)</label>
                             <input type="number" name="idle_threshold_days" value="{{ $settings->idle_threshold_days ?? 14 }}" min="1" max="365"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Alert on day</label>
                             <select name="idle_alert_day"
                                     class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                     {{ $isAgencyControlled ? 'disabled' : '' }}>
                                 <option value="" {{ !$settings->idle_alert_day ? 'selected' : '' }}>Every day</option>
                                 @foreach(['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as $day)
@@ -113,7 +113,7 @@
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Alert time</label>
                             <input type="time" name="idle_alert_time" value="{{ $settings->idle_alert_time ?? '08:00' }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                         </div>
                     </div>
@@ -138,7 +138,7 @@
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Remind me (hours before due)</label>
                         <input type="number" name="doc_reminder_hours_before" value="{{ $settings->doc_reminder_hours_before ?? 24 }}" min="1" max="168"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                {{ $isAgencyControlled ? 'disabled' : '' }}>
                     </div>
                 </div>
@@ -164,7 +164,7 @@
                                 <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Days before expiry</label>
                                 <input type="number" name="lease_reminder_days_before" value="{{ $settings->lease_reminder_days_before ?? 90 }}" min="1" max="365"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                        {{ $isAgencyControlled ? 'disabled' : '' }}>
                             </div>
                         </div>
@@ -203,7 +203,7 @@
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Task reminder (hours before)</label>
                             <input type="number" name="task_reminder_hours_before" value="{{ $settings->task_reminder_hours_before ?? 4 }}" min="1" max="168"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                             <p class="mt-1 text-xs" style="color:var(--text-muted);">Email &amp; notification sent this many hours before a task is due.</p>
                         </div>
@@ -211,7 +211,7 @@
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Event reminder (hours before)</label>
                             <input type="number" name="event_reminder_hours_before" value="{{ $settings->event_reminder_hours_before ?? 24 }}" min="1" max="168"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                             <p class="mt-1 text-xs" style="color:var(--text-muted);">Email &amp; notification sent this many hours before a calendar event.</p>
                         </div>
@@ -242,7 +242,7 @@
                                        value="{{ $settings->auto_archive_done_days }}"
                                        min="0" max="365" placeholder="Leave blank = never"
                                        class="w-32 rounded-md px-3 py-2 text-sm"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                        {{ $isAgencyControlled ? 'disabled' : '' }}>
                                 <span class="text-xs" style="color:var(--text-muted);">day(s)</span>
                             </div>
@@ -273,7 +273,7 @@
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Default view</label>
                             <select name="default_calendar_view"
                                     class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                     {{ $isAgencyControlled ? 'disabled' : '' }}>
                                 @foreach(['month' => 'Month', 'week' => 'Week', 'day' => 'Day', 'agenda' => 'Agenda'] as $v => $l)
                                     <option value="{{ $v }}" {{ ($settings->default_calendar_view ?? 'month') === $v ? 'selected' : '' }}>{{ $l }}</option>
@@ -285,12 +285,12 @@
                             <div class="flex items-center gap-2">
                                 <input type="time" name="working_hours_start" value="{{ $settings->working_hours_start ?? '08:00' }}"
                                        class="flex-1 rounded-md px-3 py-2 text-sm"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                        {{ $isAgencyControlled ? 'disabled' : '' }}>
                                 <span class="text-xs" style="color:var(--text-muted);">to</span>
                                 <input type="time" name="working_hours_end" value="{{ $settings->working_hours_end ?? '17:00' }}"
                                        class="flex-1 rounded-md px-3 py-2 text-sm"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                        {{ $isAgencyControlled ? 'disabled' : '' }}>
                             </div>
                         </div>
@@ -348,16 +348,16 @@
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">Start</label>
-                                <input type="time" name="open_hours_start" value="{{ substr($settings->open_hours_start ?? '07:00', 0, 5) }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                <input type="time" name="open_hours_start" value="{{ substr($settings->open_hours_start ?? '07:00', 0, 5) }}" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" {{ $isAgencyControlled ? 'disabled' : '' }}>
                             </div>
                             <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">End</label>
-                                <input type="time" name="open_hours_end" value="{{ substr($settings->open_hours_end ?? '21:00', 0, 5) }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                <input type="time" name="open_hours_end" value="{{ substr($settings->open_hours_end ?? '21:00', 0, 5) }}" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" {{ $isAgencyControlled ? 'disabled' : '' }}>
                             </div>
                             <div>
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">Minimum minutes between same alert</label>
-                                <input type="number" name="min_minutes_between_same" min="0" max="10080" value="{{ $settings->min_minutes_between_same ?? 360 }}" class="corex-input w-full" {{ $isAgencyControlled ? 'disabled' : '' }}>
-                                <p class="text-xs mt-1" style="color:var(--text-tertiary);">Stops repeat pushes for the same item within this window. 360 = 6 hours.</p>
+                                <input type="number" name="min_minutes_between_same" min="0" max="10080" value="{{ $settings->min_minutes_between_same ?? 360 }}" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                <p class="text-xs mt-1" style="color:var(--text-muted);">Stops repeat pushes for the same item within this window. 360 = 6 hours.</p>
                             </div>
                         </div>
                     </div>

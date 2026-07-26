@@ -19,17 +19,17 @@
         }
     }" class="w-full space-y-5">
 
-        {{-- Page header (Pattern A — branded) --}}
-        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        {{-- Page header (Pattern A) --}}
+        <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Trust Interest Register</h1>
-                    <p class="text-sm text-white/60">{{ number_format($records->total()) }} {{ Str::plural('record', $records->total()) }} on file.</p>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Trust Interest Register</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">{{ number_format($records->total()) }} {{ Str::plural('record', $records->total()) }} on file.</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                     <button type="button"
                             @click="adding = !adding; editingId = null"
-                            class="corex-btn-primary"
+                            class="corex-btn-primary text-xs"
                             x-text="adding ? 'Cancel' : '+ Add Month'">+ Add Month</button>
                 </div>
             </div>

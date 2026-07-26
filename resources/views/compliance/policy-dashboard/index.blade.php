@@ -4,22 +4,17 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <nav class="text-xs" style="color: var(--text-muted);">
-        <a href="{{ route('compliance.policy.index') }}" style="color: var(--brand-icon, #0ea5e9);">Policies</a>
-        <span class="mx-1">/</span>
-        <span>Register</span>
-    </nav>
-
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Policy Register</h1>
-                <p class="text-sm text-white/60">Monitor staff acknowledgement of agency policies.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Policy Register</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Monitor staff acknowledgement of agency policies.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.policy.index') }}" class="corex-btn-outline text-xs">&larr; Policies</a>
                 @if($selectedPolicy)
-                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" target="_blank" class="corex-btn-outline">Export Report</a>
+                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" target="_blank" class="corex-btn-outline text-xs">Export Report</a>
                 @endif
             </div>
         </div>
@@ -31,7 +26,7 @@
             <div class="min-w-[260px]">
                 <label for="policy" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Policy</label>
                 <select id="policy" name="policy" onchange="this.form.submit()" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @forelse($policies as $p)
                     <option value="{{ $p->policy_key }}" {{ $selectedKey === $p->policy_key ? 'selected' : '' }}>{{ $p->name }}</option>
                     @empty
@@ -100,12 +95,12 @@
                     <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
                     <input id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff..."
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div>
                     <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                     <select id="status" name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">All statuses</option>
                         <option value="valid" {{ $filterStatus === 'valid' ? 'selected' : '' }}>Acknowledged</option>
                         <option value="in_progress" {{ $filterStatus === 'in_progress' ? 'selected' : '' }}>In Progress</option>

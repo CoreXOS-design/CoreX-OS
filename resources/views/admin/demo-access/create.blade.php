@@ -10,23 +10,26 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Back link --}}
-    <a href="{{ route('admin.demo-access.index') }}"
-       class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:var(--text-secondary);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-        </svg>
-        Back to Demo Access
-    </a>
-
     {{-- Page header — §2.4 Pattern A --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">New demo grant</h1>
-        <p class="text-sm text-white/60">
-            We email an access code to this address. The clock starts when they first sign in —
-            not now — so an unopened invitation loses them nothing.
-        </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New demo grant</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    We email an access code to this address. The clock starts when they first sign in —
+                    not now — so an unopened invitation loses them nothing.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Back link — lives in the header action cluster (AT-336). --}}
+                <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+                    </svg>
+                    Back to Demo Access
+                </a>
+            </div>
+        </div>
     </div>
 
     @if ($errors->any())
@@ -53,7 +56,7 @@
                        value="{{ old('company_name') }}"
                        placeholder="e.g. Seaside Realty (Pty) Ltd"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p class="mt-1 text-xs" style="color: var(--text-muted);">
                     Shown in the watermark on every page they view.
                 </p>
@@ -68,7 +71,7 @@
                        value="{{ old('contact_email') }}"
                        placeholder="thabo@seasiderealty.co.za"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <x-input-error :messages="$errors->get('contact_email')" class="mt-1" />
             </div>
 
@@ -79,7 +82,7 @@
                 <input id="contact_name" name="contact_name" type="text"
                        value="{{ old('contact_name') }}"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <x-input-error :messages="$errors->get('contact_name')" class="mt-1" />
             </div>
 
@@ -90,7 +93,7 @@
                 <input id="expiry_hours" name="expiry_hours" type="number" min="1" max="8760"
                        value="{{ old('expiry_hours', $defaultExpiryHours) }}"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p class="mt-1 text-xs" style="color: var(--text-muted);">
                     Counted from their first sign-in. This value is fixed onto the grant now —
                     changing the default later will not shorten a demo you've already promised.
@@ -105,7 +108,7 @@
                 <textarea id="notes" name="notes" rows="4"
                           placeholder="Context for the sales team — who introduced them, what they care about."
                           class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('notes') }}</textarea>
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('notes') }}</textarea>
                 <x-input-error :messages="$errors->get('notes')" class="mt-1" />
             </div>
         </div>

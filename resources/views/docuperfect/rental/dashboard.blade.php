@@ -3,7 +3,7 @@
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4 flex items-center justify-between">
         <div>
             <h2 class="text-xl font-bold text-white leading-tight">Rental Documents</h2>
             <div class="text-sm text-white/60">Manage rental document signing workflows.</div>
@@ -34,29 +34,29 @@
         </a>
         @endif
         <a href="#section-draft" onclick="event.preventDefault(); scrollToSection('section-draft')"
-           class="ds-status-card p-4 text-center hover:shadow-md hover:border-slate-300 transition cursor-pointer block">
-            <div class="text-2xl font-bold {{ $counts['draft'] > 0 ? 'text-slate-700' : 'text-slate-300' }}">{{ $counts['draft'] }}</div>
-            <div class="text-xs {{ $counts['draft'] > 0 ? 'text-slate-500' : 'text-slate-300' }} mt-1">Draft</div>
+           class="ds-status-card p-4 text-center hover:shadow-md hover:border-[color:var(--border)] transition cursor-pointer block">
+            <div class="text-2xl font-bold {{ $counts['draft'] > 0 ? 'text-[color:var(--text-secondary)]' : 'text-[color:var(--text-faint)]' }}">{{ $counts['draft'] }}</div>
+            <div class="text-xs {{ $counts['draft'] > 0 ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-faint)]' }} mt-1">Draft</div>
         </a>
         <a href="#section-ready" onclick="event.preventDefault(); scrollToSection('section-ready')"
            class="ds-status-card p-4 text-center hover:shadow-md hover:border-blue-300 transition cursor-pointer block">
-            <div class="text-2xl font-bold {{ $counts['ready_to_sign'] > 0 ? 'text-blue-600' : 'text-slate-300' }}">{{ $counts['ready_to_sign'] }}</div>
-            <div class="text-xs {{ $counts['ready_to_sign'] > 0 ? 'text-slate-500' : 'text-slate-300' }} mt-1">Ready to Sign</div>
+            <div class="text-2xl font-bold {{ $counts['ready_to_sign'] > 0 ? 'text-[color:var(--brand-icon)]' : 'text-[color:var(--text-faint)]' }}">{{ $counts['ready_to_sign'] }}</div>
+            <div class="text-xs {{ $counts['ready_to_sign'] > 0 ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-faint)]' }} mt-1">Ready to Sign</div>
         </a>
         <a href="#section-awaiting" onclick="event.preventDefault(); scrollToSection('section-awaiting')"
            class="ds-status-card p-4 text-center hover:shadow-md hover:border-amber-300 transition cursor-pointer block">
-            <div class="text-2xl font-bold {{ $counts['awaiting_signatures'] > 0 ? 'text-amber-600' : 'text-slate-300' }}">{{ $counts['awaiting_signatures'] }}</div>
-            <div class="text-xs {{ $counts['awaiting_signatures'] > 0 ? 'text-slate-500' : 'text-slate-300' }} mt-1">Awaiting Signatures</div>
+            <div class="text-2xl font-bold {{ $counts['awaiting_signatures'] > 0 ? 'text-amber-600' : 'text-[color:var(--text-faint)]' }}">{{ $counts['awaiting_signatures'] }}</div>
+            <div class="text-xs {{ $counts['awaiting_signatures'] > 0 ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-faint)]' }} mt-1">Awaiting Signatures</div>
         </a>
         <a href="#section-completed" onclick="event.preventDefault(); scrollToSection('section-completed')"
            class="ds-status-card p-4 text-center hover:shadow-md hover:border-emerald-300 transition cursor-pointer block">
-            <div class="text-2xl font-bold {{ $counts['completed'] > 0 ? 'text-emerald-600' : 'text-slate-300' }}">{{ $counts['completed'] }}</div>
-            <div class="text-xs {{ $counts['completed'] > 0 ? 'text-slate-500' : 'text-slate-300' }} mt-1">Completed</div>
+            <div class="text-2xl font-bold {{ $counts['completed'] > 0 ? 'text-emerald-600' : 'text-[color:var(--text-faint)]' }}">{{ $counts['completed'] }}</div>
+            <div class="text-xs {{ $counts['completed'] > 0 ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-faint)]' }} mt-1">Completed</div>
         </a>
         <a href="#section-active-leases" onclick="event.preventDefault(); scrollToSection('section-active-leases')"
            class="ds-status-card p-4 text-center hover:shadow-md hover:border-green-300 transition cursor-pointer block">
-            <div class="text-2xl font-bold {{ $activeLeaseCount > 0 ? 'text-green-600' : 'text-slate-300' }}">{{ $activeLeaseCount }}</div>
-            <div class="text-xs {{ $activeLeaseCount > 0 ? 'text-slate-500' : 'text-slate-300' }} mt-1">Active Leases</div>
+            <div class="text-2xl font-bold {{ $activeLeaseCount > 0 ? 'text-green-600' : 'text-[color:var(--text-faint)]' }}">{{ $activeLeaseCount }}</div>
+            <div class="text-xs {{ $activeLeaseCount > 0 ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-faint)]' }} mt-1">Active Leases</div>
         </a>
     </div>
 
@@ -91,11 +91,11 @@
                 <div class="rounded-2xl border {{ $urgencyColor }} p-4">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
-                            <div class="font-semibold text-slate-800">{{ $lease->property_address }}</div>
-                            <div class="text-xs text-slate-600 mt-1">
+                            <div class="font-semibold text-[color:var(--text-primary)]">{{ $lease->property_address }}</div>
+                            <div class="text-xs text-[color:var(--text-secondary)] mt-1">
                                 Tenant: {{ $lease->tenant_name }} | Landlord: {{ $lease->landlord_name }}
                             </div>
-                            <div class="text-xs text-slate-600 mt-0.5">
+                            <div class="text-xs text-[color:var(--text-secondary)] mt-0.5">
                                 Rental: R {{ $rental }}/mo | Expires: {{ $lease->lease_end_date?->format('d M Y') }}
                             </div>
                             <div class="mt-1.5">
@@ -113,7 +113,7 @@
                         <div class="flex flex-col gap-1.5 ml-4">
                             <form method="POST" action="{{ route('docuperfect.leases.renew', $lease) }}" class="inline">
                                 @csrf
-                                <button type="submit" class="text-xs px-3 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700" onclick="return confirm('Renew lease for {{ $lease->property_address }}?')">
+                                <button type="submit" class="text-xs px-3 py-1 rounded-lg bg-[color:var(--brand-button)] text-white hover:opacity-90" onclick="return confirm('Renew lease for {{ $lease->property_address }}?')">
                                     Renew Lease
                                 </button>
                             </form>
@@ -121,7 +121,7 @@
                                     onclick="document.getElementById('terminate-modal-{{ $lease->id }}').classList.remove('hidden')">
                                 Terminate
                             </button>
-                            <a href="{{ route('docuperfect.leases.history', $lease) }}" class="text-xs px-3 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 text-center">
+                            <a href="{{ route('docuperfect.leases.history', $lease) }}" class="text-xs px-3 py-1 rounded-lg border border-[color:var(--border)] text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)] text-center">
                                 History
                             </a>
                         </div>
@@ -130,22 +130,22 @@
 
                 {{-- Terminate modal --}}
                 <div id="terminate-modal-{{ $lease->id }}" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
-                        <h4 class="font-semibold text-slate-800 mb-3">Terminate Lease</h4>
-                        <p class="text-sm text-slate-600 mb-4">{{ $lease->property_address }}</p>
+                    <div class="bg-[color:var(--surface)] rounded-2xl p-6 max-w-md w-full">
+                        <h4 class="font-semibold text-[color:var(--text-primary)] mb-3">Terminate Lease</h4>
+                        <p class="text-sm text-[color:var(--text-secondary)] mb-4">{{ $lease->property_address }}</p>
                         <form method="POST" action="{{ route('docuperfect.leases.terminate', $lease) }}">
                             @csrf
                             <div class="mb-3">
-                                <label class="block text-xs font-medium text-slate-700 mb-1">Termination Date</label>
+                                <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">Termination Date</label>
                                 <input type="date" name="termination_date" value="{{ now()->format('Y-m-d') }}" required
-                                       class="w-full rounded-lg border-slate-300 text-sm">
+                                       class="w-full rounded-lg border-[color:var(--border)] text-sm">
                             </div>
                             <div class="mb-4">
-                                <label class="block text-xs font-medium text-slate-700 mb-1">Reason (optional)</label>
-                                <textarea name="reason" rows="2" maxlength="500" class="w-full rounded-lg border-slate-300 text-sm" placeholder="Reason for termination..."></textarea>
+                                <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">Reason (optional)</label>
+                                <textarea name="reason" rows="2" maxlength="500" class="w-full rounded-lg border-[color:var(--border)] text-sm" placeholder="Reason for termination..."></textarea>
                             </div>
                             <div class="flex gap-2 justify-end">
-                                <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                <button type="button" class="text-xs px-3 py-1.5 rounded-lg border border-[color:var(--border)] text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)]"
                                         onclick="this.closest('[id^=terminate-modal]').classList.add('hidden')">
                                     Cancel
                                 </button>
@@ -165,7 +165,7 @@
     @if($expiredLeases->isNotEmpty())
     <div class="space-y-2">
         <h3 class="text-sm font-semibold text-red-700 uppercase tracking-wider">Recently Expired Leases</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -179,14 +179,14 @@
                 @foreach($expiredLeases as $lease)
                     <tr>
                         <td class="px-4 py-3 font-medium">{{ $lease->property_address }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $lease->tenant_name }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $lease->tenant_name }}</td>
                         <td class="px-4 py-3 text-red-600 text-xs">{{ $lease->lease_end_date?->format('d M Y') }}</td>
                         <td class="px-4 py-3 text-right">
                             <form method="POST" action="{{ route('docuperfect.leases.renew', $lease) }}" class="inline">
                                 @csrf
-                                <button type="submit" class="text-blue-600 hover:underline text-xs" onclick="return confirm('Renew lease for {{ $lease->property_address }}?')">Renew</button>
+                                <button type="submit" class="text-[color:var(--brand-icon)] hover:underline text-xs" onclick="return confirm('Renew lease for {{ $lease->property_address }}?')">Renew</button>
                             </form>
-                            <a href="{{ route('docuperfect.leases.history', $lease) }}" class="text-slate-600 hover:underline text-xs ml-2">History</a>
+                            <a href="{{ route('docuperfect.leases.history', $lease) }}" class="text-[color:var(--text-secondary)] hover:underline text-xs ml-2">History</a>
                         </td>
                     </tr>
                 @endforeach
@@ -213,10 +213,10 @@
                 <div class="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
-                            <div class="font-semibold text-slate-800">
+                            <div class="font-semibold text-[color:var(--text-primary)]">
                                 {{ $doc->name }}
                                 @if($doc->document_type)
-                                    <span class="inline-block ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-200 text-slate-600">{{ ucwords(str_replace('_', ' ', $doc->document_type)) }}</span>
+                                    <span class="inline-block ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[color:var(--surface-2)] text-[color:var(--text-secondary)]">{{ ucwords(str_replace('_', ' ', $doc->document_type)) }}</span>
                                 @endif
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">
@@ -227,7 +227,7 @@
                                             &#10003; {{ $roleLabel }} signed
                                         </span>
                                     @elseif($req->status === 'waiting')
-                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[color:var(--surface-2)] text-[color:var(--text-muted)]">
                                             &#128274; {{ $roleLabel }} waiting
                                         </span>
                                     @endif
@@ -255,7 +255,7 @@
     @if($groups['awaiting_signatures']->isNotEmpty())
     <div id="section-awaiting" class="space-y-2 scroll-mt-4">
         <h3 class="text-sm font-semibold text-amber-700 uppercase tracking-wider">Awaiting Signatures</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -276,7 +276,7 @@
                     @endphp
                     <tr>
                         <td class="px-4 py-3 font-medium">{{ $doc->name }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->document_type ? ucwords(str_replace('_', ' ', $doc->document_type)) : ($doc->template->documentType->name ?? '-') }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->document_type ? ucwords(str_replace('_', ' ', $doc->document_type)) : ($doc->template->documentType->name ?? '-') }}</td>
                         <td class="px-4 py-3">
                             @if($sigTemplate)
                             <div class="flex flex-col gap-1.5">
@@ -287,18 +287,18 @@
                                         @if($req->status === 'completed')
                                             <span class="text-emerald-500 mt-0.5" title="Completed">&#10003;</span>
                                             <div>
-                                                <span class="text-slate-600 capitalize">{{ $role }}</span>
+                                                <span class="text-[color:var(--text-secondary)] capitalize">{{ $role }}</span>
                                                 <span class="text-emerald-600 font-medium">
                                                     {{ $req->signer_name }}
                                                     @if($req->signing_method === 'wet_ink')
-                                                        <span class="text-xs text-slate-400">(wet ink)</span>
+                                                        <span class="text-xs text-[color:var(--text-faint)]">(wet ink)</span>
                                                     @endif
                                                 </span>
                                             </div>
                                         @elseif($req->wet_ink_status === 'uploaded_pending_review')
                                             <span class="text-amber-500 mt-0.5" title="Wet ink uploaded">&#9888;</span>
                                             <div>
-                                                <span class="text-slate-600 capitalize">{{ $role }}</span>
+                                                <span class="text-[color:var(--text-secondary)] capitalize">{{ $role }}</span>
                                                 <span class="text-amber-600 font-medium">wet ink — pending review</span>
                                             </div>
                                         @elseif(in_array($req->status, ['pending', 'viewed', 'partially_signed']))
@@ -307,11 +307,11 @@
                                                 $dayColor = $days <= 3 ? 'text-emerald-600' : ($days <= 7 ? 'text-amber-600' : 'text-red-600');
                                                 $dayBg = $days <= 3 ? 'bg-emerald-50' : ($days <= 7 ? 'bg-amber-50' : 'bg-red-50');
                                             @endphp
-                                            <span class="text-blue-400 mt-0.5" title="Awaiting">&#9993;</span>
+                                            <span class="text-[color:var(--brand-icon)] mt-0.5" title="Awaiting">&#9993;</span>
                                             <div>
                                                 <div>
-                                                    <span class="text-slate-600 capitalize">{{ $role }}</span>
-                                                    <span class="text-blue-600">
+                                                    <span class="text-[color:var(--text-secondary)] capitalize">{{ $role }}</span>
+                                                    <span class="text-[color:var(--brand-icon)]">
                                                         {{ $req->signer_name }}
                                                         — {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
                                                     </span>
@@ -322,10 +322,10 @@
                                                         {{ $days }}d ago
                                                     </span>
                                                     @if($req->viewed_at)
-                                                        <span class="text-slate-400 text-[10px]">viewed {{ $req->viewed_at->format('d M H:i') }}</span>
+                                                        <span class="text-[color:var(--text-faint)] text-[10px]">viewed {{ $req->viewed_at->format('d M H:i') }}</span>
                                                     @endif
                                                     @if($req->reminder_count > 0)
-                                                        <span class="text-slate-400 text-[10px]">{{ $req->reminder_count }} reminder{{ $req->reminder_count > 1 ? 's' : '' }} sent</span>
+                                                        <span class="text-[color:var(--text-faint)] text-[10px]">{{ $req->reminder_count }} reminder{{ $req->reminder_count > 1 ? 's' : '' }} sent</span>
                                                     @endif
                                                     @if($req->team_alerted_at)
                                                         <span class="text-amber-500 text-[10px] font-medium" title="Team alerted {{ $req->team_alerted_at->format('d M') }}">&#9888; alert sent</span>
@@ -342,10 +342,10 @@
                                                 <span class="text-amber-600 font-medium">Deferred</span>
                                             </div>
                                         @elseif($req->status === 'waiting')
-                                            <span class="text-slate-300 mt-0.5" title="Waiting for previous party">&#128274;</span>
+                                            <span class="text-[color:var(--text-faint)] mt-0.5" title="Waiting for previous party">&#128274;</span>
                                             <div>
-                                                <span class="text-slate-400 capitalize">{{ $role }}</span>
-                                                <span class="text-slate-400">waiting</span>
+                                                <span class="text-[color:var(--text-faint)] capitalize">{{ $role }}</span>
+                                                <span class="text-[color:var(--text-faint)]">waiting</span>
                                             </div>
                                         @endif
                                     </div>
@@ -355,11 +355,11 @@
                             @endif
                         </td>
                         @if($user->hasPermission('documents.edit'))
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
                             <div class="flex flex-col items-end gap-1">
-                                <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="text-blue-600 hover:underline text-xs">View</a>
+                                <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="text-[color:var(--brand-icon)] hover:underline text-xs">View</a>
                                 @if($sigTemplate)
                                     @php
                                         $wetInkReq = $sigTemplate->requests->first(fn($r) => $r->wet_ink_status === 'uploaded_pending_review');
@@ -397,38 +397,38 @@
                         <form method="POST" action="{{ route('docuperfect.signatures.resumeDeferred', $doc) }}" class="p-6 space-y-4">
                             @csrf
                             <input type="hidden" name="request_id" value="{{ $deferredReq->id }}">
-                            <h3 class="text-lg font-semibold text-slate-800">Resume Signing</h3>
-                            <p class="text-sm text-slate-600">
+                            <h3 class="text-lg font-semibold text-[color:var(--text-primary)]">Resume Signing</h3>
+                            <p class="text-sm text-[color:var(--text-secondary)]">
                                 Enter the details for the <strong class="capitalize">{{ str_replace('_', ' ', preg_replace('/_\d+$/', '', $deferredReq->party_role)) }}</strong> to resume the signing flow.
                             </p>
                             <div class="space-y-3">
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">Full Name</label>
+                                    <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">Full Name</label>
                                     <input type="text" name="signer_name" required
                                            value="{{ $deferredReq->signer_name }}"
-                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                           class="w-full rounded-lg border border-[color:var(--border)] px-3 py-2 text-sm">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">Email Address</label>
+                                    <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">Email Address</label>
                                     <input type="email" name="signer_email" required
                                            value="{{ $deferredReq->signer_email }}"
-                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                           class="w-full rounded-lg border border-[color:var(--border)] px-3 py-2 text-sm">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">ID / Passport Number</label>
+                                    <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">ID / Passport Number</label>
                                     <input type="text" name="signer_id_number"
                                            value="{{ $deferredReq->signer_id_number }}"
-                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                           class="w-full rounded-lg border border-[color:var(--border)] px-3 py-2 text-sm">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-medium text-slate-600 mb-1">Cell Number</label>
+                                    <label class="block text-xs font-medium text-[color:var(--text-secondary)] mb-1">Cell Number</label>
                                     <input type="text" name="signer_cell"
-                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                           class="w-full rounded-lg border border-[color:var(--border)] px-3 py-2 text-sm">
                                 </div>
                             </div>
                             <div class="flex items-center justify-end gap-3 pt-2">
                                 <button type="button" onclick="this.closest('dialog').close()"
-                                        class="text-sm px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                                        class="text-sm px-4 py-2 rounded-lg border border-[color:var(--border)] text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)]">
                                     Cancel
                                 </button>
                                 <button type="submit"
@@ -449,8 +449,8 @@
     {{-- Ready to Sign --}}
     @if($groups['ready_to_sign']->isNotEmpty())
     <div id="section-ready" class="space-y-2 scroll-mt-4">
-        <h3 class="text-sm font-semibold text-blue-700 uppercase tracking-wider">Ready to Sign</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <h3 class="text-sm font-semibold text-[color:var(--brand-icon)] uppercase tracking-wider">Ready to Sign</h3>
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -471,7 +471,7 @@
                     @endphp
                     <tr>
                         <td class="px-4 py-3 font-medium">{{ $doc->name }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->template->documentType->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->template->documentType->name ?? '-' }}</td>
                         <td class="px-4 py-3">
                             @if($hasSigTemplate)
                                 <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800">Signature setup started</span>
@@ -480,10 +480,10 @@
                             @endif
                         </td>
                         @if($user->hasPermission('documents.edit'))
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">Set Up Signatures</a>
+                            <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="inline-flex items-center px-3 py-1 bg-[color:var(--brand-button)] text-white text-xs rounded-lg hover:opacity-90">Set Up Signatures</a>
                         </td>
                     </tr>
                 @endforeach
@@ -496,8 +496,8 @@
     {{-- Draft --}}
     @if($groups['draft']->isNotEmpty())
     <div id="section-draft" class="space-y-2 scroll-mt-4">
-        <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">Draft — Fields Incomplete</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <h3 class="text-sm font-semibold text-[color:var(--text-muted)] uppercase tracking-wider">Draft — Fields Incomplete</h3>
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -517,17 +517,17 @@
                     @endphp
                     <tr>
                         <td class="px-4 py-3 font-medium">{{ $doc->name }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->template->documentType->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->template->documentType->name ?? '-' }}</td>
                         <td class="px-4 py-3">
                             @if($fs && $fs['total'] > 0)
                                 <div class="flex items-center gap-2">
-                                    <div class="flex-1 max-w-[120px] bg-slate-200 rounded-full h-1.5">
+                                    <div class="flex-1 max-w-[120px] bg-[color:var(--surface-2)] rounded-full h-1.5">
                                         <div class="bg-amber-500 h-1.5 rounded-full" style="width: {{ round(($fs['filled'] / $fs['total']) * 100) }}%"></div>
                                     </div>
                                     <span class="text-xs text-amber-600 font-medium">{{ $fs['filled'] }}/{{ $fs['total'] }}</span>
                                 </div>
                                 @if(count($fs['missing']) > 0)
-                                    <div class="text-[10px] text-slate-400 mt-0.5">
+                                    <div class="text-[10px] text-[color:var(--text-faint)] mt-0.5">
                                         Missing: {{ implode(', ', array_slice($fs['missing'], 0, 3)) }}
                                         @if(count($fs['missing']) > 3)
                                             +{{ count($fs['missing']) - 3 }} more
@@ -535,14 +535,14 @@
                                     </div>
                                 @endif
                             @else
-                                <span class="text-xs text-slate-400">No required fields</span>
+                                <span class="text-xs text-[color:var(--text-faint)]">No required fields</span>
                             @endif
                         </td>
                         @if($user->hasPermission('documents.edit'))
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('docuperfect.documents.edit', $doc) }}" class="text-blue-600 hover:underline text-xs">Edit Document</a>
+                            <a href="{{ route('docuperfect.documents.edit', $doc) }}" class="text-[color:var(--brand-icon)] hover:underline text-xs">Edit Document</a>
                         </td>
                     </tr>
                 @endforeach
@@ -556,7 +556,7 @@
     @if($groups['completed']->isNotEmpty())
     <div id="section-completed" class="space-y-2 scroll-mt-4">
         <h3 class="text-sm font-semibold text-emerald-700 uppercase tracking-wider">Completed</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div class="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] overflow-hidden">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
@@ -572,12 +572,12 @@
                 @foreach($groups['completed'] as $doc)
                     <tr>
                         <td class="px-4 py-3 font-medium">{{ $doc->name }}</td>
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->template->documentType->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->template->documentType->name ?? '-' }}</td>
                         @if($user->hasPermission('documents.edit'))
-                        <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-muted)]">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-blue-600 hover:underline text-xs">Audit</a>
+                            <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-[color:var(--brand-icon)] hover:underline text-xs">Audit</a>
                             <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-emerald-600 hover:underline text-xs ml-2">Download</a>
                         </td>
                     </tr>
@@ -603,13 +603,13 @@
                 <div class="rounded-2xl border border-green-200 bg-green-50/50 p-4">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
-                            <div class="font-semibold text-slate-800">{{ $lease->property_address ?: ($lease->document->name ?? 'Unnamed') }}</div>
-                            <div class="text-xs text-slate-600 mt-1">
+                            <div class="font-semibold text-[color:var(--text-primary)]">{{ $lease->property_address ?: ($lease->document->name ?? 'Unnamed') }}</div>
+                            <div class="text-xs text-[color:var(--text-secondary)] mt-1">
                                 Tenant: {{ $lease->tenant_name ?? '—' }}
                                 <span class="mx-1.5">|</span>
                                 Landlord: {{ $lease->landlord_name ?? '—' }}
                             </div>
-                            <div class="text-xs text-slate-500 mt-0.5">
+                            <div class="text-xs text-[color:var(--text-muted)] mt-0.5">
                                 @if($lease->rental_amount)
                                     Rental: R {{ $rental }}/mo
                                     <span class="mx-1.5">|</span>
@@ -631,7 +631,7 @@
                         <div class="flex flex-col gap-1.5 ml-4">
                             @if($lease->document)
                                 <a href="{{ route('docuperfect.signatures.audit', $lease->document) }}"
-                                   class="text-xs px-3 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 text-center">
+                                   class="text-xs px-3 py-1 rounded-lg border border-[color:var(--border)] text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)] text-center">
                                     Audit
                                 </a>
                             @endif
@@ -642,7 +642,7 @@
                                 </a>
                             @endif
                             <a href="{{ route('docuperfect.leases.history', $lease) }}"
-                               class="text-xs px-3 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 text-center">
+                               class="text-xs px-3 py-1 rounded-lg border border-[color:var(--border)] text-[color:var(--text-secondary)] hover:bg-[color:var(--surface-2)] text-center">
                                 History
                             </a>
                         </div>
@@ -652,7 +652,7 @@
         </div>
         @else
         <div class="ds-status-card p-4 text-center">
-            <div class="text-sm text-slate-400 italic">No active leases yet.</div>
+            <div class="text-sm text-[color:var(--text-faint)] italic">No active leases yet.</div>
         </div>
         @endif
     </div>
@@ -660,7 +660,7 @@
     {{-- Empty state --}}
     @if($counts['draft'] === 0 && $counts['ready_to_sign'] === 0 && $counts['awaiting_signatures'] === 0 && $counts['completed'] === 0 && $counts['pending_approval'] === 0 && $activeLeases->isEmpty())
     <div class="ds-status-card p-6 text-center">
-        <div class="text-sm text-slate-500">No rental documents found. Create a document from a rental template to get started.</div>
+        <div class="text-sm text-[color:var(--text-muted)]">No rental documents found. Create a document from a rental template to get started.</div>
     </div>
     @endif
 

@@ -4,20 +4,18 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded, full width) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (flat neutral bar — AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Document Types</h1>
-                <p class="text-sm text-white/60">Manage categories for document templates.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Types</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Manage categories for document templates.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline text-xs">
                     Named Fields
                 </a>
-                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-xs">
                     Back
                 </a>
             </div>
@@ -64,7 +62,7 @@
                 <label for="dt-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                 <input id="dt-name" name="name" required
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        placeholder="e.g. Mandates">
             </div>
 
@@ -72,7 +70,7 @@
                 <label for="dt-sort" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sort order</label>
                 <input id="dt-sort" name="sort_order" type="number" step="1" min="0"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        placeholder="0">
             </div>
 
@@ -84,7 +82,7 @@
 
     {{-- List --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+        <div class="px-4 py-3 flex items-center justify-between" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
             <div class="text-sm font-semibold" style="color: var(--text-primary);">Current types</div>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($types)) }} total</div>
         </div>
@@ -101,14 +99,14 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                             <input name="name" value="{{ $type->name }}" required
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
 
                         <div class="md:col-span-2">
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sort order</label>
                             <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$type->sort_order }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
 
                         <div class="md:col-span-2">

@@ -11,54 +11,54 @@
 
 <div class="w-full max-w-4xl space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     {{ $assistant?->name }}
                 </h1>
-                <p class="text-sm text-white/60">
-                    {{ $assistant?->assistantTitle() ?? 'Assistant' }} to <strong class="text-white/90">{{ $agent?->name ?? '—' }}</strong>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $assistant?->assistantTitle() ?? 'Assistant' }} to <strong style="color: var(--text-secondary);">{{ $agent?->name ?? '—' }}</strong>
                 </p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 {{-- AUDIT 2026-07-26 (F5) — the entry point to the previously-missing edit surface.
                      Non-negotiable #2: the page exists the same day its navigation does. --}}
                 @if(!$assignment->trashed())
-                    <a href="{{ route('admin.assistants.edit', $assignment) }}" class="corex-btn-outline">Edit details</a>
+                    <a href="{{ route('admin.assistants.edit', $assignment) }}" class="corex-btn-outline text-xs">Edit details</a>
                 @endif
-                <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline">Back to Assistants</a>
+                <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline text-xs">Back to Assistants</a>
             </div>
         </div>
     </div>
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm"
-             style="background:var(--surface-2, #f0f2f8); color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
+             style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
             {{ session('success') }}
         </div>
     @endif
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
-             style="background:var(--surface-2, #f0f2f8); color:var(--ds-crimson, #dc2626); border:1px solid var(--ds-crimson, #dc2626);">
+             style="background:var(--surface-2); color:var(--ds-crimson, #dc2626); border:1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);">
             @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
         </div>
     @endif
 
     {{-- Who does what: the split of responsibility, stated on the page so nobody has to guess. --}}
-    <div class="rounded-md p-6 space-y-3"
-         style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+    <div class="rounded-lg p-6 space-y-3"
+         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-                <div class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Email</div>
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Email</div>
                 <div>{{ $assistant?->email }}</div>
             </div>
             <div>
-                <div class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Branch</div>
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Branch</div>
                 <div>{{ $assignment->branch?->name ?? '—' }}</div>
             </div>
             <div>
-                <div class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Permissions granted</div>
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Permissions granted</div>
                 <div>
                     {{ $grantedCount }} of their agent's
                     @if($lockedCount)
@@ -70,15 +70,15 @@
             </div>
         </div>
 
-        <p class="text-xs pt-2" style="color:var(--text-secondary, #6b7280); border-top:1px solid var(--border, rgba(0,0,0,0.07));">
-            <strong>{{ $agent?->name }}</strong> controls what this assistant may do, from their own
+        <p class="text-xs pt-2" style="color:var(--text-muted); border-top:1px solid var(--border);">
+            <strong style="color:var(--text-secondary);">{{ $agent?->name }}</strong> controls what this assistant may do, from their own
             <em>My Assistants</em> page. You control whether the assistant exists, and who they work for.
         </p>
     </div>
 
     @if($pending && !$revoked)
-        <div class="rounded-md p-4 flex items-center justify-between gap-4"
-             style="background:var(--surface, #fff); border:1px solid var(--ds-amber, #d97706); color:var(--text-primary, #111827);">
+        <div class="rounded-lg p-4 flex items-center justify-between gap-4"
+             style="background:var(--surface); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 40%, transparent); color:var(--text-primary);">
             <div class="text-sm">
                 <strong>Invite pending.</strong>
                 {{ $assistant?->name }} hasn't set their password yet, so they can't log in.
@@ -95,10 +95,10 @@
     {{-- Reassign --}}
     @permission('assistants.reassign')
     @unless($revoked)
-    <div class="rounded-md p-6"
-         style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+    <div class="rounded-lg p-6"
+         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         <h2 class="text-sm font-bold mb-1">Move to a different agent</h2>
-        <p class="text-xs mb-3" style="color:var(--text-secondary, #6b7280);">
+        <p class="text-xs mb-3" style="color:var(--text-muted);">
             Their permissions will be reset to a copy of the new agent's — the old set is archived, not
             deleted, so nothing is lost. The new agent then chooses what to switch off.
         </p>
@@ -107,7 +107,7 @@
             <input type="hidden" name="current_agent_id" value="{{ $assignment->agent_user_id }}">
             <select name="agent_user_id" required
                     class="flex-1 rounded-md px-3 py-2 text-sm"
-                    style="background:var(--surface-2, #f0f2f8); color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
+                    style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                 <option value="">Choose a new agent…</option>
                 @foreach($agents as $candidate)
                     @continue((int) $candidate->id === (int) $assignment->agent_user_id)
@@ -125,11 +125,11 @@
 
     {{-- Revoke / restore --}}
     @permission('assistants.revoke')
-    <div class="rounded-md p-6"
-         style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+    <div class="rounded-lg p-6"
+         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         @if($revoked)
             <h2 class="text-sm font-bold mb-1">Restore access</h2>
-            <p class="text-xs mb-3" style="color:var(--text-secondary, #6b7280);">
+            <p class="text-xs mb-3" style="color:var(--text-muted);">
                 This assistant's access was revoked{{ $assignment->revoked_at ? ' on ' . $assignment->revoked_at->format('j M Y') : '' }}.
                 @if($assignment->revoke_reason)<br>Reason: {{ $assignment->revoke_reason }}@endif
                 <br>Restoring brings back exactly the permissions they had.
@@ -140,7 +140,7 @@
             </form>
         @else
             <h2 class="text-sm font-bold mb-1">Revoke access</h2>
-            <p class="text-xs mb-3" style="color:var(--text-secondary, #6b7280);">
+            <p class="text-xs mb-3" style="color:var(--text-muted);">
                 They immediately stop being able to act for {{ $agent?->name }}. Their login stays, and the
                 record is archived — you can restore it later with their permissions intact. Nothing is deleted.
             </p>
@@ -148,7 +148,7 @@
                 @csrf
                 <input type="text" name="reason" placeholder="Reason (optional)"
                        class="flex-1 rounded-md px-3 py-2 text-sm"
-                       style="background:var(--surface-2, #f0f2f8); color:var(--text-primary, #111827); border:1px solid var(--border, rgba(0,0,0,0.07));">
+                       style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                 <button type="submit" class="corex-btn-outline"
                         style="color:var(--ds-crimson, #dc2626); border-color:var(--ds-crimson, #dc2626);"
                         onclick="return confirm('Revoke {{ $assistant?->name }}\'s assistant access? This can be undone.');">

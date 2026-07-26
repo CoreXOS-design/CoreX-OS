@@ -4,7 +4,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div data-tour="assist-index-intro" class="rounded-md px-6 py-5 flex flex-col md:flex-row md:items-start md:justify-between gap-3" style="background:var(--brand-default, #0b2a4a);">
+    <div data-tour="assist-index-intro" class="rounded-md px-6 py-5 corex-page-banner flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">My Assistants</h1>
             <p class="text-sm text-white/60">

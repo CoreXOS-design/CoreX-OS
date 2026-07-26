@@ -1,7 +1,7 @@
 <x-guest-layout>
     <div class="space-y-4">
         <div class="text-center">
-            <h2 class="text-lg font-semibold" style="color: #ffffff;">Demo Mode</h2>
+            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Demo Mode</h2>
             <p class="text-xs mt-1" style="color: var(--text-secondary);">
                 Pick a role to enter the demo. No password required.
             </p>

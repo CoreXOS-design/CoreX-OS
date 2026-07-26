@@ -60,7 +60,7 @@
     </div>
 
     {{-- Statutory toggle --}}
-    <div class="p-4 rounded-md" style="background:var(--surface-2, #f0f2f8); border:1px solid var(--border, #e5e7eb);">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted, #9ca3af); letter-spacing:0.05em;">Classification</h4>
         <label class="relative inline-flex items-center cursor-pointer gap-3">
             <input type="hidden" name="is_statutory" value="0">

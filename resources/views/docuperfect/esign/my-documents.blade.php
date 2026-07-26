@@ -13,24 +13,27 @@
      }">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" data-tour="dp-esign-my-docs-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="dp-esign-my-docs-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">{{ ($showOnlyAuthorisation ?? false) ? 'Authorise Documents' : 'My E-Sign Documents' }}</h1>
-                <p class="text-sm text-white/60 mt-1">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ ($showOnlyAuthorisation ?? false) ? 'Authorise Documents' : 'My E-Sign Documents' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     @if($showOnlyAuthorisation ?? false)
-                        <a href="{{ route('docuperfect.esign.myDocuments') }}" class="text-white/60 hover:text-white transition-colors duration-150">&larr; My E-Sign Documents</a>
-                        &middot; Candidate documents requiring your authorisation.
+                        Candidate documents requiring your authorisation.
                     @else
-                        <a href="{{ route('docuperfect.dashboard') }}" class="text-white/60 hover:text-white transition-colors duration-150">&larr; DocuPerfect</a>
-                        &middot; Track all your e-sign flows, signing progress, and approvals.
+                        Track all your e-sign flows, signing progress, and approvals.
                     @endif
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @if($showOnlyAuthorisation ?? false)
+                    <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-btn-outline text-xs">&larr; My E-Sign Documents</a>
+                @else
+                    <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-xs">&larr; DocuPerfect</a>
+                @endif
                 <a href="{{ route('docuperfect.esign.create') }}"
-                   class="corex-btn-primary inline-flex items-center gap-2" data-tour="dp-esign-my-docs-new">
+                   class="corex-btn-primary text-xs inline-flex items-center gap-2" data-tour="dp-esign-my-docs-new">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                     New E-Sign
                 </a>
@@ -91,22 +94,26 @@
         </a>
         @endif
         <a href="#section-draft" onclick="event.preventDefault(); scrollToSection('section-draft')"
-           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block">
+           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block"
+           style="border-left-color: var(--border);">
             <div class="text-[1.625rem] font-semibold" style="color: {{ $counts['draft'] > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}">{{ number_format($counts['draft']) }}</div>
             <div class="text-xs mt-1" style="color: {{ $counts['draft'] > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}">Draft</div>
         </a>
         <a href="#section-ready" onclick="event.preventDefault(); scrollToSection('section-ready')"
-           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block">
+           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block"
+           style="border-left-color: var(--border);">
             <div class="text-[1.625rem] font-semibold" style="color: {{ $counts['ready_to_sign'] > 0 ? 'var(--brand-icon)' : 'var(--text-muted)' }}">{{ number_format($counts['ready_to_sign']) }}</div>
             <div class="text-xs mt-1" style="color: {{ $counts['ready_to_sign'] > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}">Ready to Sign</div>
         </a>
         <a href="#section-awaiting" onclick="event.preventDefault(); scrollToSection('section-awaiting')"
-           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block">
+           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block"
+           style="border-left-color: var(--border);">
             <div class="text-[1.625rem] font-semibold" style="color: {{ $counts['awaiting_signatures'] > 0 ? 'var(--ds-amber)' : 'var(--text-muted)' }}">{{ number_format($counts['awaiting_signatures']) }}</div>
             <div class="text-xs mt-1" style="color: {{ $counts['awaiting_signatures'] > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}">Awaiting Signatures</div>
         </a>
         <a href="#section-completed" onclick="event.preventDefault(); scrollToSection('section-completed')"
-           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block">
+           class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block"
+           style="border-left-color: var(--border);">
             <div class="text-[1.625rem] font-semibold" style="color: {{ $counts['completed'] > 0 ? 'var(--ds-green)' : 'var(--text-muted)' }}">{{ number_format($counts['completed']) }}</div>
             <div class="text-xs mt-1" style="color: {{ $counts['completed'] > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}">Completed</div>
         </a>
@@ -581,7 +588,7 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason for cancellation <span style="color: var(--ds-crimson);">*</span></label>
                     <textarea name="cancellation_reason" x-model="cancelReason" rows="3" required
                               class="w-full rounded-md px-3 py-2 text-sm"
-                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                               placeholder="e.g. Document contains errors, deal fell through, terms changed..."></textarea>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">This reason will be shared with all waiting signers.</p>
                 </div>

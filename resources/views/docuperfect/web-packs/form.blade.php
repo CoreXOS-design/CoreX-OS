@@ -6,19 +6,18 @@
      x-data="webPackForm()"
 >
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     {{ isset($webPack) ? 'Edit Web Pack' : 'Create Web Pack' }}
                 </h1>
-                <p class="text-sm text-white/60">
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ isset($webPack) ? $webPack->name : 'Group web templates into a reusable pack.' }}
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Back</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-btn-outline text-xs">Back</a>
             </div>
         </div>
     </div>
@@ -99,7 +98,7 @@
 
             <template x-for="(item, index) in selectedItems" :key="item.id">
                 <div class="rounded-md border px-3 py-2.5 transition-all"
-                     style="background: var(--surface); border-color: var(--border); border-left-width: 4px;"
+                     style="background: var(--surface-2); border-color: var(--border); border-left-width: 4px;"
                      :style="item.slot_type === 'selectable'
                          ? { borderLeftColor: item.slot_group === 1 ? 'var(--brand-button, #0ea5e9)' : (item.slot_group === 2 ? 'var(--ds-amber, #f59e0b)' : 'var(--ds-green, #059669)') }
                          : { borderLeftColor: 'var(--border)' }">
@@ -165,7 +164,7 @@
 
             {{-- Group summary --}}
             <template x-if="hasSelectableGroups">
-                <div class="mt-3 p-3 rounded-md" style="background: var(--surface-2);">
+                <div class="mt-3 p-3 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <span class="text-[0.6875rem] font-semibold uppercase" style="color: var(--text-muted);">Selectable Groups</span>
                     <div class="mt-1 space-y-1">
                         <template x-for="g in selectableGroupSummary" :key="g.group">

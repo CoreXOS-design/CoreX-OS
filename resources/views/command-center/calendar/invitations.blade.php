@@ -3,14 +3,14 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" data-tour="cc-invitations-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-invitations-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Calendar Invitations</h1>
-                <p class="text-sm text-white/60">Events other agents have invited you to.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Calendar Invitations</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Events other agents have invited you to.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>

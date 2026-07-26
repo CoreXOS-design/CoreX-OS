@@ -5,17 +5,17 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Property Onboarding</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Property Onboarding</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Send each new agency a secure link where they confirm their imported properties.
                     You do not confirm listings here — the agency does, in their portal.
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('admin.importer.index') }}" class="corex-btn-outline corex-btn-on-brand">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.importer.index') }}" class="corex-btn-outline text-xs">
                     ← Back to importer
                 </a>
             </div>
@@ -82,9 +82,9 @@
                     'Errors' => $counts['error'],
                     'Total' => $counts['total'],
                 ] as $label => $val)
-                    <div class="rounded-md p-2 text-center" style="background: var(--surface-2);">
+                    <div class="rounded-md p-2 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div style="color: var(--text-muted);">{{ $label }}</div>
-                        <div class="font-semibold" style="color: var(--text-primary);">{{ number_format((int) $val) }}</div>
+                        <div class="font-semibold tabular-nums" style="color: var(--text-primary);">{{ number_format((int) $val) }}</div>
                     </div>
                 @endforeach
             </div>
@@ -199,16 +199,16 @@
                             'Invited' => $agentCounts['invited'],
                             'Active' => $agentCounts['active'],
                         ] as $label => $val)
-                            <div class="rounded-md p-2 text-center" style="background: var(--surface-2);">
+                            <div class="rounded-md p-2 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <div style="color: var(--text-muted);">{{ $label }}</div>
-                                <div class="font-semibold" style="color: var(--text-primary);">{{ number_format((int) $val) }}</div>
+                                <div class="font-semibold tabular-nums" style="color: var(--text-primary);">{{ number_format((int) $val) }}</div>
                             </div>
                         @endforeach
                     </div>
 
                     <button type="button" @click="agentsOpen = !agentsOpen"
                             class="w-full flex items-center justify-between px-3 py-2 rounded-md text-left text-sm transition-colors"
-                            style="background: var(--surface-2); color: var(--text-primary);">
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <span>Show agents <span class="text-xs" style="color: var(--text-muted);">({{ number_format($agentCounts['total']) }})</span></span>
                         <svg class="w-4 h-4 transition-transform" :class="agentsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--text-muted);">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
@@ -302,19 +302,19 @@
                       style="background: var(--surface); border: 1px solid var(--border);">
                     @csrf
                     <input type="hidden" name="agency_id" value="{{ $agency->id }}">
-                    <h3 class="font-semibold text-lg" style="color: var(--text-primary);">Create onboarding portal</h3>
+                    <h3 class="text-base font-bold" style="color: var(--text-primary);">Create onboarding portal</h3>
                     <p class="text-xs" style="color: var(--text-muted);">For <strong>{{ $agency->name }}</strong>. Any currently active portal for this agency will be revoked and replaced.</p>
                     <div>
                         <label for="portal_label_{{ $agency->id }}" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Label (optional)</label>
                         <input id="portal_label_{{ $agency->id }}" type="text" name="label" placeholder="e.g. {{ $agency->name }} go-live"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div>
                         <label for="portal_expires_{{ $agency->id }}" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Expires in (days)</label>
                         <input id="portal_expires_{{ $agency->id }}" type="number" name="expires_in_days" value="30" min="1" max="180"
-                               class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm tabular-nums"
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div class="flex items-center justify-end gap-2 pt-2">
                         <button type="button" @click="createOpen = false" class="corex-btn-outline">Cancel</button>

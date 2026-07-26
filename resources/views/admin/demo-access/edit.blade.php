@@ -10,20 +10,23 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Back link --}}
-    <a href="{{ route('admin.demo-access.show', $grant) }}"
-       class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:var(--text-secondary);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-        </svg>
-        Back to grant
-    </a>
-
     {{-- Page header — §2.4 Pattern A --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Edit {{ $grant->company_name }}</h1>
-        <p class="text-sm text-white/60">Notes and the CRM link. Everything else about a grant is fixed once it is issued.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit {{ $grant->company_name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Notes and the CRM link. Everything else about a grant is fixed once it is issued.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Back link — lives in the header action cluster (AT-336). --}}
+                <a href="{{ route('admin.demo-access.show', $grant) }}" class="corex-btn-outline corex-btn-on-brand text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+                    </svg>
+                    Back to grant
+                </a>
+            </div>
+        </div>
     </div>
 
     {{-- No Silent Locks (STANDARDS): the two things you CANNOT edit here are named,
@@ -66,7 +69,7 @@
                 <input id="contact_name" name="contact_name" type="text"
                        value="{{ old('contact_name', $grant->contact_name) }}"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <x-input-error :messages="$errors->get('contact_name')" class="mt-1" />
             </div>
 
@@ -78,7 +81,7 @@
                        value="{{ old('contact_id', $grant->contact_id) }}"
                        placeholder="Contact ID"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p class="mt-1 text-xs" style="color: var(--text-muted);">
                     Optional. Links this prospect to a Contact record (the Contact pillar).
                 </p>
@@ -91,7 +94,7 @@
                 </label>
                 <textarea id="notes" name="notes" rows="4"
                           class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('notes', $grant->notes) }}</textarea>
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('notes', $grant->notes) }}</textarea>
                 <x-input-error :messages="$errors->get('notes')" class="mt-1" />
             </div>
         </div>

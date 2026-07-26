@@ -52,7 +52,7 @@
             <input type="hidden" :name="`{{ $kind }}[${idx}][is_primary]`" :value="idx === primary ? 1 : 0">
 
             <label class="flex items-center gap-1 text-[11px] whitespace-nowrap" style="color:var(--text-muted);" title="Mark as primary">
-                <input type="radio" :checked="idx === primary" @change="setPrimary(idx)" style="accent-color:#00d4aa;">
+                <input type="radio" :checked="idx === primary" @change="setPrimary(idx)" style="accent-color:var(--brand-icon,#0ea5e9);">
                 Primary
             </label>
 
@@ -64,7 +64,7 @@
 
     <button type="button" @click="add()"
             class="text-xs font-semibold transition-all duration-300"
-            style="color:#00d4aa;">+ Add {{ $addLabel }}</button>
+            style="color:var(--brand-icon,#0ea5e9);">+ Add {{ $addLabel }}</button>
 </div>
 
 @once

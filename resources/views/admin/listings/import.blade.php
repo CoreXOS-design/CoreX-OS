@@ -5,11 +5,11 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Import Listings (Propcon XLSX)</h1>
-                <p class="text-sm text-white/60">Upload the Propcon export as-is. We store the file locally and apply updates into listing stock.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Import Listings (Propcon XLSX)</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Upload the Propcon export as-is. We store the file locally and apply updates into listing stock.</p>
             </div>
         </div>
     </div>
@@ -50,7 +50,7 @@
     {{-- Upload Card --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <div>
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Upload XLSX</h3>
+            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Upload XLSX</h3>
             <p class="text-xs mt-1" style="color: var(--text-muted);">We will upsert into listing stock using the Code/Reference fields. Manual pricing fields will be preserved in a later phase.</p>
         </div>
 

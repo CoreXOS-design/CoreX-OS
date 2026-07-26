@@ -15,17 +15,17 @@
      x-data="outreachQueuePage({ csrf: @js(csrf_token()), sendAllowed: {{ $sendAllowed ? 'true' : 'false' }} })">
 
     {{-- Page header --}}
-    <div data-tour="oq-intro" class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+    <div data-tour="oq-intro" class="corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                <h1 class="text-xl font-bold text-white leading-tight">Outreach Queue</h1>
-                <p class="text-sm text-white/60 mt-1 max-w-3xl">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outreach Queue</h1>
+                <p class="text-xs mt-1 max-w-3xl" style="color: var(--text-muted);">
                     Messages you prepared earlier — ready to send now. Open each one: it pre-fills WhatsApp and
                     you tap Send in WhatsApp to deliver it. "Sent" records the dispatch (CoreX opens the chat; you send it).
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -86,13 +86,13 @@
                             @if($sendAllowed)
                                 <button type="button" data-tour="oq-open" @click="open({{ $row->id }}, '{{ route('corex.outreach-queue.open', $row) }}')"
                                         :disabled="busy === {{ $row->id }}"
-                                        class="corex-btn-primary text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+                                        class="corex-btn-primary text-xs whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
                                     <span x-show="busy !== {{ $row->id }}">Open WhatsApp</span>
                                     <span x-show="busy === {{ $row->id }}" x-cloak>Recording…</span>
                                 </button>
                             @else
                                 <button type="button" disabled
-                                        class="text-sm font-semibold rounded-md px-3.5 py-1.5 opacity-60 cursor-not-allowed whitespace-nowrap"
+                                        class="text-xs font-semibold rounded-md px-3.5 py-1.5 opacity-60 cursor-not-allowed whitespace-nowrap"
                                         style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);"
                                         title="{{ $windowMessage }}">Sending closed</button>
                             @endif
@@ -127,7 +127,7 @@
         <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">Recently removed</h2>
         @foreach($inactive as $row)
             <div class="rounded-md px-3 py-2 mb-1.5 flex items-center justify-between gap-4"
-                 style="background: var(--surface-2); border: 1px solid var(--border);">
+                 style="background: var(--surface); border: 1px solid var(--border);">
                 <span class="text-xs truncate" style="color: var(--text-secondary);">
                     {{ trim(($row->contact->first_name ?? '') . ' ' . ($row->contact->last_name ?? '')) ?: ('Contact #' . $row->contact_id) }}
                 </span>

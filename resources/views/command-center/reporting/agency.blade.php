@@ -4,17 +4,17 @@
 @section('corex-content')
 <div class="space-y-4">
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Agency Performance</h1>
-                <p class="text-sm text-white/60">Leadership view · Last {{ $days }} days</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agency Performance</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Leadership view · Last {{ $days }} days</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 @foreach([30 => '30 days', 90 => '90 days', 365 => 'Year'] as $d => $label)
                     <a href="{{ route('command-center.reporting.agency', ['days' => $d]) }}"
-                       class="text-xs font-semibold px-2.5 py-1 rounded-md no-underline whitespace-nowrap {{ $days == $d ? 'text-white' : 'text-white/60 hover:text-white' }}"
-                       style="{{ $days == $d ? 'background: var(--brand-button, #0ea5e9);' : 'background: rgba(255,255,255,0.08);' }} transition: all 150ms ease;">{{ $label }}</a>
+                       class="text-xs px-2.5 py-1 rounded-md no-underline whitespace-nowrap {{ $days == $d ? 'font-semibold' : '' }}"
+                       style="{{ $days == $d ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);' }} transition: all 150ms ease;">{{ $label }}</a>
                 @endforeach
             </div>
         </div>

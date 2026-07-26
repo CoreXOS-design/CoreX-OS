@@ -5,17 +5,17 @@
 
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (AT-336 — flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-list-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Presentations</h1>
-                <p class="text-sm text-white/60">Seller presentations, evaluations and pricing analysis.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Presentations</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Seller presentations, evaluations and pricing analysis.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
-                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">P24 Suburbs</a>
+                    <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-xs">P24 Suburbs</a>
                 @endif
                 {{-- AT-27 Phase A / AT-17 (retirement FINISHED 2026-07-10) — the standalone
                      "New Presentation" flow is fully retired: nav link, index/eval buttons and
@@ -25,10 +25,10 @@
                 <a href="{{ url('/corex/settings?s=feature-presentations') }}"
                    title="Presentations Settings"
                    aria-label="Presentations Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:30px; height:30px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
+                   onmouseover="this.style.background='var(--surface)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)'"
+                   onmouseout="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>

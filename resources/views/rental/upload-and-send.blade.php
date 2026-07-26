@@ -39,42 +39,45 @@
 
             {{-- Document name --}}
             <div class="mb-5">
-                <label class="block text-sm font-medium text-slate-700 mb-1">Document Name</label>
+                <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Document Name</label>
                 <input type="text" name="document_name" value="{{ old('document_name') }}"
-                       class="w-full rounded-xl border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                       class="w-full rounded-xl shadow-sm text-sm"
+                       style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                        placeholder="e.g. Lease Agreement — 14 Marine Drive, Unit 3"
                        required>
             </div>
 
             {{-- File upload --}}
             <div class="mb-5">
-                <label class="block text-sm font-medium text-slate-700 mb-1">Upload Document (PDF)</label>
+                <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Upload Document (PDF)</label>
                 <input type="file" name="uploaded_file" accept=".pdf,.doc,.docx"
-                       class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                       class="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-[var(--surface-2)] file:text-[var(--brand-icon)] hover:file:opacity-90"
+                       style="color:var(--text-muted)"
                        required>
-                <p class="text-xs text-slate-400 mt-1">PDF, DOC, or DOCX — max 20MB. This file will be sent to recipients for signing.</p>
+                <p class="text-xs mt-1" style="color:var(--text-faint)">PDF, DOC, or DOCX — max 20MB. This file will be sent to recipients for signing.</p>
             </div>
 
             {{-- Property reference (optional) --}}
             <div class="mb-6">
-                <label class="block text-sm font-medium text-slate-700 mb-1">Property Reference <span class="text-slate-400 font-normal">(optional)</span></label>
+                <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Property Reference <span class="font-normal" style="color:var(--text-faint)">(optional)</span></label>
                 <input type="text" name="property_reference" value="{{ old('property_reference') }}"
-                       class="w-full rounded-xl border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                       class="w-full rounded-xl shadow-sm text-sm"
+                       style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                        placeholder="e.g. Unit 3, 14 Marine Drive, Shelly Beach">
             </div>
 
             {{-- ═══════ Signing Chain ═══════ --}}
             <div class="mb-6">
                 <div class="flex items-center justify-between mb-3">
-                    <label class="text-sm font-medium text-slate-700">Signing Chain (in order)</label>
-                    <span class="text-xs text-slate-400">Each person receives the document after the previous person returns their signed copy.</span>
+                    <label class="text-sm font-medium" style="color:var(--text-secondary)">Signing Chain (in order)</label>
+                    <span class="text-xs" style="color:var(--text-faint)">Each person receives the document after the previous person returns their signed copy.</span>
                 </div>
 
                 <div class="space-y-3">
                     <template x-for="(recipient, index) in recipients" :key="index">
-                        <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="rounded-xl border p-4" style="border-color:var(--border); background:var(--surface-2)">
                             <div class="flex items-center justify-between mb-3">
-                                <span class="text-xs font-bold text-slate-500" x-text="(index + 1) + '.'"></span>
+                                <span class="text-xs font-bold" style="color:var(--text-muted)" x-text="(index + 1) + '.'"></span>
                                 <button type="button" @click="removeRecipient(index)" x-show="recipients.length > 1"
                                         class="text-xs text-red-500 hover:text-red-700 font-medium">
                                     Remove
@@ -83,23 +86,26 @@
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs text-slate-500 mb-1">Name</label>
+                                    <label class="block text-xs mb-1" style="color:var(--text-muted)">Name</label>
                                     <input type="text" :name="'recipients[' + index + '][name]'" x-model="recipient.name"
-                                           class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           class="w-full rounded-lg shadow-sm text-sm"
+                                           style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                                            placeholder="John Smith" required>
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-slate-500 mb-1">Email</label>
+                                    <label class="block text-xs mb-1" style="color:var(--text-muted)">Email</label>
                                     <input type="email" :name="'recipients[' + index + '][email]'" x-model="recipient.email"
-                                           class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           class="w-full rounded-lg shadow-sm text-sm"
+                                           style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                                            placeholder="john@email.com" required>
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-slate-500 mb-1">Role</label>
+                                    <label class="block text-xs mb-1" style="color:var(--text-muted)">Role</label>
                                     <select :name="recipient.roleSelect !== 'Other' ? 'recipients[' + index + '][role]' : ''"
                                             x-model="recipient.roleSelect"
                                             @change="recipient.role = $event.target.value === 'Other' ? '' : $event.target.value"
-                                            class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                            class="w-full rounded-lg shadow-sm text-sm"
+                                            style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                                             required>
                                         <option value="" disabled>Select role...</option>
                                         <option value="Tenant">Tenant</option>
@@ -113,14 +119,16 @@
                                            x-show="recipient.roleSelect === 'Other'"
                                            :name="recipient.roleSelect === 'Other' ? 'recipients[' + index + '][role]' : ''"
                                            x-model="recipient.role"
-                                           class="w-full mt-2 rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           class="w-full mt-2 rounded-lg shadow-sm text-sm"
+                                           style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                                            placeholder="Enter custom role"
                                            :required="recipient.roleSelect === 'Other'">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-slate-500 mb-1">ID / Passport No.</label>
+                                    <label class="block text-xs mb-1" style="color:var(--text-muted)">ID / Passport No.</label>
                                     <input type="text" :name="'recipients[' + index + '][id_number]'" x-model="recipient.id_number"
-                                           class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           class="w-full rounded-lg shadow-sm text-sm"
+                                           style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                                            placeholder="SA ID or passport number" maxlength="20" required>
                                 </div>
                             </div>
@@ -129,20 +137,22 @@
                 </div>
 
                 <button type="button" @click="addRecipient()"
-                        class="mt-3 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                        class="mt-3 inline-flex items-center gap-1 text-sm font-medium"
+                        style="color:var(--brand-icon)">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Add Next Recipient
                 </button>
             </div>
 
             {{-- Chain preview --}}
-            <div class="mb-6 p-3 rounded-xl bg-blue-50 border border-blue-100" x-show="recipients.length > 0">
-                <div class="text-xs text-blue-600 font-semibold uppercase tracking-wider mb-1">Flow</div>
-                <div class="text-sm text-blue-800">
-                    <span class="text-blue-400">You (Agent)</span>
+            <div class="mb-6 p-3 rounded-xl border" x-show="recipients.length > 0"
+                 style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); border-color:color-mix(in srgb, var(--brand-icon) 30%, transparent)">
+                <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--brand-icon)">Flow</div>
+                <div class="text-sm" style="color:var(--text-primary)">
+                    <span style="color:var(--text-faint)">You (Agent)</span>
                     <template x-for="(r, i) in recipients" :key="'preview-'+i">
                         <span>
-                            <span class="text-blue-400 mx-1">&rarr;</span>
+                            <span class="mx-1" style="color:var(--text-faint)">&rarr;</span>
                             <span x-text="r.name || '(unnamed)'"></span>
                         </span>
                     </template>
@@ -151,20 +161,22 @@
 
             {{-- Optional message --}}
             <div class="mb-6">
-                <label class="block text-sm font-medium text-slate-700 mb-1">Message (optional)</label>
+                <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Message (optional)</label>
                 <textarea name="message" rows="3"
-                          class="w-full rounded-xl border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                          class="w-full rounded-xl shadow-sm text-sm"
+                          style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
                           placeholder="Please sign and return at your earliest convenience.">{{ old('message') }}</textarea>
-                <p class="text-xs text-slate-400 mt-1">This message will be included in all emails to recipients.</p>
+                <p class="text-xs mt-1" style="color:var(--text-faint)">This message will be included in all emails to recipients.</p>
             </div>
 
             {{-- Submit --}}
             <button type="submit"
-                    class="w-full sm:w-auto px-6 py-3 bg-slate-800 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 transition-colors"
+                    class="w-full sm:w-auto px-6 py-3 text-white text-sm font-semibold rounded-xl transition-colors hover:opacity-90"
+                    style="background:var(--brand-button)"
                     x-text="'Send to ' + (recipients[0]?.name || 'First Recipient') + ' →'">
                 Send &rarr;
             </button>
-            <p class="text-xs text-slate-400 mt-2">The agent step is marked as complete automatically. The first recipient in the chain will receive the signing email immediately.</p>
+            <p class="text-xs mt-2" style="color:var(--text-faint)">The agent step is marked as complete automatically. The first recipient in the chain will receive the signing email immediately.</p>
         </form>
     </div>
 </div>

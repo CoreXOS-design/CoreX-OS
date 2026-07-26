@@ -17,12 +17,22 @@
 @endphp
 <div class="w-full space-y-4" x-data="{ showAudit: false, rejectOpen: false, changesOpen: false }">
 
-    {{-- Back + header --}}
-    <div class="flex items-center gap-4 flex-wrap">
-        <a href="{{ route('compliance.whistleblow.index') }}" class="inline-flex items-center gap-1.5 text-sm no-underline" style="color:var(--text-secondary);">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
-            Back to Queue
-        </a>
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="font-mono text-base font-bold leading-tight" style="color: var(--text-primary);">HFC-WB-{{ $complaint->id }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $tierDesc[$complaint->tier] ?? $complaint->tier }} &middot; {{ (int) $complaint->created_at->diffInDays(now()) }} days open</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="ds-badge {{ $tierBadges[$complaint->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $complaint->tier) }}</span>
+                <span class="ds-badge {{ $statusBadges[$complaint->status] ?? 'ds-badge-default' }}">{{ $statusText }}</span>
+                <a href="{{ route('compliance.whistleblow.index') }}" class="corex-btn-outline text-xs no-underline">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
+                    Back to Queue
+                </a>
+            </div>
+        </div>
     </div>
 
     @if(session('success'))
@@ -30,17 +40,6 @@
         {{ session('success') }}
     </div>
     @endif
-
-    {{-- Header card --}}
-    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="flex items-center gap-3 flex-wrap">
-            <span class="font-mono text-lg font-bold" style="color:var(--text-primary);">HFC-WB-{{ $complaint->id }}</span>
-            <span class="ds-badge {{ $tierBadges[$complaint->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $complaint->tier) }}</span>
-            <span class="text-sm font-medium" style="color:var(--text-secondary);">{{ $tierDesc[$complaint->tier] ?? $complaint->tier }}</span>
-            <span class="ds-badge {{ $statusBadges[$complaint->status] ?? 'ds-badge-default' }}">{{ $statusText }}</span>
-            <span class="text-xs" style="color:var(--text-muted);">{{ (int) $complaint->created_at->diffInDays(now()) }} days open</span>
-        </div>
-    </div>
 
     {{-- Property --}}
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
@@ -144,7 +143,7 @@
                     <span class="text-xs font-bold" style="color:var(--ds-crimson, #c41e3a);">Failed</span>
                     @endif
                     <span class="text-xs" style="color:var(--text-muted);">{{ $elog->sent_at->format('d M Y, H:i') }}</span>
-                    <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default, #0b2a4a); background:color-mix(in srgb, var(--brand-default, #0b2a4a) 8%, transparent);">
+                    <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">
                         {{ $elog->status === 'sent' ? 'View email' : 'View error' }}
                     </button>
                 </div>
@@ -216,7 +215,7 @@
             <div class="flex items-center gap-2 flex-wrap">
                 <code class="text-xs flex-1 truncate" style="color:var(--text-primary);">{{ url('/info/' . $whatsappLink->token) }}</code>
                 <button type="button" @click="navigator.clipboard.writeText('{{ url('/info/' . $whatsappLink->token) }}'); linkCopied = true; setTimeout(() => linkCopied = false, 2000)"
-                        class="text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default, #0b2a4a); background:color-mix(in srgb, var(--brand-default, #0b2a4a) 8%, transparent);">
+                        class="text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">
                     <span x-text="linkCopied ? 'Copied!' : 'Copy link'"></span>
                 </button>
                 <span class="text-xs" style="color:var(--text-muted);">{{ $whatsappLink->accessed_count }} view{{ $whatsappLink->accessed_count !== 1 ? 's' : '' }}</span>
@@ -253,7 +252,7 @@
             <h3 class="text-base font-bold mb-3" style="color:var(--text-primary);">Reject Complaint</h3>
             <form method="POST" action="{{ route('compliance.whistleblow.reject', $complaint) }}">
                 @csrf
-                <textarea name="reason" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface, #ffffff); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..."></textarea>
+                <textarea name="reason" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..."></textarea>
                 <div class="flex justify-end gap-3">
                     <button type="button" @click="rejectOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
                     <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--ds-crimson, #c41e3a);">Reject</button>
@@ -271,10 +270,10 @@
             <h3 class="text-base font-bold mb-3" style="color:var(--text-primary);">Request Changes</h3>
             <form method="POST" action="{{ route('compliance.whistleblow.request-changes', $complaint) }}">
                 @csrf
-                <textarea name="notes" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface, #ffffff); border:1px solid var(--border); color:var(--text-primary);" placeholder="What needs to be changed..."></textarea>
+                <textarea name="notes" required rows="3" class="w-full rounded-md text-sm px-3 py-2 mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="What needs to be changed..."></textarea>
                 <div class="flex justify-end gap-3">
                     <button type="button" @click="changesOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
-                    <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-all" style="background:var(--brand-default, #0b2a4a);">Send Back</button>
+                    <button type="submit" class="corex-btn-primary text-sm">Send Back</button>
                 </div>
             </form>
         </div>

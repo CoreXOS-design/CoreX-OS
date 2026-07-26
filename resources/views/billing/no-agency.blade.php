@@ -13,9 +13,13 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">Billing</h1>
-        <p class="text-sm text-white/60">What an agency pays for CoreX.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Billing</h1>
+                <p class="text-xs" style="color: var(--text-muted);">What an agency pays for CoreX.</p>
+            </div>
+        </div>
     </div>
 
     <div class="rounded-md p-6" style="background:var(--surface); border:1px solid var(--border);">

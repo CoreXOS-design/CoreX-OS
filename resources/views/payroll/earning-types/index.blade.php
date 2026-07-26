@@ -5,15 +5,15 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Payroll Earning Types</h1>
-                <p class="text-sm text-white/60">Configure agency-specific earning categories. SARS source codes link to IRP5 reporting.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Payroll Earning Types</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Configure agency-specific earning categories. SARS source codes link to IRP5 reporting.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('payroll.earning-types.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('payroll.earning-types.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                     Add Earning Type
                 </a>
             </div>
@@ -45,13 +45,15 @@
         @foreach($tileMeta as $key => $meta)
         @php $isActive = $status === $key; @endphp
         <a href="{{ route('payroll.earning-types.index', ['status' => $key, 'q' => $q]) }}"
-           class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300 no-underline cursor-pointer hover:opacity-80"
-           style="background: var(--surface); border: {{ $isActive ? '2px' : '1px' }} solid {{ $isActive ? $meta['fg'] : 'var(--border)' }};">
+           class="rounded-md px-4 py-3 flex items-center gap-3 transition-colors duration-150 no-underline cursor-pointer"
+           style="background: {{ $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 10%, var(--surface))' : 'var(--surface)' }}; border: 1px solid {{ $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 40%, transparent)' : 'var(--border)' }};"
+           onmouseover="this.style.borderColor='{{ $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 40%, transparent)' : 'var(--border-hover)' }}'"
+           onmouseout="this.style.borderColor='{{ $isActive ? 'color-mix(in srgb, ' . $meta['fg'] . ' 40%, transparent)' : 'var(--border)' }}'">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background: {{ $meta['bg'] }}; color: {{ $meta['fg'] }};">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m-6 4h6m-6 4h4M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
             </span>
             <div class="min-w-0">
-                <div class="text-[1.625rem] font-semibold leading-none" style="color: var(--text-primary);">{{ number_format($counts[$key]) }}</div>
+                <div class="text-[1.625rem] font-bold leading-none tabular-nums" style="color: var(--text-primary);">{{ number_format($counts[$key]) }}</div>
                 <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color: var(--text-muted);">{{ $meta['label'] }}</div>
             </div>
         </a>
@@ -67,11 +69,11 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search code or label…"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+                       class="list-header-filter w-full" style="padding-left: 2.25rem; background: var(--surface-2);">
             </div>
-            <button type="submit" class="corex-btn-primary text-sm">Search</button>
+            <button type="submit" class="corex-btn-primary text-xs">Search</button>
             @if($q)
-                <a href="{{ route('payroll.earning-types.index', ['status' => $status]) }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
+                <a href="{{ route('payroll.earning-types.index', ['status' => $status]) }}" class="text-xs underline transition-colors duration-150" style="color: var(--text-muted);">Clear</a>
             @endif
         </form>
     </div>

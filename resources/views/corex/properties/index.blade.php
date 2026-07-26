@@ -6,7 +6,7 @@
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
     $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
 @endphp
-<div class="w-full space-y-5"
+<div class="w-full space-y-5 corex-props-v2"
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -53,27 +53,32 @@
      }"
      x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
-    {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Header — flat bar at the top of the page (AT-336 Fix 1). NOT sticky: it
+         sits in normal flow and scrolls away with the content. Negative margins
+         break it out of <main>'s padding so the bottom border spans the full width
+         and it sits flush at the top. No card fill, no rounded corners, no shadow,
+         no brand block — neutral chrome only. --}}
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5"
+         style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Properties</h1>
-                <p class="text-sm text-white/60">Manage listings and publish to website.</p>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Properties</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Manage listings and publish to website.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if(auth()->user() && auth()->user()->isOwnerRole())
                 <a href="{{ route('corex.properties.import-sold') }}"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   class="corex-btn-outline text-xs"
+                   style=""
                    title="Bulk-import sold listings from a spreadsheet">
                     Import Sold
                 </a>
                 @include('corex.properties.partials.p24-number-fix')
                 @endif
                 <a href="{{ route('corex.properties.create') }}"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   class="corex-btn-outline text-xs"
+                   style=""
                    title="Classic single-page form">
                     Classic form
                 </a>
@@ -81,15 +86,15 @@
                 @if($draftCount === 1)
                 {{-- Exactly one draft — a single click continues it. --}}
                 <a href="{{ route('corex.properties.wizard', ['resume' => $draftItems->first()->id]) }}"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   class="corex-btn-outline text-xs"
+                   style=""
                    title="Continue your unfinished draft">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
                     </svg>
                     Drafts
                     <span class="inline-flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full text-[10px] font-bold"
-                          style="background:rgba(255,255,255,0.18);color:#fff;">1</span>
+                          style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">1</span>
                 </a>
                 @elseif($draftCount > 1)
                 {{-- Several drafts — a popup lets the user pick the one to continue. --}}
@@ -98,15 +103,15 @@
                             @click="draftsOpen = !draftsOpen" @click.outside="draftsOpen = false"
                             @keydown.escape.window="draftsOpen = false"
                             :aria-expanded="draftsOpen ? 'true' : 'false'"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                            style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                            class="corex-btn-outline text-xs"
+                            style=""
                             title="Choose a draft to continue">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
                         </svg>
                         Drafts
                         <span class="inline-flex items-center justify-center min-w-[1.125rem] h-[1.125rem] px-1 rounded-full text-[10px] font-bold"
-                              style="background:rgba(255,255,255,0.18);color:#fff;">{{ $draftCount }}</span>
+                              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);">{{ $draftCount }}</span>
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-200" :class="draftsOpen && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                         </svg>
@@ -151,10 +156,10 @@
                 <a href="{{ url('/corex/settings?s=feature-properties') }}"
                    title="Properties Settings"
                    aria-label="Properties Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:32px; height:32px; background:transparent; border:1px solid var(--border); color:var(--text-secondary);"
+                   onmouseover="this.style.background='var(--surface-2)';this.style.color='var(--text-primary)'"
+                   onmouseout="this.style.background='transparent';this.style.color='var(--text-secondary)'">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -195,23 +200,24 @@
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 xl:gap-4" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
-            $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
+            $isLive   = $kpi['label'] === 'On Market';
             $tileUrl = $kpi['filter'] === ''
                 ? $baseUrl . '?' . http_build_query($preserveParams)
                 : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
         @endphp
-        <a href="{{ $tileUrl }}" class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300 no-underline cursor-pointer hover:opacity-80"
-             style="background:var(--surface); border:{{ $isActive ? '2px' : '1px' }} solid {{ $isActive ? $c['fg'] : 'var(--border)' }};">
-            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:{{ $c['bg'] }};color:{{ $c['fg'] }};">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <a href="{{ $tileUrl }}"
+           class="pstat-v2 px-5 py-4 flex items-center justify-between gap-3 no-underline cursor-pointer"
+           style="{{ $isActive ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
+                <div class="text-[0.6875rem] font-medium mt-1.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+            </div>
+            <span class="pstat-v2__tub {{ $isLive ? 'pstat-v2__tub--live' : '' }} inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                     {!! $kpiIcons[$kpi['label']] ?? '' !!}
                 </svg>
             </span>
-            <div class="min-w-0">
-                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
-            </div>
         </a>
         @endforeach
     </div>
@@ -489,7 +495,7 @@
             <div class="flex items-center gap-0.5 rounded-md" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);" data-tour="re-properties-viewtoggle">
                 <button type="button" @click="view = 'grid'"
                         class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
-                        :style="view === 'grid' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'color:var(--text-muted);'"
+                        :style="view === 'grid' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'color:var(--text-muted);'"
                         title="Grid view">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
@@ -497,7 +503,7 @@
                 </button>
                 <button type="button" @click="view = 'list'"
                         class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
-                        :style="view === 'list' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'color:var(--text-muted);'"
+                        :style="view === 'list' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'color:var(--text-muted);'"
                         title="List view">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
@@ -718,44 +724,45 @@
             $showSynBtn = ($property->is_marketable ?? false)
                 && ($property->has_syndication ?? $property->isLiveOnAnyPortal());
         @endphp
-        <div class="relative rounded-md overflow-hidden flex flex-col transition-all duration-300"
-             style="background:var(--surface); border:1px solid var(--border);"
-             onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.06)'"
-             onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+        @php
+            // Live-on-a-portal signal drives the "Active" status badge accent.
+            $isLiveStatus = in_array($statusKey, ['on_market', 'active', 'live'], true);
+        @endphp
+        <div class="pcard-v2 relative overflow-hidden flex flex-col">
 
-            {{-- Thumbnail --}}
-            <a href="{{ route('corex.properties.show', $property) }}" class="relative block h-44 flex-shrink-0 overflow-hidden" style="background:var(--brand-default,#0b2a4a);">
+            {{-- Thumbnail — full-bleed, touches top & sides (spec §9) --}}
+            <a href="{{ route('corex.properties.show', $property) }}" class="relative block h-40 flex-shrink-0 overflow-hidden" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                 @if($thumb)
                     <img src="{{ $property->thumbFor($thumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="600" height="400">
                 @else
                     <div class="absolute inset-0 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:rgba(255,255,255,0.12);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:var(--text-muted);opacity:0.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
                         </svg>
                     </div>
                 @endif
 
-                {{-- Overlay gradient --}}
-                <div class="absolute inset-x-0 bottom-0 h-20" style="background:linear-gradient(to top,rgba(0,0,0,0.45),transparent);pointer-events:none;"></div>
+                {{-- Scrim: white 6% → transparent → black 45% (spec §9) --}}
+                <div class="absolute inset-0" style="background:linear-gradient(to bottom,rgba(255,255,255,0.06),transparent 35%,rgba(0,0,0,0.45));pointer-events:none;"></div>
 
-                {{-- Price on image --}}
-                <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
-
-                {{-- Listing type + Status + Mandate badges (left) --}}
-                {{-- right-12 clears the syndication button when it renders; the
-                     pills wrap rather than run under it. --}}
+                {{-- Glassmorphism status badges (left). right-12 clears the
+                     syndication button when it renders so pills wrap cleanly. --}}
                 <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $statusPillStyle }}">{{ $statusLabel }}</span>
+                    <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium">{{ $listingTypeLabel }}</span>
+                    <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium inline-flex items-center gap-1.5">
+                        @if($isLiveStatus)<span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#34D399;"></span><span style="color:#34D399;">{{ $statusLabel }}</span>
+                        @elseif($statusKey === 'sold')<span style="color:#fca5a5;">{{ $statusLabel }}</span>
+                        @else{{ $statusLabel }}@endif
+                    </span>
                     @if($property->mandate_type)
-                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
+                    <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
                 </div>
 
-                {{-- Photo count --}}
+                {{-- Photo count (bottom-right glass) --}}
                 @if(count($images) > 0)
-                <span class="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium" style="background:rgba(0,0,0,0.5);color:#fff;backdrop-filter:blur(4px);">
+                <span class="pglass-v2 absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 15l-5-5L5 21"/></svg>
                     {{ count($images) }}
                 </span>
@@ -790,6 +797,9 @@
                     $addrLine = count($addrParts) ? implode(', ', $addrParts) : null;
                 @endphp
 
+                {{-- Price — hero (spec §9) --}}
+                <div class="text-[1.375rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
+
                 {{-- Address (primary — an agent recognises the address first) --}}
                 <a href="{{ route('corex.properties.show', $property) }}" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                     {{ $addrLine ?? ($property->title ?: '—') }}
@@ -815,19 +825,17 @@
                 {{-- Portal references — P24 and Private Property side by side, each
                      shown only once the portal has issued one. --}}
                 @if($property->p24_ref || $property->pp_ref)
-                <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <div class="mt-2 flex flex-wrap items-center gap-1.5">
                     @if($property->p24_ref)
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
-                          style="{{ $refPillStyle }}"
+                    <span class="pchip-v2 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono"
                           title="Property24 listing number">
-                        P24: {{ $property->p24_ref }}
+                        <span style="color:var(--text-faint);">P24</span> <span style="color:var(--text-muted);">{{ $property->p24_ref }}</span>
                     </span>
                     @endif
                     @if($property->pp_ref)
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono"
-                          style="{{ $refPillStyle }}"
+                    <span class="pchip-v2 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono"
                           title="Private Property listing number">
-                        PP: {{ $property->pp_ref }}
+                        <span style="color:var(--text-faint);">PP</span> <span style="color:var(--text-muted);">{{ $property->pp_ref }}</span>
                     </span>
                     @endif
                 </div>
@@ -856,7 +864,7 @@
                            class="corex-btn-outline text-[10px] px-2 py-1">View</a>
                         <a href="{{ route('corex.properties.ad', $property) }}"
                            target="_blank"
-                           class="corex-btn-outline text-[10px] px-2 py-1"
+                           class="corex-btn-primary text-[10px] px-2 py-1"
                            title="Create Ad">Ad</a>
                         <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                               onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
@@ -932,12 +940,12 @@
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
                     <td class="px-3 py-2">
-                        <a href="{{ route('corex.properties.show', $property) }}" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:var(--brand-default,#0b2a4a);">
+                        <a href="{{ route('corex.properties.show', $property) }}" class="block w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
                             @if($rowThumb)
                                 <img src="{{ $property->thumbFor($rowThumb) }}" alt="{{ $property->title }}" class="w-full h-full object-cover" loading="lazy" width="64" height="64">
                             @else
                                 <span class="flex items-center justify-center w-full h-full">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:rgba(255,255,255,0.18);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:var(--text-muted);opacity:0.5;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
                                     </svg>
@@ -959,7 +967,7 @@
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}
                     </td>
-                    <td class="px-4 py-2.5 text-sm font-semibold text-right whitespace-nowrap" style="color:var(--brand-default,#0b2a4a);">
+                    <td class="px-4 py-2.5 text-sm font-semibold text-right whitespace-nowrap tabular-nums" style="color:var(--text-primary);">
                         {{ $property->formattedPrice() }}
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>

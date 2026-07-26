@@ -36,9 +36,9 @@
     border-radius: 6px;
     font-size: 0.875rem;
     color: var(--text-primary);
-    background: var(--surface);
+    background: var(--surface-2);
     outline: none;
-    transition: border-color 300ms, box-shadow 300ms;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 #pdf-splitter-root input[type="text"]:focus,
@@ -60,11 +60,13 @@
     border-radius: 6px;
     padding: 1.5rem;
     border-left: 3px solid var(--brand-icon, #0ea5e9);
-    transition: box-shadow 300ms;
+    box-shadow: var(--pv2-shadow);
+    transition: border-color 150ms ease;
 }
 
 #pdf-splitter-root .upload-card:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-color: var(--border-hover);
+    border-left-color: var(--brand-icon, #0ea5e9);
 }
 
 #pdf-splitter-root .upload-card h3 {
@@ -120,11 +122,11 @@
 <div class="space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter</h1>
-                <p class="text-sm text-white/60">OCR-driven splitting of multi-document PDF packs into labelled files.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Pack Splitter</h1>
+                <p class="text-xs" style="color: var(--text-muted);">OCR-driven splitting of multi-document PDF packs into labelled files.</p>
             </div>
         </div>
     </div>
@@ -144,7 +146,7 @@
         {{-- AT-105 — FICA verification(s) kicked off from the split pack. One
              line per distinct contact (many-to-many → multiple parties). --}}
         @if(session('splitter_fica_results'))
-            <div class="alert-success" style="border-left: 3px solid #8b5cf6;">
+            <div class="alert-success" style="border-left: 3px solid var(--ds-purple, #7c3aed);">
                 <div style="font-weight:600; margin-bottom:4px;">Wet-ink FICA verification{{ count(session('splitter_fica_results')) === 1 ? '' : 's' }} from this pack:</div>
                 <ul style="margin:0; padding-left:18px;">
                     @foreach(session('splitter_fica_results') as $f)

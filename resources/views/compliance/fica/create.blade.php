@@ -3,16 +3,16 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comp-fica-create-intro">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comp-fica-create-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Send FICA Request</h1>
-                <p class="text-sm text-white/60">Select a contact to send a FICA verification form to.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Send FICA Request</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Select a contact to send a FICA verification form to.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline corex-btn-on-brand">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     Back to FICA
                 </a>
@@ -49,7 +49,7 @@
         @csrf
 
         {{-- Select Contact --}}
-        <div class="rounded-md p-5" style="background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0);" data-tour="comp-fica-create-contact">
+        <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comp-fica-create-contact">
             <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Select Contact <span style="color: var(--ds-crimson, #c41e3a);">*</span></h3>
 
             <div class="relative mb-3">
@@ -59,7 +59,7 @@
                        @click.away="open = false"
                        placeholder="Search contacts..."
                        class="w-full rounded-md px-3 py-2 text-sm outline-none"
-                       style="border: 1px solid var(--border, #e2e8f0); background: var(--surface-2, #f8fafc); color: var(--text-primary);"
+                       style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);"
                        x-show="!selected">
                 <div x-show="selected" x-cloak class="flex items-center justify-between rounded-md px-3 py-2" style="border: 1px solid var(--border); background: var(--surface-2);">
                     <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="selectedName"></span>
@@ -69,7 +69,7 @@
 
                 <div x-show="open && search.length >= 2" x-cloak
                      class="absolute z-30 mt-1 w-full max-h-60 overflow-y-auto rounded-md"
-                     style="background: var(--surface, #fff); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
                     @foreach($contacts as $c)
                         @php
                             $haystack = strtolower(trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '') . ' ' . ($c->email ?? '')));

@@ -98,7 +98,7 @@
 @endpush
 
 @section('corex-content')
-<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px 0; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
+<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin-bottom: -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
     {{-- ── Header bar (UI_DESIGN_SYSTEM.md §2.4 Pattern A — branded header).
          Full-width rounded-md branded card with the exact px-6 py-5
@@ -110,16 +110,16 @@
          bleed now); the map body below aligns to the same edges. flex-wrap
          lets the right-hand control cluster drop below the title on narrow
          screens instead of overflowing (§6.5 responsive Pattern A rule). --}}
-    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 16px 0 12px; padding: 20px 24px; background: var(--brand-default, #0b2a4a); border-radius: 6px; flex-shrink: 0; z-index: 500;">
+    <div class="map-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 12px; padding-top: 14px; padding-bottom: 14px; flex-shrink: 0; z-index: 500; border-bottom: 1px solid var(--border);">
         <div style="min-width: 0;" data-tour="re-map-intro">
             <div style="display: flex; align-items: center; gap: 12px;">
-                <h1 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin: 0; line-height: 1.2;">CoreX Map</h1>
+                <h1 style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin: 0; line-height: 1.2;">CoreX Map</h1>
                 <div id="map-loading-pill" style="display: none; padding: 4px 10px; font-size: 0.6875rem; font-weight: 500; background: var(--surface-2); color: var(--text-secondary); border-radius: 999px;">Loading pins…</div>
             </div>
-            <p style="margin: 2px 0 0; font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
+            <p style="margin: 2px 0 0; font-size: 0.75rem; color: var(--text-muted); line-height: 1.2;">Spatial view of your stock, sold comps and prospecting candidates.</p>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-            @include('layouts.partials.tour-header-launcher')
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- Base-layer toggle --}}
             <div id="base-layer-toggle" data-tour="re-map-baselayer" style="display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                 <button data-base="streets" class="base-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Streets</button>
@@ -150,12 +150,12 @@
                 @endif
                 <button data-mode="seller" class="mode-pill active" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">Seller View</button>
             </div>
-            <button id="reset-bounds-btn" style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">Reset to HFC area</button>
+            <button id="reset-bounds-btn" style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">Reset to HFC area</button>
         </div>
     </div>
 
     {{-- ── Seller View banner ────────────────────────────────────────────── --}}
-    <div id="seller-banner" style="display: none; margin: 0 0 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
+    <div id="seller-banner" class="map-body" style="display: none; margin-top: 0; margin-bottom: 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
         Seller view active — owner/contact info hidden
     </div>
 
@@ -163,7 +163,7 @@
          (matching the Properties / Contacts pages); horizontal margin is 0 so
          it aligns edge-for-edge with the header, and the rounded border +
          overflow:hidden frame the map. ─────────────────────────────────────── --}}
-    <div style="display: flex; flex: 1; min-height: 0; margin: 0 0 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+    <div class="map-body" style="display: flex; flex: 1; min-height: 0; margin-top: 0; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
 
         {{-- Left rail. Phase A.3.1 — restructured into scope-first layout:
              stock-scope pills → compact layer icons → search → collapsible
@@ -185,16 +185,16 @@
                     <div style="flex: 1; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">Saved searches</div>
                 </div>
                 <div style="display: flex; gap: 4px;">
-                    <select id="saved-search-select" style="flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    <select id="saved-search-select" style="flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                         <option value="">— select —</option>
                     </select>
                     <button type="button" id="saved-search-default-btn" title="Set selected as default on load" aria-label="Set as default"
-                            style="padding: 5px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem;">★</button>
+                            style="padding: 5px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem;">★</button>
                     <button type="button" id="saved-search-delete-btn" title="Delete selected saved search" aria-label="Delete saved search"
-                            style="padding: 5px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem;">×</button>
+                            style="padding: 5px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem;">×</button>
                 </div>
                 <button type="button" id="saved-search-create-btn"
-                        style="display: block; width: 100%; margin-top: 6px; padding: 5px 8px; background: transparent; border: 1px dashed var(--border); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 0.6875rem;">
+                        style="display: block; width: 100%; margin-top: 6px; padding: 5px 8px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-secondary); cursor: pointer; font-size: 0.6875rem;">
                     + Save current as new
                 </button>
             </div>
@@ -420,11 +420,11 @@
 
                 <div style="display: flex; gap: 6px; margin-top: 10px;">
                     <button type="button" id="filter-apply"
-                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #fff; background: var(--brand-button, #0ea5e9); border: 0; border-radius: 4px; cursor: pointer;">
+                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #fff; background: var(--brand-button); border: 0; border-radius: 6px; cursor: pointer;">
                         Apply
                     </button>
                     <button type="button" id="filter-clear"
-                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
+                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
                         Clear all
                     </button>
                 </div>
@@ -455,7 +455,7 @@
         </aside>
 
         {{-- Main canvas --}}
-        <main style="flex: 1; position: relative; background: var(--surface-2, #e5e7eb);">
+        <main style="flex: 1; position: relative; background: var(--surface-2);">
             <div id="corex-map" style="position: absolute; inset: 0;"></div>
             <div id="empty-state" style="display: none; position: absolute; inset: 50% 0 0 0; transform: translateY(-50%); text-align: center; color: var(--text-muted); font-size: 0.875rem; pointer-events: none;">
                 No data in this area yet — try importing CMA reports for this suburb.

@@ -89,7 +89,7 @@
             @if(!$optedOut)
                 <a href="{{ route('seller-outreach.composer.show', $contact) }}"
                    class="px-3 py-1.5 text-sm font-semibold rounded"
-                   style="background: #00d4aa; color: #003a2f;">
+                   style="background: var(--brand-button, #0ea5e9); color: #fff;">
                     + Compose pitch
                 </a>
                 <button type="button" @click="optOutFormOpen = !optOutFormOpen"

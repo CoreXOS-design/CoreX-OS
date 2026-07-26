@@ -3,23 +3,21 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <nav class="text-xs" style="color: var(--text-muted);">
-        <a href="{{ route('compliance.fica.index') }}" style="color: var(--brand-icon);">Compliance</a>
-        <span class="mx-1">/</span>
-        <span>Staff Screening</span>
-    </nav>
-
-    {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Staff Screening Dashboard</h1>
-                <p class="text-sm text-white/60">Track screening status, flagged concerns, and upcoming renewals across the team.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Staff Screening Dashboard</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Track screening status, flagged concerns, and upcoming renewals across the team.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('compliance.screenings.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">All Screenings</a>
-                <a href="{{ route('compliance.screenings.create') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Compliance
+                </a>
+                <a href="{{ route('compliance.screenings.index') }}" class="corex-btn-outline text-xs">All Screenings</a>
+                <a href="{{ route('compliance.screenings.create') }}" class="corex-btn-primary inline-flex items-center gap-1.5 text-xs">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     New Screening
                 </a>
             </div>
@@ -46,7 +44,7 @@
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         @foreach($metrics as $m)
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: {{ $toneColor[$m['tone']] }};">{{ number_format($m['value']) }}</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: {{ $toneColor[$m['tone']] }};">{{ number_format($m['value']) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">{{ $m['label'] }}</div>
         </div>
         @endforeach
@@ -55,26 +53,26 @@
     {{-- Filter bar --}}
     <form method="GET" class="rounded-md p-3 flex flex-wrap items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
         <input type="text" name="search" value="{{ request('search') }}" placeholder="Search staff..."
-               class="flex-1 min-w-[200px] rounded-md px-3 py-2 text-sm"
-               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+               class="flex-1 min-w-[200px] rounded-md px-3 py-2 text-xs"
+               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         <select name="risk_tier" onchange="this.form.submit()"
-                class="rounded-md px-3 py-2 text-sm"
-                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                class="rounded-md px-3 py-2 text-xs"
+                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <option value="">All tiers</option>
             <option value="high" {{ request('risk_tier') === 'high' ? 'selected' : '' }}>High</option>
             <option value="medium" {{ request('risk_tier') === 'medium' ? 'selected' : '' }}>Medium</option>
             <option value="low" {{ request('risk_tier') === 'low' ? 'selected' : '' }}>Low</option>
         </select>
         <select name="status" onchange="this.form.submit()"
-                class="rounded-md px-3 py-2 text-sm"
-                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                class="rounded-md px-3 py-2 text-xs"
+                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <option value="">All statuses</option>
             <option value="clear" {{ request('status') === 'clear' ? 'selected' : '' }}>Clear</option>
             <option value="concerns_flagged" {{ request('status') === 'concerns_flagged' ? 'selected' : '' }}>Flagged</option>
             <option value="overdue" {{ request('status') === 'overdue' ? 'selected' : '' }}>Overdue</option>
             <option value="never_screened" {{ request('status') === 'never_screened' ? 'selected' : '' }}>Never Screened</option>
         </select>
-        <button type="submit" class="corex-btn-outline">Filter</button>
+        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
         @if(request('search') || request('risk_tier') || request('status'))
         <a href="{{ route('compliance.screening.dashboard.index') }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Clear</a>
         @endif

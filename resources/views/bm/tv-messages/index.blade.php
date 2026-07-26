@@ -15,21 +15,24 @@
 
 <div class="w-full space-y-6">
 
-    {{-- Page Header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page Header (AT-336: flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">TV Messages (Branch)</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">TV Messages (Branch)</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Add messages for your branch TV. Admin can add global messages visible on all TVs.
                 </p>
             </div>
-            @if($bmBranchId)
-                <div class="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-md" style="background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8);">
-                    <span style="opacity: 0.7;">Branch:</span>
-                    <span class="font-semibold">{{ $bmBranchName ?: ('#'.$bmBranchId) }}</span>
-                </div>
-            @endif
+            <div class="flex flex-wrap items-center gap-2">
+                @if($bmBranchId)
+                    <div class="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-md"
+                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                        <span style="color: var(--text-faint);">Branch:</span>
+                        <span class="font-semibold">{{ $bmBranchName ?: ('#'.$bmBranchId) }}</span>
+                    </div>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -60,7 +63,7 @@
 
     {{-- Add Message Form --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Add TV Message</h2>
+        <h2 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Add TV Message</h2>
 
         <form method="POST" action="{{ route('bm.tv-messages.store') }}"
               class="space-y-4">
@@ -127,7 +130,7 @@
     {{-- Branch Messages List --}}
     <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Your Branch Messages</h2>
+            <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Your Branch Messages</h2>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($messages)) }} message{{ count($messages) !== 1 ? 's' : '' }}</div>
         </div>
 
@@ -217,7 +220,7 @@
     {{-- Global Messages (read-only) --}}
     <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Global Messages (Admin)</h2>
+            <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Global Messages (Admin)</h2>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($globalMessages ?? [])) }} global</div>
         </div>
 

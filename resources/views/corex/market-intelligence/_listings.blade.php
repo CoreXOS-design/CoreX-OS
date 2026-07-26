@@ -231,11 +231,11 @@
          x-transition:leave-end="translate-x-full"
          @keydown.escape.window="buyerPanelOpen = false">
         <div class="sticky top-0 flex items-center justify-between px-4 py-3 z-10"
-             style="background: var(--brand-default, #0b2a4a); color: #fff;">
+             style="background: var(--surface-2); color: var(--text-primary); border-bottom: 1px solid var(--border);">
             <h2 class="text-sm font-semibold">Buyer matches</h2>
             <button type="button" @click="buyerPanelOpen = false"
                     class="text-2xl leading-none px-2"
-                    style="color: rgba(255,255,255,0.9); background: none; border: none; cursor: pointer;">×</button>
+                    style="color: var(--text-muted); background: none; border: none; cursor: pointer;">×</button>
         </div>
         <template x-if="buyerPanelLoading">
             <div class="p-8 text-center text-sm" style="color: var(--text-muted);">Loading…</div>

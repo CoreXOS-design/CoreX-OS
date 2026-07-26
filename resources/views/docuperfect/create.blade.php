@@ -5,19 +5,19 @@
 <div class="w-full space-y-5" x-data="{ tab: 'templates', viewMode: localStorage.getItem('docuperfect_view_mode') || 'grid', typeFilter: '', tplTypeFilter: '', search: '' }">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Create Document</h1>
-                <p class="text-sm text-white/60">Choose a template or document pack to get started — {{ number_format($templates->count()) }} template{{ $templates->count() === 1 ? '' : 's' }} available.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Create Document</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Choose a template or document pack to get started — {{ number_format($templates->count()) }} template{{ $templates->count() === 1 ? '' : 's' }} available.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline corex-btn-on-brand">Back to Documents</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-xs">Back to Documents</a>
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?section=my-portal&s=feature-documents') }}"
                    title="Create Document Settings"
                    aria-label="Create Document Settings"
-                   class="dp-header-icon-btn inline-flex items-center justify-center rounded-md text-white">
+                   class="dp-header-icon-btn inline-flex items-center justify-center rounded-md">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -47,12 +47,12 @@
         <div class="flex items-center justify-between gap-4">
             <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                 <button type="button" @click="tab = 'templates'"
-                        :style="tab === 'templates' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
+                        :style="tab === 'templates' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
                         class="px-4 py-2 text-sm font-medium transition-all duration-300">
                     Templates
                 </button>
                 <button type="button" @click="tab = 'packs'"
-                        :style="tab === 'packs' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
+                        :style="tab === 'packs' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-secondary);'"
                         class="px-4 py-2 text-sm font-medium transition-all duration-300">
                     Document Packs
                 </button>
@@ -61,14 +61,14 @@
             <div class="flex items-center gap-3">
                 <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <button type="button" @click="viewMode = 'grid'; localStorage.setItem('docuperfect_view_mode', 'grid')"
-                            :style="viewMode === 'grid' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
+                            :style="viewMode === 'grid' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
                             class="px-2.5 py-2 transition-all duration-300" title="Grid view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path d="M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5ZM14 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5ZM4 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4ZM14 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4Z"/>
                         </svg>
                     </button>
                     <button type="button" @click="viewMode = 'list'; localStorage.setItem('docuperfect_view_mode', 'list')"
-                            :style="viewMode === 'list' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
+                            :style="viewMode === 'list' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted);'"
                             class="px-2.5 py-2 transition-all duration-300" title="List view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
@@ -130,9 +130,9 @@
                     <div class="flex items-start justify-between gap-2 mb-2">
                         <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">{{ $tpl->name }}</div>
                         @if($tpl->documentType)
-                        <span class="ds-badge ds-badge-info flex-shrink-0">{{ \Illuminate\Support\Str::limit($tpl->documentType->name, 20, '') }}</span>
+                        <span class="ds-badge dp-chip-accent flex-shrink-0">{{ \Illuminate\Support\Str::limit($tpl->documentType->name, 20, '') }}</span>
                         @elseif($tpl->template_type)
-                        <span class="ds-badge ds-badge-info flex-shrink-0">{{ \Illuminate\Support\Str::limit($tpl->template_type, 20, '') }}</span>
+                        <span class="ds-badge dp-chip-accent flex-shrink-0">{{ \Illuminate\Support\Str::limit($tpl->template_type, 20, '') }}</span>
                         @endif
                     </div>
                     <div class="text-xs mb-3" style="color: var(--text-muted);">
@@ -187,9 +187,9 @@
                                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $tpl->name }}</td>
                                     <td class="px-4 py-3">
                                         @if($tpl->documentType)
-                                        <span class="ds-badge ds-badge-info">{{ \Illuminate\Support\Str::limit($tpl->documentType->name, 20, '') }}</span>
+                                        <span class="ds-badge dp-chip-accent">{{ \Illuminate\Support\Str::limit($tpl->documentType->name, 20, '') }}</span>
                                         @elseif($tpl->template_type)
-                                        <span class="ds-badge ds-badge-default">{{ \Illuminate\Support\Str::limit($tpl->template_type, 20, '') }}</span>
+                                        <span class="ds-badge dp-chip-neutral">{{ \Illuminate\Support\Str::limit($tpl->template_type, 20, '') }}</span>
                                         @else
                                         <span class="text-xs" style="color: var(--text-muted);">—</span>
                                         @endif
@@ -298,14 +298,40 @@
 </div>
 
 <style>
-    .docuperfect-card { transition: border-color 300ms ease, box-shadow 300ms ease; }
-    .docuperfect-card:hover { border-color: var(--brand-icon) !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    /* Card shell — neutral surface + 1px border (inline) + the AT-336 card shadow;
+       hover lifts to a --brand-icon border glow (same recipe as .pcard-v2). */
+    .docuperfect-card {
+        box-shadow: var(--pv2-shadow, 0 1px 2px rgba(15,23,42,0.06));
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .docuperfect-card:hover {
+        border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 50%, transparent) !important;
+        box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);
+    }
+    /* Header square icon button — neutral ghost on the flat header bar. */
     .dp-header-icon-btn {
         width: 30px; height: 30px;
-        background: rgba(255,255,255,0.10);
-        border: 1px solid rgba(255,255,255,0.18);
-        transition: background 300ms ease;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
     }
-    .dp-header-icon-btn:hover { background: rgba(255,255,255,0.18); }
+    .dp-header-icon-btn:hover {
+        background: var(--surface-2);
+        border-color: var(--border-hover);
+        color: var(--text-primary);
+    }
+    /* Type chips — soft --brand-icon accent (accent chip) and neutral variant.
+       Replaces the solid --ds-navy .ds-badge-info / raw-hex .ds-badge-default fills. */
+    .dp-chip-accent {
+        background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);
+        color: var(--brand-icon, #0ea5e9);
+        border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);
+    }
+    .dp-chip-neutral {
+        background: var(--surface-2);
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+    }
 </style>
 @endsection

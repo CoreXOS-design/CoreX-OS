@@ -4,12 +4,12 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (AT-336 — flat neutral bar, worksheet type scale) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Image Converter</h1>
-                <p class="text-sm text-white/60">Convert HEIC, JPG, PNG, WEBP, BMP, TIFF or GIF photos into any other image format.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Image Converter</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Convert HEIC, JPG, PNG, WEBP, BMP, TIFF or GIF photos into any other image format.</p>
             </div>
         </div>
     </div>

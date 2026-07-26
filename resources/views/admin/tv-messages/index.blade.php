@@ -2,36 +2,37 @@
 
 @section('corex-content')
 <style>
-    /* Page header inline status filter — sits on the branded header */
+    /* Page header inline status filter — ghost control on the flat neutral header */
     .tv-header-filter {
-        height: 2.25rem;
+        height: 2rem;
         padding: 0 0.625rem;
         border-radius: 6px;
-        font-size: 0.8125rem;
-        background: rgba(255,255,255,0.08);
-        color: #fff;
-        border: 1px solid rgba(255,255,255,0.25);
+        font-size: 0.75rem;
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
         cursor: pointer;
-        transition: all 300ms ease;
+        transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
     }
     .tv-header-filter:hover {
-        background: rgba(255,255,255,0.14);
-        border-color: rgba(255,255,255,0.45);
+        background: var(--surface-2);
+        border-color: var(--border-hover, var(--border));
+        color: var(--text-primary);
     }
     .tv-header-filter:focus {
         outline: none;
-        border-color: rgba(255,255,255,0.7);
-        box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+        border-color: var(--brand-icon, #0ea5e9);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent);
     }
 
     /* Token-aware focus ring for inputs/selects on this page */
     .tv-input {
-        transition: border-color 300ms ease, box-shadow 300ms ease;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
     }
     .tv-input:focus {
         outline: none;
-        border-color: var(--brand-button, #0ea5e9);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent);
+        border-color: var(--brand-icon, #0ea5e9);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent);
     }
 
     /* Placeholder token pill — CSS hover instead of inline JS */
@@ -68,18 +69,20 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">TV Messages</h1>
-                <p class="text-sm text-white/60">Create global messages (all TVs) or branch-specific messages.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">TV Messages</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Create global messages (all TVs) or branch-specific messages.</p>
             </div>
-            <form method="GET" action="{{ route('admin.tv-messages') }}">
-                <select name="status" onchange="this.form.submit()" class="tv-header-filter">
-                    <option value="active" style="background: var(--surface); color: var(--text-primary);" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
-                    <option value="archived" style="background: var(--surface); color: var(--text-primary);" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
-                </select>
-            </form>
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="GET" action="{{ route('admin.tv-messages') }}">
+                    <select name="status" onchange="this.form.submit()" class="tv-header-filter">
+                        <option value="active" style="background: var(--surface); color: var(--text-primary);" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
+                        <option value="archived" style="background: var(--surface); color: var(--text-primary);" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
+                    </select>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -173,7 +176,7 @@
                 <div class="md:col-span-2 flex items-center gap-2">
                     <input type="hidden" name="is_enabled" value="0">
                     <input type="checkbox" id="add_is_enabled" name="is_enabled" value="1" checked
-                           class="rounded" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                           class="rounded" style="border-color: var(--border); accent-color: var(--brand-icon, #0ea5e9);">
                     <label for="add_is_enabled" class="text-sm" style="color: var(--text-secondary);">Enabled</label>
                 </div>
 
@@ -255,7 +258,7 @@
                                 <input type="hidden" name="is_enabled" value="0">
                                 <input type="checkbox" id="enabled_{{ $m->id }}" name="is_enabled" value="1"
                                        {{ $m->is_enabled ? 'checked' : '' }}
-                                       class="rounded" style="border-color: var(--border); accent-color: var(--brand-button, #0ea5e9);">
+                                       class="rounded" style="border-color: var(--border); accent-color: var(--brand-icon, #0ea5e9);">
                                 <label for="enabled_{{ $m->id }}" class="text-sm" style="color: var(--text-secondary);">On</label>
                             </div>
 

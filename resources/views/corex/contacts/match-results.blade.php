@@ -69,37 +69,28 @@
          }
      }">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-
-        {{-- Top bar: back nav --}}
-        <div class="flex items-center gap-2 mb-4">
-            <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
-               class="inline-flex items-center gap-1.5 text-xs font-semibold no-underline"
-               style="color: rgba(255,255,255,0.6);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-                Back to {{ $contact->full_name }}
-            </a>
-            <span class="text-xs" style="color: rgba(255,255,255,0.35);">/</span>
-            <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.6);">Core Matches</span>
-        </div>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
 
         <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
 
             {{-- Left: contact + criteria --}}
             <div class="flex items-start gap-4 min-w-0">
                 {{-- Avatar --}}
-                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }};">
+                {{-- `text-white` is intentionally NOT a class here: .corex-page-banner
+                     rewrites .text-white to --text-primary, which would kill the
+                     contrast of initials sitting on the coloured avatar fill. --}}
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                     style="background: {{ $contact->type?->color ?? 'var(--brand-icon)' }}; color: #fff;">
                     {{ $contact->initials }}
                 </div>
 
                 <div class="min-w-0">
                     {{-- Title row --}}
                     <div class="flex items-center gap-2 flex-wrap mb-1">
-                        <h1 class="text-xl font-bold leading-tight text-white">{{ $contact->full_name }}</h1>
+                        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
                         @if($contact->type)
-                        <span class="ds-badge ds-badge-default" style="background: {{ $contact->type->color }}33; color: #fff; border-color: {{ $contact->type->color }}55;">
+                        <span class="ds-badge ds-badge-default" style="background: {{ $contact->type->color }}22; color: {{ $contact->type->color }}; border: 1px solid {{ $contact->type->color }}55;">
                             {{ $contact->type->name }}
                         </span>
                         @endif
@@ -109,8 +100,7 @@
                         @if(auth()->user()->hasPermission('access_core_matches'))
                         {{-- AT-240 — edit this wishlist/criteria; opens the existing edit flow. --}}
                         <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
-                           class="ds-badge no-underline inline-flex items-center gap-1"
-                           style="background: rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.28);"
+                           class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1"
                            title="Edit this wishlist / match criteria">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
                             Edit criteria
@@ -119,7 +109,7 @@
                     </div>
 
                     {{-- Phone / email --}}
-                    <div class="flex items-center gap-3 mb-3 flex-wrap text-sm" style="color: rgba(255,255,255,0.6);">
+                    <div class="flex items-center gap-3 mb-3 flex-wrap text-xs" style="color: var(--text-muted);">
                         @if($contact->phone)<span>{{ $contact->phone }}</span>@endif
                         @if($contact->email)<span>{{ $contact->email }}</span>@endif
                     </div>
@@ -128,44 +118,44 @@
                     <div class="flex items-center gap-1.5 flex-wrap">
                         @if($match->price_min || $match->price_max)
                         <span class="text-xs font-semibold px-2.5 py-1 rounded-md"
-                              style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent); color: #fff; border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">
+                              style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 22%, transparent);">
                             {{ $match->priceRangeLabel() }}
                         </span>
                         @endif
                         @foreach($match->suburbList() as $sub)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $sub }}
                         </span>
                         @endforeach
                         @if($match->category)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->category }}
                         </span>
                         @endif
                         @if($match->property_type)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->property_type }}
                         </span>
                         @endif
                         @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
                         @if($val !== null)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $val }}+ {{ $lbl }}
                         </span>
                         @endif
                         @endforeach
                         @if($match->floor_size_min || $match->floor_size_max)
                         <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.15);">
+                              style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                             {{ $match->floor_size_min ? number_format($match->floor_size_min) : '—' }}–{{ $match->floor_size_max ? number_format($match->floor_size_max) : '—' }} m²
                         </span>
                         @endif
                         @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
-                        <span class="text-xs italic" style="color: rgba(255,255,255,0.5);">Any property</span>
+                        <span class="text-xs italic" style="color: var(--text-muted);">Any property</span>
                         @endif
                     </div>
                 </div>
@@ -176,35 +166,40 @@
                 {{-- Stats row --}}
                 <div class="flex items-center gap-4">
                     <div class="md:text-right">
-                        <div class="text-[1.625rem] font-semibold leading-tight text-white">
+                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-primary);">
                             {{ number_format($properties->count()) }}
                         </div>
-                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.6);">
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
                             {{ Str::plural('match', $properties->count()) }}
                         </div>
                     </div>
                     @if($totalViews > 0)
-                    <div style="width:1px; height:32px; background: rgba(255,255,255,0.15);"></div>
+                    <div style="width:1px; height:26px; background: var(--border);"></div>
                     <div class="md:text-right">
-                        <div class="text-[1.625rem] font-semibold leading-tight text-white">{{ number_format($totalViews) }}</div>
-                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.6);">
+                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-primary);">{{ number_format($totalViews) }}</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
                             client {{ Str::plural('view', $totalViews) }}
                         </div>
                     </div>
                     @endif
                     @if($hiddenCount > 0)
-                    <div style="width:1px; height:32px; background: rgba(255,255,255,0.15);"></div>
+                    <div style="width:1px; height:26px; background: var(--border);"></div>
                     <div class="md:text-right">
-                        <div class="text-[1.625rem] font-semibold leading-tight" style="color: rgba(255,255,255,0.6);">{{ number_format($hiddenCount) }}</div>
-                        <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.5);">hidden</div>
+                        <div class="text-base font-bold leading-tight tabular-nums" style="color: var(--text-muted);">{{ number_format($hiddenCount) }}</div>
+                        <div class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">hidden</div>
                     </div>
                     @endif
                 </div>
 
                 {{-- Action buttons --}}
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
+                       class="corex-btn-outline text-xs whitespace-nowrap inline-flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                        Back to {{ $contact->full_name }}
+                    </a>
                     @if($waPhone)
-                    <button type="button" @click="showWaModal = true" class="corex-btn-primary" style="background: #25d366; box-shadow: none;">
+                    <button type="button" @click="showWaModal = true" class="corex-btn-primary text-xs" style="background: #25d366; box-shadow: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
                             <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
@@ -212,7 +207,7 @@
                         WhatsApp
                     </button>
                     @endif
-                    <a href="{{ $match->sharedUrl() }}" target="_blank" class="corex-btn-outline" style="background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2);">
+                    <a href="{{ $match->sharedUrl() }}" target="_blank" class="corex-btn-outline text-xs whitespace-nowrap">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                         Client Page
                     </a>
@@ -315,17 +310,19 @@
             $fbMeta = $fb && isset($reactionMeta[$fb->reaction]) ? $reactionMeta[$fb->reaction] : null;
         @endphp
 
-        <div class="rounded-md overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
-             style="background: var(--surface); border: 1px solid var(--border); {{ $isHidden ? 'opacity:.45; filter:grayscale(.85);' : '' }}"
+        {{-- AT-336 — the shared property-card recipe (.pcard-v2): --surface + 1px
+             --border + 8px radius + the theme card shadow + brand hover glow. --}}
+        <div class="pcard-v2 overflow-hidden flex items-stretch flex-wrap md:flex-nowrap transition-opacity"
+             style="{{ $isHidden ? 'opacity:.45; filter:grayscale(.85);' : '' }}"
              @if($isHidden) title="Hidden from this match — click Unhide to restore" @endif>
 
             {{-- Thumbnail --}}
-            <div class="relative flex-shrink-0 overflow-hidden" style="width: 140px; min-height: 100px; background: var(--surface-2);">
+            <div class="relative flex-shrink-0 overflow-hidden" style="width: 140px; min-height: 100px; background: linear-gradient(135deg, var(--surface-2), var(--surface));">
                 @if($thumb)
                 <img src="{{ $thumb }}" alt="{{ $property->title }}" class="absolute inset-0 w-full h-full object-cover">
                 @else
                 <div class="absolute inset-0 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-8 h-8 opacity-30" style="color: var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-8 h-8" style="color: var(--text-muted); opacity: 0.5;"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" /></svg>
                 </div>
                 @endif
                 @if($isHidden)
@@ -391,7 +388,7 @@
                         {{ $property->title ?: 'Untitled Property' }}
                     </div>
                     <div class="flex items-center gap-3 text-xs flex-wrap" style="color: var(--text-muted);">
-                        <span class="font-semibold text-sm" style="color: var(--brand-icon);">{{ $property->formattedPrice() }}</span>
+                        <span class="font-semibold text-sm tabular-nums" style="color: var(--text-primary);">{{ $property->formattedPrice() }}</span>
                         @if($property->suburb)<span>{{ $property->suburb }}</span>@endif
                         @foreach([[$property->beds,'Beds'],[$property->baths,'Baths'],[$property->garages,'Gar']] as [$v,$l])
                         @if($v)<span>{{ $v }} {{ $l }}</span>@endif
@@ -496,7 +493,7 @@
                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">Edit message before sending</label>
                 <textarea x-model="waMessage" rows="10"
                           class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
                 <p class="text-xs" style="color: var(--text-muted);">The client's personalised link is already included in the message.</p>
             </div>
 
@@ -560,7 +557,7 @@
                           @keydown.enter.meta="confirmHide()" @keydown.enter.ctrl="confirmHide()"
                           placeholder="e.g. Already sold, client not interested in this area, out of budget…"
                           class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
                 <p class="text-xs" style="color: var(--text-muted);">This reason is saved against the match and visible to your team.</p>
             </div>
 

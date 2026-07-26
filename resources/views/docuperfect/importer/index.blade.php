@@ -6,11 +6,11 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Import Document Template</h1>
-                <p class="text-sm text-white/60">Upload a Word document (.docx). CoreX detects fillable fields and converts it to a web template automatically.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Import Document Template</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Upload a Word document (.docx). CoreX detects fillable fields and converts it to a web template automatically.</p>
             </div>
         </div>
     </div>
@@ -172,7 +172,7 @@
                        value="{{ old('template_name') }}"
                        placeholder="e.g. Residential Lease Agreement v2"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        :disabled="submitting"
                        required>
                 @error('template_name')
@@ -186,7 +186,7 @@
                 <div class="relative border-2 border-dashed rounded-md p-8 text-center transition-colors"
                      :style="dragging
                         ? 'border-color: var(--brand-button); background: color-mix(in srgb, var(--brand-button) 8%, transparent);'
-                        : 'border-color: var(--border);'"
+                        : 'border-color: var(--border); background: var(--surface-2);'"
                      @dragover.prevent="dragging = true"
                      @dragleave.prevent="dragging = false"
                      @drop.prevent="dragging = false; $refs.fileInput.files = $event.dataTransfer.files; fileName = $event.dataTransfer.files[0]?.name || ''">
@@ -270,7 +270,7 @@
                            @change="cdsFile = $event.target.files[0]?.name || ''">
                     <div @click="$refs.cdsFileInput.click()"
                          class="cursor-pointer border border-dashed rounded-md px-4 py-2 text-center text-sm transition-colors"
-                         style="border-color: var(--border); color: var(--text-secondary);">
+                         style="background: var(--surface-2); border-color: var(--border); color: var(--text-secondary);">
                         <span x-text="cdsFile || 'Choose .docx file...'"></span>
                     </div>
                 </div>

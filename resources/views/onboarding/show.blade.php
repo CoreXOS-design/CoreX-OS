@@ -2,7 +2,10 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+{{-- Full-width container (no extra px-*/py-* — the <main> wrapper already applies
+     p-4 / lg:p-6), so the flat page header bleeds edge-to-edge like the Properties,
+     Contacts and onboarding index pages. --}}
+<div class="w-full space-y-5">
 
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
     @php
@@ -18,20 +21,22 @@
         ];
         $sc = $statusColors[$application->status] ?? 'var(--text-muted)';
     @endphp
-    <div class="rounded-md px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
-         style="background: var(--brand-default, #0b2a4a);">
-        <div>
-            <h1 class="text-xl font-bold text-white leading-tight">{{ $application->full_name }}</h1>
-            <div class="flex items-center flex-wrap gap-2 mt-1 text-sm text-white/60">
-                <span>{{ $application->designation_label }}</span>
-                <span>&middot;</span>
-                <span class="ds-badge" style="background: color-mix(in srgb, {{ $sc }} 45%, transparent); color: #fff;">{{ $application->status_label }}</span>
-                <span>&middot;</span>
-                <span>{{ number_format($application->daysInCurrentStage()) }} days in stage</span>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $application->full_name }}</h1>
+                <div class="flex items-center flex-wrap gap-2 mt-1 text-xs" style="color: var(--text-muted);">
+                    <span>{{ $application->designation_label }}</span>
+                    <span>&middot;</span>
+                    <span class="ds-badge" style="background: color-mix(in srgb, {{ $sc }} 14%, transparent); color: {{ $sc }};">{{ $application->status_label }}</span>
+                    <span>&middot;</span>
+                    <span>{{ number_format($application->daysInCurrentStage()) }} days in stage</span>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline text-xs no-underline flex-shrink-0">Back to Pipeline</a>
             </div>
         </div>
-        <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline text-sm flex-shrink-0"
-           style="color:#fff; border-color: rgba(255,255,255,0.35);">Back to Pipeline</a>
     </div>
 
     {{-- Session messages (UI_DESIGN_SYSTEM §3.9 Alert block) --}}
@@ -134,7 +139,7 @@
             {{-- Document list --}}
             <div class="space-y-2">
                 @forelse($application->documents as $doc)
-                <div class="flex items-center gap-2 p-2 rounded-md" style="border:1px solid var(--border);">
+                <div class="flex items-center gap-2 p-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                     @if($doc->status === 'verified')
                         <span class="flex-shrink-0" style="color:var(--ds-green);"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg></span>
                     @elseif($doc->status === 'rejected')
@@ -193,7 +198,7 @@
                 <form method="POST" action="{{ route('onboarding.toggle-checklist', $item) }}" class="flex items-start gap-2 p-1.5 rounded-md transition-colors" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                     @csrf
                     <button type="submit" class="flex-shrink-0 mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors"
-                            style="{{ $item->is_completed ? 'background:var(--ds-green); border-color:var(--ds-green); color:#fff;' : 'background:var(--surface); border-color:var(--border);' }}">
+                            style="{{ $item->is_completed ? 'background:var(--ds-green); border-color:var(--ds-green); color:#fff;' : 'background:var(--surface-2); border-color:var(--border);' }}">
                         @if($item->is_completed)
                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                         @endif

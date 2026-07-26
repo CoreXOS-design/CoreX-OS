@@ -5,16 +5,23 @@
 <div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">
     @include('corex.market-intelligence.partials.tabs')
 
-    <nav style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
-        <a href="{{ route('market-intelligence.reports.show', $report) }}" style="color: var(--brand-button); text-decoration: none;">← Back to report</a>
-    </nav>
-
-    <h1 style="font-size: 1.0625rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">
-        Discrepancies — {{ $report->file_name }}
-    </h1>
-    <p style="font-size: 0.8125rem; color: var(--text-muted); margin: 0 0 16px 0;">
-        {{ $discrepancies->total() }} {{ $discrepancies->total() === 1 ? 'point' : 'points' }} flagged by spot-check audit. Each row shows the parser's value vs. what the audit found.
-    </p>
+    {{-- Page header — flat neutral bar (AT-336). Back link sits in the right
+         action cluster rather than stacked above the title. --}}
+    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    Discrepancies — {{ $report->file_name }}
+                </h1>
+                <p class="text-xs" style="margin: 2px 0 0 0; color: var(--text-muted);">
+                    {{ $discrepancies->total() }} {{ $discrepancies->total() === 1 ? 'point' : 'points' }} flagged by spot-check audit. Each row shows the parser's value vs. what the audit found.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.reports.show', $report) }}" class="corex-btn-outline text-xs">← Back to report</a>
+            </div>
+        </div>
+    </div>
 
     @if($discrepancies->isEmpty())
         <div style="padding: 24px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px;">

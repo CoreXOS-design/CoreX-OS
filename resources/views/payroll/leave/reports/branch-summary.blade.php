@@ -5,12 +5,12 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Branch Leave Summary</h1>
-                <p class="text-sm text-white/60">Annual and sick leave totals per branch, with at-risk balances flagged.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Branch Leave Summary</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Annual and sick leave totals per branch, with at-risk balances flagged.</p>
             </div>
         </div>
     </div>

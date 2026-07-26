@@ -3,11 +3,11 @@
 @section('corex-content')
 <div class="space-y-5" x-data="pdfRotate()">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">PDF Rotate</h1>
-                <p class="text-sm text-white/60">Rotate the whole document or individual pages.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Rotate</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Rotate the whole document or individual pages.</p>
             </div>
         </div>
     </div>
@@ -73,7 +73,7 @@
                                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">↻</button>
                                     </div>
                                     <div x-show="rotations[p.num]" class="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded"
-                                        style="background: var(--brand-icon, #0ea5e9); color: white;"
+                                        style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);"
                                         x-text="(rotations[p.num] || 0) + '°'"></div>
                                 </div>
                             </template>

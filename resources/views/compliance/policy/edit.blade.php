@@ -2,15 +2,25 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6" x-data="policyEditor()">
-    <x-page-header :title="'Edit ' . $version->policy->name . ' v' . $version->version_number . ' Draft'" :back-route="route('compliance.policy.show', $version)" back-label="View" :flush="true">
-        <x-slot:actions>
-            <span class="text-xs" style="color:var(--text-muted);" x-show="saving">Saving...</span>
-            <span class="text-xs" style="color:var(--brand-icon);" x-show="saved" x-cloak>Saved</span>
-        </x-slot:actions>
-    </x-page-header>
+<div class="w-full space-y-5" x-data="policyEditor()">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit {{ $version->policy->name }} v{{ $version->version_number }} Draft</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="text-xs" style="color:var(--text-muted);" x-show="saving">Saving...</span>
+                <span class="text-xs" style="color:var(--brand-icon);" x-show="saved" x-cloak>Saved</span>
+                <a href="{{ route('compliance.policy.show', $version) }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    View
+                </a>
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6">
+    <div>
         @if(session('success'))
         <div class="mb-4 rounded-md px-4 py-2 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-green) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color:var(--text-primary);">{{ session('success') }}</div>
         @endif
@@ -42,12 +52,12 @@
                     <div class="mb-3">
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Title</label>
                         <input type="text" x-ref="title_{{ $section->id }}" value="{{ $section->title }}" @input="markUnsaved()"
-                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Body (HTML)</label>
                         <textarea x-ref="body_{{ $section->id }}" @input="markUnsaved()" rows="10"
-                                  class="w-full rounded-md px-3 py-2 text-sm font-mono" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); line-height:1.6;">{{ $section->body_html }}</textarea>
+                                  class="w-full rounded-md px-3 py-2 text-sm font-mono" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); line-height:1.6;">{{ $section->body_html }}</textarea>
                     </div>
                 </div>
                 @endforeach
@@ -60,16 +70,16 @@
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Number</label>
                             <input type="text" name="section_number" required placeholder="e.g. 2"
-                                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Title</label>
                             <input type="text" name="title" required placeholder="Section title"
-                                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Type</label>
-                            <select name="section_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <select name="section_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="section">Section</option>
                                 <option value="schedule">Schedule</option>
                                 <option value="annexure">Annexure</option>
@@ -92,7 +102,7 @@
                     <h3 class="text-xs font-semibold uppercase mb-2" style="color:var(--text-secondary); letter-spacing:0.05em;">Available Variables</h3>
                     <div class="space-y-1" style="max-height:calc(100vh - 120px); overflow-y:auto;">
                         @foreach($variableKeys as $key)
-                        <div class="text-xs p-1.5 rounded-md" style="background:var(--surface-2); cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{' . '{' . $key . '}' . '}' }}')">
+                        <div class="text-xs p-1.5 rounded-md" style="background:var(--surface-2); border:1px solid var(--border); cursor:pointer;" @click="navigator.clipboard.writeText('{{ '{' . '{' . $key . '}' . '}' }}')">
                             <code class="font-mono" style="color:var(--brand-icon);">{{ '{' . '{' . $key . '}' . '}' }}</code>
                             <div class="mt-0.5 truncate" style="color:var(--text-muted);">{{ $variables[$key] ?? '(empty)' }}</div>
                         </div>

@@ -6,16 +6,16 @@
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name')) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Contacts</h1>
-                <p class="text-sm text-white/60">Manage your contacts and leads.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contacts</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Manage your contacts and leads.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-            @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if(auth()->user()->effectiveRole() === 'super_admin')
-            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-sm">
+            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-xs">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
                 </svg>
@@ -24,7 +24,7 @@
             @endif
             @permission('contacts.export')
             <div class="relative" x-data="{ exportOpen: false }" @keydown.escape="exportOpen = false">
-                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-sm">
+                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
                     </svg>
@@ -46,7 +46,7 @@
                 </div>
             </div>
             @endpermission
-            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-sm">
+            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-xs">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -56,10 +56,10 @@
             <a href="{{ url('/corex/settings?section=my-portal&s=feature-contacts') }}"
                title="Contacts Settings"
                aria-label="Contacts Settings"
-               class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-               style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-               onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-               onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+               class="inline-flex items-center justify-center rounded-md transition-colors"
+               style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+               onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)';"
+               onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)';">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"/>
@@ -630,7 +630,7 @@
             {{-- Edit row (inline) --}}
             <div x-show="editId === {{ $contact->id }}" x-cloak
                  class="rounded-md p-4 mt-1"
-                 style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+                 style="background:var(--surface-2); border:1px solid var(--border);">
                 <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-3">
                     @csrf @method('PUT')
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

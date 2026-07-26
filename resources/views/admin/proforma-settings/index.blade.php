@@ -6,14 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header — §2.4 Pattern A (branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Proforma Invoices</h1>
-                <p class="text-sm text-white/60">Numbering, due dates and banking for proforma invoices. Letterhead, logo and VAT number are pulled from your company branding.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Proforma Invoices</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Numbering, due dates and banking for proforma invoices. Letterhead, logo and VAT number are pulled from your company branding.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.company-settings') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.company-settings') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                     Company Branding
                 </a>
@@ -55,7 +55,7 @@
                     <input id="number_prefix" name="number_prefix" type="text" maxlength="16"
                            value="{{ old('number_prefix', $settings->number_prefix) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <x-input-error :messages="$errors->get('number_prefix')" class="mt-1" />
                 </div>
 
@@ -64,7 +64,7 @@
                     <input id="number_padding" name="number_padding" type="number" min="1" max="10"
                            value="{{ old('number_padding', $settings->number_padding) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <x-input-error :messages="$errors->get('number_padding')" class="mt-1" />
                 </div>
 
@@ -73,7 +73,7 @@
                     <input id="start_number" name="start_number" type="number" min="{{ $settings->next_number }}"
                            placeholder="next: {{ number_format($settings->next_number) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <x-input-error :messages="$errors->get('start_number')" class="mt-1" />
                 </div>
             </div>
@@ -93,7 +93,7 @@
                     <label for="due_date_rule" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Rule</label>
                     <select id="due_date_rule" name="due_date_rule"
                             class="w-full rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="end_of_month" @selected(old('due_date_rule', $settings->due_date_rule) === 'end_of_month')>End of current month</option>
                         <option value="days_after" @selected(old('due_date_rule', $settings->due_date_rule) === 'days_after')>N days after issue</option>
                         <option value="on_receipt" @selected(old('due_date_rule', $settings->due_date_rule) === 'on_receipt')>On receipt</option>
@@ -106,7 +106,7 @@
                     <input id="due_days" name="due_days" type="number" min="0" max="365"
                            value="{{ old('due_days', $settings->due_days) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <x-input-error :messages="$errors->get('due_days')" class="mt-1" />
                 </div>
             </div>
@@ -121,12 +121,12 @@
             <textarea id="bank_details" name="bank_details" rows="4"
                       placeholder="Bank, Account name, Account no, Branch code, Reference"
                       class="w-full rounded-md px-3 py-2 text-sm"
-                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ old('bank_details', $settings->bank_details) }}</textarea>
+                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ old('bank_details', $settings->bank_details) }}</textarea>
             <x-input-error :messages="$errors->get('bank_details')" class="mt-1" />
         </div>
 
         {{-- Read-only, sourced from company branding --}}
-        <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);">
+        <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">From company branding</h2>
             <p class="text-xs mb-4" style="color: var(--text-muted);">Read-only here — edit these on the Company Settings page.</p>
 

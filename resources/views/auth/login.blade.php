@@ -49,14 +49,13 @@
         </div>
 
         {{-- Actions --}}
-        <div class="flex items-center justify-between mt-6">
+        <div class="mt-6">
+            <button type="submit" class="corex-btn-primary" style="width:100%; justify-content:center;">Sign in</button>
             @if (Route::has('password.request'))
-                <a class="forgot-link" href="{{ route('password.request') }}">Forgot password?</a>
-            @else
-                <span></span>
+                <div class="text-center mt-4">
+                    <a class="forgot-link" href="{{ route('password.request') }}">Forgot password?</a>
+                </div>
             @endif
-
-            <button type="submit" class="corex-btn-primary">Sign in</button>
         </div>
     </form>
 </x-guest-layout>

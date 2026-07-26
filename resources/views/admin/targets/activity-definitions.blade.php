@@ -8,15 +8,15 @@
             padding: 0.5rem 0.75rem;
             font-size: 0.8125rem;
             border-radius: 6px;
-            background: var(--surface-2, #f0f2f8);
+            background: var(--surface-2);
             border: 1px solid var(--border);
             color: var(--text-primary);
-            transition: all 300ms;
+            transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
         }
         .acty-input:focus {
             outline: none;
-            border-color: var(--brand-button, #0ea5e9);
-            box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
+            border-color: var(--brand-icon);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon) 15%, transparent);
         }
         .acty-input-sm {
             padding: 0.375rem 0.625rem;
@@ -27,7 +27,7 @@
         .acty-check {
             width: 1rem;
             height: 1rem;
-            accent-color: var(--brand-button, #0ea5e9);
+            accent-color: var(--brand-icon);
             cursor: pointer;
         }
         .acty-defs-table tbody tr { transition: background-color 150ms ease; }
@@ -46,11 +46,11 @@
     <div class="w-full space-y-5">
 
         {{-- Page Header (Pattern A: branded) --}}
-        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Activity Definitions</h1>
-                    <p class="text-sm text-white/60">Define activities, weights, and scoring modes.</p>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Activity Definitions</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Define activities, weights, and scoring modes.</p>
                 </div>
             </div>
         </div>

@@ -82,7 +82,7 @@
 /* Labels */
 #hf-tool-root label {
   display: block;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 0.6875rem;
   font-weight: 500;
   margin-bottom: 4px;
@@ -96,7 +96,7 @@
 #hf-tool-root textarea {
   width: 100%;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-2, var(--surface));
   color: var(--text-primary);
   padding: 0.625rem 0.75rem;
   border-radius: 6px;
@@ -151,17 +151,18 @@
   box-shadow: 0 6px 10px -2px color-mix(in srgb, var(--brand-button, #0ea5e9) 30%, transparent);
 }
 
-/* Secondary */
+/* Secondary — ghost (transparent + 1px neutral border), matches corex-btn-outline */
 #hf-tool-root .btn.secondary {
-  background: var(--surface);
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--text-secondary);
   border: 1px solid var(--border);
   box-shadow: none;
 }
 
 #hf-tool-root .btn.secondary:hover {
   background: var(--surface-2, var(--surface));
-  border-color: var(--text-muted);
+  border-color: var(--border-hover, var(--border));
+  color: var(--text-primary);
   filter: none;
 }
 
@@ -190,10 +191,10 @@
 
 #hf-tool-root .result {
   grid-column: span 4;
-  background: var(--surface);
+  background: var(--surface-2, var(--surface));
   border: 1px solid var(--border);
   border-left: 4px solid var(--brand-icon, #0ea5e9);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 1rem;
   transition: all 300ms;
 }
@@ -208,7 +209,7 @@
 
 /* KPI labels/values */
 #hf-tool-root .k {
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: 0.75rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -221,6 +222,7 @@
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 #hf-tool-root .mono {
@@ -228,6 +230,7 @@
   font-size: 0.6875rem;
   color: var(--text-muted);
   margin-top: 0.375rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* History table */
@@ -263,6 +266,7 @@
   padding: 0.75rem 1rem;
   font-size: 0.8125rem;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Reference number must never wrap — it is a single token identifier. */
@@ -287,6 +291,15 @@
   font-size: 0.8125rem;
 }
 
+/* Type badge in the history rows — the global .ds-badge-info is a solid navy
+   block; retone (page-scoped only) to a --brand-icon tint so it reads as an
+   accent chip on the neutral table instead of a brand-filled block. */
+#hf-tool-root .history-table .ds-badge-info {
+  background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);
+  color: var(--brand-icon, #0ea5e9);
+}
+
 /* Agent tag */
 #hf-tool-root .agent-tag {
   display: inline-flex;
@@ -309,21 +322,22 @@
 /* CMA preview */
 #hf-tool-root .cma-preview {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 2rem;
-  background: var(--surface);
+  background: var(--surface-2, var(--surface));
   color: var(--text-primary);
   max-width: 820px;
   margin: 1.25rem auto 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow: 0 1px 4px var(--shadow);
 }
 
 /* Section cards */
 #hf-tool-root .tool-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 1.25rem;
+  box-shadow: 0 1px 4px var(--shadow);
 }
 
 #hf-tool-root .tool-card + .tool-card {
@@ -331,8 +345,8 @@
 }
 
 #hf-tool-root .tool-card-header {
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 1.25rem;
 }
@@ -350,18 +364,18 @@
 <div class="wrap flex flex-col gap-6">
 
   {{-- Page Header --}}
-  <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5" data-tour="tools-header">
+  <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="tools-header">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div>
-        <h1 class="text-xl font-bold text-white leading-tight">Tools</h1>
-        <p class="text-sm text-white/60">Commission Calculator &middot; CMA Certificate &middot; History</p>
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Tools</h1>
+        <p class="text-xs" style="color: var(--text-muted);">Commission Calculator &middot; CMA Certificate &middot; History</p>
       </div>
-      <div class="flex items-center gap-3">
-        @include('layouts.partials.tour-header-launcher')
-        <div id="activeAgentDisplay" class="text-sm text-white/80 font-medium">
+      <div class="flex flex-wrap items-center gap-2">
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        <div id="activeAgentDisplay" class="text-xs font-medium" style="color: var(--text-muted);">
           <span id="currentAgentName">{{ auth()->user()?->name ?? "User" }}</span>
         </div>
-        <button type="button" class="corex-btn-outline" id="btnReset" style="background:transparent; color:#ffffff; border-color:rgba(255,255,255,0.3);">Clear Form</button>
+        <button type="button" class="corex-btn-outline text-xs" id="btnReset">Clear Form</button>
       </div>
     </div>
   </div>
@@ -611,9 +625,9 @@
       <div class="pill" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem; width:100%;">
         <div>
           <div style="font-weight:700; color:var(--text-primary);" id="authUserName">{{ auth()->user()?->name ?? "User" }}</div>
-          <div style="font-size:0.6875rem; color:var(--text-secondary); margin-top:0.125rem;" id="authUserEmail">{{ auth()->user()?->email ?? "" }}</div>
+          <div style="font-size:0.6875rem; color:var(--text-muted); margin-top:0.125rem;" id="authUserEmail">{{ auth()->user()?->email ?? "" }}</div>
         </div>
-        <div class="agent-tag" id="authUserRole" style="background:var(--brand-default, #0b2a4a); color:#fff;">{{ strtolower(trim((string)(auth()->user()?->effectiveRole() ?? (auth()->user()?->role ?? "")))) }}</div>
+        <div class="agent-tag" id="authUserRole" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent); color: var(--brand-icon, #0ea5e9);">{{ strtolower(trim((string)(auth()->user()?->effectiveRole() ?? (auth()->user()?->role ?? "")))) }}</div>
       </div>
 
       <div class="divider"></div>

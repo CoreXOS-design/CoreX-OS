@@ -66,7 +66,7 @@
         @endif
         @endauth
     </head>
-    <body class="font-sans antialiased">
+    <body class="font-sans antialiased corex-ui-v2">
         {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
              NOTHING unless this is a demo instance with a resolved grant.
              This layout backs ~231 views — MORE than corex-app.blade.php. Leaving

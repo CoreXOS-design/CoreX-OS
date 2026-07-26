@@ -16,10 +16,14 @@
         </x-slot>
     </x-sticky-action-bar>
 
-    {{-- Branded header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 mb-6" style="background: var(--brand-default, #0b2a4a);">
-        <h2 class="text-xl font-bold text-white leading-tight">New Commercial Market Evaluation</h2>
-        <p class="text-sm text-white/60 mt-0.5">Select a property type and enter the details</p>
+    {{-- Page header (flat neutral — AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Commercial Market Evaluation</h2>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">Select a property type and enter the details</p>
+            </div>
+        </div>
     </div>
 
     @if($errors->any())
@@ -43,9 +47,9 @@
                 {{-- Commercial --}}
                 <label class="relative cursor-pointer">
                     <input type="radio" name="property_type_selector" value="commercial" class="sr-only peer" @click="propertyType = 'commercial'" :checked="propertyType === 'commercial'">
-                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:border-gray-300"
-                         :class="propertyType === 'commercial' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto mb-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-[var(--brand-icon)] peer-checked:bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)] hover:border-[var(--border)]"
+                         :class="propertyType === 'commercial' ? 'border-[var(--brand-icon)] bg-[color-mix(in_srgb,var(--brand-icon)_12%,transparent)]' : 'border-[var(--border)]'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto mb-2 text-[var(--brand-icon)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
                         </svg>
                         <span class="text-xs font-semibold" style="color: var(--text-primary);">Commercial</span>
@@ -56,8 +60,8 @@
                 {{-- Industrial --}}
                 <label class="relative cursor-pointer">
                     <input type="radio" name="property_type_selector" value="industrial" class="sr-only peer" @click="propertyType = 'industrial'" :checked="propertyType === 'industrial'">
-                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-amber-500 peer-checked:bg-amber-50 hover:border-gray-300"
-                         :class="propertyType === 'industrial' ? 'border-amber-500 bg-amber-50' : 'border-gray-200'">
+                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-amber-500 peer-checked:bg-[color-mix(in_srgb,var(--ds-amber)_12%,transparent)] hover:border-[var(--border)]"
+                         :class="propertyType === 'industrial' ? 'border-amber-500 bg-[color-mix(in_srgb,var(--ds-amber)_12%,transparent)]' : 'border-[var(--border)]'">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto mb-2 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205 3 1m1.5.5-1.5-.5M6.75 7.364V3h-3v18m3-13.636 10.5-3.819" />
                         </svg>
@@ -69,8 +73,8 @@
                 {{-- Hospitality --}}
                 <label class="relative cursor-pointer">
                     <input type="radio" name="property_type_selector" value="hospitality" class="sr-only peer" @click="propertyType = 'hospitality'" :checked="propertyType === 'hospitality'">
-                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-purple-500 peer-checked:bg-purple-50 hover:border-gray-300"
-                         :class="propertyType === 'hospitality' ? 'border-purple-500 bg-purple-50' : 'border-gray-200'">
+                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-purple-500 peer-checked:bg-[color-mix(in_srgb,var(--ds-purple)_12%,transparent)] hover:border-[var(--border)]"
+                         :class="propertyType === 'hospitality' ? 'border-purple-500 bg-[color-mix(in_srgb,var(--ds-purple)_12%,transparent)]' : 'border-[var(--border)]'">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto mb-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
                         </svg>
@@ -82,8 +86,8 @@
                 {{-- Agricultural --}}
                 <label class="relative cursor-pointer">
                     <input type="radio" name="property_type_selector" value="agricultural" class="sr-only peer" @click="propertyType = 'agricultural'" :checked="propertyType === 'agricultural'">
-                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-green-500 peer-checked:bg-green-50 hover:border-gray-300"
-                         :class="propertyType === 'agricultural' ? 'border-green-500 bg-green-50' : 'border-gray-200'">
+                    <div class="border-2 rounded-md p-4 text-center transition-all peer-checked:border-green-500 peer-checked:bg-[color-mix(in_srgb,var(--ds-green)_12%,transparent)] hover:border-[var(--border)]"
+                         :class="propertyType === 'agricultural' ? 'border-green-500 bg-[color-mix(in_srgb,var(--ds-green)_12%,transparent)]' : 'border-[var(--border)]'">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mx-auto mb-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
                         </svg>

@@ -63,8 +63,7 @@
         subtitle="Bulk import market reports — drag-drop up to 20 PDFs, auto-detected with per-file override.">
         <x-slot:actions>
             <a href="{{ route('market-intelligence.reports.index') }}"
-               class="corex-btn-outline text-sm"
-               style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">All reports</a>
+               class="corex-btn-outline text-xs">All reports</a>
         </x-slot:actions>
     </x-mic-page-header>
 

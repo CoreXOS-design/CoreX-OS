@@ -10,21 +10,21 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
 ══════════════════════════════════════════════════════════════════════════ --}}
-<div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5 mb-6">
+<div class="rounded-md px-6 py-5 corex-page-banner mb-6">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div data-tour="pres-analysis-intro">
-            <h1 class="text-xl font-bold text-white leading-tight">Market Analysis</h1>
-            <div class="text-sm text-white/60">
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Market Analysis</h1>
+            <div class="text-xs" style="color: var(--text-muted);">
                 {{ $presentation->title }}
                 @if($presentation->property_address)
                     &nbsp;·&nbsp; {{ $presentation->property_address }}
                 @endif
             </div>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-            @include('layouts.partials.tour-header-launcher')
+        <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             <a href="{{ route('presentations.show', $presentation) }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline text-xs">
                 &larr; Overview
             </a>
         </div>

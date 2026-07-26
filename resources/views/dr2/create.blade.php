@@ -1,15 +1,16 @@
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">{{ $mode === 'create' ? 'Add Deal' : 'Edit Deal' }}</h2>
-                    <div class="text-sm text-white/60">Capture the deal accurately so settlement + rollups reconcile end-to-end.</div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $mode === 'create' ? 'Add Deal' : 'Edit Deal' }}</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">Capture the deal accurately so settlement + rollups reconcile end-to-end.</p>
                 </div>
-                <a href="{{ route('deals-dr2.index') }}"
-                   class="inline-flex items-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/15">
-                    &larr; Back to Deal Register
-                </a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
+                        &larr; Back to Deal Register
+                    </a>
+                </div>
             </div>
         </div>
     </x-slot>
@@ -193,12 +194,12 @@
                     <input type="text" id="dr2_property_search" class="w-full" autocomplete="off"
                            placeholder="Search a property by address, reference, complex…"
                            value="{{ old('property_address', ($deal->property ? $deal->property->buildDisplayAddress() : $deal->property_address)) }}">
-                    <div id="dr2_property_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                    <div id="dr2_property_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <input type="hidden" name="property_address" id="dr2_property_address" value="{{ old('property_address', $deal->property_address) }}">
-                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline text-gray-500 ml-1">unlink</button></div>
+                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline ml-1" style="color:var(--text-muted)">unlink</button></div>
                 <div class="flex items-center justify-between mt-1">
-                    <div class="text-xs text-gray-400">No CoreX match? Type the address — the deal still saves.</div>
+                    <div class="text-xs" style="color:var(--text-faint)">No CoreX match? Type the address — the deal still saves.</div>
                     {{-- Wave 2 resale guard — the search shows on-market listings by default so a
                          renovated-and-relisted address steers to the LIVE record, not its sold twin. --}}
                     <label class="text-[11px] flex items-center gap-1 cursor-pointer" style="color:var(--text-muted,#6b7280);">
@@ -217,10 +218,10 @@
                 <div id="dr2_seller_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
                     <input type="text" id="dr2_seller_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as seller…">
-                    <div id="dr2_seller_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                    <div id="dr2_seller_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <div id="dr2_seller_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
-                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline text-gray-500" data-kind="seller">＋ Add a new contact</button></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--text-muted)" data-kind="seller">＋ Add a new contact</button></div>
                 <div id="dr2_seller_newform" class="mt-1" style="display:none;"></div>
             </div>
 
@@ -234,10 +235,10 @@
                 <div id="dr2_buyer_tokens" class="mt-1 flex flex-wrap gap-1.5"></div>
                 <div style="position:relative;">
                     <input type="text" id="dr2_buyer_search" class="w-full mt-1" autocomplete="off" placeholder="Search a contact to link as buyer…">
-                    <div id="dr2_buyer_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                    <div id="dr2_buyer_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <div id="dr2_buyer_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
-                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline text-gray-500" data-kind="buyer">＋ Add a new contact</button></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--text-muted)" data-kind="buyer">＋ Add a new contact</button></div>
                 <div id="dr2_buyer_newform" class="mt-1" style="display:none;"></div>
             </div>
 
@@ -250,9 +251,9 @@
                 <input type="hidden" name="attorney_contact_id" id="dr2_attorney_contact_id" value="{{ old('attorney_contact_id', $deal->attorney_contact_id) }}">
                 <div style="position:relative;">
                     <input type="text" id="dr2_attorney_search" class="w-full" autocomplete="off" placeholder="Search a firm or attorney (e.g. BBB Inc, or the attorney's name)…" value="{{ old('attorney_name', $deal->attorney_name) }}">
-                    <div id="dr2_attorney_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                    <div id="dr2_attorney_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
-                <button type="button" id="dr2_attorney_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new attorney (firm &amp; contact)</button>
+                <button type="button" id="dr2_attorney_addnew" class="text-xs underline mt-1" style="color:var(--brand-icon)">+ Add a new attorney (firm &amp; contact)</button>
             </div>
 
             {{-- AT-228 — Bond Originator (firm & contact), same picker UX as the attorney field. --}}
@@ -262,15 +263,15 @@
                 <input type="hidden" name="bond_originator_contact_id" id="dr2_bond_contact_id" value="{{ old('bond_originator_contact_id', $deal->bond_originator_contact_id) }}">
                 <div style="position:relative;">
                     <input type="text" id="dr2_bond_search" class="w-full" autocomplete="off" placeholder="Search a bond originator firm or contact…">
-                    <div id="dr2_bond_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                    <div id="dr2_bond_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
-                <button type="button" id="dr2_bond_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new bond originator (firm &amp; contact)</button>
+                <button type="button" id="dr2_bond_addnew" class="text-xs underline mt-1" style="color:var(--brand-icon)">+ Add a new bond originator (firm &amp; contact)</button>
             </div>
 
             {{-- (Enhancement 7 / walk fix 1+2) Financials — commission with a VAT basis toggle
                  and live two-way % ↔ amount binding. Stored truth stays DR1's (Incl-VAT total);
                  Excl + VAT are DERIVED for display, not forked into storage. --}}
-            <div class="field-full"><h3 class="ds-label" style="margin-top:.35rem;font-weight:700;color:#0b2a4a;">Financials</h3></div>
+            <div class="field-full"><h3 class="ds-label" style="margin-top:.35rem;font-weight:700;color:var(--text-primary);">Financials</h3></div>
 
             {{-- (Enhancement 4) Selling Price — prefilled from the advertised price, overridable --}}
             <div>
@@ -285,31 +286,31 @@
                     <option value="incl">VAT-inclusive</option>
                     <option value="excl">VAT-exclusive</option>
                 </select>
-                <div class="mt-1 text-xs text-gray-400">Both figures are shown below either way.</div>
+                <div class="mt-1 text-xs" style="color:var(--text-faint)">Both figures are shown below either way.</div>
             </div>
 
             {{-- Commission % — of the selling price; two-way with the amount --}}
             <div>
                 <label class="ds-label block mb-1">Commission %</label>
                 <input type="number" step="0.01" class="input-base" name="commission_percent_display" id="dr2_commission_percent" value="{{ old('commission_percent_display') }}">
-                <div class="mt-1 text-xs text-gray-400">Prefills from the property; two-way with the amount.</div>
+                <div class="mt-1 text-xs" style="color:var(--text-faint)">Prefills from the property; two-way with the amount.</div>
             </div>
 
             {{-- Commission amount in the selected basis — two-way with % --}}
             <div>
                 <label class="ds-label block mb-1"><span id="dr2_comm_amount_label">Commission (Incl VAT)</span></label>
                 <input type="number" step="0.01" class="input-base money-input" id="dr2_commission_amount" value="">
-                <div class="mt-1 text-xs text-gray-400">Fill either % or amount — the other populates live.</div>
+                <div class="mt-1 text-xs" style="color:var(--text-faint)">Fill either % or amount — the other populates live.</div>
             </div>
 
             {{-- Derived figures + the stored Incl-VAT total (DR1 truth) --}}
             <div class="field-full">
-                <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm" style="color:#374151;">
+                <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm" style="color:var(--text-secondary);">
                     <span>Incl VAT: <strong>R <span id="dr2_comm_incl_disp">0.00</span></strong></span>
                     <span>Excl VAT: <strong>R <span id="dr2_comm_excl_disp">0.00</span></strong></span>
                     <span>VAT (<span id="dr2_vat_pct_disp">15</span>%): <strong>R <span id="dr2_comm_vat_disp">0.00</span></strong></span>
                 </div>
-                <div class="mt-1 text-xs text-gray-500">Stored as the <span class="font-semibold">Incl-VAT total</span> (as DR1 stores it); pools/allocations compute Ex VAT.</div>
+                <div class="mt-1 text-xs" style="color:var(--text-muted)">Stored as the <span class="font-semibold">Incl-VAT total</span> (as DR1 stores it); pools/allocations compute Ex VAT.</div>
                 <input type="hidden" name="total_commission" id="dr2_total_commission" value="{{ old('total_commission', $deal->total_commission) }}">
             </div>
                 </div>
@@ -368,7 +369,7 @@
                 <div class="deal-grid pt-4">
             <!-- LISTING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Listing Side</h3>
+                <h3 class="font-bold" style="color:var(--text-primary)">Listing Side</h3>
 
                 {{-- (Johan DR2-walk fix 1) External-agency layout relaid as a non-colliding
                      responsive stack. The old single flex row crammed the checkbox + our-share
@@ -377,12 +378,12 @@
                     <div>
                         <div class="flex items-center justify-between">
                             <div class="ds-label">Listing split %</div>
-                            <div class="text-xs text-gray-500"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
+                            <div class="text-xs" style="color:var(--text-muted)"><span id="listing_split_label">—</span> / <span id="selling_split_label">—</span></div>
                         </div>
                         <div class="mt-2 flex items-center gap-3">
                             <input id="listing_split_percent" type="number" step="0.01" name="listing_split_percent"
                                    value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border)" placeholder="%">
                             <input id="listing_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('listing_split_percent', $deal->listing_split_percent ?? 50) }}">
                         </div>
@@ -415,7 +416,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="listing_selected" class="space-y-2"></div>
@@ -424,7 +425,7 @@
 
             <!-- SELLING -->
             <div>
-                <h3 class="font-bold" style="color:#0b2a4a">Selling Side</h3>
+                <h3 class="font-bold" style="color:var(--text-primary)">Selling Side</h3>
 
                 {{-- (Johan DR2-walk fix 1) External-agency layout — non-colliding responsive stack, selling side. --}}
                 <div class="mt-2 space-y-3">
@@ -433,7 +434,7 @@
                         <div class="mt-2 flex items-center gap-3">
                             <input id="selling_split_percent" type="number" step="0.01" name="selling_split_percent"
                                    value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}"
-                                   class="w-24 rounded-lg border-gray-200" placeholder="%">
+                                   class="w-24 rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border)" placeholder="%">
                             <input id="selling_split_slider" type="range" min="0" max="100" step="0.01"
                                    class="flex-1" value="{{ old('selling_split_percent', $deal->selling_split_percent ?? 50) }}">
                         </div>
@@ -466,7 +467,7 @@
                                 </option>
                             @endforeach
                         </select>
-                        <div class="text-xs text-gray-500 mt-1">Hold Ctrl / Cmd to select multiple.</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted)">Hold Ctrl / Cmd to select multiple.</div>
                     </div>
 
                     <div id="selling_selected" class="space-y-2"></div>
@@ -507,7 +508,7 @@
                     row.innerHTML = `
                         <input type="hidden" name="${sideName}_agents[]" value="${id}">
                         <div class="w-48 font-semibold" style="color:var(--text-primary, #0b2a4a)">${label}</div>
-                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg border-gray-200" value="${initial ?? ''}">
+                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg border" style="border-color:var(--border)" value="${initial ?? ''}">
                         <button type="button" class="text-xs text-red-600">Remove</button>
                     `;
 
@@ -632,9 +633,9 @@
 {{-- (walk fix 2) Add-new attorney inline modal — a FIRM + a contact person.
      Field order per Johan: Firm, Attorney, Contact, Email, Address. --}}
 <div id="dr2_att_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
-        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new attorney</h3>
-        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the attorney and the person you actually deal with.</p>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:34rem;width:92%;padding:1.5rem;box-shadow:0 24px 64px rgba(0,0,0,.25);">
+        <h3 class="font-bold mb-1" style="color:var(--text-primary)">Add a new attorney</h3>
+        <p class="text-xs mb-3" style="color:var(--text-muted)">A firm can have several people — add the attorney and the person you actually deal with.</p>
         <div class="deal-grid">
             <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_na_firm" class="w-full" placeholder="e.g. BBB Inc"></div>
             <div><label class="ds-label block mb-1">Attorney</label><input type="text" id="dr2_na_attorney" class="w-full" placeholder="the attorney"></div>
@@ -644,7 +645,7 @@
         </div>
         <div id="dr2_na_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
-            <button type="button" id="dr2_na_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_na_cancel" class="corex-btn-outline px-4 py-2 text-sm">Cancel</button>
             <button type="button" id="dr2_na_save" class="corex-btn-primary px-4 py-2 text-sm">Save attorney</button>
         </div>
     </div>
@@ -652,9 +653,9 @@
 
 {{-- AT-228 — Add-new bond originator modal (mirror of the attorney add-new) --}}
 <div id="dr2_bond_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
-        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new bond originator</h3>
-        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the originator and the person you deal with.</p>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:34rem;width:92%;padding:1.5rem;box-shadow:0 24px 64px rgba(0,0,0,.25);">
+        <h3 class="font-bold mb-1" style="color:var(--text-primary)">Add a new bond originator</h3>
+        <p class="text-xs mb-3" style="color:var(--text-muted)">A firm can have several people — add the originator and the person you deal with.</p>
         <div class="deal-grid">
             <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_nb_firm" class="w-full" placeholder="e.g. BetterBond"></div>
             <div><label class="ds-label block mb-1">Originator</label><input type="text" id="dr2_nb_attorney" class="w-full" placeholder="the originator"></div>
@@ -664,7 +665,7 @@
         </div>
         <div id="dr2_nb_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
-            <button type="button" id="dr2_nb_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_nb_cancel" class="corex-btn-outline px-4 py-2 text-sm">Cancel</button>
             <button type="button" id="dr2_nb_save" class="corex-btn-primary px-4 py-2 text-sm">Save bond originator</button>
         </div>
     </div>

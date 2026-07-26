@@ -47,19 +47,18 @@
 
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-outcomes-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Outcomes Dashboard</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outcomes Dashboard</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Win rate, loss reasons, and pipeline health across {{ number_format($totalPresentations) }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
                     Presentations
                 </a>
             </div>
@@ -75,19 +74,19 @@
             <label for="from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
             <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
                    class="w-full rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
             <label for="to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
             <input id="to" type="date" name="to" value="{{ $to->toDateString() }}"
                    class="w-full rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
             <label for="outcome" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
             <select id="outcome" name="outcome"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach(PresentationOutcome::ALL_OUTCOMES as $o)
                     <option value="{{ $o }}" @selected($outcomeFilter === $o)>{{ $outcomeLabel($o)[0] }}</option>
@@ -98,7 +97,7 @@
             <label for="reason" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Loss reason</label>
             <select id="reason" name="reason"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($reasonLabels as $k => $v)
                     <option value="{{ $k }}" @selected($reasonFilter === $k)>{{ $v }}</option>
@@ -110,7 +109,7 @@
             <label for="agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
             <select id="agent_id" name="agent_id"
                     class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">All</option>
                 @foreach($agents as $a)
                     <option value="{{ $a->id }}" @selected((int) $agentFilter === (int) $a->id)>{{ $a->name }}</option>

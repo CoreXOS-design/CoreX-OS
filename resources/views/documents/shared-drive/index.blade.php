@@ -6,21 +6,16 @@
 <div class="w-full space-y-5" x-data="driveList()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="flex items-center gap-3">
-                <svg class="w-7 h-7 text-white/90" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                </svg>
-                <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Shared Drive</h1>
-                    <p class="text-sm text-white/60">Open a drive to browse its folders and files. Restricted drives are visible only to invited members.</p>
-                </div>
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Shared Drive</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Open a drive to browse its folders and files. Restricted drives are visible only to invited members.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($can['createDrive'])
-                    <button type="button" @click="showDriveModal = true" class="corex-btn-primary">+ New Drive</button>
+                    <button type="button" @click="showDriveModal = true" class="corex-btn-primary text-xs">+ New Drive</button>
                 @endif
             </div>
         </div>
@@ -95,7 +90,7 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Drive name</label>
                     <input type="text" name="name" required maxlength="255" value="{{ old('name') }}"
                            class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-4"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Directors, Marketing, Branch SOPs">
 
                     @if($can['createRestricted'])
@@ -108,7 +103,7 @@
                             <p class="text-xs mb-2" style="color: var(--text-secondary);">You always keep access as the creator. Choose who else can see it:</p>
                             <input type="text" x-model="memberSearch" placeholder="Search members…"
                                    class="w-full rounded-md px-3 py-2 text-sm mb-2"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             <div class="overflow-auto rounded-md flex-1" style="border: 1px solid var(--border); min-height: 8rem;">
                                 @forelse($members as $m)
                                     <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer"

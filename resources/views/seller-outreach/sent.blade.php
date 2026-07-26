@@ -20,7 +20,7 @@
             <p class="text-xs mb-6" style="color: var(--text-muted);">
                 If it didn't open automatically:
                 <a href="{{ $clientUrl }}" target="corex_whatsapp_web" rel="noopener"
-                   style="color: #00d4aa; text-decoration: underline;">
+                   style="color: var(--brand-icon, #0ea5e9); text-decoration: underline;">
                     Open WhatsApp manually
                 </a>
             </p>
@@ -29,20 +29,18 @@
             <div>Tracking code: <code style="color: var(--text-secondary);">{{ $send->tracking_short_code }}</code></div>
             <div>
                 Landing URL:
-                <a href="{{ $send->landingUrl() }}" target="_blank" rel="noopener" style="color: #00d4aa;">
+                <a href="{{ $send->landingUrl() }}" target="_blank" rel="noopener" style="color: var(--brand-icon, #0ea5e9);">
                     {{ $send->landingUrl() }}
                 </a>
             </div>
         </div>
         <div class="mt-6 flex items-center justify-center gap-3 flex-wrap">
             <a href="{{ route('corex.contacts.show', $contact) }}"
-               class="px-4 py-2 text-sm font-semibold rounded"
-               style="background: #00d4aa; color: #003a2f;">
+               class="corex-btn-primary text-sm no-underline">
                 Back to contact
             </a>
             <a href="{{ route('seller-outreach.composer.show', $contact) }}"
-               class="px-4 py-2 text-sm rounded"
-               style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
+               class="corex-btn-outline text-sm no-underline">
                 Send another
             </a>
         </div>

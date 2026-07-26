@@ -5,18 +5,18 @@
 <div class="w-full space-y-5" x-data="{ showNew: false }">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" data-tour="docs-filing-register-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="docs-filing-register-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     Filing Register &mdash; {{ $branchName }}
                 </h1>
-                <p class="text-sm text-white/60">Searchable index of physically filed mandates.</p>
+                <p class="text-xs" style="color: var(--text-muted);">Searchable index of physically filed mandates.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('filing.create')
-                <button type="button" @click="showNew = !showNew" class="corex-btn-primary text-sm">
+                <button type="button" @click="showNew = !showNew" class="corex-btn-primary text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     New Filing
                 </button>
@@ -33,12 +33,12 @@
                 <input id="search" type="text" name="search" value="{{ request('search') }}"
                        placeholder="Address, reference, seller, seq..."
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
                 <select id="document_type" name="document_type" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="All" {{ request('document_type') === 'All' ? 'selected' : '' }}>All</option>
                     <option value="OA" {{ request('document_type') === 'OA' ? 'selected' : '' }}>OA</option>
                     <option value="EA" {{ request('document_type') === 'EA' ? 'selected' : '' }}>EA</option>
@@ -48,7 +48,7 @@
             <div>
                 <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                 <select id="status" name="status" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="All" {{ request('status') === 'All' ? 'selected' : '' }}>All</option>
                     <option value="Active" {{ request('status') === 'Active' ? 'selected' : '' }}>Active</option>
                     <option value="Expiring" {{ request('status') === 'Expiring' ? 'selected' : '' }}>Expiring Soon</option>
@@ -60,7 +60,7 @@
             <div>
                 <label for="branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch</label>
                 <select id="branch_id" name="branch_id" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All Branches</option>
                     @foreach($branches as $branch)
                     <option value="{{ $branch->id }}" {{ request('branch_id') == $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
@@ -71,7 +71,7 @@
             <div>
                 <label for="agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
                 <select id="agent_id" name="agent_id" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All Agents</option>
                     @foreach($agents as $ag)
                     <option value="{{ $ag->id }}" {{ request('agent_id') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
@@ -131,8 +131,8 @@
                        x-model="address" @input="onType()" @focus="onType()" @blur="closeSoon()"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        :style="propertyId
-                            ? 'background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
-                            : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                            ? 'background: var(--surface-2); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
+                            : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
 
                 <div x-show="open && results.length" x-cloak
                      class="absolute z-30 left-0 right-0 mt-1 rounded-md overflow-hidden"
@@ -174,7 +174,7 @@
                     <span x-show="derivedFrom.branch" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
                 </label>
                 <select id="new_branch_id" name="branch_id" x-model="branchId" tabindex="5" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">— use my branch —</option>
                     @foreach($branches as $branch)
                     <option value="{{ $branch->id }}">{{ $branch->name }}</option>
@@ -187,7 +187,7 @@
                     <span x-show="derivedFrom.agent" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
                 </label>
                 <select id="new_agent_id" name="agent_id" x-model="agentId" tabindex="6" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">— me —</option>
                     @foreach($agents as $ag)
                     <option value="{{ $ag->id }}">{{ $ag->name }}</option>
@@ -197,7 +197,7 @@
             <div>
                 <label for="new_document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span class="text-red-500">*</span></label>
                 <select id="new_document_type" name="document_type" required tabindex="7" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="OA">OA (Open Authority)</option>
                     <option value="EA">EA (Exclusive Authority)</option>
                     <option value="Other">Other</option>
@@ -207,13 +207,13 @@
                 <label for="new_file_reference" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File Reference <span class="text-red-500">*</span></label>
                 <input id="new_file_reference" type="text" name="file_reference" required tabindex="3" placeholder="e.g. File 3"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="new_sequence_number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sequence Number <span class="text-red-500">*</span></label>
                 <input id="new_sequence_number" type="text" name="sequence_number" required tabindex="4" placeholder="e.g. 0042"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             {{-- AT-238 — Seller: ONE TRUTH, never two.
                  A seller is EITHER a linked contact OR a typed name — never both. The two
@@ -230,7 +230,7 @@
 
                 {{-- (a) A seller is LINKED — show the contact, and offer the way back to typing. --}}
                 <div x-show="sellerContactId" x-cloak class="w-full rounded-md px-3 py-2 text-sm flex items-center justify-between gap-2"
-                     style="background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);">
+                     style="background: var(--surface-2); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);">
                     <span x-text="linkedSellerName()"></span>
                     <button type="button" @click="clearSeller()" class="text-xs underline" style="color: var(--text-muted);">use a typed name instead</button>
                 </div>
@@ -239,7 +239,7 @@
                 <select x-show="!sellerContactId && sellers.length" x-cloak
                         @change="pickSeller($event.target.value)"
                         class="w-full rounded-md px-3 py-2 text-sm mb-1"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">— select the seller —</option>
                     <template x-for="s in sellers" :key="s.id">
                         <option :value="s.id" x-text="s.name"></option>
@@ -251,7 +251,7 @@
                        x-show="!sellerContactId" x-cloak
                        x-model="sellerName"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
 
             {{-- AT-238 — Expiry: prefilled from the property's mandate on link, then it is YOURS.
@@ -262,7 +262,7 @@
                 <input id="new_expiry_date" type="date" name="expiry_date" tabindex="8"
                        x-model="expiry"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <p x-show="suggestedExpiry && suggestedExpiry !== expiry" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">
                     Property mandate expires <span x-text="suggestedExpiry"></span> —
                     <button type="button" class="underline" @click="expiry = suggestedExpiry" style="color: var(--brand-icon, #0ea5e9);">use it</button>
@@ -272,7 +272,7 @@
                 <label for="new_notes" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
                 <input id="new_notes" type="text" name="notes" tabindex="9" placeholder="Optional"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="md:col-span-3 flex items-center gap-2">
                 <button type="submit" tabindex="10" class="corex-btn-primary">Save Filing</button>
@@ -383,7 +383,7 @@
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
                                     <select name="agent_id" class="rounded-md px-2 py-1 text-xs"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                         @foreach($agents as $ag)
                                         <option value="{{ $ag->id }}" {{ $filing->agent_id == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
                                         @endforeach
@@ -392,7 +392,7 @@
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Type</label>
                                     <select name="document_type" class="rounded-md px-2 py-1 text-xs"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                         <option value="OA" {{ $filing->document_type === 'OA' ? 'selected' : '' }}>OA</option>
                                         <option value="EA" {{ $filing->document_type === 'EA' ? 'selected' : '' }}>EA</option>
                                         <option value="Other" {{ $filing->document_type === 'Other' ? 'selected' : '' }}>Other</option>
@@ -402,13 +402,13 @@
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">File Ref</label>
                                     <input type="text" name="file_reference" value="{{ $filing->file_reference }}"
                                            class="rounded-md px-2 py-1 text-xs w-20"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Seq #</label>
                                     <input type="text" name="sequence_number" value="{{ $filing->sequence_number }}"
                                            class="rounded-md px-2 py-1 text-xs w-16"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 {{-- AT-238 — same picker as the new-filing form, seeded with this row's
                                      current link. Editing an old free-text row is how it gets linked. --}}
@@ -419,8 +419,8 @@
                                            x-model="address" @input="onType()" @focus="onType()" @blur="closeSoon()"
                                            class="rounded-md px-2 py-1 text-xs w-40"
                                            :style="propertyId
-                                                ? 'background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
-                                                : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                                ? 'background: var(--surface-2); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);'
+                                                : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                     <div x-show="open && results.length" x-cloak
                                          class="absolute z-30 left-0 mt-1 rounded-md"
                                          style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.18); min-width: 260px; max-height: 220px; overflow-y: auto;">
@@ -450,14 +450,14 @@
                                     {{-- ONE TRUTH: a linked contact OR a typed name, never both. --}}
                                     <input type="hidden" name="seller_contact_id" :value="sellerContactId">
                                     <div x-show="sellerContactId" x-cloak class="rounded-md px-2 py-1 text-xs w-28 truncate"
-                                         style="background: var(--surface); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);"
+                                         style="background: var(--surface-2); border: 1px solid var(--ds-green, #059669); color: var(--text-primary);"
                                          :title="linkedSellerName()">
                                         <span x-text="linkedSellerName()"></span>
                                         <button type="button" @click="clearSeller()" class="underline block" style="color: var(--text-muted);">type instead</button>
                                     </div>
                                     <select x-show="!sellerContactId && sellers.length" x-cloak @change="pickSeller($event.target.value)"
                                             class="rounded-md px-2 py-1 text-xs w-28 mb-1"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                         <option value="">— select the seller —</option>
                                         <template x-for="s in sellers" :key="s.id">
                                             <option :value="s.id" x-text="s.name"></option>
@@ -465,13 +465,13 @@
                                     </select>
                                     <input type="text" name="seller_name" x-model="sellerName" x-show="!sellerContactId" x-cloak
                                            class="rounded-md px-2 py-1 text-xs w-28"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Expiry</label>
                                     <input type="date" name="expiry_date" x-model="expiry"
                                            class="rounded-md px-2 py-1 text-xs"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                     {{-- Never rewrites what was filed — it offers, the human decides. --}}
                                     <p x-show="suggestedExpiry && suggestedExpiry !== expiry" x-cloak class="text-[0.6875rem] mt-1" style="color: var(--text-muted);">
                                         mandate: <span x-text="suggestedExpiry"></span>
@@ -482,7 +482,7 @@
                                     <label class="block text-[0.6875rem] font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
                                     <input type="text" name="notes" value="{{ $filing->notes }}"
                                            class="rounded-md px-2 py-1 text-xs w-28"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div class="flex gap-2">
                                     <button type="submit" class="corex-btn-primary">Save</button>

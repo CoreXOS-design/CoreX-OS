@@ -16,8 +16,7 @@
         <x-slot:actions>
             <form method="POST" action="{{ route('admin.p24.import') }}" style="margin: 0;">
                 @csrf
-                <button type="submit" class="corex-btn-outline text-sm"
-                        style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                <button type="submit" class="corex-btn-outline text-xs">
                     Run import
                 </button>
             </form>

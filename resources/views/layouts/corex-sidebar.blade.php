@@ -120,6 +120,10 @@
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*', 'admin.activity-mappings.*',
         'corex.admin.deal-link-review.*',
+        // Both links live in the Agency Tracker panel, so their routes must open it.
+        // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
+        // routeIs() globs the whole name, and this one is prefixed 'corex.'.
+        'deals-dr2.*', 'corex.compliance.rcr.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*',
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -129,10 +133,11 @@
         $activeGroup = 'evaluation';
     } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*')) {
         $activeGroup = 'api-server';
-    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*')) {
+    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*')) {
         // 'training.*' covers the whole LMS — the agent-facing courses AND Training
-        // Management (training.manage + its course/lesson editors), both of which
-        // live in the Hidden panel. It does NOT match 'training-help.*'.
+        // Management (training.manage + its course/lesson editors). It does NOT
+        // match 'training-help.*' (routeIs globs the whole name), so Training Help
+        // is listed separately — it also lives in the Hidden panel now.
         $activeGroup = 'hidden';
     } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
@@ -145,10 +150,15 @@
         // Compliance. Exclude them here so they fall through to the communication
         // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
-    } elseif (request()->routeIs('command-center.*') && !request()->routeIs('command-center.buyers.*')) {
+    } elseif (request()->routeIs('command-center.*')
+        && !request()->routeIs('command-center.buyers.*', 'command-center.settings.contact-governance*')) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
         // (AT-76 move), so it must NOT resolve to the Dashboard group. Excluded
         // here and added to the real-estate matcher below.
+        // Contact Governance shares the command-center.* route prefix but its nav
+        // link is a ROOT-level item (not in the Dashboard panel), so it must leave
+        // $activeGroup null — otherwise the sidebar opens Dashboard on a page whose
+        // link isn't in it.
         $activeGroup = 'command-center';
     } elseif (request()->routeIs('corex.dashboard', 'corex.dashboard.oversight')) {
         // Today / Oversight live in the Command Center submenu but are also
@@ -292,24 +302,21 @@
             </button>
         </div>
     </div>
-    @if($_userAgency)
-    <div class="px-4 -mt-1 pb-2">
-        <div class="text-[0.6875rem] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
-            {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>
-                @if($_branchViewAll && !$_viewAsBranchId)
-                    <span>All Branches</span>
-                @elseif($_activeBranch)
-                    <span>{{ $_activeBranch->name }}</span>@if($_viewAsBranchId) <span style="color:var(--brand-icon, #0ea5e9); text-transform:none; letter-spacing:normal; font-weight:500;">(viewing as)</span>@endif
-                @endif
-            @endif
-        </div>
-    </div>
-    @endif
 
-    {{-- Agency Switcher (owner role only) — with consent flow.
-         See .ai/specs/agency-access-authorization-spec.md --}}
+    {{-- Agency box — every user sees which agency they are in. Owner-role users
+         get the switcher (with the consent flow); everyone else gets the same
+         box as a read-only label. See
+         .ai/specs/agency-access-authorization-spec.md --}}
     @if($isOwner)
     @include('partials.agency-access-consent', ['agencies' => $agencies, 'activeAgencyId' => $activeAgencyId, 'activeAgency' => $activeAgency, 'accessGrants' => $accessGrants])
+    @elseif($_userAgency)
+    <div class="px-3 pb-2">
+        <div class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
+             style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));"
+             title="{{ $_userAgency->name }}">
+            <span class="flex-1 text-left truncate">{{ $_userAgency->name }}</span>
+        </div>
+    </div>
     @endif
 
     {{-- Remote Access Inbox (agency admins only, and only when the agency
@@ -321,18 +328,24 @@
     </div>
     @endif
 
-    {{-- Branch switcher (Split Branches Phase 2) --}}
+    {{-- Branch box (Split Branches Phase 2) — same rule as the agency box:
+         every user sees their branch, only users holding branches.switch get
+         the dropdown to change it. --}}
     @if($_userAgency && $_branchCanSwitch && $_agencyBranches->count() > 1)
-    <div class="px-4 pb-2">
+    <div class="px-3 pb-2">
         <div x-data="{ branchOpen: false }" class="px-0">
             <button type="button" @click="branchOpen = !branchOpen"
-                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15" />
-                </svg>
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+                {{-- The box always names the CURRENT branch scope — the same
+                     information the old header line carried. Permission governs
+                     whether it can be changed, not whether it is shown. --}}
                 <span class="flex-1 text-left truncate">
                     @if($_viewAsBranchId && $_activeBranch)
+                        {{ $_activeBranch->name }}
+                    @elseif($_branchViewAll)
+                        All Branches
+                    @elseif($_activeBranch)
                         {{ $_activeBranch->name }}
                     @else
                         Switch Branch
@@ -367,20 +380,34 @@
             </div>
         </div>
     </div>
+    @elseif($_userAgency && ($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)))
+    <div class="px-3 pb-2">
+        <div class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium"
+             style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+            <span class="flex-1 text-left truncate">
+                @if($_branchViewAll && !$_viewAsBranchId)
+                    All Branches
+                @else
+                    {{-- ?-> : view_as_branch_id can outlive the branch it points at. --}}
+                    {{ $_activeBranch?->name ?? 'All Branches' }}
+                @endif
+            </span>
+            @if($_viewAsBranchId && $_activeBranch)
+            <span class="flex-shrink-0" style="color:var(--brand-icon, #0ea5e9);">(viewing as)</span>
+            @endif
+        </div>
+    </div>
     @endif
 
     {{-- Acting-as branch manager (Admin Multi-Branch Manager). Identity only —
          lets an admin who manages several branches present as the manager of a
          chosen one for deal registration. Does NOT change what they can see. --}}
     @if($_canSelfAssignManaged && $_managedBranches->count() > 0)
-    <div class="px-4 pb-2">
+    <div class="px-3 pb-2">
         <div x-data="{ actingOpen: false }" class="px-0">
             <button type="button" @click="actingOpen = !actingOpen"
-                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
-                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                </svg>
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
                 <span class="flex-1 text-left truncate">
                     @if($_actingBranch)
                         Acting: {{ $_actingBranch->name }}
@@ -1421,35 +1448,7 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Tools</div>
 
-        {{-- Training Help --}}
-        @php
-            $trainingUnreadCount = 0;
-            if ($user) {
-                $trainingRole = $user->effectiveRole();
-                $trainingRequired = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->pluck('id');
-                if ($trainingRequired->isNotEmpty()) {
-                    $trainingReadDocIds = \App\Models\Training\TrainingDocRead::where('user_id', $user->id)
-                        ->whereIn('doc_id', $trainingRequired)
-                        ->whereNotNull('completed_at')
-                        ->whereNull('is_outdated_since')
-                        ->pluck('doc_id');
-                    $trainingUnreadCount = $trainingRequired->diff($trainingReadDocIds)->count();
-                }
-            }
-        @endphp
-        @feature('training')
-        @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
-        <a href="{{ route('training-help.index') }}" class="corex-nav-item {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-            </svg>
-            <span>Training</span>
-            @if($trainingUnreadCount > 0)
-            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $trainingUnreadCount }}</span>
-            @endif
-        </a>
-        @endif
-        @endfeature
+        {{-- Training Help moved to System Developer → Hidden (owner-only). --}}
 
         {{-- Ellie AI --}}
         @feature('ellie')
@@ -2161,6 +2160,35 @@
 
                 {{-- Training Management (LMS authoring) --}}
                 <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Training Mgmt</a>
+
+                {{-- Training Help (in-app guides) — hidden from agency users. The
+                     unread-count query only runs for owners now that the link is
+                     inside the owner-only Hidden panel. --}}
+                @feature('training')
+                @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
+                @php
+                    $trainingUnreadCount = 0;
+                    if ($user) {
+                        $trainingRole = $user->effectiveRole();
+                        $trainingRequired = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->pluck('id');
+                        if ($trainingRequired->isNotEmpty()) {
+                            $trainingReadDocIds = \App\Models\Training\TrainingDocRead::where('user_id', $user->id)
+                                ->whereIn('doc_id', $trainingRequired)
+                                ->whereNotNull('completed_at')
+                                ->whereNull('is_outdated_since')
+                                ->pluck('doc_id');
+                            $trainingUnreadCount = $trainingRequired->diff($trainingReadDocIds)->count();
+                        }
+                    }
+                @endphp
+                <a href="{{ route('training-help.index') }}" class="corex-nav-subitem {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
+                    <span>Training Help</span>
+                    @if($trainingUnreadCount > 0)
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $trainingUnreadCount }}</span>
+                    @endif
+                </a>
+                @endif
+                @endfeature
 
                 {{-- Rentals — nested drill-down --}}
                 @permission('view_rentals')

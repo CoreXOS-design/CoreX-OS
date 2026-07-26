@@ -5,11 +5,11 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">P24 Importer</h1>
-                <p class="text-sm text-white/60">Import Property24 agents, listings and images for a selected agency.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">P24 Importer</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Import Property24 agents, listings and images for a selected agency.</p>
             </div>
         </div>
     </div>
@@ -61,7 +61,7 @@
         {{-- Agents card --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="text-lg font-semibold" style="color: var(--text-primary);">1. Agents</h3>
+                <h3 class="text-sm font-bold" style="color: var(--text-primary);">1. Agents</h3>
                 <span class="ds-badge ds-badge-info">Stage 1</span>
             </div>
             <form method="POST" action="{{ route('admin.importer.agents.upload') }}" enctype="multipart/form-data" class="space-y-3" @submit.prevent="submit($event)">
@@ -70,7 +70,7 @@
                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">Agents CSV (Agency-{AgencyId}-export-agents.csv)</label>
                 <input type="file" name="agents_csv" required accept=".csv,text/csv"
                        :disabled="phase !== 'idle' && phase !== 'error'"
-                       class="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1.5 file:text-sm"
+                       class="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-[color:var(--border)] file:bg-[color:var(--surface-2)] file:text-[color:var(--text-secondary)] file:px-3 file:py-1.5 file:text-sm"
                        style="color: var(--text-secondary);">
                 <button type="submit"
                         class="corex-btn-primary"
@@ -91,7 +91,7 @@
         {{-- Listings + Images card --}}
         <div class="rounded-md p-5 {{ !$hasAgentsRun ? 'opacity-60' : '' }}" style="background: var(--surface); border: 1px solid var(--border);" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
-                <h3 class="text-lg font-semibold" style="color: var(--text-primary);">2. Listings &amp; Images</h3>
+                <h3 class="text-sm font-bold" style="color: var(--text-primary);">2. Listings &amp; Images</h3>
                 <span class="ds-badge ds-badge-info">Stage 2</span>
             </div>
             @if (!$hasAgentsRun)
@@ -108,12 +108,12 @@
                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">Listings CSV</label>
                 <input type="file" name="listings_csv" required accept=".csv,text/csv"
                        :disabled="phase !== 'idle' && phase !== 'error'"
-                       class="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1.5 file:text-sm"
+                       class="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-[color:var(--border)] file:bg-[color:var(--surface-2)] file:text-[color:var(--text-secondary)] file:px-3 file:py-1.5 file:text-sm"
                        style="color: var(--text-secondary);">
                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">Images CSV</label>
                 <input type="file" name="images_csv" required accept=".csv,text/csv"
                        :disabled="phase !== 'idle' && phase !== 'error'"
-                       class="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:px-3 file:py-1.5 file:text-sm"
+                       class="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-[color:var(--border)] file:bg-[color:var(--surface-2)] file:text-[color:var(--text-secondary)] file:px-3 file:py-1.5 file:text-sm"
                        style="color: var(--text-secondary);">
                 <p class="text-xs" style="color: var(--text-muted);">Images are matched to Listings by ListingNumber.</p>
 
@@ -216,7 +216,7 @@
     {{-- History --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recent Import Runs</h3>
+            <h3 class="text-sm font-bold" style="color: var(--text-primary);">Recent Import Runs</h3>
         </div>
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">

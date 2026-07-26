@@ -24,18 +24,18 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (§2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-rcr-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Risk &amp; Compliance Returns (RCR)</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Risk &amp; Compliance Returns (RCR)</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     FIC Directive 11 of 2026 — submit by 31 July 2026 via the FIC goAML platform. CoreX prepares your answers; you transpose into goAML.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($active)
-                <a href="{{ route('corex.compliance.rcr.show', $active->id) }}" class="corex-btn-primary inline-flex items-center gap-2 whitespace-nowrap">
+                <a href="{{ route('corex.compliance.rcr.show', $active->id) }}" class="corex-btn-primary text-xs inline-flex items-center gap-2 whitespace-nowrap">
                     Continue active return
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                 </a>
@@ -102,7 +102,7 @@
                 <label for="questionnaire_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Questionnaire</label>
                 <select id="questionnaire_id" name="questionnaire_id" required
                         class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @foreach($availableQuestionnaires as $aq)
                         <option value="{{ $aq->id }}">{{ $aq->title }} — due {{ $aq->submission_deadline->format('j M Y') }}</option>
                     @endforeach

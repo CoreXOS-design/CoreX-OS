@@ -47,16 +47,16 @@
     <x-slot name="header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="font-semibold text-xl text-gray-200 leading-tight">
-                    Branch Dashboard — {{ $r['period'] }} <span class="text-gray-400 font-semibold">(WOW)</span>
+                <h2 class="font-semibold text-xl leading-tight" style="color:var(--text-primary)">
+                    Branch Dashboard — {{ $r['period'] }} <span class="font-semibold" style="color:var(--text-muted)">(WOW)</span>
                 </h2>
-                <div class="text-sm text-gray-400">Branch Manager wallboard (stable view stays at /bm/performance)</div>
+                <div class="text-sm" style="color:var(--text-muted)">Branch Manager wallboard (stable view stays at /bm/performance)</div>
             </div>
 
             <div class="flex flex-wrap md:flex-nowrap items-center gap-2">
                 <form method="GET" action="{{ route('bm.performance') }}" class="flex flex-wrap md:flex-nowrap items-center gap-2">
                     <input type="hidden" name="wow" value="1" />
-                    <label class="text-sm font-semibold text-gray-200">Period</label>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary)">Period</label>
                     <input type="month" name="period" value="{{ $r['period'] }}" />
                     <button type="submit" class="btn-primary px-4 py-2">Go</button>
                     <a href="{{ route('bm.performance', ['period' => $r['period']]) }}" class="btn-primary px-4 py-2">Back to Stable</a>
@@ -124,7 +124,7 @@
         <div class="ds-section-sub mb-4">Agents behind pace — focus here first.</div>
         <div class="ds-status-card">
             <div class="flex items-center justify-between gap-4 flex-wrap">
-                <div class="text-sm text-gray-700">
+                <div class="text-sm" style="color:var(--text-secondary)">
                     Rule of thumb: <span class="font-bold">Behind</span> = needs action today.
                 </div>
             </div>
@@ -167,12 +167,12 @@
                             $v = (float)($d['points'] ?? 0);
                             $h = min(80, max(10, $v));
                         @endphp
-                        <div class="rounded-xl border border-black/10 bg-white p-2 text-center">
-                            <div class="text-[10px] text-gray-500">{{ \Carbon\Carbon::parse($d['date'])->format('D') }}</div>
+                        <div class="rounded-xl border p-2 text-center" style="border-color:var(--border); background:var(--surface)">
+                            <div class="text-[10px]" style="color:var(--text-muted)">{{ \Carbon\Carbon::parse($d['date'])->format('D') }}</div>
                             <div class="mt-2 h-16 flex items-end justify-center">
-                                <div class="w-3 rounded bg-gray-900" style="height: {{ $h }}%"></div>
+                                <div class="w-3 rounded" style="height: {{ $h }}%; background:var(--brand-icon)"></div>
                             </div>
-                            <div class="text-[11px] font-extrabold text-gray-900 mt-1">{{ number_format($v,0) }}</div>
+                            <div class="text-[11px] font-extrabold mt-1" style="color:var(--text-primary)">{{ number_format($v,0) }}</div>
                         </div>
                     @endforeach
                 </div>
@@ -185,7 +185,7 @@
                 @if(count($today))
                     <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
                         @foreach($today as $k => $v)
-                            <div class="rounded-2xl border border-black/10 bg-gray-50 p-3">
+                            <div class="rounded-2xl border p-3" style="border-color:var(--border); background:var(--surface-2)">
                                 <div class="ds-label">{{ str_replace('_',' ', $k) }}</div>
                                 <div class="ds-value-lg">{{ (int)$v }}</div>
                             </div>
@@ -213,17 +213,17 @@
             </div>
 
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                <div class="p-3 rounded bg-gray-50 border border-black/10">
+                <div class="p-3 rounded border" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label">Agent Target Sum (Deals)</div>
                     <div class="ds-value-lg">{{ $sumDeals }}</div>
                     <div class="ds-label">Branch target: <span class="font-bold">{{ $branchDeals }}</span> • Diff: <span class="font-bold">{{ $sumDeals - $branchDeals }}</span></div>
                 </div>
-                <div class="p-3 rounded bg-gray-50 border border-black/10">
+                <div class="p-3 rounded border" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label">Agent Target Sum (Listings)</div>
                     <div class="ds-value-lg">{{ $sumListings }}</div>
                     <div class="ds-label">Branch target: <span class="font-bold">{{ $branchListings }}</span> • Diff: <span class="font-bold">{{ $sumListings - $branchListings }}</span></div>
                 </div>
-                <div class="p-3 rounded bg-gray-50 border border-black/10">
+                <div class="p-3 rounded border" style="background:var(--surface-2); border-color:var(--border)">
                     <div class="ds-label">Agent Target Sum (Value)</div>
                     <div class="ds-value-lg">R {{ number_format($sumValue, 0) }}</div>
                     <div class="ds-label">Branch target: <span class="font-bold">R {{ number_format($branchValue, 0) }}</span> • Diff: <span class="font-bold">R {{ number_format($sumValue - $branchValue, 0) }}</span></div>
@@ -274,7 +274,7 @@
 
                                 $rowEmphasis = ($status === 'Behind') ? 'bg-red-50' : '';
                             @endphp
-                            <tr class="border-t border-black/10 {{ $rowEmphasis }}">
+                            <tr class="border-t {{ $rowEmphasis }}" style="border-color:var(--border)">
                                 <td class="px-4 py-3">
                                     <div class="font-semibold">
                                         <a class="ds-agent-link" href="{{ route('bm.agent.performance', ['userId' => $row['user_id'], 'period' => $r['period']]) }}">

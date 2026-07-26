@@ -5,22 +5,22 @@
 <div class="w-full space-y-5" x-data="pipelineEditor()" x-cloak>
 
     {{-- Page header (Pattern A — branded banner) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                <h1 class="text-xl font-bold text-white leading-tight truncate">Edit: {{ $template->name }}</h1>
-                <p class="text-sm text-white/60">Configure the steps, triggers and thresholds for this pipeline.</p>
+                <h1 class="text-base font-bold leading-tight truncate" style="color: var(--text-primary);">Edit: {{ $template->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Configure the steps, triggers and thresholds for this pipeline.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     Back
                 </a>
                 <form method="POST" action="{{ route('deals-v2.pipeline.duplicate', $template) }}" class="inline">
                     @csrf
-                    <button type="submit" class="corex-btn-outline corex-btn-on-brand">Duplicate</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Duplicate</button>
                 </form>
-                <button type="submit" form="templateForm" class="corex-btn-primary">Save Template</button>
+                <button type="submit" form="templateForm" class="corex-btn-primary text-xs">Save Template</button>
             </div>
         </div>
     </div>
@@ -80,12 +80,12 @@
             <div class="flex items-center gap-6">
                 <label class="inline-flex items-center gap-2 cursor-pointer">
                     <input type="hidden" name="is_default" value="0">
-                    <input type="checkbox" name="is_default" value="1" {{ $template->is_default ? 'checked' : '' }} class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                    <input type="checkbox" name="is_default" value="1" {{ $template->is_default ? 'checked' : '' }} class="rounded" style="accent-color: var(--brand-button);">
                     <span class="text-sm" style="color: var(--text-secondary);">Default</span>
                 </label>
                 <label class="inline-flex items-center gap-2 cursor-pointer">
                     <input type="hidden" name="is_active" value="0">
-                    <input type="checkbox" name="is_active" value="1" {{ $template->is_active ? 'checked' : '' }} class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                    <input type="checkbox" name="is_active" value="1" {{ $template->is_active ? 'checked' : '' }} class="rounded" style="accent-color: var(--brand-button);">
                     <span class="text-sm" style="color: var(--text-secondary);">Active</span>
                 </label>
             </div>
@@ -123,7 +123,7 @@
                         <span x-show="step.is_locked" class="flex-shrink-0" title="Locked" style="color: var(--ds-amber, #f59e0b);">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
                         </span>
-                        <span x-show="step.is_milestone" class="flex-shrink-0" title="Milestone" style="color: var(--brand-icon, #0ea5e9);">
+                        <span x-show="step.is_milestone" class="flex-shrink-0" title="Milestone" style="color: var(--brand-icon);">
                             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"/></svg>
                         </span>
                         <span class="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style="background: var(--surface-2); color: var(--text-muted);" x-text="completionLabel(step.completion_type)"></span>
@@ -137,7 +137,7 @@
                             <span class="text-xs font-mono" style="color: var(--text-muted);" x-text="step.rag_red_days"></span>
                         </span>
                         <button @click.stop="deleteStep(step)" class="p-1 rounded-md transition-colors flex-shrink-0 ml-1"
-                                :style="step.is_locked ? 'color: var(--surface-2); cursor: not-allowed;' : 'color: var(--text-muted);'"
+                                :style="step.is_locked ? 'color: var(--text-faint); cursor: not-allowed;' : 'color: var(--text-muted);'"
                                 :disabled="step.is_locked" :title="step.is_locked ? 'Locked step' : 'Delete'">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                         </button>
@@ -243,13 +243,13 @@
                                 <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Notifications</div>
                                 <div class="flex items-center gap-4">
                                     <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="editForm.notify_agent" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);"> Agent
+                                        <input type="checkbox" x-model="editForm.notify_agent" class="rounded" style="accent-color: var(--brand-button);"> Agent
                                     </label>
                                     <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="editForm.notify_bm" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);"> BM
+                                        <input type="checkbox" x-model="editForm.notify_bm" class="rounded" style="accent-color: var(--brand-button);"> BM
                                     </label>
                                     <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="editForm.notify_admin" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);"> Admin
+                                        <input type="checkbox" x-model="editForm.notify_admin" class="rounded" style="accent-color: var(--brand-button);"> Admin
                                     </label>
                                 </div>
                             </div>
@@ -257,10 +257,10 @@
                                 <div class="text-xs font-medium uppercase tracking-wider mb-2" style="color: var(--text-muted);">Options</div>
                                 <div class="flex items-center gap-4">
                                     <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="editForm.is_milestone" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);"> Milestone
+                                        <input type="checkbox" x-model="editForm.is_milestone" class="rounded" style="accent-color: var(--brand-button);"> Milestone
                                     </label>
                                     <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                        <input type="checkbox" x-model="editForm.is_locked" :disabled="step.is_locked && step.id" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);"> Locked
+                                        <input type="checkbox" x-model="editForm.is_locked" :disabled="step.is_locked && step.id" class="rounded" style="accent-color: var(--brand-button);"> Locked
                                     </label>
                                 </div>
                             </div>
@@ -296,7 +296,7 @@
                             </div>
                             <div x-show="editForm.status_trigger || editForm.negative_status_trigger" class="mt-3">
                                 <label class="inline-flex items-center gap-1.5 text-sm cursor-pointer" style="color: var(--text-secondary);">
-                                    <input type="checkbox" x-model="editForm.requires_bm_approval" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                                    <input type="checkbox" x-model="editForm.requires_bm_approval" class="rounded" style="accent-color: var(--brand-button);">
                                     Requires BM approval before status changes
                                 </label>
                             </div>
@@ -530,7 +530,7 @@
                     const render = (step, prefix, isLast) => {
                         const connector = prefix === '' ? '' : (isLast ? '└→ ' : '├→ ');
                         const daysStr = step.days_offset > 0 ? ` <span style="color:var(--text-muted);">(+${step.days_offset}d)</span>` : '';
-                        const milestoneStr = step.is_milestone ? ' <span style="color:var(--brand-icon, #0ea5e9);">★</span>' : '';
+                        const milestoneStr = step.is_milestone ? ' <span style="color:var(--brand-icon);">★</span>' : '';
                         const lockedStr = step.is_locked ? ' <span style="color:var(--ds-amber, #f59e0b);">🔒</span>' : '';
                         lines.push(`<span style="color:var(--text-muted);">${prefix}${connector}</span><span style="color:var(--text-primary);">${step.name}</span>${daysStr}${milestoneStr}${lockedStr}`);
 

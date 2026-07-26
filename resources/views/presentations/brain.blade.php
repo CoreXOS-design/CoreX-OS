@@ -36,7 +36,7 @@
     </div>
 </div>
 
-<div id="brain-app" class="min-h-screen -mx-4 -mt-4 px-4 pt-4 pb-12 bg-gray-950 text-gray-100" style="border-radius:1rem;">
+<div id="brain-app" class="min-h-screen -mx-4 -mt-4 px-4 pt-4 pb-12" style="border-radius:1rem; background:var(--surface); color:var(--text-primary);">
 
 {{-- ── TOAST CONTAINER ──────────────────────────────────────────────────── --}}
 <div id="brain-toast" class="fixed top-4 right-4 z-50 space-y-2 pointer-events-none" style="max-width:380px;"></div>
@@ -47,56 +47,60 @@
 <div class="mb-8">
 
     {{-- Command card --}}
-    <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
+    <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
 
         {{-- Price input row --}}
         <div class="flex flex-wrap items-end gap-4 mb-4">
             {{-- Main price input --}}
             <div class="flex-1 min-w-[200px]">
-                <label class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1.5">Listing Price<!-- Price Slider --></label>
+                <label class="block text-[10px] uppercase tracking-widest mb-1.5" style="color:var(--text-muted);">Listing Price<!-- Price Slider --></label>
                 <div class="relative">
-                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">R</span>
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium" style="color:var(--text-muted);">R</span>
                     <input type="text" id="inp-price"
                            value="{{ $defaults['price'] ?? '' }}"
                            placeholder="2,500,000"
-                           class="w-full bg-gray-800 border border-gray-700 rounded-md pl-7 pr-3 py-2.5 text-lg font-semibold text-white placeholder-gray-600 focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none transition-colors"
+                           class="w-full border rounded-md pl-7 pr-3 py-2.5 text-lg font-semibold focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none transition-colors"
+                           style="background:var(--surface-2); border-color:var(--border); color:var(--text-primary);"
                            inputmode="numeric">
                 </div>
             </div>
 
             {{-- Quick adjust buttons --}}
             <div class="flex gap-1.5">
-                <button data-adjust="-100000" class="adj-btn px-2.5 py-2 bg-gray-800 border border-gray-700 rounded-md text-xs text-gray-400 hover:text-white hover:border-gray-600 transition-colors">-100k</button>
-                <button data-adjust="-50000" class="adj-btn px-2.5 py-2 bg-gray-800 border border-gray-700 rounded-md text-xs text-gray-400 hover:text-white hover:border-gray-600 transition-colors">-50k</button>
-                <button data-adjust="-25000" class="adj-btn px-2.5 py-2 bg-gray-800 border border-gray-700 rounded-md text-xs text-gray-400 hover:text-white hover:border-gray-600 transition-colors">-25k</button>
-                <button data-adjust="50000" class="adj-btn px-2.5 py-2 bg-gray-800 border border-gray-700 rounded-md text-xs text-green-500 hover:text-green-400 hover:border-gray-600 transition-colors">+50k</button>
+                <button data-adjust="-100000" class="adj-btn px-2.5 py-2 border rounded-md text-xs transition-colors" style="background:var(--surface-2); border-color:var(--border); color:var(--text-muted);">-100k</button>
+                <button data-adjust="-50000" class="adj-btn px-2.5 py-2 border rounded-md text-xs transition-colors" style="background:var(--surface-2); border-color:var(--border); color:var(--text-muted);">-50k</button>
+                <button data-adjust="-25000" class="adj-btn px-2.5 py-2 border rounded-md text-xs transition-colors" style="background:var(--surface-2); border-color:var(--border); color:var(--text-muted);">-25k</button>
+                <button data-adjust="50000" class="adj-btn px-2.5 py-2 border rounded-md text-xs text-green-500 hover:text-green-400 transition-colors" style="background:var(--surface-2); border-color:var(--border);">+50k</button>
             </div>
         </div>
 
         {{-- Compact inputs row --}}
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5">
             <div>
-                <label class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Suburb</label>
+                <label class="block text-[10px] uppercase tracking-widest mb-1" style="color:var(--text-muted);">Suburb</label>
                 <input type="text" id="inp-suburb" value="{{ $defaults['suburb'] }}"
-                       class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-200 focus:border-[#00b4d8] outline-none transition-colors">
+                       class="w-full border rounded-md px-3 py-1.5 text-xs focus:border-[#00b4d8] outline-none transition-colors"
+                       style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);">
             </div>
             <div>
-                <label class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Type</label>
-                <select id="inp-type" class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-200 focus:border-[#00b4d8] outline-none transition-colors">
+                <label class="block text-[10px] uppercase tracking-widest mb-1" style="color:var(--text-muted);">Type</label>
+                <select id="inp-type" class="w-full border rounded-md px-3 py-1.5 text-xs focus:border-[#00b4d8] outline-none transition-colors" style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);">
                     @foreach(['house','unit','land','other'] as $t)
                         <option value="{{ $t }}" {{ $defaults['type'] === $t ? 'selected' : '' }}>{{ ucfirst($t) }}</option>
                     @endforeach
                 </select>
             </div>
             <div>
-                <label class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Bedrooms</label>
+                <label class="block text-[10px] uppercase tracking-widest mb-1" style="color:var(--text-muted);">Bedrooms</label>
                 <input type="number" id="inp-bedrooms" min="0" max="20" value="{{ $defaults['bedrooms'] ?? '' }}"
-                       class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-200 focus:border-[#00b4d8] outline-none transition-colors">
+                       class="w-full border rounded-md px-3 py-1.5 text-xs focus:border-[#00b4d8] outline-none transition-colors"
+                       style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);">
             </div>
             <div>
-                <label class="block text-[10px] uppercase tracking-widest text-gray-500 mb-1">Size m&sup2;</label>
+                <label class="block text-[10px] uppercase tracking-widest mb-1" style="color:var(--text-muted);">Size m&sup2;</label>
                 <input type="number" id="inp-size" min="0" value="{{ $defaults['size_m2'] ?? '' }}"
-                       class="w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-200 focus:border-[#00b4d8] outline-none transition-colors">
+                       class="w-full border rounded-md px-3 py-1.5 text-xs focus:border-[#00b4d8] outline-none transition-colors"
+                       style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);">
             </div>
         </div>
 
@@ -107,7 +111,9 @@
         <div class="flex flex-wrap items-center gap-3">
             {{-- Primary: Simulate --}}
             <button id="btn-simulate"
-                    class="px-5 py-2.5 bg-[#0b2a4a] text-white text-sm font-medium rounded-md hover:bg-[#00b4d8] active:bg-[#081f36] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                    class="px-5 py-2.5 text-white text-sm font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                    style="background:var(--brand-button, #0b2a4a);"
+                    onmouseover="this.style.background='var(--brand-icon,#00b4d8)'" onmouseout="this.style.background='var(--brand-button,#0b2a4a)'"
                     {{ $canSimulate ? '' : 'disabled' }}>
                 <span id="btn-simulate-text">Run Simulation</span>
                 <svg id="btn-simulate-spin" class="hidden animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
@@ -116,41 +122,44 @@
                 </svg>
             </button>
 
-            <div class="w-px h-6 bg-gray-700"></div>
+            <div class="w-px h-6" style="background:var(--border);"></div>
 
             {{-- Secondary: Price Band --}}
             <div class="relative group">
                 <button id="btn-priceband"
-                        class="px-4 py-2 bg-gray-800 border border-gray-700 text-gray-300 text-xs font-medium rounded-md hover:border-gray-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        class="px-4 py-2 border text-xs font-medium rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);"
                         {{ $canPriceBand ? '' : 'disabled' }}>
                     Price Band
                 </button>
                 @unless($canPriceBand)
-                    <span class="block text-[10px] text-gray-600 mt-1">Enable price_band_v1</span>
+                    <span class="block text-[10px] mt-1" style="color:var(--text-faint);">Enable price_band_v1</span>
                 @endunless
             </div>
 
             {{-- Secondary: Threats --}}
             <div class="relative group">
                 <button id="btn-threats"
-                        class="px-4 py-2 bg-gray-800 border border-gray-700 text-gray-300 text-xs font-medium rounded-md hover:border-gray-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        class="px-4 py-2 border text-xs font-medium rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);"
                         {{ $canThreats ? '' : 'disabled' }}>
                     Competitive Threats
                 </button>
                 @unless($canThreats)
-                    <span class="block text-[10px] text-gray-600 mt-1">Enable competitive_threat_v1</span>
+                    <span class="block text-[10px] mt-1" style="color:var(--text-faint);">Enable competitive_threat_v1</span>
                 @endunless
             </div>
 
             {{-- Secondary: Trajectory --}}
             <div class="relative group">
                 <button id="btn-trajectory"
-                        class="px-4 py-2 bg-gray-800 border border-gray-700 text-gray-300 text-xs font-medium rounded-md hover:border-gray-500 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        class="px-4 py-2 border text-xs font-medium rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        style="background:var(--surface-2); border-color:var(--border); color:var(--text-secondary);"
                         {{ $canTrajectory ? '' : 'disabled' }}>
                     Trajectory
                 </button>
                 @unless($canTrajectory)
-                    <span class="block text-[10px] text-gray-600 mt-1">Enable trajectory_simulation_v1</span>
+                    <span class="block text-[10px] mt-1" style="color:var(--text-faint);">Enable trajectory_simulation_v1</span>
                 @endunless
             </div>
         </div>
@@ -163,62 +172,62 @@
 <div id="tactical-grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
 
     {{-- Card 1: Probability --}}
-    <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-        <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Probability</p>
+    <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+        <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Probability</p>
         <div id="card-prob-empty" class="text-center py-4">
-            <p class="text-gray-600 text-xs">Run a simulation to see results</p>
+            <p class="text-xs" style="color:var(--text-faint);">Run a simulation to see results</p>
         </div>
         <div id="card-prob" class="hidden">
             <div class="flex items-baseline gap-2 mb-1">
-                <span id="prob-p60" class="text-4xl font-bold text-white tabular-nums">--</span>
-                <span class="text-xs text-gray-500">P60</span>
+                <span id="prob-p60" class="text-4xl font-bold tabular-nums" style="color:var(--text-primary);">--</span>
+                <span class="text-xs" style="color:var(--text-muted);">P60</span>
                 <span id="prob-delta" class="text-sm font-medium hidden"></span>
             </div>
             <div class="flex gap-4 mt-2">
                 <div>
-                    <span class="text-[10px] text-gray-500">P30</span>
-                    <p id="prob-p30" class="text-sm font-semibold text-gray-300 tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">P30</span>
+                    <p id="prob-p30" class="text-sm font-semibold tabular-nums" style="color:var(--text-secondary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">P90</span>
-                    <p id="prob-p90" class="text-sm font-semibold text-gray-300 tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">P90</span>
+                    <p id="prob-p90" class="text-sm font-semibold tabular-nums" style="color:var(--text-secondary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">Exp. Days</span>
-                    <p id="prob-days" class="text-sm font-semibold text-gray-300 tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Exp. Days</span>
+                    <p id="prob-days" class="text-sm font-semibold tabular-nums" style="color:var(--text-secondary);">--</p>
                 </div>
             </div>
-            <div class="mt-3 pt-3 border-t border-gray-800">
-                <p class="text-[10px] text-gray-600">Price tested</p>
-                <p id="prob-price" class="text-xs text-gray-400 tabular-nums">--</p>
+            <div class="mt-3 pt-3 border-t" style="border-color:var(--border);">
+                <p class="text-[10px]" style="color:var(--text-faint);">Price tested</p>
+                <p id="prob-price" class="text-xs tabular-nums" style="color:var(--text-muted);">--</p>
             </div>
         </div>
     </div>
 
     {{-- Card 2: Launch Position / Confidence --}}
-    <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-        <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Position</p>
+    <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+        <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Position</p>
         <div id="card-pos-empty" class="text-center py-4">
-            <p class="text-gray-600 text-xs">Run a simulation to see results</p>
+            <p class="text-xs" style="color:var(--text-faint);">Run a simulation to see results</p>
         </div>
         <div id="card-pos" class="hidden">
             <div id="pos-launch" class="mb-3 hidden">
-                <span class="text-[10px] text-gray-500">Launch</span>
-                <p id="pos-launch-label" class="text-lg font-bold text-white">--</p>
+                <span class="text-[10px]" style="color:var(--text-muted);">Launch</span>
+                <p id="pos-launch-label" class="text-lg font-bold" style="color:var(--text-primary);">--</p>
             </div>
             <div class="flex gap-4">
                 <div>
-                    <span class="text-[10px] text-gray-500">Confidence</span>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Confidence</span>
                     <p class="flex items-baseline gap-1">
-                        <span id="pos-conf-score" class="text-2xl font-bold text-white tabular-nums">--</span>
-                        <span id="pos-conf-grade" class="text-xs font-medium text-gray-400">--</span>
+                        <span id="pos-conf-score" class="text-2xl font-bold tabular-nums" style="color:var(--text-primary);">--</span>
+                        <span id="pos-conf-grade" class="text-xs font-medium" style="color:var(--text-muted);">--</span>
                     </p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">PPI</span>
+                    <span class="text-[10px]" style="color:var(--text-muted);">PPI</span>
                     <p class="flex items-baseline gap-1">
-                        <span id="pos-ppi-score" class="text-2xl font-bold text-white tabular-nums">--</span>
-                        <span id="pos-ppi-label" class="text-xs font-medium text-gray-400">--</span>
+                        <span id="pos-ppi-score" class="text-2xl font-bold tabular-nums" style="color:var(--text-primary);">--</span>
+                        <span id="pos-ppi-label" class="text-xs font-medium" style="color:var(--text-muted);">--</span>
                     </p>
                 </div>
             </div>
@@ -226,57 +235,57 @@
     </div>
 
     {{-- Card 3: Market Pressure --}}
-    <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-        <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Market Pressure</p>
+    <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+        <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Market Pressure</p>
         <div id="card-mkt-empty" class="text-center py-4">
-            <p class="text-gray-600 text-xs">Run a simulation to see results</p>
+            <p class="text-xs" style="color:var(--text-faint);">Run a simulation to see results</p>
         </div>
         <div id="card-mkt" class="hidden">
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <span class="text-[10px] text-gray-500">Months Stock</span>
-                    <p id="mkt-months" class="text-lg font-bold text-white tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Months Stock</span>
+                    <p id="mkt-months" class="text-lg font-bold tabular-nums" style="color:var(--text-primary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">Median DOM</span>
-                    <p id="mkt-dom" class="text-lg font-bold text-white tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Median DOM</span>
+                    <p id="mkt-dom" class="text-lg font-bold tabular-nums" style="color:var(--text-primary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">Stale %</span>
-                    <p id="mkt-stale" class="text-lg font-bold text-white tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Stale %</span>
+                    <p id="mkt-stale" class="text-lg font-bold tabular-nums" style="color:var(--text-primary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">Data Quality</span>
-                    <p id="mkt-quality" class="text-lg font-bold text-white tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Data Quality</span>
+                    <p id="mkt-quality" class="text-lg font-bold tabular-nums" style="color:var(--text-primary);">--</p>
                 </div>
             </div>
         </div>
     </div>
 
     {{-- Card 4: Holding Cost --}}
-    <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-        <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Holding Cost</p>
+    <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+        <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Holding Cost</p>
         <div id="card-hold-empty" class="text-center py-4">
-            <p class="text-gray-600 text-xs">Run a simulation to see results</p>
+            <p class="text-xs" style="color:var(--text-faint);">Run a simulation to see results</p>
         </div>
         <div id="card-hold" class="hidden">
             <div>
-                <span class="text-[10px] text-gray-500">Monthly</span>
-                <p id="hold-monthly" class="text-2xl font-bold text-white tabular-nums">--</p>
+                <span class="text-[10px]" style="color:var(--text-muted);">Monthly</span>
+                <p id="hold-monthly" class="text-2xl font-bold tabular-nums" style="color:var(--text-primary);">--</p>
             </div>
             <div class="flex gap-4 mt-2">
                 <div>
-                    <span class="text-[10px] text-gray-500">90-day</span>
-                    <p id="hold-90" class="text-sm font-semibold text-gray-300 tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">90-day</span>
+                    <p id="hold-90" class="text-sm font-semibold tabular-nums" style="color:var(--text-secondary);">--</p>
                 </div>
                 <div>
-                    <span class="text-[10px] text-gray-500">Per 30-day delay</span>
-                    <p id="hold-delay" class="text-sm font-semibold text-gray-300 tabular-nums">--</p>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Per 30-day delay</span>
+                    <p id="hold-delay" class="text-sm font-semibold tabular-nums" style="color:var(--text-secondary);">--</p>
                 </div>
             </div>
         </div>
         <div id="card-hold-none" class="hidden text-center py-4">
-            <p class="text-gray-600 text-xs">Add holding inputs on the Overview page</p>
+            <p class="text-xs" style="color:var(--text-faint);">Add holding inputs on the Overview page</p>
         </div>
     </div>
 </div>
@@ -288,21 +297,21 @@
 
     {{-- Key Drivers + Risks --}}
     <div id="strategy-drivers" class="hidden grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Key Drivers</p>
+        <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+            <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Key Drivers</p>
             <ul id="drivers-list" class="space-y-1.5"></ul>
         </div>
-        <div class="bg-gray-900 border border-gray-800 rounded-md p-5">
-            <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Risk Factors</p>
+        <div class="border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
+            <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Risk Factors</p>
             <ul id="risks-list" class="space-y-1.5"></ul>
         </div>
     </div>
 
     {{-- Competitive Threats table --}}
-    <div id="strategy-threats" class="hidden bg-gray-900 border border-gray-800 rounded-md p-5">
+    <div id="strategy-threats" class="hidden border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
         <details>
-            <summary class="text-[10px] uppercase tracking-widest text-gray-500 cursor-pointer hover:text-gray-400 transition-colors">
-                Competitive Threats <span id="threats-count" class="text-gray-600"></span>
+            <summary class="text-[10px] uppercase tracking-widest cursor-pointer transition-colors" style="color:var(--text-muted);">
+                Competitive Threats <span id="threats-count" style="color:var(--text-faint);"></span>
             </summary>
             <div id="threats-table" class="mt-3"></div>
         </details>
@@ -310,10 +319,10 @@
 
     {{-- Price Band cards --}}
     <div id="strategy-priceband" class="hidden">
-        <p class="text-[10px] uppercase tracking-widest text-gray-500 mb-3">Price Band</p>
+        <p class="text-[10px] uppercase tracking-widest mb-3" style="color:var(--text-muted);">Price Band</p>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3" id="priceband-cards"></div>
-        <details id="priceband-scan-wrap" class="hidden mt-3 bg-gray-900 border border-gray-800 rounded-md p-4">
-            <summary class="text-[10px] uppercase tracking-widest text-gray-500 cursor-pointer hover:text-gray-400 transition-colors">
+        <details id="priceband-scan-wrap" class="hidden mt-3 border rounded-md p-4" style="background:var(--surface); border-color:var(--border);">
+            <summary class="text-[10px] uppercase tracking-widest cursor-pointer transition-colors" style="color:var(--text-muted);">
                 Scan Detail
             </summary>
             <div id="priceband-scan" class="mt-3"></div>
@@ -321,9 +330,9 @@
     </div>
 
     {{-- Trajectory table --}}
-    <div id="strategy-trajectory" class="hidden bg-gray-900 border border-gray-800 rounded-md p-5">
+    <div id="strategy-trajectory" class="hidden border rounded-md p-5" style="background:var(--surface); border-color:var(--border);">
         <details>
-            <summary class="text-[10px] uppercase tracking-widest text-gray-500 cursor-pointer hover:text-gray-400 transition-colors">
+            <summary class="text-[10px] uppercase tracking-widest cursor-pointer transition-colors" style="color:var(--text-muted);">
                 Price Trajectory
             </summary>
             <div id="trajectory-table" class="mt-3"></div>

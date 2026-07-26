@@ -14,16 +14,16 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded banner) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Pipeline Setup</h1>
-                <p class="text-sm text-white/60">Define the steps deals follow through each stage of your pipeline.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Pipeline Setup</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Define the steps deals follow through each stage of your pipeline.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <form method="POST" action="{{ route('deals-v2.pipeline.load-defaults') }}" class="inline">
                     @csrf
-                    <button type="submit" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-2"
+                    <button type="submit" class="corex-btn-outline text-xs inline-flex items-center gap-2"
                             title="Add the standard Bond / Cash / Sale-of-2nd templates for your agency (idempotent — never overwrites your own templates).">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
@@ -31,7 +31,7 @@
                         Load standard templates
                     </button>
                 </form>
-                <a href="{{ route('deals-v2.pipeline.create') }}" class="corex-btn-primary inline-flex items-center gap-2">
+                <a href="{{ route('deals-v2.pipeline.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -80,7 +80,7 @@
             </select>
 
             @if(request('search') || request('deal_type'))
-                <a href="{{ route('deals-v2.pipeline.index') }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">Clear</a>
+                <a href="{{ route('deals-v2.pipeline.index') }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon);">Clear</a>
             @endif
 
             <span class="text-xs ml-auto" style="color: var(--text-muted);">
@@ -134,7 +134,8 @@
                                 };
                                 $labels = ['bond' => 'Bond', 'cash' => 'Cash', 'sale_of_2nd' => 'Sale of 2nd'];
                             @endphp
-                            <tr class="transition-colors" style="border-top: 1px solid var(--border);">
+                            <tr class="transition-colors" style="border-top: 1px solid var(--border);"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
                                 <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">
                                     <a href="{{ route('deals-v2.pipeline.edit', $tpl) }}" class="hover:underline">{{ $tpl->name }}</a>
                                 </td>
@@ -160,7 +161,10 @@
                                         <input type="hidden" name="is_active" value="{{ $tpl->is_active ? '0' : '1' }}">
                                         <button type="submit" class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
                                                 style="background: {{ $tpl->is_active ? 'var(--brand-button)' : 'var(--surface-2)' }}; border: 1px solid {{ $tpl->is_active ? 'transparent' : 'var(--border)' }};">
-                                            <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform {{ $tpl->is_active ? 'translate-x-4' : 'translate-x-0.5' }}"></span>
+                                            {{-- Knob: white over the brand-filled "on" track; a --surface step
+                                                 over the --surface-2 "off" track so it stays visible in light mode. --}}
+                                            <span class="inline-block h-3.5 w-3.5 transform rounded-full transition-transform {{ $tpl->is_active ? 'translate-x-4' : 'translate-x-0.5' }}"
+                                                  style="background: {{ $tpl->is_active ? '#fff' : 'var(--surface)' }};"></span>
                                         </button>
                                     </form>
                                 </td>

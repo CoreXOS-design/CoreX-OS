@@ -5,12 +5,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <a href="{{ route('admin.soft-deletes.index') }}" class="text-xs font-semibold text-white/60 hover:text-white">&larr; Soft Deletes</a>
-                <h1 class="text-xl font-bold text-white leading-tight mt-1">Archived {{ $label }}</h1>
-                <p class="text-sm text-white/60">Restore any record below to bring it back into CoreX.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Archived {{ $label }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Restore any record below to bring it back into CoreX.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.soft-deletes.index') }}" class="corex-btn-outline text-xs">&larr; Soft Deletes</a>
             </div>
         </div>
     </div>

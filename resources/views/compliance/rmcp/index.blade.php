@@ -3,20 +3,20 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-rmcp-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">RMCP Versions</h1>
-                <p class="text-sm text-white/60">Risk Management & Compliance Programme — version history and approvals.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">RMCP Versions</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Risk Management & Compliance Programme — version history and approvals.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Back</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs">Back</a>
                 @permission('edit_rmcp')
-                <a href="{{ route('compliance.rmcp.variables') }}" data-tour="comp-rmcp-variables" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3);">Variables</a>
-                <a href="{{ route('compliance.rmcp.create') }}" data-tour="comp-rmcp-new" class="corex-btn-primary">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <a href="{{ route('compliance.rmcp.variables') }}" data-tour="comp-rmcp-variables" class="corex-btn-outline text-xs">Variables</a>
+                <a href="{{ route('compliance.rmcp.create') }}" data-tour="comp-rmcp-new" class="corex-btn-primary text-xs">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     New Version
                 </a>
                 @endpermission
@@ -29,7 +29,7 @@
         <form method="GET" class="flex flex-col sm:flex-row sm:items-center gap-3">
             <input type="text" name="search" value="{{ request('search') }}" placeholder="Search versions..."
                    class="w-full sm:max-w-xs rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <button type="submit" class="corex-btn-outline">Search</button>
             @if(request('search'))
                 <a href="{{ route('compliance.rmcp.index') }}" class="text-sm font-medium" style="color: var(--brand-icon);">Clear</a>

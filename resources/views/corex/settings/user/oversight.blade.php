@@ -3,11 +3,11 @@
 @section('corex-content')
 <div class="space-y-6 max-w-5xl mx-auto">
 
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Oversight Preferences</h1>
-                <p class="text-sm text-white/60">Choose when and how you want to be alerted about each oversight category.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Oversight Preferences</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Choose when and how you want to be alerted about each oversight category.</p>
             </div>
         </div>
     </div>
@@ -70,12 +70,12 @@
                                            name="preferences[{{ $i }}][threshold_hours]"
                                            value="{{ $p['threshold_hours'] }}"
                                            class="w-28 rounded-md px-3 py-2 text-sm"
-                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </td>
                                 <td class="px-4 py-3">
                                     <select name="preferences[{{ $i }}][notify_channel]"
                                             class="rounded-md px-3 py-2 text-sm"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                         <option value="in_app" @selected($p['notify_channel'] === 'in_app')>In-app</option>
                                         <option value="email" @selected($p['notify_channel'] === 'email')>Email</option>
                                         <option value="both" @selected($p['notify_channel'] === 'both')>Both</option>

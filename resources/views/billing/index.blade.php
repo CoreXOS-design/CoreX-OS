@@ -16,17 +16,17 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (branded) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Billing</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Billing</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     What {{ $agency->name }} pays for CoreX — {{ now()->format('F Y') }}.
                 </p>
             </div>
-            <div class="text-left md:text-right">
-                <div class="text-xs uppercase tracking-wider text-white/50">Monthly total</div>
-                <div class="text-3xl font-bold text-white leading-tight">{{ Zar::format($quote->payableZar) }}</div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Monthly total</span>
+                <span class="text-sm font-bold tabular-nums leading-tight" style="color: var(--text-primary);">{{ Zar::format($quote->payableZar) }}</span>
             </div>
         </div>
     </div>
@@ -49,8 +49,8 @@
          the agency can see what they're getting. --}}
     @if($quote->basis === \App\Services\Billing\BillingQuote::BASIS_CUSTOM)
         <div class="rounded-md px-4 py-3 flex items-start gap-3"
-             style="background:color-mix(in srgb, var(--ds-navy,#0b2a4a) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-navy,#0b2a4a) 25%, transparent);">
-            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="color:var(--ds-navy,#0b2a4a);">
+             style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="color:var(--brand-icon);">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
             <div class="flex-1 text-sm" style="color:var(--text-primary);">

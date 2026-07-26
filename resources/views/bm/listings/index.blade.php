@@ -14,12 +14,12 @@
 
 <div class="w-full space-y-5">
 
-    {{-- Page Header (Pattern A: branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page Header (AT-336: flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Branch Listing Stock</h1>
-                <p class="text-sm text-white/60">Read-only view from imported Propcon stock for your branch.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Branch Listing Stock</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Read-only view from imported Propcon stock for your branch.</p>
             </div>
         </div>
     </div>
@@ -42,7 +42,10 @@
         </svg>
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="ds-badge ds-badge-info" title="Current listing view">{{ strtoupper((string)(($context['filter'] ?? '') ?: 'active')) }}</span>
+                <span class="ds-badge" title="Current listing view"
+                      style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent);
+                             color: var(--brand-icon);
+                             border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">{{ strtoupper((string)(($context['filter'] ?? '') ?: 'active')) }}</span>
                 <strong>{{ $context['title'] ?? 'Listings' }}</strong>
                 <span class="text-xs" style="color: var(--text-muted);">·</span>
                 <span class="text-xs" style="color: var(--text-muted);">{{ number_format($contextCount) }} {{ \Illuminate\Support\Str::plural('listing', $contextCount) }}</span>

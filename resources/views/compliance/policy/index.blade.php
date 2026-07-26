@@ -3,18 +3,18 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-policy-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Agency Policies</h1>
-                <p class="text-sm text-white/60">Versioned staff-acknowledged policies (POPIA / CPA / NCC and more).</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agency Policies</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Versioned staff-acknowledged policies (POPIA / CPA / NCC and more).</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.policy.dashboard.index') }}" data-tour="comp-policy-register" class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Register</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.policy.dashboard.index') }}" data-tour="comp-policy-register" class="corex-btn-outline text-xs">Register</a>
                 @permission('edit_policy')
-                <a href="{{ route('compliance.policy.create') }}" data-tour="comp-policy-new" class="corex-btn-primary">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <a href="{{ route('compliance.policy.create') }}" data-tour="comp-policy-new" class="corex-btn-primary text-xs">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     New Policy
                 </a>
                 @endpermission
@@ -34,7 +34,7 @@
                 <p class="text-xs mt-0.5" style="color: var(--text-muted);"><code>{{ $policy->policy_key }}</code> @if($policy->description) — {{ $policy->description }} @endif</p>
             </div>
             @permission('edit_policy')
-            <a href="{{ route('compliance.policy.version.create', $policy) }}" class="corex-btn-outline">New Version</a>
+            <a href="{{ route('compliance.policy.version.create', $policy) }}" class="corex-btn-outline text-xs">New Version</a>
             @endpermission
         </div>
         <div class="overflow-x-auto" @if($loop->first) data-tour="comp-policy-versions" @endif>

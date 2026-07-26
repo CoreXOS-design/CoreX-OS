@@ -3,18 +3,18 @@
 
 @section('corex-content')
 <div class="space-y-6">
-    <div class="rounded-md px-6 py-5" data-tour="cc-my-performance-header" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-my-performance-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Performance</h1>
-                <p class="text-sm text-white/60">{{ $user->name }} · Last {{ number_format($days) }} days</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Performance</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $user->name }} · Last {{ number_format($days) }} days</p>
             </div>
-            <div class="flex items-center gap-2" data-tour="cc-my-performance-range">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2" data-tour="cc-my-performance-range">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @foreach([7 => '7d', 30 => '30d', 90 => '90d', 365 => 'Year'] as $d => $label)
                     <a href="{{ route('command-center.reporting.agent', ['days' => $d]) }}"
-                       class="text-xs px-2.5 py-1 rounded-md no-underline {{ $days == $d ? 'text-white font-semibold' : 'text-white/60' }}"
-                       style="{{ $days == $d ? 'background: var(--brand-button, #0ea5e9);' : 'background: rgba(255,255,255,0.08);' }}">{{ $label }}</a>
+                       class="text-xs px-2.5 py-1 rounded-md no-underline {{ $days == $d ? 'font-semibold' : '' }}"
+                       style="{{ $days == $d ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);' }}">{{ $label }}</a>
                 @endforeach
             </div>
         </div>

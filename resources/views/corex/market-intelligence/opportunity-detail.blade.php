@@ -13,25 +13,29 @@
 
     @include('corex.market-intelligence.partials.tabs')
 
-    {{-- Breadcrumb + header --}}
-    <div style="margin-bottom: 16px; padding: 14px 18px; border-radius: 6px;
-                background: var(--brand-default, #0b2a4a); color: #fff;">
-        <nav style="font-size: 0.6875rem; margin-bottom: 3px; color: rgba(255,255,255,0.75);">
-            <a href="{{ route('market-intelligence.opportunities') }}"
-               style="text-decoration: none; color: rgba(255,255,255,0.85);">
-                ← All opportunities
-            </a>
-        </nav>
-        <h1 style="font-size: 1.125rem; font-weight: 600; margin: 0; line-height: 1.2;">
-            {{ $tp->displayAddress() }}
-        </h1>
-        <div style="font-size: 0.75rem; margin-top: 3px; color: rgba(255,255,255,0.75);">
-            @if($tp->isPromoted())
-                Promoted to agency stock
-            @else
-                Tracked property — not yet mandated
-            @endif
-            · external_id: <code style="font-size: 0.625rem; background: rgba(255,255,255,0.10); padding: 1px 4px; border-radius: 2px;">{{ $tp->external_id }}</code>
+    {{-- Page header — flat neutral bar (AT-336). The "All opportunities" back
+         link moved from a stacked breadcrumb into the right action cluster. --}}
+    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    {{ $tp->displayAddress() }}
+                </h1>
+                <div class="text-xs" style="margin-top: 2px; color: var(--text-muted);">
+                    @if($tp->isPromoted())
+                        Promoted to agency stock
+                    @else
+                        Tracked property — not yet mandated
+                    @endif
+                    · external_id: <code style="font-size: 0.625rem; background: var(--surface-2); color: var(--text-secondary); padding: 1px 4px; border-radius: 4px;">{{ $tp->external_id }}</code>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.opportunities') }}"
+                   class="corex-btn-outline text-xs">
+                    ← All opportunities
+                </a>
+            </div>
         </div>
     </div>
 
@@ -285,8 +289,11 @@
                 @foreach(collect($sourceChain)->reverse() as $entry)
                     <div style="display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px;
                                 background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;">
-                        <span style="padding: 2px 6px; font-size: 0.625rem; font-weight: 700;
-                                     background: var(--brand-default, #0b2a4a); color: #fff; border-radius: 3px; flex-shrink: 0;">
+                        <span style="padding: 2px 6px; font-size: 0.625rem; font-weight: 700; flex-shrink: 0;
+                                     background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent);
+                                     color: var(--brand-icon, #0ea5e9);
+                                     border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 35%, transparent);
+                                     border-radius: 4px;">
                             {{ strtoupper($entry['type'] ?? '?') }}
                         </span>
                         <div style="flex: 1; min-width: 0; font-size: 0.6875rem; color: var(--text-secondary);">
@@ -322,15 +329,15 @@
                     @php $isP24 = strtolower((string) $listing->portal_source) === 'p24'; @endphp
                     <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px;">
                         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
-                            <span style="padding: 2px 6px; font-size: 0.6125rem; font-weight: 700; color: #fff; border-radius: 3px;
-                                         background: {{ $isP24 ? '#1e40af' : '#059669' }};">
+                            <span style="padding: 2px 6px; font-size: 0.6125rem; font-weight: 700; color: #fff; border-radius: 4px;
+                                         background: {{ $isP24 ? 'var(--portal-p24, #1e40af)' : 'var(--portal-pp, #059669)' }};">
                                 {{ strtoupper((string) $listing->portal_source) }}
                             </span>
                             <span style="font-size: 0.8125rem; font-weight: 500; color: var(--text-primary);">
                                 Ref {{ $listing->portal_ref }}
                             </span>
                             @if(!$listing->is_active)
-                                <span style="padding: 1px 5px; font-size: 0.6125rem; background: rgba(107,114,128,0.15); color: var(--text-muted); border-radius: 2px;">inactive</span>
+                                <span style="padding: 1px 5px; font-size: 0.6125rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); border-radius: 4px;">inactive</span>
                             @endif
                             @if($listing->portal_url)
                                 <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"

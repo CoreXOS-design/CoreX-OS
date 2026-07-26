@@ -9,11 +9,19 @@
      x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
-        <h1 class="text-xl font-bold text-white leading-tight">{{ $agency ? 'Edit Agency' : 'Create Agency' }}</h1>
-        <p class="text-sm text-white/60">
-            {{ $agency ? "Editing: {$agency->name}" : 'Add a new agency to the platform.' }}
-        </p>
+    @php $cancelUrl = auth()->user()?->isOwnerRole() ? route('agencies.index') : route('admin.company-settings'); @endphp
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $agency ? 'Edit Agency' : 'Create Agency' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $agency ? "Editing: {$agency->name}" : 'Add a new agency to the platform.' }}
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ $cancelUrl }}" class="corex-btn-outline text-xs">&larr; Back</a>
+            </div>
+        </div>
     </div>
 
     {{-- Flash --}}
@@ -52,7 +60,7 @@
                     data-tab-btn="{{ $key }}"
                     class="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
                     :style="activeTab === '{{ $key }}'
-                        ? 'background: var(--brand-button, #0ea5e9); color: #fff;'
+                        ? 'background: color-mix(in srgb, var(--brand-icon) 10%, transparent); color: var(--brand-icon); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-icon) 40%, transparent);'
                         : 'color: var(--text-secondary);'">
                 {{ $label }}
             </button>
@@ -84,7 +92,7 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Agency Name <span style="color:var(--ds-crimson);">*</span></label>
                     <input type="text" name="name" value="{{ old('name', $agency?->name) }}" required
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. HFC Coastal">
                 </div>
                 @if(!$agency)
@@ -92,7 +100,7 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Slug</label>
                     <input type="text" name="slug" value="{{ old('slug') }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="auto-generated if blank">
                 </div>
                 @endif
@@ -100,42 +108,42 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Trading Name</label>
                     <input type="text" name="trading_name" value="{{ old('trading_name', $agency?->trading_name) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. Johan and Elize Properties T/A">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>
                     <input type="text" name="tagline" value="{{ old('tagline', $agency?->tagline) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. THE MANDATE COMPANY">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Registration No</label>
                     <input type="text" name="reg_no" value="{{ old('reg_no', $agency?->reg_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 2009/228978/23">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">VAT No</label>
                     <input type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 4870264498">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FFC No</label>
                     <input type="text" name="ffc_no" value="{{ old('ffc_no', $agency?->ffc_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. FFC40/43916/5">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">FIC No</label>
                     <input type="text" name="fic_no" value="{{ old('fic_no', $agency?->fic_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 58538">
                 </div>
             </div>
@@ -146,35 +154,35 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Address</label>
                     <textarea name="address" rows="2"
                               class="w-full rounded-md px-3 py-2 text-sm"
-                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                               placeholder="Physical address">{{ old('address', $agency?->address) }}</textarea>
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Phone</label>
                     <input type="text" name="phone" value="{{ old('phone', $agency?->phone) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 071 351 0291">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Secondary Cell</label>
                     <input type="text" name="phone_secondary" value="{{ old('phone_secondary', $agency?->phone_secondary) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 079 495 5994">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Fax</label>
                     <input type="text" name="fax" value="{{ old('fax', $agency?->fax) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 086 233 2395">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Email</label>
                     <input type="text" name="email" value="{{ old('email', $agency?->email) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. admin@hfcoastal.co.za">
                 </div>
             </div>
@@ -187,7 +195,8 @@
                              class="h-14 rounded-md p-1"
                              style="background: var(--surface-2); border: 1px solid var(--border);">
                         <label class="inline-flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
-                            <input type="checkbox" name="remove_logo" value="1" class="rounded" x-model="removelogo">
+                            <input type="checkbox" name="remove_logo" value="1" class="w-4 h-4 rounded cursor-pointer"
+                                   style="accent-color:var(--brand-icon);" x-model="removelogo">
                             Remove current logo
                         </label>
                     </div>
@@ -195,7 +204,7 @@
                 <div x-show="!removelogo">
                     <input type="file" name="logo" accept="image/jpeg,image/png,image/webp"
                            class="block w-full text-sm rounded-md px-3 py-2"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 2 MB.</p>
                 </div>
 
@@ -311,7 +320,7 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Property24 Agency ID</label>
                     <input type="text" name="p24_agency_id" value="{{ old('p24_agency_id', $agency?->p24_agency_id) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 31357">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">The numeric ID P24 assigns to your agency profile. Leave blank if this agency does not syndicate to P24.</p>
                 </div>
@@ -319,7 +328,7 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Property24 Label</label>
                     <input type="text" name="p24_agency_label" value="{{ old('p24_agency_label', $agency?->p24_agency_label) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. Home Finders Coastal — HFC1">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">Human-readable label shown in the admin UI only. Not sent to Property24.</p>
                 </div>
@@ -343,14 +352,14 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Username</label>
                     <input type="text" name="p24_username" value="{{ old('p24_username', $agency->p24_username) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 31357@hfcoastal.co.za" autocomplete="off">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password</label>
                     <input type="password" name="p24_password"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="{{ $agency->p24_password ? '•••••••• (leave blank to keep)' : 'Enter P24 password' }}"
                            autocomplete="new-password">
                 </div>
@@ -358,7 +367,7 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">User Group ID</label>
                     <input type="text" name="p24_user_group_id" value="{{ old('p24_user_group_id', $agency->p24_user_group_id) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="optional — sent as P24-UserGroupId header">
                 </div>
             </div>
@@ -371,7 +380,7 @@
                     <input type="number" name="p24_max_photos" min="1" max="200"
                            value="{{ old('p24_max_photos', $agency->p24_max_photos) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="30">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">How many photos to send to Property24 per listing. Blank = default (30). Higher values increase the payload size and the time each submit takes.</p>
                 </div>
@@ -380,7 +389,7 @@
                     <input type="number" name="p24_http_read_timeout" min="30" max="600"
                            value="{{ old('p24_http_read_timeout', $agency->p24_http_read_timeout) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="120">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">How long to wait for Property24 to ingest a submit before timing out. Blank = default (120). The background job timeout is automatically this + 60s.</p>
                 </div>
@@ -460,14 +469,14 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Username</label>
                     <input type="text" name="pp_username" value="{{ old('pp_username', $agency->pp_username) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. agency@hfcoastal.co.za" autocomplete="off">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password</label>
                     <input type="password" name="pp_password"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="{{ $agency->pp_password ? '•••••••• (leave blank to keep)' : 'Enter PP password' }}"
                            autocomplete="new-password">
                 </div>
@@ -475,14 +484,14 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Branch GUID</label>
                     <input type="text" name="pp_branch_guid" value="{{ old('pp_branch_guid', $agency->pp_branch_guid) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 6f0a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">WSDL URL</label>
                     <input type="text" name="pp_wsdl" value="{{ old('pp_wsdl', $agency->pp_wsdl) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="{{ config('services.private_property.wsdl') }}">
                 </div>
                 <div class="flex items-center pt-5">
@@ -499,14 +508,14 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Image Base URL</label>
                     <input type="text" name="pp_image_base_url" value="{{ old('pp_image_base_url', $agency->pp_image_base_url) }}"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="optional — overrides APP_URL for image hosts">
                 </div>
                 <div class="sm:col-span-2">
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Webhook Secret</label>
                     <input type="password" name="pp_webhook_secret"
                            class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="{{ $agency->pp_webhook_secret ? '•••••••• (leave blank to keep)' : 'HMAC secret registered in PP Admin Portal' }}"
                            autocomplete="new-password">
                 </div>
@@ -515,7 +524,7 @@
                     <input type="number" name="pp_max_photos" min="1" max="200"
                            value="{{ old('pp_max_photos', $agency->pp_max_photos) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="150">
                     <p class="text-xs mt-1" style="color:var(--text-muted);">How many photos to send to Private Property per listing. Blank = default (150). PP downloads each image during its transaction, so very high values can cause a PP timeout.</p>
                 </div>
@@ -553,7 +562,8 @@
         @if(!$agency)
         <div x-show="activeTab === 'admin'" x-cloak data-tab-panel="admin" class="ds-status-card p-4 space-y-5">
             <label class="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded">
+                <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded cursor-pointer"
+                       style="accent-color:var(--brand-icon);">
                 <span>
                     <span class="block text-sm font-semibold" style="color:var(--text-primary);">Demo agency</span>
                     <span class="block text-xs mt-0.5" style="color:var(--text-muted);">For showcasing, training, or sales demos. No first Admin required — the agency is created empty.</span>
@@ -570,28 +580,28 @@
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Full name <span style="color:var(--ds-crimson);">*</span></label>
                         <input type="text" name="admin_name" value="{{ old('admin_name') }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. Jane Smith" :required="!isDemo" :disabled="isDemo">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Email <span style="color:var(--ds-crimson);">*</span></label>
                         <input type="email" name="admin_email" value="{{ old('admin_email') }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="admin@agency.co.za" :required="!isDemo" :disabled="isDemo">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Password <span style="color:var(--ds-crimson);">*</span></label>
                         <input type="password" name="admin_password"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="min 8 characters" minlength="8" :required="!isDemo" :disabled="isDemo">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Mobile</label>
                         <input type="text" name="admin_cell" value="{{ old('admin_cell') }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="optional">
                     </div>
                 </div>
@@ -613,13 +623,13 @@
 
         {{-- One-time secret reveal (after create / regenerate) --}}
         @if(session('new_api_key'))
-            <div class="ds-status-card p-4 space-y-2" style="border-color: var(--brand-button, #0ea5e9);">
+            <div class="ds-status-card p-4 space-y-2" style="border-color: var(--brand-icon);">
                 <h3 class="ds-section-header">Copy your API key now</h3>
                 <p class="text-xs" style="color:var(--ds-crimson);">This secret is shown only once. Store it in “{{ session('new_api_key')['name'] }}”’s environment config — you will not be able to see it again.</p>
                 <div class="flex items-center gap-2">
                     <input type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
                            class="flex-1 rounded-md px-3 py-2 text-sm font-mono"
-                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
                     <button type="button" class="corex-btn-outline text-xs"
                             onclick="navigator.clipboard.writeText(document.getElementById('new-key-secret').value); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy',1500);">Copy</button>
                 </div>
@@ -664,13 +674,13 @@
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
-                <div class="rounded-md p-3 space-y-2" style="background: var(--surface); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false }">
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface-2); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false }">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
                             <div class="text-xs font-mono" style="color:var(--text-muted);">{{ $key->key_prefix }}…</div>
                         </div>
-                        <span class="text-xs font-semibold px-2 py-1 rounded-md" style="background: var(--surface-2);
+                        <span class="text-xs font-semibold px-2 py-1 rounded-md" style="background: var(--surface);
                               color: {{ $key->statusLabel() === 'active' ? 'var(--ds-emerald,#10b981)' : 'var(--ds-crimson)' }};">
                             {{ strtoupper($key->statusLabel()) }}
                         </span>
@@ -688,7 +698,7 @@
                         <div x-show="showSecret" x-cloak class="flex items-center gap-2 mt-1">
                             <input type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
                                    class="flex-1 rounded-md px-2 py-1 text-xs font-mono"
-                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
                             <button type="button" class="corex-btn-outline text-xs"
                                     onclick="navigator.clipboard.writeText(document.getElementById('whsec-{{ $key->id }}').value); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy',1200);">Copy</button>
                         </div>
@@ -760,7 +770,7 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Website name</label>
                             <input type="text" name="name" required maxlength="100" value="{{ $key->name }}"
                                    class="rounded-md px-3 py-2 text-sm w-full max-w-md"
-                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scopes</label>
@@ -768,6 +778,8 @@
                                 @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
                                     <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
                                         <input type="checkbox" name="scopes[]" value="{{ $scopeKey }}"
+                                               class="w-4 h-4 rounded cursor-pointer"
+                                               style="accent-color:var(--brand-icon);"
                                                {{ in_array($scopeKey, $key->scopes ?? [], true) ? 'checked' : '' }}>
                                         {{ $scopeLabel }} <span class="text-xs font-mono" style="color:var(--text-muted);">{{ $scopeKey }}</span>
                                     </label>
@@ -778,7 +790,7 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Webhook URL (optional)</label>
                             <input type="url" name="webhook_url" value="{{ $key->webhook_url }}"
                                    class="rounded-md px-3 py-2 text-sm w-full max-w-md"
-                                   style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"
+                                   style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);"
                                    placeholder="https://your-site.co.za/api/corex-webhook">
                         </div>
                         <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
@@ -800,7 +812,7 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What is this website called? <span style="color:var(--ds-crimson);">*</span></label>
                     <input type="text" name="name" required maxlength="100" value="{{ old('name') }}"
                            class="rounded-md px-3 py-2 text-sm w-full max-w-md"
-                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Home Finders Coastal">
                     @error('name')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
                 </div>
@@ -810,6 +822,8 @@
                         @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
                             <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
                                 <input type="checkbox" name="scopes[]" value="{{ $scopeKey }}"
+                                       class="w-4 h-4 rounded cursor-pointer"
+                                       style="accent-color:var(--brand-icon);"
                                        {{ collect(old('scopes', ['listings:read','agency:read']))->contains($scopeKey) ? 'checked' : '' }}>
                                 {{ $scopeLabel }} <span class="text-xs font-mono" style="color:var(--text-muted);">{{ $scopeKey }}</span>
                             </label>
@@ -820,7 +834,7 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Webhook URL (optional)</label>
                     <input type="url" name="webhook_url" value="{{ old('webhook_url') }}"
                            class="rounded-md px-3 py-2 text-sm w-full max-w-md"
-                           style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);"
                            placeholder="https://your-site.co.za/api/corex-webhook">
                     @error('webhook_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
                 </div>
@@ -840,7 +854,7 @@
                     <p class="font-semibold" style="color:var(--text-primary);">1. On the website you're building (per site)</p>
                     <ul class="list-disc pl-4 space-y-0.5 mt-1">
                         <li>Put the key in <span class="font-mono">that site's</span> environment — <span class="font-mono">CONFIG/.env</span> of the website, never in CoreX:
-                            <div class="mt-1 font-mono rounded-md p-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <div class="mt-1 font-mono rounded-md p-2" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 COREX_API_BASE={{ rtrim(config('app.url'), '/') }}/api/v1/website<br>
                                 COREX_API_KEY=cx_live_…&lt;the secret shown once&gt;<br>
                                 COREX_WEBHOOK_SECRET=&lt;shown when you set a webhook URL&gt;
@@ -883,13 +897,13 @@
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                     <input class="rounded-md px-3 py-2 text-sm" name="name" required
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Seabreeze Bay">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Code</label>
                     <input class="rounded-md px-3 py-2 text-sm" name="code" required
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. SBB">
                 </div>
                 <button type="submit" class="corex-btn-primary text-sm">Add Branch</button>
@@ -1036,7 +1050,8 @@
                                          style="background: var(--surface); border: 1px solid var(--border);">
                                     <div class="flex items-center gap-2">
                                         <input type="checkbox" name="remove_logo" value="1" id="remove_logo_{{ $branch->id }}" x-model="removelogo"
-                                               class="w-4 h-4 rounded cursor-pointer">
+                                               class="w-4 h-4 rounded cursor-pointer"
+                                               style="accent-color:var(--brand-icon);">
                                         <label for="remove_logo_{{ $branch->id }}" class="text-xs cursor-pointer" style="color: var(--text-secondary);">Remove current logo</label>
                                     </div>
                                 </div>
@@ -1044,8 +1059,8 @@
 
                             <div x-show="!removelogo">
                                 <input type="file" name="logo" accept="image/jpeg,image/png,image/webp"
-                                       class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:text-white file:cursor-pointer"
-                                       style="color: var(--text-secondary);">
+                                       class="block w-full text-sm rounded-md px-3 py-2"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
                             </div>
                         </div>
 
@@ -1072,10 +1087,6 @@
     </div>
     @endif
 
-    <div>
-        @php $cancelUrl = auth()->user()?->isOwnerRole() ? route('agencies.index') : route('admin.company-settings'); @endphp
-        <a href="{{ $cancelUrl }}" class="text-sm font-medium" style="color: var(--text-secondary);">← Back</a>
-    </div>
 
 </div>
 

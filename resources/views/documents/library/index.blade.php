@@ -10,17 +10,17 @@
 <div class="w-full space-y-5">
 
 {{-- Page Header (Pattern A — branded) --}}
-<div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+<div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div data-tour="docs-intro">
-            <h1 class="text-xl font-bold text-white leading-tight">Document Library</h1>
-            <p class="text-sm text-white/60">Upload, browse and manage shared documents.</p>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Library</h1>
+            <p class="text-xs" style="color: var(--text-muted);">Upload, browse and manage shared documents.</p>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-            @include('layouts.partials.tour-header-launcher')
+        <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($presentation)
                 <a href="{{ $returnUrl ?? route('presentations.show', $presentation) . '#documents' }}"
-                   class="corex-btn-outline">
+                   class="corex-btn-outline text-xs">
                     Back to Presentation #{{ $presentation->id }}
                 </a>
             @endif
@@ -56,7 +56,7 @@
                 @csrf
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Document Type</label>
-                    <select name="doc_type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" required>
+                    <select name="doc_type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" required>
                         <option value="" disabled selected>Select type...</option>
                         @foreach($docTypeLabels as $val => $label)
                             <option value="{{ $val }}">{{ $label }}</option>
@@ -70,14 +70,14 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title (optional)</label>
                     <input type="text" name="title" value="{{ old('title') }}"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Descriptive title...">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File</label>
                     <input type="file" name="file"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
                            required>
                     @error('file')
                         <p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>
@@ -104,12 +104,12 @@
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
                     <input type="text" name="q" value="{{ request('q') }}"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Name or title...">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Doc Type</label>
-                    <select name="doc_type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select name="doc_type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">All types</option>
                         @foreach($docTypes as $dt)
                             <option value="{{ $dt }}" {{ request('doc_type') === $dt ? 'selected' : '' }}>
@@ -120,7 +120,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Uploaded By</label>
-                    <select name="user_id" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select name="user_id" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">All users</option>
                         @foreach($uploaders as $u)
                             <option value="{{ $u->id }}" {{ request('user_id') == $u->id ? 'selected' : '' }}>
@@ -158,8 +158,8 @@
                                 @method('PUT')
                                 <input type="text" name="label" value="{{ $dt->label }}"
                                        class="flex-1 rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                <button type="submit" class="text-xs font-medium transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">Save</button>
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <button type="submit" class="text-xs font-medium transition-all duration-300" style="color: var(--brand-icon);">Save</button>
                             </form>
                             <form method="POST" action="{{ route('documents.library.types.destroy', $dt) }}"
                                   onsubmit="return confirm('Delete type \'{{ $dt->label }}\'?')">
@@ -175,7 +175,7 @@
                     @csrf
                     <input type="text" name="label" placeholder="New type name..." required
                            class="flex-1 rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <button type="submit" class="corex-btn-primary">
                         Add
                     </button>
@@ -260,7 +260,10 @@
                                         {{ $item->title ?? $item->original_name }}
                                     </td>
                                     <td class="px-4 py-3">
-                                        <span class="ds-badge ds-badge-info">
+                                        <span class="ds-badge"
+                                              style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent);
+                                                     border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);
+                                                     color: var(--brand-icon);">
                                             {{ $docTypeLabels[$item->doc_type] ?? $item->doc_type }}
                                         </span>
                                     </td>

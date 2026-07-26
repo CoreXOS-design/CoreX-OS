@@ -4,27 +4,27 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (branded, full-width — §2.4 Pattern A) --}}
+    {{-- Page header (flat neutral — AT-336) --}}
     <div data-tour="assist-create-intro"
-         class="rounded-md px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
-         style="background:var(--brand-default, #0b2a4a);">
-        <div>
-            <h1 class="text-xl font-bold text-white leading-tight">Add Assistant</h1>
-            <p class="text-sm mt-0.5 text-white/60">
-                They get their own login, and start with a copy of their agent's permissions.
-                The agent then chooses what to switch off.
-            </p>
-        </div>
-        <div class="flex items-center gap-2 self-start md:self-auto">
-            @include('layouts.partials.tour-header-launcher', ['variant' => 'navy'])
-            <a href="{{ route('admin.assistants.index') }}"
-               class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-               style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);">
-                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-                </svg>
-                Back to Assistants
-            </a>
+         class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Add Assistant</h1>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                    They get their own login, and start with a copy of their agent's permissions.
+                    The agent then chooses what to switch off.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.assistants.index') }}"
+                   class="corex-btn-outline text-xs">
+                    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                    </svg>
+                    Back to Assistants
+                </a>
+            </div>
         </div>
     </div>
 
@@ -54,7 +54,7 @@
                 @csrf
 
                 {{-- Card: Assistant details --}}
-                <div data-tour="assist-create-details" class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div data-tour="assist-create-details" class="rounded-lg p-5" style="background:var(--surface); border:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-5">
                         <svg class="w-5 h-5" style="color:var(--brand-icon, #0ea5e9);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
@@ -110,7 +110,7 @@
                 </div>
 
                 {{-- Card: Assignment & compliance --}}
-                <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="rounded-lg p-5" style="background:var(--surface); border:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-5">
                         <svg class="w-5 h-5" style="color:var(--brand-icon, #0ea5e9);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -161,7 +161,7 @@
 
         {{-- RIGHT: helper panel — the guidance that used to be crammed into field hints --}}
         <div class="space-y-4">
-            <div data-tour="assist-create-help" class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+            <div data-tour="assist-create-help" class="rounded-lg p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-sm font-bold uppercase tracking-wider mb-4" style="color:var(--text-primary);">How assistants work</h3>
                 <ul class="space-y-3.5 text-sm" style="color:var(--text-secondary);">
                     <li class="flex items-start gap-2.5">

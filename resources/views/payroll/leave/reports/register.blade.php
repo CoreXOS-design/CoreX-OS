@@ -8,16 +8,16 @@
 @endphp
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral bar) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Leave Register</h1>
-                <p class="text-sm text-white/60">All leave applications across the agency for the selected period.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leave Register</h1>
+                <p class="text-xs" style="color: var(--text-muted);">All leave applications across the agency for the selected period.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('payroll.leave.reports.register.export', ['format' => 'xlsx', 'from' => $dateFrom, 'to' => $dateTo, 'status' => $status, 'type' => $typeFilter, 'branch' => $branchFilter]) }}"
-                   class="corex-btn-outline corex-btn-on-brand text-sm inline-flex items-center gap-1.5">
+                   class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
@@ -64,7 +64,7 @@
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Employee name..." class="list-header-filter w-40">
         </div>
-        <button type="submit" class="corex-btn-primary text-sm">Apply</button>
+        <button type="submit" class="corex-btn-primary text-xs">Apply</button>
         @if($hasFilters)
             <a href="{{ route('payroll.leave.reports.register') }}" class="text-xs font-medium" style="color:var(--text-muted);">Reset</a>
         @endif

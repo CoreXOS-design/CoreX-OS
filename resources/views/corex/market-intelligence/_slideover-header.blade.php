@@ -27,7 +27,7 @@
     $waHref = $digits !== '' ? 'https://wa.me/' . $digits : null;
 
     $actionBtn = 'display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; font-size: 0.75rem; font-weight: 600; border-radius: 4px; cursor: pointer; text-decoration: none; white-space: nowrap;';
-    $actionPrimary = $actionBtn . 'background: var(--brand-default, #0b2a4a); color: #fff; border: 1px solid var(--brand-default, #0b2a4a);';
+    $actionPrimary = $actionBtn . 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);';
     $actionSecondary = $actionBtn . 'background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);';
     $actionDisabled = $actionBtn . 'background: var(--surface); color: var(--text-muted); border: 1px dashed var(--border); cursor: not-allowed; opacity: 0.55;';
 @endphp
@@ -64,7 +64,7 @@
             <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
                 @if($h['in_stock'])
                 <a href="{{ route('corex.properties.show', $h['matched_property_id']) }}"
-                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: var(--brand-default); color: #fff; text-decoration: none;"
+                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 35%, transparent); text-decoration: none;"
                    title="This property is in our agency stock — we already hold the mandate. Click to open the Property record.">
                     IN STOCK
                 </a>

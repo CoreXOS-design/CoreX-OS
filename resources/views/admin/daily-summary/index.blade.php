@@ -13,34 +13,35 @@
      }">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="text-sm text-white/60">
-                    <a class="hover:underline text-white/60 transition-all duration-300" href="{{ route('admin.dashboard') }}">&larr; Dashboard</a>
-                </div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">Daily Activity Summary (Company)</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Daily Activity Summary (Company)</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
                 </p>
             </div>
 
-            <form method="GET" action="{{ route('admin.daily.summary') }}" class="flex flex-wrap items-center gap-2">
-                <select name="range" class="rounded-md border border-white/20 bg-white/10 text-white text-sm px-3 py-1.5 transition-all duration-300 [&>option]:text-black">
-                    <option value="7d"  {{ $range==='7d' ? 'selected' : '' }}>Last 7 days</option>
-                    <option value="month" {{ $range==='month' ? 'selected' : '' }}>This month</option>
-                    <option value="3m"  {{ $range==='3m' ? 'selected' : '' }}>Last 3 months</option>
-                    <option value="6m"  {{ $range==='6m' ? 'selected' : '' }}>Last 6 months</option>
-                    <option value="12m" {{ $range==='12m' ? 'selected' : '' }}>Last 12 months</option>
-                </select>
+            <div class="flex flex-wrap items-center gap-2">
+                <a class="corex-btn-outline text-xs" href="{{ route('admin.dashboard') }}">&larr; Dashboard</a>
 
-                @if($range === 'month')
-                    <input type="text" name="month" value="{{ $month ?? '' }}" placeholder="YYYY-MM"
-                           class="w-28 rounded-md border border-white/20 bg-white/10 text-white text-sm px-3 py-1.5 placeholder:text-white/40 transition-all duration-300" />
-                @endif
+                <form method="GET" action="{{ route('admin.daily.summary') }}" class="flex flex-wrap items-center gap-2">
+                    <select name="range" class="list-header-filter">
+                        <option value="7d"  {{ $range==='7d' ? 'selected' : '' }}>Last 7 days</option>
+                        <option value="month" {{ $range==='month' ? 'selected' : '' }}>This month</option>
+                        <option value="3m"  {{ $range==='3m' ? 'selected' : '' }}>Last 3 months</option>
+                        <option value="6m"  {{ $range==='6m' ? 'selected' : '' }}>Last 6 months</option>
+                        <option value="12m" {{ $range==='12m' ? 'selected' : '' }}>Last 12 months</option>
+                    </select>
 
-                <button class="corex-btn-primary text-sm">Apply</button>
-            </form>
+                    @if($range === 'month')
+                        <input type="text" name="month" value="{{ $month ?? '' }}" placeholder="YYYY-MM"
+                               class="w-28 list-header-filter placeholder:text-[color:var(--text-faint)]" />
+                    @endif
+
+                    <button class="corex-btn-primary text-xs">Apply</button>
+                </form>
+            </div>
         </div>
     </div>
 

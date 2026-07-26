@@ -22,7 +22,7 @@
 
     @if (session('success'))
         <div class="rounded-md px-3 py-2 text-sm"
-             style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-default,#0b2a4a);">
+             style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent); color:var(--text-primary);">
             {{ session('success') }}
         </div>
     @endif
@@ -54,7 +54,7 @@
                                     <p class="text-xs mt-0.5" style="color:var(--text-muted,#64748b);">{{ $row['explain'] }}</p>
                                 @endif
                                 @if (!empty($row['affects']))
-                                    <p class="text-[11px] mt-1" style="color:var(--text-muted,#94a3b8);">
+                                    <p class="text-[11px] mt-1" style="color:var(--text-faint);">
                                         <span class="font-semibold">What this changes:</span> {{ $row['affects'] }}
                                     </p>
                                 @endif
@@ -77,13 +77,13 @@
                                         @endunless
                                         <input type="checkbox" name="{{ $row['key'] }}" value="1" class="sr-only peer"
                                                @checked($row['enabled']) @disabled((bool) $row['blocked_by'])>
-                                        <span class="w-11 h-6 rounded-full transition-colors bg-slate-300 peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
+                                        <span class="w-11 h-6 rounded-full transition-colors bg-[color:var(--border-hover)] peer-checked:bg-[var(--brand-button,#0ea5e9)]"></span>
                                         <span class="absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
                                     </label>
                                 @else
                                     {{-- Core / switchboard — read-only status chip. --}}
                                     <span class="text-xs font-semibold px-2 py-1 rounded"
-                                          style="background:color-mix(in srgb, {{ $row['enabled'] ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted,#94a3b8)' }} 14%, transparent); color:{{ $row['enabled'] ? 'var(--brand-default,#0b2a4a)' : 'var(--text-muted,#64748b)' }};">
+                                          style="background:color-mix(in srgb, {{ $row['enabled'] ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted)' }} 14%, transparent); color:{{ $row['enabled'] ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted)' }};">
                                         {{ $row['enabled'] ? 'On' : 'Off' }}
                                     </span>
                                 @endif
@@ -95,8 +95,7 @@
         @endforeach
 
         <div class="flex items-center justify-end pt-2">
-            <button type="submit" class="rounded-md px-5 py-2.5 text-sm font-semibold text-white"
-                    style="background:var(--brand-button,#0ea5e9);">
+            <button type="submit" class="corex-btn-primary text-sm px-5 py-2.5">
                 Save features
             </button>
         </div>

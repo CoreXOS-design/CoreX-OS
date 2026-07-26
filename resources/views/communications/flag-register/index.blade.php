@@ -4,18 +4,20 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     {{-- Page header (§2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Communication Flag Register</h1>
-                <p class="text-sm text-white/60">Triage audit — who discarded or kept which contact, when, and whether anyone disagreed. No message content is stored or shown.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communication Flag Register</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Triage audit — who discarded or kept which contact, when, and whether anyone disagreed. No message content is stored or shown.</p>
             </div>
-            @if($openAlerts > 0)
-            <span class="ds-badge ds-badge-warning"
-                  title="Open contradiction alerts — a later agent or the AI disagreed with an earlier triage decision and it has not been resolved yet.">
-                {{ number_format($openAlerts) }} to review
-            </span>
-            @endif
+            <div class="flex flex-wrap items-center gap-2">
+                @if($openAlerts > 0)
+                <span class="ds-badge ds-badge-warning"
+                      title="Open contradiction alerts — a later agent or the AI disagreed with an earlier triage decision and it has not been resolved yet.">
+                    {{ number_format($openAlerts) }} to review
+                </span>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -31,21 +33,21 @@
                     </svg>
                     <input type="text" name="search" value="{{ $search }}" placeholder="Search identifier or name…"
                            class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Flag</label>
-                <select name="flag" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <select name="flag" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All</option>
                     <option value="not_real_estate" {{ $flag === 'not_real_estate' ? 'selected' : '' }}>Not real estate</option>
                     <option value="real_estate" {{ $flag === 'real_estate' ? 'selected' : '' }}>Real estate</option>
                 </select>
             </div>
             <label class="flex items-center gap-2 text-xs mb-2" style="color: var(--text-secondary);">
-                <input type="checkbox" name="contradicted" value="1" onchange="this.form.submit()" {{ request('contradicted') === '1' ? 'checked' : '' }}> Contradicted only
+                <input type="checkbox" name="contradicted" value="1" onchange="this.form.submit()" style="accent-color: var(--brand-icon, #0ea5e9);" {{ request('contradicted') === '1' ? 'checked' : '' }}> Contradicted only
             </label>
-            <button type="submit" class="corex-btn-primary">Apply</button>
+            <button type="submit" class="corex-btn-primary text-xs px-4 py-1.5">Apply</button>
             @if($search !== '' || $flag || request('contradicted') === '1')
             <a href="{{ route('compliance.comm-flags.index') }}" class="text-xs font-semibold mb-2" style="color: var(--brand-icon, #0ea5e9);">Clear</a>
             @endif
@@ -78,7 +80,10 @@
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->identifier_name ?: '—' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->user?->name ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge {{ $row->flag === 'real_estate' ? 'ds-badge-success' : 'ds-badge-default' }}">{{ str_replace('_', ' ', $row->flag) }}</span>
+                            {{-- real_estate keeps the semantic green; the neutral variant uses
+                                 surface-2 + border tokens instead of ds-badge-default's fixed grey. --}}
+                            <span class="ds-badge {{ $row->flag === 'real_estate' ? 'ds-badge-success' : '' }}"
+                                  @if($row->flag !== 'real_estate') style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);" @endif>{{ str_replace('_', ' ', $row->flag) }}</span>
                         </td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">
                             @if($row->ai_is_real_estate === null)

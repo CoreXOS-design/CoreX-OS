@@ -7,17 +7,16 @@
 <div class="space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">All Core Matches</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">All Core Matches</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Every saved search across {{ $branchLimited ? 'your branch' : 'the agency' }} — oversight for managers and admins.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     My Core Matches
                 </a>
@@ -33,7 +32,7 @@
                 <label class="text-xs font-medium" style="color:var(--text-secondary);">Filter by agent</label>
                 <select name="agent_id" onchange="this.form.submit()"
                         class="rounded-md px-3 py-2 text-sm"
-                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:220px;">
+                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); min-width:220px;">
                     <option value="all" @selected($agentId === null)>All agents</option>
                     @foreach($agents as $agent)
                     <option value="{{ $agent->id }}" @selected($agentId === (int) $agent->id)>{{ $agent->name }}</option>

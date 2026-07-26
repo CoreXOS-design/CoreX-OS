@@ -8,36 +8,38 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                <div class="flex items-center gap-2 text-xs text-white/60 mb-1">
-                    <a href="{{ route('corex.contacts.index') }}" class="no-underline hover:underline" style="color:rgba(255,255,255,0.6);">Contacts</a>
+                <div class="flex items-center gap-2 text-xs mb-1" style="color:var(--text-faint);">
+                    <a href="{{ route('corex.contacts.index') }}" class="no-underline hover:underline" style="color:var(--text-muted);">Contacts</a>
                     <span>/</span>
                     <span>Street &amp; Complex Search</span>
                 </div>
-                <h1 class="text-xl font-bold text-white leading-tight">Street &amp; Complex Search</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Street &amp; Complex Search</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     @if($term !== '')
                         {{ $total }} {{ \Illuminate\Support\Str::plural('contact', $total) }} matching
-                        <span class="font-semibold text-white">“{{ $term }}”</span>
+                        <span class="font-semibold" style="color: var(--text-primary);">“{{ $term }}”</span>
                         by Address &amp; Linked Properties.
                     @else
                         Search contacts by street or complex name.
                     @endif
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 @if($term !== '' && $contacts->isNotEmpty())
+                {{-- No agent_id: the PDF export mirrors the on-screen result set, which runs at
+                     the agency's full contact-visibility scope, never a per-agent narrowing (AT-273). --}}
                 <a href="{{ route('corex.contacts.street-complex-search.pdf', array_filter(['q' => $term, 'sort' => $sort, 'dir' => $dir], fn($v) => $v !== null)) }}"
-                   class="corex-btn-primary text-sm no-underline">
+                   class="corex-btn-primary text-xs no-underline">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
                     </svg>
                     Download PDF
                 </a>
                 @endif
-                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm no-underline">Back to Contacts</a>
+                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-xs no-underline">Back to Contacts</a>
             </div>
         </div>
     </div>
@@ -74,7 +76,7 @@
             </select>
         </div>
 
-        <button type="submit" class="corex-btn-primary text-sm">Search</button>
+        <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
     </form>
 
     @if($capped)

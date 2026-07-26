@@ -5,7 +5,7 @@
      x-data="{ copied: null, copy(v, k) { navigator.clipboard.writeText(v); this.copied = k; setTimeout(() => this.copied = null, 1500); } }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Integrations</h1>
         <p class="text-sm text-white/60">Connect CoreX to external platforms. Configure each provider's app, then connect accounts.</p>
     </div>

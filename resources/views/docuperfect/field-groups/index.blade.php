@@ -6,15 +6,15 @@
      x-data="fieldGroupManager()">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Field Groups</h1>
-                <p class="text-sm text-white/60">Create reusable groups of named fields for quick placement in templates.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Field Groups</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Create reusable groups of named fields for quick placement in templates.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline corex-btn-on-brand">Named Fields</a>
-                <a href="{{ route('docuperfect.templates.index') }}" class="corex-btn-outline corex-btn-on-brand">Templates</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline text-xs">Named Fields</a>
+                <a href="{{ route('docuperfect.templates.index') }}" class="corex-btn-outline text-xs">Templates</a>
             </div>
         </div>
     </div>
@@ -105,7 +105,7 @@
 
                 {{-- Group Name --}}
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group Name <span class="text-red-500">*</span></label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group Name <span style="color: var(--ds-crimson);">*</span></label>
                     <input x-model="form.name" type="text" required
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
@@ -120,7 +120,7 @@
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                                 style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
                                 :style="form.layout === 'vertical'
-                                    ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
+                                    ? 'background: var(--brand-icon, #0ea5e9); color: #fff; border: 1px solid var(--brand-icon, #0ea5e9);'
                                     : ''">
                             Vertical
                         </button>
@@ -128,7 +128,7 @@
                                 class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                                 style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
                                 :style="form.layout === 'horizontal'
-                                    ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);'
+                                    ? 'background: var(--brand-icon, #0ea5e9); color: #fff; border: 1px solid var(--brand-icon, #0ea5e9);'
                                     : ''">
                             Horizontal
                         </button>

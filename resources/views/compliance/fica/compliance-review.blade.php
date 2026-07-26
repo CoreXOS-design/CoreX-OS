@@ -1,19 +1,30 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="p-6 lg:p-8" x-data="coReview()">
-    <div class="mb-6">
-        <a href="{{ route('compliance.fica.show', $submission) }}" class="text-sm text-slate-500 hover:text-slate-700 mb-2 inline-block">&larr; Back to Submission</a>
-        <h1 class="text-2xl font-bold text-slate-900">Compliance Officer Review</h1>
-        <p class="text-sm text-slate-500 mt-1">
-            {{ $submission->contact ? $submission->contact->full_name : 'Unknown' }}
-            — Entity: {{ ucfirst($submission->entity_type) }}
-            — Agent approved: {{ $submission->agent_verified_at?->format('d M Y') }}
-        </p>
+<div class="w-full space-y-5" x-data="coReview()">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compliance Officer Review</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $submission->contact ? $submission->contact->full_name : 'Unknown' }}
+                    — Entity: {{ ucfirst($submission->entity_type) }}
+                    — Agent approved: {{ $submission->agent_verified_at?->format('d M Y') }}
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+                <a href="{{ route('compliance.fica.show', $submission) }}" class="corex-btn-outline text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    Back to Submission
+                </a>
+            </div>
+        </div>
     </div>
 
     @if(session('success'))
-        <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-green,#059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green,#059669) 30%, transparent); color:var(--text-primary);">{{ session('success') }}</div>
     @endif
 
     @php
@@ -31,34 +42,34 @@
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {{-- LEFT: Submitted form data --}}
         <div class="space-y-4">
-            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Recipient Submission</h2>
+            <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-faint)">Recipient Submission</h2>
             @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
         </div>
 
         {{-- MIDDLE: Agent verification (read-only) --}}
         <div class="space-y-4">
-            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Agent Verification</h2>
-            <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-indigo-500">Agent Review</h3>
+            <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-faint)">Agent Verification</h2>
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Agent Review</h3>
                 <dl class="space-y-2 text-sm">
-                    <div><dt class="text-slate-400 text-xs">Agent</dt><dd class="text-slate-900 font-medium">{{ $submission->agentVerifiedBy->name ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Date</dt><dd class="text-slate-900">{{ $submission->agent_verified_at?->format('d M Y H:i') }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Risk Rating</dt><dd class="font-semibold {{ [1 => 'text-emerald-600', 2 => 'text-amber-600', 3 => 'text-red-600'][$submission->risk_rating] ?? '' }}">{{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$submission->risk_rating] ?? '—' }}</dd></div>
+                    <div><dt class="text-xs" style="color:var(--text-faint)">Agent</dt><dd class="font-medium" style="color:var(--text-primary)">{{ $submission->agentVerifiedBy->name ?? '—' }}</dd></div>
+                    <div><dt class="text-xs" style="color:var(--text-faint)">Date</dt><dd style="color:var(--text-primary)">{{ $submission->agent_verified_at?->format('d M Y H:i') }}</dd></div>
+                    <div><dt class="text-xs" style="color:var(--text-faint)">Risk Rating</dt><dd class="font-semibold {{ [1 => 'text-emerald-600', 2 => 'text-amber-600', 3 => 'text-red-600'][$submission->risk_rating] ?? '' }}">{{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$submission->risk_rating] ?? '—' }}</dd></div>
                     @if($submission->verification_method)
-                    <div><dt class="text-slate-400 text-xs">Verification Method</dt><dd>@foreach($submission->verification_method as $m)<span class="inline-block px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs mr-1 mb-1">{{ str_replace('_', ' ', ucfirst($m)) }}</span>@endforeach</dd></div>
+                    <div><dt class="text-xs" style="color:var(--text-faint)">Verification Method</dt><dd>@foreach($submission->verification_method as $m)<span class="inline-block rounded px-1.5 py-0.5 text-xs mr-1 mb-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary)">{{ str_replace('_', ' ', ucfirst($m)) }}</span>@endforeach</dd></div>
                     @endif
                 </dl>
             </div>
 
             @if(!empty($agentData))
-            <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-indigo-500">Agent Checklist</h3>
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Agent Checklist</h3>
                 <dl class="space-y-2 text-sm">
                     @foreach($agentData as $key => $val)
                         @if($key !== 'suspicious_details')
                         <div class="flex justify-between">
-                            <dt class="text-slate-500 text-xs">{{ ucfirst(str_replace('_', ' ', $key)) }}</dt>
-                            <dd class="text-xs font-semibold {{ $val === 'yes' ? 'text-emerald-600' : ($val === 'no' ? 'text-red-600' : 'text-slate-400') }}">{{ ucfirst($val ?: '—') }}</dd>
+                            <dt class="text-xs" style="color:var(--text-muted)">{{ ucfirst(str_replace('_', ' ', $key)) }}</dt>
+                            <dd class="text-xs font-semibold {{ $val === 'yes' ? 'text-emerald-600' : ($val === 'no' ? 'text-red-600' : '') }}" @if(!in_array($val, ['yes','no'])) style="color:var(--text-faint)" @endif>{{ ucfirst($val ?: '—') }}</dd>
                         </div>
                         @endif
                     @endforeach
@@ -67,20 +78,20 @@
             @endif
 
             @if($submission->agent_notes)
-            <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-indigo-500">Agent Notes</h3>
-                <p class="text-sm text-slate-700">{{ $submission->agent_notes }}</p>
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Agent Notes</h3>
+                <p class="text-sm" style="color:var(--text-secondary)">{{ $submission->agent_notes }}</p>
             </div>
             @endif
         </div>
 
         {{-- RIGHT: CO verification form --}}
         <div class="space-y-4">
-            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Your Verification</h2>
+            <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-faint)">Your Verification</h2>
 
             {{-- CO Checklist --}}
-            <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-emerald-500">Compliance Checklist</h3>
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                <h3 class="text-sm font-bold mb-3 pb-2 border-b border-emerald-500" style="color:var(--text-primary)">Compliance Checklist</h3>
                 <div class="space-y-3 text-sm">
                     @foreach([
                         ['key' => 'identity_docs', 'label' => 'Identity document verified?', 'type' => 'yn'],
@@ -92,17 +103,17 @@
                         ['key' => 'consistent', 'label' => 'Transaction consistent with knowledge of client?', 'type' => 'yn'],
                     ] as $item)
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">{{ $item['label'] }}</label>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">{{ $item['label'] }}</label>
                         <div class="flex gap-3">
-                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="yes"> <span class="text-xs">Yes</span></label>
-                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="no"> <span class="text-xs">No</span></label>
+                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="yes"> <span class="text-xs" style="color:var(--text-primary)">Yes</span></label>
+                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="no"> <span class="text-xs" style="color:var(--text-primary)">No</span></label>
                             @if($item['type'] === 'yna')
-                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="na"> <span class="text-xs">N/A</span></label>
+                            <label class="flex items-center gap-1"><input type="radio" x-model="coChecklist.{{ $item['key'] }}" value="na"> <span class="text-xs" style="color:var(--text-primary)">N/A</span></label>
                             @endif
                         </div>
                         @if($item['key'] === 'suspicious')
                         <div x-show="coChecklist.suspicious === 'yes'" x-cloak class="mt-1">
-                            <textarea x-model="coChecklist.suspicious_details" rows="2" class="w-full px-2 py-1 border border-slate-300 text-xs focus:outline-none focus:border-emerald-500" placeholder="Details..."></textarea>
+                            <textarea x-model="coChecklist.suspicious_details" rows="2" class="w-full rounded-md px-2 py-1 text-xs focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Details..."></textarea>
                         </div>
                         @endif
                     </div>
@@ -117,7 +128,8 @@
                  primary CO only. Any other officer sees why it is read-only, not a row
                  of buttons that would 403. Non-referred packs (RO station) are unchanged. --}}
             @if($submission->status === 'referred_to_co' && ! ($viewerOwnsReferralStation ?? false))
-                <div class="bg-amber-50 border border-amber-300 p-5 text-sm text-amber-800">
+                <div class="rounded-md p-5 text-sm"
+                     style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 30%, transparent); color:var(--text-primary);">
                     <strong>Awaiting the Compliance Officer’s decision.</strong>
                     This FICA was escalated and can only be decided by the Compliance Officer it was referred to.
                     You can review the details above, but the approve, return and reject actions are theirs.
@@ -131,20 +143,20 @@
                     <input type="hidden" :name="'co_checklist[' + key + ']'" :value="coChecklist[key]">
                 </template>
 
-                <div class="bg-white border border-slate-200 p-5 space-y-4">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-emerald-500">Final Approval</h3>
+                <div class="rounded-md p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border);">
+                    <h3 class="text-sm font-bold mb-3 pb-2 border-b border-emerald-500" style="color:var(--text-primary)">Final Approval</h3>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">TFS Screening Completed? *</label>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">TFS Screening Completed? *</label>
                         <div class="flex gap-4 text-sm mb-1">
-                            <label class="flex items-center gap-1"><input type="radio" name="tfs_screening" value="yes" required> <span class="text-xs">Yes</span></label>
-                            <label class="flex items-center gap-1"><input type="radio" name="tfs_screening" value="no"> <span class="text-xs">No</span></label>
+                            <label class="flex items-center gap-1"><input type="radio" name="tfs_screening" value="yes" required> <span class="text-xs" style="color:var(--text-primary)">Yes</span></label>
+                            <label class="flex items-center gap-1"><input type="radio" name="tfs_screening" value="no"> <span class="text-xs" style="color:var(--text-primary)">No</span></label>
                         </div>
-                        <p class="text-xs text-slate-400">Use the TFS Screening panel above to perform the check.</p>
+                        <p class="text-xs" style="color:var(--text-faint)">Use the TFS Screening panel above to perform the check.</p>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Risk Rating (CO can override) *</label>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">Risk Rating (CO can override) *</label>
                         <div class="flex gap-4 text-sm">
                             <label class="flex items-center gap-1"><input type="radio" name="risk_rating" value="1" required {{ $submission->risk_rating === 1 ? 'checked' : '' }}> <span class="text-emerald-600 font-medium">Low</span></label>
                             <label class="flex items-center gap-1"><input type="radio" name="risk_rating" value="2" {{ $submission->risk_rating === 2 ? 'checked' : '' }}> <span class="text-amber-600 font-medium">Medium</span></label>
@@ -153,37 +165,40 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Compliance Officer</label>
-                        <input type="text" value="{{ auth()->user()->name }}" class="w-full px-3 py-2 border border-slate-200 text-sm bg-slate-50" readonly>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">Compliance Officer</label>
+                        <input type="text" value="{{ auth()->user()->name }}" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" readonly>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
-                        <textarea name="co_notes" rows="3" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-emerald-500" placeholder="Optional compliance notes..."></textarea>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">Notes</label>
+                        <textarea name="co_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Optional compliance notes..."></textarea>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1">Your Signature *</label>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary)">Your Signature *</label>
                         <div style="position: relative;">
-                            <canvas x-ref="coSignatureCanvas" width="400" height="120" style="width: 100%; border: 1px solid #cbd5e1; background: #fff; touch-action: none; cursor: crosshair;"></canvas>
-                            <button type="button" @click="clearSignature()" style="position: absolute; top: 0.25rem; right: 0.25rem; font-size: 0.7rem; color: #64748b; background: #fff; border: 1px solid #e2e8f0; padding: 0.15rem 0.4rem; cursor: pointer;">Clear</button>
+                            {{-- Signature pad reads as paper (#fff) in BOTH themes: the ink is drawn
+                                 black by the canvas API, so a dark surface would hide the stroke. Matches
+                                 how a stored signature is rendered on the show/submitted-data panels. --}}
+                            <canvas x-ref="coSignatureCanvas" width="400" height="120" style="width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #ffffff; touch-action: none; cursor: crosshair;"></canvas>
+                            <button type="button" @click="clearSignature()" style="position: absolute; top: 0.25rem; right: 0.25rem; font-size: 0.7rem; border-radius: 6px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); padding: 0.15rem 0.4rem; cursor: pointer;">Clear</button>
                         </div>
                         <input type="hidden" name="co_signature_data" x-model="signatureDataUrl">
                     </div>
 
                     @error('tfs')
-                        <div class="px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid #dc2626; color:#dc2626;">{{ $message }}</div>
+                        <div class="rounded-md px-3 py-2 text-xs" style="background:rgba(220,38,38,0.08); border:1px solid var(--ds-crimson,#c41e3a); color:var(--ds-crimson,#c41e3a);">{{ $message }}</div>
                     @enderror
                     @if($submission->tfsGateCleared())
-                        <button type="submit" class="w-full px-4 py-2 bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition" :disabled="submitting">
+                        <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-green,#059669); box-shadow:none;" :disabled="submitting">
                             <span x-show="!submitting">Approve & Finalise</span>
                             <span x-show="submitting" x-cloak>Processing...</span>
                         </button>
                     @else
-                        <button type="button" disabled class="w-full px-4 py-2 bg-emerald-600 text-white text-sm font-semibold transition" style="opacity:0.5; cursor:not-allowed;" title="Resolve TFS sanctions screening first">
+                        <button type="button" disabled class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-green,#059669); box-shadow:none; opacity:0.5; cursor:not-allowed;" title="Resolve TFS sanctions screening first">
                             Approve — blocked by TFS screening
                         </button>
-                        <p class="text-xs text-center text-red-600">Resolve the TFS sanctions screening (panel above) before finalising.</p>
+                        <p class="text-xs text-center" style="color:var(--ds-crimson,#c41e3a);">Resolve the TFS sanctions screening (panel above) before finalising.</p>
                     @endif
                 </div>
             </form>
@@ -192,10 +207,10 @@
             <form method="POST" action="{{ route('compliance.fica.compliance-reject', $submission) }}">
                 @csrf
                 <input type="hidden" name="action" value="return_to_agent">
-                <div class="bg-white border border-slate-200 p-5">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-amber-500">Return to Agent</h3>
-                    <textarea name="reviewer_notes" rows="2" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-amber-500 mb-3" placeholder="Reason for returning..." required></textarea>
-                    <button type="submit" class="w-full px-4 py-2 bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition">Return to Agent</button>
+                <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                    <h3 class="text-sm font-bold mb-3 pb-2 border-b border-amber-500" style="color:var(--text-primary)">Return to Agent</h3>
+                    <textarea name="reviewer_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for returning..." required></textarea>
+                    <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-amber,#f59e0b); box-shadow:none;">Return to Agent</button>
                 </div>
             </form>
 
@@ -203,10 +218,10 @@
             <form method="POST" action="{{ route('compliance.fica.compliance-reject', $submission) }}">
                 @csrf
                 <input type="hidden" name="action" value="reject">
-                <div class="bg-white border border-slate-200 p-5">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-red-500">Reject</h3>
-                    <textarea name="reviewer_notes" rows="2" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-red-500 mb-3" placeholder="Reason for rejection..." required></textarea>
-                    <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition" onclick="return confirm('Are you sure?')">Reject</button>
+                <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                    <h3 class="text-sm font-bold mb-3 pb-2 border-b border-red-500" style="color:var(--text-primary)">Reject</h3>
+                    <textarea name="reviewer_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..." required></textarea>
+                    <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-crimson,#c41e3a); box-shadow:none;" onclick="return confirm('Are you sure?')">Reject</button>
                 </div>
             </form>
             @endif
@@ -219,14 +234,14 @@
             @if($submission->status === 'referred_to_co' && ($viewerOwnsReferralStation ?? false))
                 <form method="POST" action="{{ route('compliance.fica.return-to-referrer', $submission) }}">
                     @csrf
-                    <div class="bg-white border border-slate-200 p-5">
-                        <h3 class="text-sm font-bold text-slate-900 mb-1 pb-2 border-b border-amber-500">Return to Referrer</h3>
-                        <p class="text-xs text-slate-500 mb-3">
+                    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+                        <h3 class="text-sm font-bold mb-1 pb-2 border-b border-amber-500" style="color:var(--text-primary)">Return to Referrer</h3>
+                        <p class="text-xs mb-3" style="color:var(--text-muted)">
                             Send this back to {{ $submission->referredBy->name ?? 'the referrer' }} with your comments
                             @if($submission->referral_note)<br><span class="italic">Referred because: “{{ $submission->referral_note }}”</span>@endif
                         </p>
-                        <textarea name="reviewer_notes" rows="2" required minlength="3" maxlength="2000" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-amber-500 mb-3" placeholder="Comments for the referrer..."></textarea>
-                        <button type="submit" class="w-full px-4 py-2 bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition">Return to Referrer</button>
+                        <textarea name="reviewer_notes" rows="2" required minlength="3" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Comments for the referrer..."></textarea>
+                        <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-amber,#f59e0b); box-shadow:none;">Return to Referrer</button>
                     </div>
                 </form>
             @endif

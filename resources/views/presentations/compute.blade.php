@@ -226,7 +226,7 @@
                 @endphp
                 <div class="flex items-start gap-4">
                     {{-- Rank circle --}}
-                    <div class="shrink-0 w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-xs font-bold" style="color: var(--brand-default, #0b2a4a);">
+                    <div class="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-default, #0b2a4a);">
                         {{ $loop->iteration }}
                     </div>
                     <div class="flex-1 min-w-0">
@@ -254,10 +254,10 @@
                                     Raw: —
                                 @endif
                             </span>
-                            <span class="text-xs bg-sky-50 rounded px-1.5 py-0.5 truncate" style="color: var(--brand-icon, #0ea5e9);">{{ $interp }}</span>
+                            <span class="text-xs rounded px-1.5 py-0.5 truncate" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon, #0ea5e9);">{{ $interp }}</span>
                         </div>
                         <div class="h-1.5 rounded-full overflow-hidden" style="background: var(--surface-2);">
-                            <div class="h-full bg-sky-500 rounded-full" style="width: {{ $barWidth }}%"></div>
+                            <div class="h-full rounded-full" style="background: var(--brand-icon); width: {{ $barWidth }}%"></div>
                         </div>
                     </div>
                 </div>
@@ -358,7 +358,7 @@
                 <tbody>
                     @foreach($spResult->sensitivity as $row)
                         @php $isBase = $row['delta_rands'] === 0; @endphp
-                        <tr class="border-b last:border-0 {{ $isBase ? 'bg-sky-50 font-semibold' : '' }}">
+                        <tr class="border-b last:border-0 {{ $isBase ? 'font-semibold' : '' }}" @if($isBase) style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent);" @endif>
                             <td class="py-1.5 px-3">
                                 @if($row['delta_rands'] > 0)
                                     +R{{ number_format($row['delta_rands'], 0, '.', ',') }}

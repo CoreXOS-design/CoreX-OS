@@ -3,14 +3,14 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-tour="comms-wa-devices-intro">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comms-wa-devices-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture</h1>
-                <p class="text-sm text-white/60">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">WhatsApp Capture</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -35,8 +35,7 @@
         <form method="POST" action="{{ route('communications.wa-devices.backfill-toggle') }}" class="shrink-0">
             @csrf
             <input type="hidden" name="enabled" value="{{ $backfillEnabled ? '0' : '1' }}">
-            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
-                    style="background: {{ $backfillEnabled ? 'var(--surface-2)' : 'var(--brand-button, #0ea5e9)' }}; color: {{ $backfillEnabled ? 'var(--text-secondary)' : '#fff' }}; border:1px solid var(--border);"
+            <button type="submit" class="{{ $backfillEnabled ? 'corex-btn-outline' : 'corex-btn-primary' }} text-xs"
                     onclick="return confirm('{{ $backfillEnabled ? 'Turn OFF body backfill? Only live messages will be captured.' : 'Turn ON read-only body backfill for this agency?' }}')">
                 {{ $backfillEnabled ? 'Turn OFF' : 'Turn ON' }}
             </button>
@@ -63,8 +62,7 @@
             @csrf
             <input type="number" name="days" min="1" max="365" value="{{ (int) $embargoRetentionDays }}"
                    class="w-20 text-xs rounded-md px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
-            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
-                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+            <button type="submit" class="corex-btn-primary text-xs">
                 Save
             </button>
         </form>
@@ -88,13 +86,12 @@
         @if($canManageBackfill)
         <form method="POST" action="{{ route('communications.wa-devices.transcription-language') }}" class="shrink-0 flex items-center gap-2">
             @csrf
-            <select name="language" class="text-xs rounded px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
+            <select name="language" class="text-xs rounded-md px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
                 @foreach($transcriptionLanguages as $code => $label)
                     <option value="{{ $code }}" @selected($transcriptionLanguage === $code)>{{ $label }}</option>
                 @endforeach
             </select>
-            <button type="submit" class="text-xs font-semibold rounded px-3 py-2"
-                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+            <button type="submit" class="corex-btn-primary text-xs">
                 Save
             </button>
         </form>
@@ -114,7 +111,7 @@
             @csrf
             <div class="flex-1 min-w-[220px]">
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">WhatsApp number (optional)</label>
-                <input type="text" name="wa_number" placeholder="e.g. 0821234567" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <input type="text" name="wa_number" placeholder="e.g. 0821234567" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <button type="submit" class="corex-btn-primary">Register Device &amp; Issue Token</button>
         </form>

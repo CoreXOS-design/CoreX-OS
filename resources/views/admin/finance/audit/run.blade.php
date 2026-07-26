@@ -90,22 +90,23 @@
                 }
             @endphp
 
-            <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
+            <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
                 <button type="button"
                         x-on:click="openGroups['{{ $groupKey }}'] = !openGroups['{{ $groupKey }}']"
                         class="w-full px-5 py-4 flex items-center justify-between text-left
-                               {{ $summary['errors'] > 0 ? 'bg-red-50/60 dark:bg-red-900/10' : 'bg-slate-50/60 dark:bg-slate-900/40' }}
-                               hover:bg-slate-100 dark:hover:bg-slate-900/60 transition-colors">
+                               {{ $summary['errors'] > 0 ? 'bg-red-50/60 dark:bg-red-900/10' : 'hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,var(--surface-2))]' }}
+                               transition-colors"
+                        style="{{ $summary['errors'] > 0 ? '' : 'background:var(--surface-2)' }}">
                     <div class="min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <span class="font-semibold text-slate-900 dark:text-slate-100">{{ $entityName }}</span>
-                            <span class="text-xs text-slate-500 dark:text-slate-400 uppercase">{{ str_replace('_', ' ', $entityType) }}</span>
+                            <span class="font-semibold" style="color:var(--text-primary)">{{ $entityName }}</span>
+                            <span class="text-xs uppercase" style="color:var(--text-muted)">{{ str_replace('_', ' ', $entityType) }}</span>
                             @if($editUrl)
-                                <a href="{{ $editUrl }}" class="text-xs text-[#0b2a4a] dark:text-[#00b4d8] hover:underline" onclick="event.stopPropagation()">View Deal</a>
+                                <a href="{{ $editUrl }}" class="text-xs hover:underline" style="color:var(--brand-icon)" onclick="event.stopPropagation()">View Deal</a>
                             @endif
                         </div>
                         @if($entitySubtext)
-                            <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{{ $entitySubtext }}</div>
+                            <div class="text-xs mt-0.5 truncate" style="color:var(--text-muted)">{{ $entitySubtext }}</div>
                         @endif
                     </div>
                     <div class="flex items-center gap-3 flex-shrink-0 ml-4">
@@ -118,7 +119,7 @@
                         @if($summary['warnings'] > 0)
                             <span class="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">{{ $summary['warnings'] }} warn</span>
                         @endif
-                        <svg class="w-5 h-5 text-slate-400 transition-transform"
+                        <svg class="w-5 h-5 transition-transform" style="color:var(--text-faint)"
                              :class="openGroups['{{ $groupKey }}'] ? 'rotate-180' : ''"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
@@ -129,7 +130,7 @@
                 <div x-show="openGroups['{{ $groupKey }}']" x-cloak>
                     <table class="min-w-full text-sm ds-table">
                         <thead>
-                            <tr class="border-b border-t border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/40">
+                            <tr class="border-b border-t" style="border-color:var(--border); color:var(--text-secondary); background:var(--surface-2)">
                                 <th class="text-left px-4 py-2 w-20">Status</th>
                                 <th class="text-left px-4 py-2">Definition</th>
                                 <th class="text-right px-4 py-2">Expected</th>
@@ -138,9 +139,9 @@
                                 <th class="text-left px-4 py-2">Message</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                        <tbody class="divide-y" style="border-color:var(--border)">
                             @foreach($groupItems as $item)
-                                <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : '' }} hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
+                                <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : 'hover:bg-[var(--surface-2)]' }}">
                                     <td class="px-4 py-2.5">
                                         @if($item->severity === 'error')
                                             <span class="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">fail</span>
@@ -151,10 +152,10 @@
                                         @endif
                                     </td>
                                     <td class="px-4 py-2.5">
-                                        <div class="text-sm text-slate-700 dark:text-slate-300">{{ AuditLabelHelper::label($item->definition_key) }}</div>
-                                        <div class="text-xs text-slate-400 font-mono">{{ $item->definition_key }}</div>
+                                        <div class="text-sm" style="color:var(--text-secondary)">{{ AuditLabelHelper::label($item->definition_key) }}</div>
+                                        <div class="text-xs font-mono" style="color:var(--text-faint)">{{ $item->definition_key }}</div>
                                     </td>
-                                    <td class="px-4 py-2.5 text-right font-mono text-slate-600 dark:text-slate-300 text-xs">
+                                    <td class="px-4 py-2.5 text-right font-mono text-xs" style="color:var(--text-secondary)">
                                         @if($item->expected_numeric !== null)
                                             {{ AuditLabelHelper::zar((float)$item->expected_numeric) }}
                                         @elseif($item->expected_json)
@@ -163,7 +164,7 @@
                                             —
                                         @endif
                                     </td>
-                                    <td class="px-4 py-2.5 text-right font-mono text-slate-600 dark:text-slate-300 text-xs">
+                                    <td class="px-4 py-2.5 text-right font-mono text-xs" style="color:var(--text-secondary)">
                                         @if($item->actual_numeric !== null)
                                             {{ AuditLabelHelper::zar((float)$item->actual_numeric) }}
                                         @elseif($item->actual_json)
@@ -179,10 +180,10 @@
                                                 {{ AuditLabelHelper::zar($diff) }}
                                             </span>
                                         @else
-                                            <span class="text-slate-400">—</span>
+                                            <span style="color:var(--text-faint)">—</span>
                                         @endif
                                     </td>
-                                    <td class="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs max-w-xs truncate" title="{{ $item->message }}">
+                                    <td class="px-4 py-2.5 text-xs max-w-xs truncate" style="color:var(--text-muted)" title="{{ $item->message }}">
                                         {{ $item->message ?? '—' }}
                                     </td>
                                 </tr>
@@ -195,7 +196,7 @@
     </div>
 
     @if($groupedItems->isEmpty())
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-8 text-center text-slate-500 dark:text-slate-400">
+        <div class="rounded-2xl border p-8 text-center" style="border-color:var(--border); background:var(--surface); color:var(--text-muted)">
             No audit items found for this run.
         </div>
     @endif

@@ -15,19 +15,19 @@
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
 
-    {{-- Page header (Pattern A — branded, matches Contacts / Core Matches) --}}
-    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+    {{-- Page header (Pattern A — flat neutral bar, AT-336; matches /worksheet + Properties) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="portal-home-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">My Portal</h1>
-                <p class="text-sm text-white/60">Your profile, documents, compliance, training and earnings in one place.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Portal</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Your profile, documents, compliance, training and earnings in one place.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5"
-                      style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);">
+                      style="background:var(--surface-2); border:1px solid var(--border);">
                     <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
-                    <span class="text-xs font-semibold text-white">
+                    <span class="text-xs font-semibold" style="color: var(--text-secondary);">
                         @if($complianceStatus['overall'] === 'green') Compliant
                         @elseif($complianceStatus['overall'] === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
                         @else Action required @endif
@@ -37,10 +37,10 @@
                 <a href="{{ url('/corex/settings?section=my-portal&s=my-portal') }}"
                    title="My Portal Settings"
                    aria-label="My Portal Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+                   onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)';"
+                   onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)';">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>

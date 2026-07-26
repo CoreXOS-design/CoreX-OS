@@ -77,7 +77,7 @@
                         <span class="text-xs px-2 py-1 rounded inline-flex items-center gap-2" style="background:var(--surface-2,#f0f2f8); color:var(--ds-red,#c0392b);">
                             {{ $label }} — unavailable
                             <form method="POST" action="{{ route('compliance.comm-archive.attachment.retry', $att->id) }}" class="inline">@csrf
-                                <button type="submit" class="underline" style="color:var(--ds-blue,#2563eb);">Retry</button>
+                                <button type="submit" class="underline" style="color:var(--brand-icon,#0ea5e9);">Retry</button>
                             </form>
                         </span>
                     @else
