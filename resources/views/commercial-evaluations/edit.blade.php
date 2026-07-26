@@ -2,19 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-3xl mx-auto">
-
-    <x-sticky-action-bar>
-        <x-slot name="left">
-            <a href="{{ route('commercial-evaluations.show', $evaluation) }}" class="inline-flex items-center gap-1 text-sm transition-colors" style="color: var(--text-secondary);">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                Back
-            </a>
-        </x-slot>
-        <x-slot name="center">
-            <h2 class="text-sm font-semibold truncate" style="color: var(--text-primary);">Edit: {{ $evaluation->property_name }}</h2>
-        </x-slot>
-    </x-sticky-action-bar>
+<div class="w-full">
 
     {{-- Page header (flat neutral — AT-336) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
@@ -22,6 +10,11 @@
             <div>
                 <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Evaluation</h2>
                 <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $evaluation->property_name }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('commercial-evaluations.show', $evaluation) }}" class="corex-btn-outline text-xs">
+                    &larr; Back to Evaluation
+                </a>
             </div>
         </div>
     </div>
@@ -39,7 +32,7 @@
         </div>
     @endif
 
-    <div class="ds-status-card" style="border-left-color: var(--ds-cyan);">
+    <div class="ds-status-card">
         {{-- AT-165 offline draft persistence — no sensitive fields (property valuations only). --}}
         <form method="POST" action="{{ route('commercial-evaluations.update', $evaluation) }}"
               data-draft='@json(["form" => "commercial_eval", "recordId" => $evaluation->id, "version" => $evaluation->updated_at?->toIso8601String()])'
@@ -189,10 +182,10 @@
             </div>
 
             <div class="px-5 py-4 flex items-center gap-3" style="border-top: 1px solid var(--border);">
-                <button type="submit" class="corex-btn-primary">
+                <button type="submit" class="corex-btn-primary text-sm">
                     Save Changes &rarr;
                 </button>
-                <a href="{{ route('commercial-evaluations.show', $evaluation) }}" class="px-4 py-2 text-sm transition-colors" style="color: var(--text-secondary);">
+                <a href="{{ route('commercial-evaluations.show', $evaluation) }}" class="corex-btn-outline text-sm">
                     Cancel
                 </a>
             </div>
