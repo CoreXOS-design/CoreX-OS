@@ -922,11 +922,11 @@
         @endunless
 
         {{-- AT-338 — What's New: the archive of system updates. Visible to every
-             authenticated user; the page filters to what they are eligible for
-             (audience + joined-before rule) server-side. Deliberately not feature-
-             gated — an agency that could switch off release notes would recreate
-             the "ships inert" problem the feature exists to solve.
-             Spec: .ai/specs/system-updates.md §7.5 --}}
+             authenticated user; the page filters server-side to what they are
+             eligible for (nothing published before their account existed).
+             Deliberately not feature-gated — an agency that could switch off
+             release notes would recreate the "ships inert" problem the feature
+             exists to solve. Spec: .ai/specs/system-updates.md §7.5 --}}
         <a href="{{ route('corex.whats-new.index') }}"
            class="corex-nav-item {{ request()->routeIs('corex.whats-new.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

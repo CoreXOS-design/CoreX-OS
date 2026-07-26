@@ -63,7 +63,7 @@
                 </form>
 
                 <form method="POST" action="{{ route('admin.system-updates.renotify', $update->id) }}"
-                      onsubmit="return confirm('Show this update again to everyone in its audience — including the people who already closed it?');">
+                      onsubmit="return confirm('Show this update again to every CoreX user — including the people who already closed it?');">
                     @csrf
                     <button type="submit" class="corex-btn-outline text-sm">Re-notify everyone</button>
                 </form>

@@ -4,7 +4,6 @@
      Expects: $update (SystemUpdate — may be unsaved), $isEdit (bool) --}}
 @php
     $types      = collect(config('system-updates.types', []))->sortBy('sort');
-    $audiences  = config('system-updates.audiences', []);
     $currentImg = filled($update->image_path) && \Illuminate\Support\Facades\Storage::disk('public')->exists($update->image_path)
         ? \Illuminate\Support\Facades\Storage::disk('public')->url($update->image_path)
         : null;
@@ -35,24 +34,6 @@
                               color:var(--text-primary, #111827);">
                     <input type="radio" name="type" value="{{ $key }}" class="mr-2" @checked($checked)>
                     {{ $meta['label'] }}
-                </label>
-            @endforeach
-        </div>
-    </div>
-
-    {{-- Audience --}}
-    <div>
-        <label class="block text-sm font-semibold mb-2" style="color:var(--text-primary, #111827);">Who should see this?</label>
-        <div class="space-y-2">
-            @foreach($audiences as $key => $meta)
-                @php $checked = old('audience', $update->audience ?? 'all') === $key; @endphp
-                <label class="flex items-start gap-2 cursor-pointer p-3 rounded-md"
-                       style="border:1px solid {{ $checked ? 'var(--brand-icon, #0ea5e9)' : 'var(--border, rgba(0,0,0,0.07))' }};">
-                    <input type="radio" name="audience" value="{{ $key }}" class="mt-0.5" @checked($checked)>
-                    <span>
-                        <span class="block text-sm font-medium" style="color:var(--text-primary, #111827);">{{ $meta['label'] }}</span>
-                        <span class="block text-xs" style="color:var(--text-secondary, #6b7280);">{{ $meta['hint'] }}</span>
-                    </span>
                 </label>
             @endforeach
         </div>

@@ -62,11 +62,11 @@ final class SystemUpdateDismissTest extends SystemUpdateTestCase
             ->assertJson(['recorded' => 0]);
     }
 
-    /** A non-admin cannot acknowledge — or even touch — an admin-only update. */
-    public function test_an_out_of_audience_id_is_ignored(): void
+    /** A user cannot acknowledge an update that predates their own account. */
+    public function test_an_id_the_user_is_not_eligible_for_is_ignored(): void
     {
-        $this->joinedAt($this->agent, now()->subMonth());
-        $update = $this->publish(['audience' => SystemUpdate::AUDIENCE_ADMINS]);
+        $update = $this->publish(['published_at' => now()->subYear()]);
+        $this->joinedAt($this->agent, now()->subDay());
 
         $this->actingAs($this->agent)
             ->postJson(route('api.v1.system-updates.dismiss'), ['ids' => [$update->id]])

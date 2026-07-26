@@ -21,9 +21,13 @@ use Illuminate\Support\Facades\Schema;
  * code. There is nothing to bypass. Write access is owner_only (spec §10), so a
  * global table cannot become a cross-tenant leak vector.
  *
- * `type` and `audience` are plain strings with an application-level allow-list
+ * `type` is a plain string with an application-level allow-list
  * (config/system-updates.php), NOT a DB enum: changing the vocabulary must never
  * require an ALTER TABLE on a live database.
+ *
+ * There is no audience column: EVERY update goes to every CoreX user (Johan,
+ * 2026-07-26). A release note an agency or a role could be excluded from would
+ * recreate the "ships inert" problem the feature exists to solve.
  */
 return new class extends Migration
 {
@@ -35,9 +39,8 @@ return new class extends Migration
             $table->string('title', 160);
             $table->text('body');
 
-            // Vocabulary lives in config/system-updates.php (spec §5, §6).
+            // Vocabulary lives in config/system-updates.php (spec §5).
             $table->string('type', 20)->default('feature');
-            $table->string('audience', 20)->default('all');
 
             // Optional "Take me there" button — either part may be absent (spec §9.2).
             $table->string('link_url', 255)->nullable();

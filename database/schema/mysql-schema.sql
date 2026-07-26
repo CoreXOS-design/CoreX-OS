@@ -11919,7 +11919,6 @@ CREATE TABLE `system_updates` (
   `title` varchar(160) COLLATE utf8mb4_unicode_ci NOT NULL,
   `body` text COLLATE utf8mb4_unicode_ci NOT NULL,
   `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'feature',
-  `audience` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'all',
   `link_url` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `link_label` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

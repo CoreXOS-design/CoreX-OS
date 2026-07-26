@@ -92,7 +92,7 @@ class SystemUpdateController extends Controller
     {
         $this->guardOwner($request);
 
-        return view('admin.system-updates.create', ['update' => new SystemUpdate(['type' => 'feature', 'audience' => SystemUpdate::AUDIENCE_ALL])]);
+        return view('admin.system-updates.create', ['update' => new SystemUpdate(['type' => 'feature'])]);
     }
 
     public function edit(Request $request, int $update): View
@@ -135,7 +135,7 @@ class SystemUpdateController extends Controller
             $this->markPublished($update);
 
             return redirect()->route('admin.system-updates.index')
-                ->with('success', 'Update published. Everyone in the audience will see it on their next page load.');
+                ->with('success', 'Update published. Every CoreX user will see it on their next page load.');
         }
 
         return redirect()->route('admin.system-updates.edit', $update)
@@ -181,7 +181,7 @@ class SystemUpdateController extends Controller
 
         $this->markPublished($systemUpdate);
 
-        return back()->with('success', 'Published. Everyone in the audience will see it on their next page load.');
+        return back()->with('success', 'Published. Every CoreX user will see it on their next page load.');
     }
 
     public function unpublish(Request $request, int $update): RedirectResponse
@@ -215,7 +215,7 @@ class SystemUpdateController extends Controller
 
         $systemUpdate->update(['notify_reset_at' => now()]);
 
-        return back()->with('success', 'Everyone in the audience will see this update again on their next page load.');
+        return back()->with('success', 'Every CoreX user will see this update again on their next page load.');
     }
 
     /** "Delete" archives. The row is never removed (non-negotiable #1). */
@@ -280,7 +280,6 @@ class SystemUpdateController extends Controller
             'title'      => ['required', 'string', 'max:160'],
             'body'       => ['required', 'string', 'max:5000'],
             'type'       => ['required', Rule::in(array_keys(config('system-updates.types', [])))],
-            'audience'   => ['required', Rule::in(array_keys(config('system-updates.audiences', [])))],
             'link_url'   => ['nullable', 'string', 'max:255', function ($attribute, $value, $fail) {
                 if (blank($value)) {
                     return;

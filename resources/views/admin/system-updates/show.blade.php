@@ -10,7 +10,7 @@
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">{{ $update->title }}</h1>
                 <p class="text-sm text-white/60">
-                    {{ $update->typeLabel() }} · {{ $update->audienceLabel() }} ·
+                    {{ $update->typeLabel() }} ·
                     @if($update->isPublished())
                         published {{ $update->published_at->format('d M Y') }}
                     @else
@@ -31,7 +31,7 @@
          style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
         <div class="text-sm font-semibold mb-1" style="color:var(--text-primary, #111827);">Seen by</div>
         <div class="text-2xl font-bold" style="color:var(--text-primary, #111827);">
-            {{ number_format($seen) }} <span class="text-base font-normal" style="color:var(--text-secondary, #6b7280);">of {{ number_format($total) }} in audience</span>
+            {{ number_format($seen) }} <span class="text-base font-normal" style="color:var(--text-secondary, #6b7280);">of {{ number_format($total) }} CoreX users</span>
         </div>
         @if($update->notify_reset_at)
             <p class="text-xs mt-2" style="color:var(--text-secondary, #6b7280);">

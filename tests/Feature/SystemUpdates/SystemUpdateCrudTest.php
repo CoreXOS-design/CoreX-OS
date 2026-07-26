@@ -44,7 +44,6 @@ final class SystemUpdateCrudTest extends SystemUpdateTestCase
             'title'    => 'Deal Register V2 now tracks settlement dates',
             'body'     => 'Every deal step shows the settlement date it is waiting on.',
             'type'     => 'improvement',
-            'audience' => SystemUpdate::AUDIENCE_ALL,
         ])->assertRedirect();
 
         $update = SystemUpdate::firstOrFail();
@@ -61,7 +60,6 @@ final class SystemUpdateCrudTest extends SystemUpdateTestCase
             'title'       => 'FICA referrals can be sent to the compliance officer',
             'body'        => 'Send a submission straight to your compliance officer for review.',
             'type'        => 'feature',
-            'audience'    => SystemUpdate::AUDIENCE_ALL,
             'publish_now' => '1',
         ])->assertRedirect(route('admin.system-updates.index'));
 
@@ -124,7 +122,6 @@ final class SystemUpdateCrudTest extends SystemUpdateTestCase
             'title'    => 'Bulk-send viewing packs from the property page (typo fixed)',
             'body'     => $update->body,
             'type'     => $update->type,
-            'audience' => $update->audience,
         ])->assertRedirect();
 
         $this->assertCount(0, $this->service()->pendingFor($this->agent), 'a typo fix must not re-interrupt everyone');

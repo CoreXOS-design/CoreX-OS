@@ -23,7 +23,6 @@ final class SystemUpdateValidationTest extends SystemUpdateTestCase
             'title'    => 'Contacts now show every phone number on one card',
             'body'     => 'All numbers for a contact appear together, with the primary one first.',
             'type'     => 'improvement',
-            'audience' => SystemUpdate::AUDIENCE_ALL,
         ], $overrides);
     }
 
@@ -158,11 +157,15 @@ final class SystemUpdateValidationTest extends SystemUpdateTestCase
             ->assertSessionHasErrors('type');
     }
 
-    public function test_a_tampered_audience_is_rejected(): void
+    /** An absent type is rejected rather than silently defaulting. */
+    public function test_a_missing_type_is_rejected(): void
     {
+        $payload = $this->base();
+        unset($payload['type']);
+
         $this->actingAs($this->owner)
-            ->post(route('admin.system-updates.store'), $this->base(['audience' => 'everyone_everywhere']))
-            ->assertSessionHasErrors('audience');
+            ->post(route('admin.system-updates.store'), $payload)
+            ->assertSessionHasErrors('type');
     }
 
     // ── Image ───────────────────────────────────────────────────────────────

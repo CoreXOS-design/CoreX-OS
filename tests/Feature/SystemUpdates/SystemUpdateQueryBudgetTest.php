@@ -43,17 +43,6 @@ final class SystemUpdateQueryBudgetTest extends SystemUpdateTestCase
         $this->assertSame([], $queries, 'a page load with nothing to say must not touch the database');
     }
 
-    public function test_a_non_admin_costs_zero_queries_when_only_admin_updates_are_live(): void
-    {
-        $this->joinedAt($this->agent, now()->subMonth());
-        $this->publish(['audience' => SystemUpdate::AUDIENCE_ADMINS]);
-        $this->service()->publishedList();
-
-        $queries = $this->captureQueries(fn () => $this->service()->pendingFor($this->agent));
-
-        $this->assertSame([], $queries, 'the audience filter must run in PHP, before any SQL');
-    }
-
     public function test_a_user_who_joined_after_every_update_costs_zero_queries(): void
     {
         $this->publish(['published_at' => now()->subYear()]);
@@ -89,7 +78,6 @@ final class SystemUpdateQueryBudgetTest extends SystemUpdateTestCase
             'title'        => 'Cache coherence check',
             'body'         => 'Published directly through the model.',
             'type'         => 'feature',
-            'audience'     => SystemUpdate::AUDIENCE_ALL,
             'status'       => SystemUpdate::STATUS_PUBLISHED,
             'published_at' => now()->subSecond(),
         ]);

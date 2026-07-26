@@ -12,7 +12,7 @@
                 <h1 class="text-xl font-bold text-white leading-tight">System Updates</h1>
                 <p class="text-sm text-white/60">
                     Tell everyone what changed in CoreX. Each update shows once as a pop-up the next
-                    time its audience opens CoreX, and never interrupts them again after they close it.
+                    time a user opens CoreX, and never interrupts them again after they close it.
                 </p>
             </div>
             <a href="{{ route('admin.system-updates.create') }}" class="corex-btn-primary">New Update</a>
@@ -48,7 +48,6 @@
                 <tr style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">
                     <th class="text-left px-4 py-3 font-semibold">Type</th>
                     <th class="text-left px-4 py-3 font-semibold">Title</th>
-                    <th class="text-left px-4 py-3 font-semibold">Audience</th>
                     <th class="text-left px-4 py-3 font-semibold">Status</th>
                     <th class="text-left px-4 py-3 font-semibold">Seen by</th>
                     <th class="text-right px-4 py-3 font-semibold">Actions</th>
@@ -74,7 +73,6 @@
                             @if($update->published_at) · {{ $update->published_at->format('d M Y') }} @endif
                         </div>
                     </td>
-                    <td class="px-4 py-3 whitespace-nowrap">{{ $update->audienceLabel() }}</td>
                     <td class="px-4 py-3 whitespace-nowrap">
                         @if($update->trashed())
                             <span style="color:var(--text-secondary, #6b7280);">Archived</span>
@@ -104,7 +102,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="6" class="px-4 py-8 text-center" style="color:var(--text-secondary, #6b7280);">
+                    <td colspan="5" class="px-4 py-8 text-center" style="color:var(--text-secondary, #6b7280);">
                         @if($showArchived)
                             Nothing archived.
                         @else

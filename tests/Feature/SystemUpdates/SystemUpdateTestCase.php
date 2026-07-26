@@ -47,11 +47,11 @@ abstract class SystemUpdateTestCase extends TestCase
         Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agency->id]);
 
         // The grants table must be non-empty or PermissionService treats the whole
-        // suite as "unseeded" and allows everything — which would make every
-        // audience assertion meaningless.
+        // suite as "unseeded" and allows everything — which would make the
+        // owner-only 403 assertions meaningless.
         RolePermission::create([
             'role'           => 'admin',
-            'permission_key' => (string) config('system-updates.admin_permission'),
+            'permission_key' => 'sidebar.section.admin',
             'agency_id'      => $this->agency->id,
         ]);
         RolePermission::create([
@@ -85,7 +85,6 @@ abstract class SystemUpdateTestCase extends TestCase
             'title'              => 'Bulk-send viewing packs from the property page',
             'body'               => "You can now send a viewing pack to several buyers at once.\nOpen any listing, tick the buyers, and press Send.",
             'type'               => 'feature',
-            'audience'           => SystemUpdate::AUDIENCE_ALL,
             'status'             => SystemUpdate::STATUS_PUBLISHED,
             'published_at'       => now()->subMinute(),
             'created_by_user_id' => $this->owner->id,

@@ -27,14 +27,10 @@ class SystemUpdate extends Model
     public const STATUS_DRAFT     = 'draft';
     public const STATUS_PUBLISHED = 'published';
 
-    public const AUDIENCE_ALL    = 'all';
-    public const AUDIENCE_ADMINS = 'admins';
-
     protected $fillable = [
         'title',
         'body',
         'type',
-        'audience',
         'link_url',
         'link_label',
         'image_path',
@@ -133,12 +129,6 @@ class SystemUpdate extends Model
     public function typeLabel(): string
     {
         return $this->typeChip()['label'] ?? 'Update';
-    }
-
-    public function audienceLabel(): string
-    {
-        return config('system-updates.audiences.' . $this->audience . '.label')
-            ?? 'Everyone';
     }
 
     /** Button text — defaults when a URL was given but no label (spec §9.2). */

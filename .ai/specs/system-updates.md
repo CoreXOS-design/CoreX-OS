@@ -19,7 +19,7 @@ land silently so the person who reported the fault never learns it was fixed.
 
 **System Updates** closes that loop. A System Owner writes an update on a System
 Developer page — what it is, what type it is, a screenshot, and a button that takes
-the user straight to it. The next time the intended audience opens CoreX, a pop-up
+the user straight to it. The next time any CoreX user opens the system, a pop-up
 shows them what changed. They read it, they close it, and it never interrupts them
 again.
 
@@ -41,7 +41,7 @@ and using it are one click apart, not two tabs and a search.
 
 | Pillar | Relationship |
 |--------|--------------|
-| **Agent** (`User`) | **Reads and writes.** The acknowledgement record is keyed to a `User`; audience resolution reads the user's role capability. Every update writes back per-user adoption data: which practitioners have seen which change, and when. The admin detail page surfaces that as an adoption count ("41 of 58 in audience have seen this"). |
+| **Agent** (`User`) | **Reads and writes.** The acknowledgement record is keyed to a `User`, and eligibility reads that user's `created_at`. Every update writes back per-user adoption data: which practitioners have seen which change, and when. The admin detail page surfaces that as an adoption count ("41 of 58 CoreX users have seen this"). |
 | Property / Contact / Deal | No direct linkage. An update is a message *about* CoreX, not a record *in* CoreX. |
 
 Non-negotiable #4 is satisfied via the Agent pillar: the feature reads `User` and
@@ -76,7 +76,7 @@ migration's docblock).
   carving a hole in it.
 - Write access is `owner_only` (§7). No agency user can author a row, so a global
   table cannot become a cross-tenant leak vector.
-- Read exposure is by design: the audience is the intended reader.
+- Read exposure is by design: every user is the intended reader (§6).
 - `system_update_views` is written self-scoped from `auth()->id()` only — a user can
   never mark another user's row, and the endpoint takes no user id as input.
 
@@ -92,7 +92,6 @@ migration's docblock).
 | `title` | string(160) | NOT NULL | Plain-English headline. STANDARDS F.8 applies — no jargon, no codenames, no "AT-338". |
 | `body` | text | NOT NULL | What changed, in full sentences. Rendered as escaped text with paragraph breaks preserved — **never** raw HTML (§9.3). |
 | `type` | string(20) | NOT NULL, default `feature` | `feature` \| `improvement` \| `fix` — see §5. |
-| `audience` | string(20) | NOT NULL, default `all` | `all` \| `admins` — see §6. |
 | `link_url` | string(255) | NULL | Where the change lives. Internal path (`/corex/properties`) or absolute URL. Validated per §9.2. |
 | `link_label` | string(60) | NULL | Button text. Defaults to "Take me there" when `link_url` is set and this is blank. |
 | `image_path` | string(255) | NULL | Screenshot/GIF on the `public` disk under `system-updates/`. |
@@ -107,9 +106,9 @@ Indexes: `(status, published_at)`, `deleted_at`.
 
 Model: `App\Models\SystemUpdate` — `SoftDeletes`, **no** `BelongsToAgency`.
 
-`type` and `audience` are stored as plain strings with an application-level
-allow-list (not a DB enum) — adding a fourth type must never require an
-`ALTER TABLE` on a live database.
+`type` is stored as a plain string with an application-level allow-list (not a DB
+enum) — adding a fourth type must never require an `ALTER TABLE` on a live
+database. There is **no `audience` column** (§6).
 
 ### 4.2 `system_update_views`
 
@@ -175,59 +174,34 @@ they do not own and cannot meaningfully change. **Confirmed hardcoded by Johan,
 
 ---
 
-## 6. Audience
+## 6. Audience — everyone, always
 
-Two options on the authoring form, under the heading "Who should see this?":
+**Every published update goes to every authenticated CoreX user, in every agency,
+in every role.** There is no audience control, no role targeting, no per-agency
+targeting, and no `audience` column. (Johan, 2026-07-26 — an earlier draft carried
+an Everyone / Admins-only switch; it was removed before promotion.)
 
-| Value | Control label | Who receives it |
-|-------|--------------|-----------------|
-| `all` | **Everyone** (default) | Every authenticated CoreX user, every agency, every role. |
-| `admins` | **Admins only** | Users who can see the Admin section of the sidebar, plus System Owners. |
+The only thing that narrows who sees an update is §8.1 rule 2: a user never sees
+updates published before their own account existed.
 
-### 6.1 How "admin" is resolved — and why it is not a role list
+**Why there is no targeting at all.** A release note that some users could be
+excluded from — by an agency switch, a role filter, or a feature toggle — recreates
+exactly the problem this feature exists to solve: a change ships, the people who
+would use it are never told, and it stays inert. The moment an update can be
+addressed to a subset, someone has to decide the subset correctly every single
+time, and the failure mode of getting it wrong is **silent** — the update simply
+reaches nobody and nothing errors.
 
-The `roles` table is **per-agency** (`roles.agency_id`) and agency-editable: each
-tenant names and shapes its own roles. A hardcoded list like
-`['admin','super_admin']` would be wrong on the first agency that calls its role
-"Principal" or "Office Manager", and it would silently deliver an admin-only update
-to nobody — a failure with no error message, which is the worst kind.
+Consequently this feature is deliberately **not** in `config/corex-features.php`:
+it is not a toggleable agency module.
 
-So audience is resolved by **capability**, not by name:
-
-```php
-$isAdminAudience = $user->isOwnerRole()
-    || $user->hasPermission('sidebar.section.admin');
-```
-
-`sidebar.section.admin` is the existing, real permission key
-(`config/corex-permissions.php:577`) that already governs whether a user sees the
-Admin section of the sidebar. This makes the definition tenant-agnostic, exactly
-matches the user's mental model — *admins are the people who see admin things* —
-and needs no new permission key, no new column, and no per-agency configuration.
-
-If an agency reshapes its roles, the audience follows automatically. That is the
-whole point.
-
-### 6.2 Role changes over time
-
-Audience is evaluated **at display time**, not at publish time:
-
-- A user promoted to admin *after* an admin-only update was published **will** see
-  it on their next page load. Correct — they are an admin now, and the update
-  applies to them.
-- An admin who dismissed an update and later loses the capability simply stops
-  being eligible; their dismissal row is untouched and the audit survives.
-
-This is a consequence of resolving live rather than snapshotting an audience list,
-and it is the behaviour we want. Recorded here so it is a decision on the record
-rather than a surprise.
-
-### 6.3 What audience does NOT do
-
-There is no per-agency targeting and no per-role picker. A CoreX release note that
-an agency could switch off would defeat the purpose of the feature and recreate the
-"ships inert" problem it exists to solve. Deliberately **not** in
-`config/corex-features.php`: this is not a toggleable agency module.
+**If per-role targeting is ever wanted**, the thing NOT to do is resolve "admin"
+from a role-name list. `roles` is per-agency (`roles.agency_id`) and
+agency-editable, so `['admin','super_admin']` is wrong on the first agency that
+renames its role to "Principal" or "Office Manager". It would have to resolve by
+**capability** — e.g. `isOwnerRole() || hasPermission('sidebar.section.admin')` —
+which is tenant-agnostic and follows an agency's own role changes. Recorded here so
+a future prompt does not reach for the name list.
 
 ---
 
@@ -244,27 +218,28 @@ Pages (`/admin/system-updates`):
 
 | Screen | Purpose |
 |--------|---------|
-| **Index** | Table of every update: type chip, title, audience chip (Everyone / Admins only), status chip (Draft / Published / Archived), published date, adoption ("41 / 58 seen"), actions. Archived rows behind a "Show archived" toggle, with Restore. |
-| **Create / Edit** | Type, audience, title, body, optional link URL + label, optional screenshot, live preview pane. |
+| **Index** | Table of every update: type chip, title, status chip (Draft / Published / Archived), published date, adoption ("41 / 58 seen"), actions. Archived rows behind a "Show archived" toggle, with Restore. |
+| **Create / Edit** | Type, title, body, optional link URL + label, optional screenshot, live preview pane. |
 | **Show** | The update as authored, plus the adoption list — who has seen it, who hasn't, when. |
-| **Preview** | Renders the *real* modal component with this update, so the owner sees exactly what the audience will see before publishing. |
+| **Preview** | Renders the *real* modal component with this update, so the owner sees exactly what a user will see before publishing. |
 
-**Adoption denominator.** For `audience = all` it is every active user. For
-`audience = admins` it is every active user whose role carries
-`sidebar.section.admin` or `is_owner` — resolved via the `role_permissions` join.
-This runs only on the admin Show/Index pages, never on the hot path.
+**Adoption denominator.** Every user — an update is addressed to all of them (§6).
+Counted with `AgencyScope` explicitly dropped: this is a cross-agency owner view,
+and the scope's owner bypass stops the moment the owner has entered an agency via
+the switcher, which would silently return a single agency's count with no error.
+Documented exception per the multi-tenancy rule; safe because the surface is
+`owner_only`. Runs only on the admin Show/Index pages, never on the hot path.
 
 ### 7.2 Author flow
 
 1. Owner → System Developer → System Updates → **New update**
-2. Picks the **type** (New Feature / Improvement / Fixed) and the **audience**
-   (Everyone / Admins only)
+2. Picks the **type** (New Feature / Improvement / Fixed)
 3. Types title + body, optionally uploads a screenshot, optionally sets the link
    ("Where does this live?") and the button label
 4. **Preview** — the actual modal renders over the page
 5. **Save as draft** (nobody sees it) or **Publish now**
 6. On publish: `status = published`, `published_at = now()`, published-list cache
-   busted (§9.6). The audience sees it on their next page load.
+   busted (§9.6). Every user sees it on their next page load.
 
 ### 7.3 User flow
 
@@ -309,11 +284,9 @@ reason as §6.3.
 An update is **pending** for a user when all of the following hold:
 
 1. `status = 'published'` and `published_at <= now()`
-2. `audience = 'all'`, **or** `audience = 'admins'` and the user resolves as admin
-   per §6.1
-3. `published_at >= user.created_at` — **a user never sees changes that predate
+2. `published_at >= user.created_at` — **a user never sees changes that predate
    their own account**
-4. No `system_update_views` row for `(update, user)` with
+3. No `system_update_views` row for `(update, user)` with
    `dismissed_at > COALESCE(update.notify_reset_at, update.published_at)`
 
    The comparison is **strict**: "re-notify at time T" voids every dismissal up to
@@ -321,7 +294,7 @@ An update is **pending** for a user when all of the following hold:
    owner clicked Re-notify would never be shown it again — silently, and only for
    them.
 
-**Rule 3 is a load-bearing design decision, not an optimisation.** Without it, an
+**Rule 2 is a load-bearing design decision, not an optimisation.** Without it, an
 agent who joins next March opens CoreX for the first time and is met with forty
 historical notes about changes that, to them, are simply how CoreX has always
 worked. Their first minute in the system would be spent clicking Next. New users get
@@ -352,14 +325,14 @@ interruption, nothing silently swallowed.
 Decided here, at spec time, before any code.
 
 ### 9.1 Required fields
-`title` and `body` are required; `type` and `audience` are required with defaults
-already selected in the form, so they can never arrive empty by accident. Empty
+`title` and `body` are required; `type` is required with a default already selected
+in the form, so it can never arrive empty by accident. Empty
 title/body → **prevented** at validation in plain language ("Give the update a title
 so users know what changed."). Never reaches the DB. Both trimmed before validation;
 a whitespace-only title is empty. `title` max 160, `body` max 5000 — enforced in
 validation *and* by column width, so the DB contract cannot be violated by any input
-path. `type` and `audience` are validated with `Rule::in()` against the config
-allow-list — a tampered form value is rejected, never stored.
+path. `type` is validated with `Rule::in()` against the config allow-list — a
+tampered form value is rejected, never stored.
 
 ### 9.2 Optional fields — every one, empty, individually
 - **No link, no label, no image** → the lazy-but-valid shortcut (type + title +
@@ -406,15 +379,13 @@ comes later as an allow-listed subset, specced separately.
 - Publishing an already-published update is a no-op, not an error.
 
 ### 9.6 Performance — every page load, every user
-The eligible-published list (`id`, `published_at`, `notify_reset_at`, `audience`) is
-cached under `system_updates.published`, busted on publish / unpublish / update /
-renotify / archive / restore. Per request:
+The eligible-published list (`id`, `published_at`) is cached under
+`system_updates.published`, busted on publish / unpublish / update / renotify /
+archive / restore. Per request:
 
-1. Read the cached list. Filter in PHP by `audience` (the user's admin status is
-   already resolved on the request by the permission service) and by
-   `user.created_at`. **Nothing left → zero DB queries.** This is the case for
-   essentially every page load in normal operation, and it is also the case for
-   every non-admin when only admin-only updates are live.
+1. Read the cached list and filter in PHP by `user.created_at`. **Nothing left →
+   zero DB queries.** This is the case for essentially every page load in normal
+   operation.
 2. Only when candidates remain: one indexed query against `system_update_views` for
    this user.
 
@@ -443,9 +414,8 @@ here, and the rationale is recorded in the route file so a future reader doesn't
 **User surface:** the modal, the dismiss endpoint, and the archive require
 authentication only. Writes are self-scoped from `auth()->id()` and take no user id
 as input — there is no cross-user surface to protect, identical to
-`TourProgressController`. The one read-authorisation decision is the audience check
-(§6.1), applied server-side when the modal is rendered and again on the archive —
-never client-side.
+`TourProgressController`. Eligibility (§8.1) is applied server-side when the modal
+is rendered and again on the archive — never client-side.
 
 ---
 
@@ -487,7 +457,7 @@ POST /api/v1/system-updates/dismiss      api.v1.system-updates.dismiss
 ```
 
 Body: `{ "ids": [12, 13, 14] }`. Marks each dismissed for the authenticated user.
-Unknown / not-eligible / out-of-audience ids are ignored, not errors (idempotent by
+Unknown / archived / not-yet-eligible ids are ignored, not errors (idempotent by
 design — §9.5). Consumed through `window.CoreX.api`.
 
 Controller: `App\Http\Controllers\Api\V1\SystemUpdateDismissController`.
@@ -567,36 +537,31 @@ Recorded here as the "Deliberately NOT in the wizard" decision #10a requires.
 Done when all of these are demonstrated, not asserted:
 
 1. Owner creates a draft → no user sees anything.
-2. Owner publishes to **Everyone** → the next page load for an eligible user shows
-   the modal, on whatever page they were headed to.
+2. Owner publishes → the next page load for every eligible user shows the modal, on
+   whatever page they were headed to.
 3. User closes it → never appears again, on any page, after any number of reloads.
 4. Three published updates → **one** modal, "1 of 3", Back/Next work, one Close
    clears all three.
 5. Six pending → 5 shown, footer says "+ 1 more", the 6th is still pending after.
-6. Owner publishes to **Admins only** → a user with `sidebar.section.admin` sees it;
-   a plain agent never does, on any page, ever.
-7. A plain agent **promoted to admin after publish** sees the admin-only update on
-   their next page load.
-8. A page load for a non-admin, with only admin-only updates live, issues **zero**
-   update DB queries.
-9. A user created *after* publish never sees that update.
-10. "Take me there" navigates to the feature **and** dismisses.
-11. Type chip renders correctly for all three types; an unknown stored type falls
-    back to a neutral chip rather than erroring.
-12. Type + title + body only (no link, no image) renders and dismisses correctly.
-13. `javascript:` link URL rejected at validation with a clear message.
-14. A `<script>` tag typed into the body renders as visible text, never executes.
-15. A tampered `audience`/`type` value posted from a modified form is rejected.
-16. Editing a published update does not re-show it; **Re-notify everyone** does, and
+6. A user created *after* publish never sees that update.
+7. "Take me there" navigates to the feature **and** dismisses.
+8. Type chip renders correctly for all three types; an unknown stored type falls
+   back to a neutral chip rather than erroring.
+9. Type + title + body only (no link, no image) renders and dismisses correctly.
+10. `javascript:` link URL rejected at validation with a clear message.
+11. A `<script>` tag typed into the body renders as visible text, never executes.
+12. A tampered or missing `type` posted from a modified form is rejected.
+13. Editing a published update does not re-show it; **Re-notify everyone** does, and
     the original view rows still exist afterwards.
-17. Archive (soft delete) removes it from every user's pending set immediately;
+14. Archive (soft delete) removes it from every user's pending set immediately;
     Restore brings it back; no row is ever hard-deleted.
-18. A non-owner hitting any `/admin/system-updates` URL directly gets 403.
-19. A page load with nothing pending issues **zero** update DB queries.
-20. Modal usable and readable at 360px wide, in both light and dark theme.
-21. Adoption count matches actual view rows, with the denominator respecting
-    audience (admins-only counts only admin-capable users).
-22. Archive lists only what the user is eligible for, filters by type, and marks
+15. A non-owner hitting any `/admin/system-updates` URL directly gets 403 —
+    including an agency admin.
+16. A page load with nothing pending issues **zero** update DB queries; a real
+    candidate costs exactly one.
+17. Modal usable and readable at 360px wide, in both light and dark theme.
+18. Adoption count matches actual view rows.
+19. Archive lists only what the user is eligible for, filters by type, and marks
     still-pending items "New".
 
 ---
@@ -609,10 +574,9 @@ not "Test / Test"):
 | File | Covers |
 |------|--------|
 | `SystemUpdateCrudTest` | create, edit, publish, unpublish, archive, restore; owner-only 403s for agent / admin / assistant roles |
-| `SystemUpdateValidationTest` | required-empty rejects; each optional field omitted individually; whitespace-only title; over-length title/body; malformed + `javascript:` URL rejected; bad mime / oversize image rejected; tampered `type`/`audience` rejected; **the lazy shortcut (type + title + body) succeeds end to end** |
-| `SystemUpdateAudienceTest` | admins-only reaches owner + `sidebar.section.admin` holder; never reaches a plain agent or assistant; promotion after publish grants visibility; capability resolution works with a renamed per-agency role (the hardcoded-role-list bug this design exists to prevent) |
-| `SystemUpdateVisibilityTest` | eligibility rule §8.1 in full: draft hidden, published shown, user-created-after excluded, dismissed excluded, re-notify re-includes, archived excluded |
-| `SystemUpdateDismissTest` | multi-id dismiss; idempotent double-submit; unknown / ineligible / out-of-audience ids ignored; another user's state untouched; self-scoping |
+| `SystemUpdateValidationTest` | required-empty rejects; each optional field omitted individually; whitespace-only title; over-length title/body; malformed + `javascript:` / `data:` / protocol-relative URL rejected; bad mime / oversize image rejected; tampered + missing `type` rejected; **the lazy shortcut (type + title + body) succeeds end to end** |
+| `SystemUpdateVisibilityTest` | eligibility rule §8.1 in full: draft hidden, published shown, future-dated hidden, user-created-after excluded, dismissed excluded, re-notify re-includes, archived excluded, restore re-includes, 5-cap + overflow, per-user isolation |
+| `SystemUpdateDismissTest` | multi-id dismiss; idempotent double-submit; unknown / archived / not-yet-eligible ids ignored; another user's state untouched; self-scoping; guest 401 |
 | `SystemUpdateModalRenderTest` | renders on an arbitrary authenticated page; absent when nothing pending; 5-cap + overflow line; body escaped (`<script>` appears as text); missing image file renders without an `<img>`; deleted author renders "System"; unknown type falls back |
 | `SystemUpdateQueryBudgetTest` | zero update queries with nothing pending; zero for a non-admin when only admin-only updates exist; one query when candidates exist |
 
@@ -630,7 +594,7 @@ database/migrations/2026_07_26_000001_create_system_updates_table.php
 database/migrations/2026_07_26_000002_create_system_update_views_table.php
 app/Models/SystemUpdate.php
 app/Models/SystemUpdateView.php
-app/Services/SystemUpdateService.php                 (eligibility + audience + cache + dismiss)
+app/Services/SystemUpdateService.php                 (eligibility + cache + dismiss + adoption)
 app/Http/Controllers/Admin/SystemUpdateController.php
 app/Http/Controllers/Api/V1/SystemUpdateDismissController.php
 app/Http/Controllers/CoreX/WhatsNewController.php
@@ -683,7 +647,7 @@ never read the stale dev DB). Verified afterwards: zero duplicate columns across
 
 | # | Decision | Made by | Date |
 |---|----------|---------|------|
-| 1 | Audience: Everyone / Admins only, resolved by `sidebar.section.admin` capability, not a role-name list | Johan | 2026-07-26 |
+| 1 | **No audience targeting at all — every update goes to every user.** An Everyone / Admins-only switch was drafted and then removed before promotion: anything that can address a subset can silently address nobody, which is the failure this feature exists to prevent | Johan | 2026-07-26 |
 | 2 | Module named **System Updates**, not "New Feature" — it also carries fixes and improvements | Johan | 2026-07-26 |
 | 3 | Three fixed types: New Feature / Improvement / Fixed | Johan | 2026-07-26 |
 | 4 | Modal cap of 5 per sitting, overflow to the archive | Johan | 2026-07-26 |

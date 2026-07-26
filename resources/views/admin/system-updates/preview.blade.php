@@ -15,7 +15,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Preview</h1>
-                <p class="text-sm text-white/60">Exactly what {{ strtolower($update->audienceLabel()) }} will see. Nothing is recorded from this page.</p>
+                <p class="text-sm text-white/60">Exactly what every CoreX user will see. Nothing is recorded from this page.</p>
             </div>
             <a href="{{ route('admin.system-updates.edit', $update->id) }}" class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.35);">Back to edit</a>
         </div>

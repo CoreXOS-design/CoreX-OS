@@ -61,23 +61,6 @@ return [
         'fallback' => '#6b7280',
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Audiences (spec §6)
-    |--------------------------------------------------------------------------
-    | "admins" is resolved by CAPABILITY, never by role name — the roles table is
-    | per-agency and agency-editable, so a hardcoded role-name list would silently
-    | deliver an admin-only update to nobody on any agency that renamed its roles.
-    | See App\Services\SystemUpdateService::userIsAdminAudience().
-    */
-    'audiences' => [
-        'all'    => ['label' => 'Everyone',    'hint' => 'Every CoreX user, in every agency.'],
-        'admins' => ['label' => 'Admins only', 'hint' => 'Users who can see the Admin section of the sidebar, plus System Owners.'],
-    ],
-
-    /** The permission key that defines "admin" for audience purposes (spec §6.1). */
-    'admin_permission' => 'sidebar.section.admin',
-
     /** Max cards in one sitting; the rest go to the archive (spec §8.3). */
     'modal_cap' => 5,
 

@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * System Updates — eligibility, audience resolution, dismissal and adoption.
+ * System Updates — eligibility, dismissal and adoption.
  *
- * Spec: .ai/specs/system-updates.md §6, §8, §9.6.
+ * Spec: .ai/specs/system-updates.md §8, §9.6.
  *
  * The single place that answers "should this user see this update?". The modal
  * partial, the archive page and the dismiss endpoint all route through here, so the
@@ -22,48 +22,23 @@ use Illuminate\Support\Facades\DB;
 class SystemUpdateService
 {
     /**
-     * Is this user in the "admins" audience? (spec §6.1)
-     *
-     * Resolved by CAPABILITY, never by role name. The `roles` table is per-agency
-     * (roles.agency_id) and agency-editable — each tenant names and shapes its own
-     * roles. A hardcoded list like ['admin','super_admin'] would be wrong on the
-     * first agency that calls the role "Principal" or "Office Manager", and it would
-     * fail SILENTLY: the admin-only update reaches nobody, with no error anywhere.
-     *
-     * `sidebar.section.admin` is the existing key that already governs who sees the
-     * Admin section of the sidebar, so this matches the mental model exactly —
-     * admins are the people who see admin things — and follows an agency's own role
-     * changes automatically.
-     */
-    public function userIsAdminAudience(?User $user): bool
-    {
-        if (! $user) {
-            return false;
-        }
-
-        return $user->isOwnerRole()
-            || $user->hasPermission((string) config('system-updates.admin_permission'));
-    }
-
-    /**
      * The published list, cached as scalars (spec §9.6).
      *
      * Deliberately holds only what eligibility needs, so the common "nothing to
      * say" case is answered without touching the database at all. Busted by
      * SystemUpdate::booted() on every save/delete/restore, so no caller can forget.
      *
-     * @return array<int,array{id:int,published_at:string,audience:string}>
+     * @return array<int,array{id:int,published_at:string}>
      */
     public function publishedList(): array
     {
         return Cache::rememberForever((string) config('system-updates.cache_key'), function () {
             return SystemUpdate::live()
                 ->orderByDesc('published_at')
-                ->get(['id', 'published_at', 'audience'])
+                ->get(['id', 'published_at'])
                 ->map(fn (SystemUpdate $u) => [
                     'id'           => (int) $u->id,
                     'published_at' => $u->published_at?->toIso8601String(),
-                    'audience'     => (string) $u->audience,
                 ])
                 ->all();
         });
@@ -77,9 +52,8 @@ class SystemUpdateService
     /**
      * Candidate ids for a user, resolved WITHOUT a database query (spec §9.6).
      *
-     * Applies eligibility rules 1-3 (published, audience, not-before-my-account)
-     * against the cached scalar list. Returns [] for the overwhelming majority of
-     * page loads — and for every non-admin when only admin-only updates are live —
+     * Applies eligibility rules 1-2 (published, not-before-my-account) against the
+     * cached scalar list. Returns [] for the overwhelming majority of page loads,
      * so the caller can short-circuit before issuing any SQL.
      *
      * @return array<int,int>
@@ -90,17 +64,11 @@ class SystemUpdateService
             return [];
         }
 
-        $isAdmin  = $this->userIsAdminAudience($user);
         $joinedAt = $user->created_at;
 
         $ids = [];
         foreach ($this->publishedList() as $row) {
-            // Rule 2 — audience.
-            if ($row['audience'] === SystemUpdate::AUDIENCE_ADMINS && ! $isAdmin) {
-                continue;
-            }
-
-            // Rule 3 — a user never sees changes that predate their own account.
+            // Rule 2 — a user never sees changes that predate their own account.
             // Without this, an agent joining next March meets forty historical
             // notes about features that, to them, are simply how CoreX works.
             if ($joinedAt && $row['published_at'] && $row['published_at'] < $joinedAt->toIso8601String()) {
@@ -187,8 +155,9 @@ class SystemUpdateService
      * Mark updates dismissed for this user (spec §11.2).
      *
      * Idempotent by design: updateOrCreate means a double-click, a retry or a
-     * duplicated request is harmless. Ids the user is not eligible for are ignored
-     * rather than rejected — a stale modal must never hand the user an error.
+     * duplicated request is harmless. Ids the user is not eligible for (archived,
+     * unknown, or published before they joined) are ignored rather than rejected —
+     * a stale modal must never hand the user an error.
      *
      * @param  array<int,mixed>  $ids
      * @return int  how many were actually recorded
@@ -222,7 +191,7 @@ class SystemUpdateService
 
     /**
      * How many users this update was addressed to — the adoption denominator
-     * (spec §7.1).
+     * (spec §7.1). Every update goes to everyone, so this is simply every user.
      *
      * Runs only on the owner-only admin screens, never on the hot path.
      *
@@ -235,31 +204,7 @@ class SystemUpdateService
      */
     public function audienceUserCount(SystemUpdate $update): int
     {
-        $query = User::withoutGlobalScope(AgencyScope::class);
-
-        if ($update->audience !== SystemUpdate::AUDIENCE_ADMINS) {
-            return $query->count();
-        }
-
-        // Resolved through userIsAdminAudience() — the SAME code path the modal
-        // uses — rather than reimplemented as a SQL join.
-        //
-        // Permission resolution is role-NAME + agency_id with a global fallback,
-        // an owner bypass, and a separate assistant matrix (PermissionService).
-        // A hand-rolled join would inevitably disagree with the resolver on some
-        // edge, and a denominator that disagrees with who actually sees the modal
-        // is worse than no denominator at all. Chunked so a large install never
-        // loads every user into memory; owner-only screen, never the hot path.
-        $count = 0;
-        $query->chunkById(500, function ($users) use (&$count) {
-            foreach ($users as $user) {
-                if ($this->userIsAdminAudience($user)) {
-                    $count++;
-                }
-            }
-        });
-
-        return $count;
+        return User::withoutGlobalScope(AgencyScope::class)->count();
     }
 
     /** How many users have acknowledged this update (spec §7.1). */

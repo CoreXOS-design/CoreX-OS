@@ -22,7 +22,7 @@
         <button type="submit" class="corex-btn-outline">Save as draft</button>
         <button type="submit" name="publish_now" value="1" class="corex-btn-primary">Publish now</button>
         <span class="text-xs" style="color:var(--text-secondary, #6b7280);">
-            Publishing shows this to its audience the next time they open CoreX.
+            Publishing shows this to every CoreX user the next time they open the system.
         </span>
     </div>
 </form>

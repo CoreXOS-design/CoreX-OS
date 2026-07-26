@@ -129,15 +129,15 @@ final class SystemUpdateModalRenderTest extends SystemUpdateTestCase
 
     // ── The archive itself (spec §7.5) ──────────────────────────────────────
 
-    public function test_the_archive_never_lists_an_out_of_audience_update(): void
+    public function test_the_archive_never_lists_an_update_from_before_the_user_joined(): void
     {
-        $this->joinedAt($this->agent, now()->subMonth());
-        $adminsOnly = $this->publish(['audience' => SystemUpdate::AUDIENCE_ADMINS, 'title' => 'Admin-only change']);
+        $old = $this->publish(['published_at' => now()->subYear(), 'title' => 'Ancient history']);
+        $this->joinedAt($this->agent, now()->subDay());
 
         $this->actingAs($this->agent)
             ->get(route('corex.whats-new.index'))
             ->assertOk()
-            ->assertDontSee($adminsOnly->title);
+            ->assertDontSee($old->title);
     }
 
     public function test_the_archive_still_lists_what_the_user_already_dismissed(): void
