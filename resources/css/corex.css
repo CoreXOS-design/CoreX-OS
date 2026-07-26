@@ -3306,7 +3306,10 @@ html.dark .corex-sidebar {
    header didn't read as a page header or reach the edges. Bleed the shell to the
    content edges (responsive) so the progress-bar header's bottom border connects
    edge-to-edge like the standard page header. Vertical bleed is inline (-16px). */
-.esign-shell { margin-left: -1rem; margin-right: -1rem; }
-@media (min-width: 1024px) { .esign-shell { margin-left: -1.5rem; margin-right: -1.5rem; } }
+/* Bleed all four sides to fill <main>'s content box completely (edge-to-edge,
+   full height) — height:100% + the bled padding, so it adapts to any env banner
+   automatically instead of a guessed 100vh offset. */
+.esign-shell { margin: -1rem; height: calc(100% + 2rem); }
+@media (min-width: 1024px) { .esign-shell { margin: -1.5rem; height: calc(100% + 3rem); } }
 
 /* End AT-336 restyle block */

@@ -9,8 +9,7 @@
     $safeStep = $currentStep ?? 1;
 @endphp
 
-<div x-data="esignWizard()" x-cloak class="esign-shell flex flex-col w-full overflow-hidden"
-     style="height: calc(100vh - 64px); margin-top: -16px; margin-bottom: -16px;">
+<div x-data="esignWizard()" x-cloak class="esign-shell flex flex-col w-full overflow-hidden">
 
     {{-- ===== TOAST NOTIFICATION ===== --}}
     <div x-show="toast.show" x-transition:enter="transition ease-out duration-300"
@@ -23,9 +22,9 @@
         <span x-text="toast.message"></span>
     </div>
 
-    {{-- ===== PROGRESS BAR (sticky header) ===== --}}
+    {{-- ===== PAGE HEADER (separate bar) ===== --}}
     <div class="px-6 py-3.5 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="esign-title">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">E-Sign Document</h1>
                 <p class="text-xs" style="color: var(--text-muted);" x-text="documentName ? documentName : 'Prepare a document and send it for signature'"></p>
@@ -36,6 +35,10 @@
                 <span class="text-xs" style="color: var(--text-muted);" x-text="'Step ' + currentStep + ' of 6'"></span>
             </div>
         </div>
+    </div>
+
+    {{-- ===== STEP PROGRESS BAR (its own section, under the header) ===== --}}
+    <div class="px-6 py-3 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
         <div class="flex gap-1" data-tour="esign-rail">
             <template x-for="(label, i) in stepLabels" :key="i">
                 <div class="flex-1 flex flex-col gap-1"
