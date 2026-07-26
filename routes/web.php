@@ -440,6 +440,14 @@ Route::middleware('auth')->group(function () {
             Route::post('/{tourKey}/seen',    [\App\Http\Controllers\TourProgressController::class, 'seen'])->name('seen');
             Route::post('/{tourKey}/dismiss', [\App\Http\Controllers\TourProgressController::class, 'dismiss'])->name('dismiss');
         });
+
+        // ── System Updates — per-user dismissal (self-scoped) ──
+        // The modal itself is server-rendered by layouts/partials/system-update-modal
+        // on every page, so there is deliberately NO GET /pending endpoint: a fetch
+        // would be a wasted round-trip on every page load in CoreX.
+        // Spec: .ai/specs/system-updates.md §11.2
+        Route::post('/system-updates/dismiss', \App\Http\Controllers\Api\V1\SystemUpdateDismissController::class)
+            ->name('system-updates.dismiss');
     });
 
     Route::get('/evaluation', function () {
@@ -2617,6 +2625,45 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
     });
+
+    // ── System Updates (AT-338) — the CoreX release-note pop-up. ──
+    //
+    // owner_only, and deliberately NO permission key in corex-permissions.php.
+    // This page broadcasts a full-screen modal, with arbitrary text and an arbitrary
+    // link, to EVERY USER OF EVERY AGENCY in CoreX. A permission key is GRANTABLE
+    // via the Role Manager — one mis-click and an agency admin is interrupting every
+    // one of our other tenants' agents. owner_only has no delegation path; that is
+    // the stronger gate, not a skipped one. Same reasoning as Demo Access above.
+    // DO NOT "fix" this by adding a permission key. See spec §10.
+    //
+    // Every action ALSO calls abort_unless($user->isOwnerRole(), 403).
+    //
+    // Spec: .ai/specs/system-updates.md §11.1
+    Route::middleware('owner_only')->prefix('admin/system-updates')->name('admin.system-updates.')->group(function () {
+        // /create comes FIRST — otherwise it is swallowed by /{update}.
+        Route::get('/create', [\App\Http\Controllers\Admin\SystemUpdateController::class, 'create'])->name('create');
+        Route::get('/',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'index'])->name('index');
+        Route::post('/',      [\App\Http\Controllers\Admin\SystemUpdateController::class, 'store'])->name('store');
+
+        Route::get('/{update}',            [\App\Http\Controllers\Admin\SystemUpdateController::class, 'show'])->whereNumber('update')->name('show');
+        Route::get('/{update}/edit',       [\App\Http\Controllers\Admin\SystemUpdateController::class, 'edit'])->whereNumber('update')->name('edit');
+        Route::get('/{update}/preview',    [\App\Http\Controllers\Admin\SystemUpdateController::class, 'preview'])->whereNumber('update')->name('preview');
+        Route::put('/{update}',            [\App\Http\Controllers\Admin\SystemUpdateController::class, 'update'])->whereNumber('update')->name('update');
+        Route::post('/{update}/publish',   [\App\Http\Controllers\Admin\SystemUpdateController::class, 'publish'])->whereNumber('update')->name('publish');
+        Route::post('/{update}/unpublish', [\App\Http\Controllers\Admin\SystemUpdateController::class, 'unpublish'])->whereNumber('update')->name('unpublish');
+        Route::post('/{update}/renotify',  [\App\Http\Controllers\Admin\SystemUpdateController::class, 'renotify'])->whereNumber('update')->name('renotify');
+        Route::post('/{update}/restore',   [\App\Http\Controllers\Admin\SystemUpdateController::class, 'restore'])->whereNumber('update')->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{update}',         [\App\Http\Controllers\Admin\SystemUpdateController::class, 'destroy'])->whereNumber('update')->name('destroy');
+    });
+
+    // What's New — the user-facing archive of system updates (auth only). The
+    // eligibility filter is applied server-side by SystemUpdateService, so an
+    // admin-only update never reaches a non-admin here. Spec §7.5.
+    // (This group is already prefixed `corex`, so the URL is /corex/whats-new —
+    // sitting beside /corex/guided-tours.)
+    Route::get('/whats-new', [\App\Http\Controllers\CoreX\WhatsNewController::class, 'index'])
+        ->name('corex.whats-new.index');
 
     // ── Demo Access Control (AT-230) — system-owner sales tooling. ──
     //

@@ -921,6 +921,20 @@
         </a>
         @endunless
 
+        {{-- AT-338 — What's New: the archive of system updates. Visible to every
+             authenticated user; the page filters to what they are eligible for
+             (audience + joined-before rule) server-side. Deliberately not feature-
+             gated — an agency that could switch off release notes would recreate
+             the "ships inert" problem the feature exists to solve.
+             Spec: .ai/specs/system-updates.md §7.5 --}}
+        <a href="{{ route('corex.whats-new.index') }}"
+           class="corex-nav-item {{ request()->routeIs('corex.whats-new.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
+            </svg>
+            <span>What's New</span>
+        </a>
+
         {{-- AT-41 — Guided Tours: self-serve interactive walkthroughs. Visible to
              every authenticated user; the directory filters to their own tours. --}}
         @feature('guided-tours')
@@ -1991,6 +2005,17 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>
             <span>Dev Settings</span>
+        </a>
+
+        {{-- System Updates (AT-338) — write the "what's new in CoreX" pop-up every
+             user sees once. Owner-only, and deliberately NOT @permission-gated: a
+             permission key is grantable via Role Manager, and this broadcasts a
+             modal to every user of every agency. Spec: system-updates.md §10 --}}
+        <a href="{{ route('admin.system-updates.index') }}" class="corex-nav-item {{ request()->routeIs('admin.system-updates.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 0 8.835-2.535m0 0A23.74 23.74 0 0 0 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 9.5c.205-.7.407-1.408.606-2.126m-.606 2.126A23.74 23.74 0 0 1 18.795 21m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m0-4.96a2.62 2.62 0 0 1 0 4.96" />
+            </svg>
+            <span>System Updates</span>
         </a>
 
         {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating

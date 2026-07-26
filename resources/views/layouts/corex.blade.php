@@ -151,6 +151,11 @@
              with a registered tour. See App\Support\Tours\TourRegistry. --}}
         @include('layouts.partials.tour-engine')
 
+        {{-- System Updates — the "what's new in CoreX" pop-up. Emits nothing (and
+             issues zero DB queries) when the user has nothing pending.
+             Spec: .ai/specs/system-updates.md --}}
+        @include('layouts.partials.system-update-modal')
+
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
