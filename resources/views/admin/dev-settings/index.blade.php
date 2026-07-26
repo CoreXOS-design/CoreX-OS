@@ -23,8 +23,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Dev Settings</h1>
-                <p class="text-sm text-white/60">System-wide developer overrides. Use with care — these affect production behaviour.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Dev Settings</h1>
+                <p class="text-xs" style="color: var(--text-muted);">System-wide developer overrides. Use with care — these affect production behaviour.</p>
             </div>
         </div>
     </div>
@@ -90,13 +90,13 @@
                                             x-show="{{ $matchExpr }}"
                                             :class="activeSection === '{{ $item['key'] }}' ? 'font-semibold' : ''"
                                             :style="activeSection === '{{ $item['key'] }}' ? 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150 hover:bg-white/5 outline-none focus:outline-none">
+                                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150 hover:bg-[color:var(--surface-2)] outline-none focus:outline-none">
                                         {{ $item['label'] }}
                                     </button>
                                 @else
                                     <a href="{{ $item['href'] }}"
                                        x-show="{{ $matchExpr }}"
-                                       class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline transition-colors duration-150 hover:bg-white/5"
+                                       class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline transition-colors duration-150 hover:bg-[color:var(--surface-2)]"
                                        style="color:var(--text-secondary);">
                                         <span>{{ $item['label'] }}</span>
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-3.5 h-3.5 flex-shrink-0" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
@@ -222,7 +222,7 @@
                     <div>
                         <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Demo Presentation</h3>
                         <a href="{{ route('admin.dev-settings.demo-sidebar') }}"
-                           class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline group hover:bg-white/5"
+                           class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline group hover:bg-[color:var(--surface-2)]"
                            style="border:1px solid var(--border);">
                             <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>

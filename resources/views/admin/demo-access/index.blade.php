@@ -14,26 +14,26 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Demo Access</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Time-boxed, company-attributed access to demo1.corexos.co.za.
                     Next demo reset {{ $nextReset->format('D j M, H:i') }} — the demo rebuilds every 3 days.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.demo-access.connection') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.demo-access.connection') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/>
                     </svg>
                     Demo connection
                 </a>
-                <a href="{{ route('admin.demo-access.tnc') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+                <a href="{{ route('admin.demo-access.tnc') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>
                     </svg>
                     Terms &amp; Conditions
                 </a>
-                <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">
+                <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                     </svg>

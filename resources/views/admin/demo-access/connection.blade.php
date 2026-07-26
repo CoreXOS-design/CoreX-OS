@@ -10,24 +10,27 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Back link --}}
-    <a href="{{ route('admin.demo-access.index') }}"
-       class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:var(--text-secondary);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-        </svg>
-        Back to Demo Access
-    </a>
-
     {{-- Page header — §2.4 Pattern A --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-xl font-bold text-white leading-tight">Demo connection</h1>
-        <p class="text-sm text-white/60">
-            One token, for the one demo. The demo site uses it to ask this system whether a
-            prospect's access code is real — so grants, terms and telemetry all live here,
-            and survive the demo's 3-day wipe.
-        </p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo connection</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    One token, for the one demo. The demo site uses it to ask this system whether a
+                    prospect's access code is real — so grants, terms and telemetry all live here,
+                    and survive the demo's 3-day wipe.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Back link — lives in the header action cluster (AT-336). --}}
+                <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+                    </svg>
+                    Back to Demo Access
+                </a>
+            </div>
+        </div>
     </div>
 
     @if (session('status'))
@@ -59,7 +62,7 @@
             <p class="font-semibold mb-2">Copy this token now and paste it into the demo.</p>
 
             <p x-ref="token" class="font-mono text-xs break-all rounded-md px-3 py-2.5 mb-3"
-               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ $plainToken }}</p>
+               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $plainToken }}</p>
 
             <button type="button" class="corex-btn-primary text-sm"
                     @click="navigator.clipboard.writeText($refs.token.textContent.trim()); copied = true; setTimeout(() => copied = false, 2000)">
@@ -181,7 +184,7 @@
                 </label>
                 <input id="name" name="name" type="text" value="{{ old('name', 'CoreX Demo Host') }}" maxlength="100"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <x-input-error :messages="$errors->get('name')" class="mt-1" />
             </div>
 
@@ -192,11 +195,11 @@
     </div>
 
     {{-- What to paste into the demo --}}
-    <div class="rounded-md p-5 max-w-4xl" style="background: var(--surface-2); border: 1px solid var(--border);">
+    <div class="rounded-md p-5 max-w-4xl" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">On the demo, paste this address</h2>
 
         <p class="font-mono text-sm break-all rounded-md px-3 py-2.5"
-           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ $apiBase }}</p>
+           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $apiBase }}</p>
 
         <p class="mt-3 text-sm" style="color: var(--text-muted);">
             Sign in to the demo as a System Owner, go to <strong>Dev Settings → Demo Connection</strong>,

@@ -10,22 +10,25 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Back link --}}
-    <a href="{{ route('admin.demo-access.index') }}"
-       class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:var(--text-secondary);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-        </svg>
-        Back to Demo Access
-    </a>
-
     {{-- Page header — §2.4 Pattern A --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-xl font-bold text-white leading-tight">Demo Terms &amp; Conditions</h1>
-        <p class="text-sm text-white/60">
-            The clickwrap every prospect accepts before they can use the demo.
-        </p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Terms &amp; Conditions</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The clickwrap every prospect accepts before they can use the demo.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Back link — lives in the header action cluster (AT-336). --}}
+                <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+                    </svg>
+                    Back to Demo Access
+                </a>
+            </div>
+        </div>
     </div>
 
     {{-- The immutability rule, stated where someone is about to be surprised by it.
@@ -80,7 +83,7 @@
             <textarea id="body" name="body" rows="12" required
                       placeholder="Paste the full terms text…"
                       class="w-full rounded-md px-3 py-2 text-sm leading-relaxed"
-                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('body', optional($versions->first())->body) }}</textarea>
+                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;">{{ old('body', optional($versions->first())->body) }}</textarea>
             <x-input-error :messages="$errors->get('body')" class="mt-1" />
 
             <div class="mt-4">

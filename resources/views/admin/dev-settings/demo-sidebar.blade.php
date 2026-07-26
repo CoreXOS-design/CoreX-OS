@@ -9,17 +9,17 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Demo Sidebar</h1>
-                <p class="text-sm text-white/60">Choose which sidebar items and sub-pages a demo agency shows.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Sidebar</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Choose which sidebar items and sub-pages a demo agency shows.</p>
             </div>
-            <a href="{{ route('admin.dev-settings.index') }}"
-               class="corex-btn-outline text-sm self-start"
-               style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                </svg>
-                Back to Dev Settings
-            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.dev-settings.index') }}" class="corex-btn-outline text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                    </svg>
+                    Back to Dev Settings
+                </a>
+            </div>
         </div>
     </div>
 

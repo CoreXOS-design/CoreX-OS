@@ -23,14 +23,14 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                <h1 class="text-xl font-bold text-white leading-tight">Import Run #{{ $run->id }}</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Import Run #{{ $run->id }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $runKindLabel }} · {{ $run->agency?->name ?? 'No agency' }} · Imported by {{ $run->user?->name ?? 'Unknown' }}
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <span class="ds-badge {{ $runStatusVariant }}">{{ str_replace('_', ' ', $run->status) }}</span>
-                <a href="{{ route('admin.importer.index') }}" class="corex-btn-outline text-sm">
+                <a href="{{ route('admin.importer.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/>
                     </svg>
@@ -103,7 +103,7 @@
     {{-- Rows --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4 flex items-center justify-between gap-3" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Rows</h3>
+            <h3 class="text-sm font-bold" style="color: var(--text-primary);">Rows</h3>
             <span class="text-xs" style="color: var(--text-muted);">{{ number_format($run->rows->count()) }} total</span>
         </div>
         <div class="overflow-x-auto">
