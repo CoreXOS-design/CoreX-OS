@@ -2776,7 +2776,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // only screen. store/destroy routes are intentionally dropped —
     // catalogue rows are now seeded; the screen edits per-agency
     // weight + active state only.
-    Route::prefix('admin/activity-mappings')->name('admin.activity-mappings.')->group(function () {
+    //
+    // GATING — two middlewares, two different failure modes, both needed:
+    //   permission:manage_activity_mappings — non-negotiable #5 (route middleware
+    //     AND the controller check). Denies anyone without the key.
+    //   agency.required — this screen edits PER-AGENCY scoring rows, so it needs an
+    //     agency context. A System Owner (super_admin, agency_id NULL) passes the
+    //     permission gate via the owner bypass and then had NO agency, so the
+    //     controller's agencyId() abort(403) fired and the owner was told
+    //     "You don't have permission" on a page they own outright. The correct
+    //     answer for an owner with no agency is the agency switcher, not a 403 —
+    //     which is exactly what RequireAgencyContext does (redirect to
+    //     agency.select preserving the intended URL; 422 JSON for the AJAX
+    //     save/toggle calls).
+    Route::prefix('admin/activity-mappings')
+        ->middleware(['permission:manage_activity_mappings', 'agency.required'])
+        ->name('admin.activity-mappings.')->group(function () {
         Route::get('/',                       [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'index'])->name('index');
         Route::put('/{id}',                   [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'update'])->whereNumber('id')->name('update');
         Route::post('/{id}/toggle-active',    [\App\Http\Controllers\Admin\ActivityCalendarMappingController::class, 'toggleActive'])->whereNumber('id')->name('toggle-active');

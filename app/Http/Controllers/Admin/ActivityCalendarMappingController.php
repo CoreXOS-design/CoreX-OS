@@ -322,10 +322,18 @@ final class ActivityCalendarMappingController extends Controller
         abort_unless($user && $user->hasPermission('manage_activity_mappings'), 403);
     }
 
+    /**
+     * The agency whose scoring catalogue we are editing.
+     *
+     * The graceful path for "owner with no agency selected" is the
+     * `agency.required` middleware on the route group — it redirects to the
+     * agency switcher instead of 403-ing. This abort is the backstop for any
+     * future caller that reaches the controller without that middleware.
+     */
     private function agencyId(): int
     {
         $id = Auth::user()?->effectiveAgencyId();
-        abort_if($id === null, 403, 'No agency context.');
+        abort_if($id === null, 403, 'No agency context — select an agency before editing activity scoring.');
         return (int) $id;
     }
 
