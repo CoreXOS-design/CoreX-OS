@@ -77,7 +77,7 @@ class EllieAgentService
             ];
         }
 
-        $model = (string) (config('services.anthropic.models.quality') ?: config('services.anthropic.default_model') ?: 'claude-sonnet-4-6');
+        $model = $this->resolveModel();
 
         $messages = $this->buildMessages($history, $message);
         $system   = $this->systemPrompt($user, $pageContext);
@@ -179,6 +179,33 @@ class EllieAgentService
                 'tools_used' => $toolsUsed,
             ];
         }
+    }
+
+    /**
+     * The model Ellie answers on.
+     *
+     * `ELLIE_MODEL` in .env wins, so the cost/quality tier can be changed (and
+     * reverted) without a deploy — Ellie makes several calls per question, so
+     * she is the surface where the tier is felt hardest in both directions.
+     * Falls back to the shared quality model when unset.
+     *
+     * NOTE for whoever changes this: verify the target model accepts this
+     * service's request shape before switching. We send no `thinking` and no
+     * `effort`, which keeps us compatible with Haiku 4.5 (both would 400 there)
+     * — but on models where adaptive thinking is ON by default, MAX_TOKENS caps
+     * thinking AND answer text together, so a straight swap can truncate
+     * mid-answer. Spec: .ai/specs/ellie-v2.md §4.
+     */
+    private function resolveModel(): string
+    {
+        $override = trim((string) (config('services.anthropic.ellie_model') ?? ''));
+        if ($override !== '') {
+            return $override;
+        }
+
+        return (string) (config('services.anthropic.models.quality')
+            ?: config('services.anthropic.default_model')
+            ?: 'claude-sonnet-4-6');
     }
 
     /**

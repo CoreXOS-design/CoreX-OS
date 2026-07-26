@@ -164,11 +164,38 @@ tell "nothing found" from "tool broke".
 5. Record every API round-trip to the AI cost ledger via `AiUsageRecorder` under a
    new `SOURCE_ELLIE_CHAT`.
 
-**Model:** `services.anthropic.models.quality` (Sonnet). Tool selection and
-multi-source synthesis is reasoning work; Haiku is the current model and is a
-material part of why answers are shallow. Ellie is a low-volume, high-value surface
-— a handful of calls per agent per day — and it lands in the existing per-agency
-budget cap either way.
+**Model:** set by **`ELLIE_MODEL`** in `.env`, falling back to
+`services.anthropic.models.quality` (currently `claude-sonnet-4-6`) when unset.
+
+Ellie was previously pinned to `claude-haiku-4-5` in `/etc/hf-ai/openai.env` —
+chosen as "the cheapest Claude" — which is a material part of why answers were
+shallow: tool selection and multi-source synthesis is reasoning work.
+
+The tier is its own env var rather than shared with the MIC gateway because Ellie
+is the surface where it is felt hardest in **both** directions. She makes several
+calls per question, so quality and cost both multiply, and the right tier is a
+judgement about a live cost/quality trade — not something to settle in a deploy.
+`ELLIE_MODEL` lets Johan change it, and revert it, without one.
+
+**Tiers** (per million tokens, in/out):
+
+| Model | Price | Notes |
+|---|---|---|
+| `claude-haiku-4-5` | $1 / $5 | Cheapest. Weakest at tool choice — and a model that loops more erodes the per-token saving, since each retry is a whole extra call |
+| `claude-sonnet-4-6` | $3 / $15 | Current default |
+| `claude-sonnet-5` | $3 / $15 ($2/$10 intro to 2026-08-31) | Better *and* cheaper during the intro window, but **not a drop-in** — see below |
+
+**Before changing the tier, check the request shape.** `EllieAgentService` sends
+no `thinking` and no `effort`, which is exactly what keeps Haiku 4.5 a pure config
+swap (both would 400 there) — a test asserts this stays true. But on models where
+adaptive thinking is ON by default, `MAX_TOKENS` caps thinking *and* answer text
+together, so a straight swap can truncate mid-answer. Moving to Sonnet 5 therefore
+needs `MAX_TOKENS` raised or `thinking: {type: "disabled"}` sent — a code change,
+not just an env edit.
+
+**Measure before choosing.** The 25 real failed questions replayed in §1 are the
+benchmark: run them through a candidate tier and compare correct answers and
+rand-per-answer, rather than picking on per-token price alone.
 
 **Failure posture:** if Anthropic is unreachable or the key is missing, Ellie returns
 a plain-language message telling the user what to do next. Never a stack trace, never
@@ -250,6 +277,7 @@ that spans them all in one conversation.
 - `tests/Feature/AI/EllieRetrievalRepairTest.php`
 
 **Modified**
+- `config/services.php` (`anthropic.ellie_model` — the `ELLIE_MODEL` tier toggle)
 - `app/Http/Controllers/EllieController.php` (one-shot call → agent loop)
 - `app/Services/AI/NavigationAtlasService.php` (gate → floor)
 - `app/Services/AI/TourKnowledgeService.php` (normalised scoring)

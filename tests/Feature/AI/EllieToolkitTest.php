@@ -242,6 +242,82 @@ final class EllieToolkitTest extends TestCase
         $this->assertSame([], $answer['tools_used']);
     }
 
+    // ── Model tier selection ────────────────────────────────────────────────
+
+    public function test_ellie_model_env_override_wins(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        // The cost/quality tier must be changeable from .env without a deploy —
+        // and revertible just as fast if answers degrade.
+        config([
+            'services.anthropic.api_key'        => 'test-key',
+            'services.anthropic.models.quality' => 'claude-sonnet-4-6',
+            'services.anthropic.ellie_model'    => 'claude-haiku-4-5',
+        ]);
+
+        Http::fake(['api.anthropic.com/*' => Http::response($this->plainReply(), 200)]);
+
+        app(EllieAgentService::class)->answer('hi', $mine);
+
+        Http::assertSent(fn ($request) => $request['model'] === 'claude-haiku-4-5');
+    }
+
+    public function test_model_falls_back_to_the_quality_tier_when_unset(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config([
+            'services.anthropic.api_key'        => 'test-key',
+            'services.anthropic.models.quality' => 'claude-sonnet-4-6',
+            'services.anthropic.ellie_model'    => null,
+        ]);
+
+        Http::fake(['api.anthropic.com/*' => Http::response($this->plainReply(), 200)]);
+
+        app(EllieAgentService::class)->answer('hi', $mine);
+
+        Http::assertSent(fn ($request) => $request['model'] === 'claude-sonnet-4-6');
+    }
+
+    public function test_a_blank_override_does_not_send_an_empty_model(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        // An operator clearing the .env line to "ELLIE_MODEL=" must not send an
+        // empty model and 400 every Ellie request — it must read as "unset".
+        config([
+            'services.anthropic.api_key'        => 'test-key',
+            'services.anthropic.models.quality' => 'claude-sonnet-4-6',
+            'services.anthropic.ellie_model'    => '   ',
+        ]);
+
+        Http::fake(['api.anthropic.com/*' => Http::response($this->plainReply(), 200)]);
+
+        app(EllieAgentService::class)->answer('hi', $mine);
+
+        Http::assertSent(fn ($request) => $request['model'] === 'claude-sonnet-4-6');
+    }
+
+    public function test_no_thinking_or_effort_is_sent(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fake(['api.anthropic.com/*' => Http::response($this->plainReply(), 200)]);
+
+        app(EllieAgentService::class)->answer('hi', $mine);
+
+        // Both parameters are rejected outright by Haiku 4.5. Keeping them off
+        // the wire is what makes the cheap tier a pure config swap rather than
+        // a code change — assert it so a future edit can't silently break it.
+        Http::assertSent(fn ($request) => ! isset($request['thinking']) && ! isset($request['output_config']));
+    }
+
     public function test_usage_is_recorded_to_the_ai_cost_ledger(): void
     {
         [$mine] = $this->twoAgents();
@@ -266,6 +342,17 @@ final class EllieToolkitTest extends TestCase
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /** A minimal successful Anthropic response with no tool calls. */
+    private function plainReply(): array
+    {
+        return [
+            'model'       => 'claude-test',
+            'stop_reason' => 'end_turn',
+            'content'     => [['type' => 'text', 'text' => 'Hello.']],
+            'usage'       => ['input_tokens' => 10, 'output_tokens' => 5],
+        ];
+    }
 
     /** @return array<string, mixed> */
     private function callTool(string $tool, array $input, User $user): array
