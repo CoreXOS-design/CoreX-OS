@@ -26,8 +26,8 @@ use Illuminate\Support\Facades\Log;
 class ImporterAiService
 {
     /**
-     * Detect fields using dual-engine AI: Claude first, OpenAI fallback.
-     * Returns parsed JSON array or empty array if both fail.
+     * Detect fields via Claude, falling back to the regex extractor.
+     * Returns parsed JSON array, or empty array when the model call fails.
      */
     public function detectFields(string $userMessage, int $maxTokens = 4000): array
     {
@@ -43,20 +43,18 @@ class ImporterAiService
             return $result;
         }
 
-        // Claude failed — try OpenAI
-        $result = $this->tryOpenAI($systemPrompt, $userMessage, $maxTokens);
-        if ($result !== null) {
-            Log::info('ImporterAI: Engine used', [
-                'engine' => 'openai',
-                'reason' => 'claude_failed',
-            ]);
-            return $result;
-        }
-
-        // Both failed — return empty (regex fallback kicks in)
-        Log::warning('ImporterAI: Both engines failed', [
+        // Claude failed — fall through to the regex extractor.
+        //
+        // There used to be an OpenAI (gpt-4o-mini) attempt here. It was removed
+        // when CoreX consolidated onto a single AI vendor: it bought redundancy
+        // only against an Anthropic outage, at the price of a second account,
+        // second key to rotate and second bill — and it had been silently dead
+        // for some time anyway, because that account was out of quota and every
+        // call returned null. Redundancy that fails closed without telling you
+        // is not redundancy. The regex extractor below is the real fallback.
+        Log::warning('ImporterAI: Claude failed', [
             'engine' => 'regex_fallback',
-            'reason' => 'both_failed',
+            'reason' => 'claude_failed',
         ]);
         return [];
     }
@@ -129,63 +127,6 @@ class ImporterAiService
     }
 
     /**
-     * Try OpenAI API as fallback.
-     * Returns parsed JSON array or null on failure.
-     */
-    private function tryOpenAI(string $systemPrompt, string $userMessage, int $maxTokens): ?array
-    {
-        $apiKey = config('services.openai.key');
-        if (empty($apiKey)) {
-            Log::warning('ImporterAI: OpenAI — no API key configured');
-            return null;
-        }
-
-        $startTime = microtime(true);
-
-        try {
-            $response = Http::timeout(60)
-                ->withToken($apiKey)
-                ->post('https://api.openai.com/v1/chat/completions', [
-                    'model' => 'gpt-4o-mini',
-                    'max_tokens' => $maxTokens,
-                    'temperature' => 0,
-                    'messages' => [
-                        ['role' => 'system', 'content' => $systemPrompt],
-                        ['role' => 'user', 'content' => $userMessage],
-                    ],
-                ]);
-        } catch (\Throwable $e) {
-            Log::error('ImporterAI: OpenAI — request failed', [
-                'error' => $e->getMessage(),
-                'duration_ms' => round((microtime(true) - $startTime) * 1000),
-            ]);
-            return null;
-        }
-
-        $durationMs = round((microtime(true) - $startTime) * 1000);
-
-        if (!$response->successful()) {
-            Log::error('ImporterAI: OpenAI — HTTP ' . $response->status(), [
-                'body' => mb_substr($response->body(), 0, 300),
-                'duration_ms' => $durationMs,
-            ]);
-            return null;
-        }
-
-        $body = $response->json();
-        $text = $body['choices'][0]['message']['content'] ?? null;
-
-        if (empty($text)) {
-            Log::error('ImporterAI: OpenAI — empty response text');
-            return null;
-        }
-
-        Log::info('ImporterAI: OpenAI — success', ['duration_ms' => $durationMs]);
-
-        return $this->parseJsonResponse($text);
-    }
-
-    /**
      * Parse AI text response as JSON (strips code fences first).
      */
     private function parseJsonResponse(string $content): ?array
@@ -212,7 +153,6 @@ class ImporterAiService
 
     /**
      * System prompt for field assignment by blank number.
-     * Used identically by both Claude and OpenAI engines.
      */
     public function fieldPrompt(): string
     {
@@ -438,16 +378,15 @@ PROMPT;
 
     /**
      * ES-6.2 — internal: send the extended-schema request directly via the
-     * existing dual-engine code path (Claude primary, OpenAI fallback) so
-     * the .docx path benefits from the same fallback chain that the field-
-     * only path already uses.
+     * same engine path the field-only route uses, so the .docx path behaves
+     * identically. Single vendor (Claude); see detectFields() for why the
+     * OpenAI leg was removed.
      */
     private function callForExtendedSchema(string $systemPrompt, string $userMessage, int $maxTokens): array
     {
         $r = $this->tryClaude($systemPrompt, $userMessage, $maxTokens);
         if ($r !== null) return $r;
-        $r = $this->tryOpenAI($systemPrompt, $userMessage, $maxTokens);
-        if ($r !== null) return $r;
+
         return [];
     }
 }

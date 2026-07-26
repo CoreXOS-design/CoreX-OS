@@ -219,10 +219,61 @@ the tools call the same services:
 3. **`KnowledgeSearchService`** — filter *before* `take()` (the current order takes
    the top N and may then discard all of them), and raise the candidate pool so the
    limit applies to surviving results. Fixes silent recall loss.
-4. **Training-doc embeddings** — `ellie:embed-training` backfills the 132 chunks.
-   Fixes §1.3.
+4. **Embeddings move in-house, and OpenAI is removed entirely** — `ellie:embed`
+   rebuilds both pools. Fixes §1.3 and the §1.5 outage class. See §5.5.
 
 ---
+
+### 5.5 Embeddings are self-hosted — CoreX runs on ONE AI vendor
+
+OpenAI is gone. It survived in exactly two places, and only one was a real
+dependency:
+
+| Was | Now |
+|---|---|
+| `ImporterAiService` → `gpt-4o-mini` | **Removed.** It was a *secondary* fallback behind a Claude primary — redundancy against an Anthropic outage, bought with a second account, key and bill. It had also been silently dead for some time (no quota → returned `null` every call), so it was providing the appearance of redundancy and none of the substance. |
+| `EmbeddingService` → `text-embedding-3-small` (1536d) | **Self-hosted** on the hf-ai service: `BAAI/bge-small-en-v1.5`, 384 dims, ONNX on CPU, `POST /embed`. |
+
+**Why self-hosting rather than another vendor:** Anthropic has no embeddings
+endpoint, so "consolidate onto Anthropic" is not literally possible for this
+one call. The choice was a second account forever, or bringing it in-house.
+In-house wins on every axis that matters here — no second bill, no per-call
+cost, nothing leaves the box (POPIA), and no repeat of §1.5, where an expired
+vendor quota silently disabled the entire knowledge base with nothing alarming.
+
+It also costs **no new heavy dependencies**: `onnxruntime`, `tokenizers` and
+`huggingface_hub` are already installed as faster-whisper dependencies, so this
+is a ~130MB model file, not a ~2GB torch install (sentence-transformers was
+rejected for that reason — the box has under 10GB free).
+
+**BGE is asymmetric** — the query side takes an instruction prefix that the
+passage side must not get. `EmbeddingService::KIND_QUERY` / `KIND_PASSAGE`
+carries that distinction; getting it wrong measurably degrades retrieval.
+`kind` defaults to `passage` because that is the bulk case (ingest), so a
+caller who forgets degrades one search rather than corrupting a re-index.
+
+**Dimensions are model-specific, and that is a trap.** 1536-dim vectors and
+384-dim vectors are not comparable in any dimension. `cosineSimilarity()` used
+to compare the first `min(count)` components, which returns a plausible-looking
+number from two unrelated vector spaces — ranking silently becomes noise
+instead of failing. It now returns `0.0` on a length mismatch and logs once.
+`ellie:embed` detects stale-dimension rows, clears them, and re-embeds; it
+refuses to *store* a wrong-length vector for the same reason.
+
+**Ranking consequence, worth knowing before touching the scorer.** Restoring
+embeddings changed which code path is live, and the two paths did not agree:
+document-title scoring existed on the keyword path but not the hybrid one, so
+"Offer to Purchase clause 11" started resolving to the Alienation of Land Act's
+§11. A clause number does not identify a clause — most long Acts have their own
+§11 — so the hybrid score is now
+`cosine·0.45 + structural·0.25 + documentName·0.30`. Naming a document is an
+explicit instruction, not a tiebreak. Both paths score it; a test asserts the
+named document wins with cosine and clause number held equal.
+
+The ×1.2 training-doc boost was also removed. It existed to compensate for
+training chunks never having been embedded — they could only be reached by
+keyword and lost every comparison. Now that both pools are embedded by the same
+model the handicap is gone and the boost buried the legal documents.
 
 ## 6. Page context
 
@@ -272,12 +323,15 @@ that spans them all in one conversation.
 **New**
 - `app/Services/AI/Ellie/EllieToolkit.php`
 - `app/Services/AI/Ellie/EllieAgentService.php`
-- `app/Console/Commands/EmbedTrainingChunks.php`
+- `app/Console/Commands/EmbedAll.php` (`ellie:embed`)
 - `tests/Feature/AI/EllieToolkitTest.php`
 - `tests/Feature/AI/EllieRetrievalRepairTest.php`
 
 **Modified**
-- `config/services.php` (`anthropic.ellie_model` — the `ELLIE_MODEL` tier toggle)
+- `services/hf-ai/app.py` (`POST /embed` — self-hosted embeddings; deploy to `/opt/hf-ai`)
+- `app/Services/AI/EmbeddingService.php` (OpenAI → local service; dimension guard)
+- `app/Services/Docuperfect/ImporterAiService.php` (OpenAI fallback removed)
+- `config/services.php` (`anthropic.ellie_model` toggle; `openai` block removed)
 - `app/Http/Controllers/EllieController.php` (one-shot call → agent loop)
 - `app/Services/AI/NavigationAtlasService.php` (gate → floor)
 - `app/Services/AI/TourKnowledgeService.php` (normalised scoring)

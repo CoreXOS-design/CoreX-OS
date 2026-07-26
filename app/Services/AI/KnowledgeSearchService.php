@@ -24,11 +24,13 @@ class KnowledgeSearchService
     public function search(string $query, int $limit = 5): array
     {
         try {
-            $queryEmbedding = $this->embeddingService->embed($query);
+            // Embedded as a QUERY, not a passage — BGE is trained
+            // asymmetrically and the query side takes an instruction prefix.
+            $queryEmbedding = $this->embeddingService->embed($query, EmbeddingService::KIND_QUERY);
 
-            // No query embedding — the OpenAI key is missing, or (as happened in
-            // production, unnoticed) the account hit `insufficient_quota` and
-            // every embed() call started returning null.
+            // No query embedding — the embedding service is down or the model
+            // failed to load. (Historically: the OpenAI account hit
+            // `insufficient_quota` and every embed() call returned null.)
             //
             // This path USED TO return training-doc keyword matches only, which
             // silently discarded all ~950 embedded knowledge chunks — every
@@ -122,13 +124,59 @@ class KnowledgeSearchService
                     $keywordScore = $matchCount / $totalMeaningfulWords;
                 }
 
-                $structural = max($numberScore, $keywordScore);
-                $hybrid = ($cosine * 0.7) + ($structural * 0.3);
+                // DOCUMENT-NAME matching — the signal that was missing here.
+                //
+                // A clause number alone does not identify a clause: "Offer to
+                // Purchase clause 13" anchors equally well against the Property
+                // Practitioners Act's own §13, and legislation is long enough to
+                // win on generic similarity. The user named the document; that
+                // has to count. Without this, clause 11 and 13 resolved to the
+                // Alienation of Land Act and the PPA instead of the OTP.
+                //
+                // (The keyword-only path scores this too — the two paths must
+                // agree, or which one is active silently changes the answer.)
+                $docTitle = mb_strtolower((string) ($isTraining
+                    ? ($chunk->doc->title ?? '')
+                    : ($chunk->document->title ?? '')));
 
-                // Boost training docs by 1.2x — canonical user-facing answers
-                if ($isTraining) {
-                    $hybrid *= 1.2;
+                $docScore = 0.0;
+                if ($docTitle !== '' && $totalMeaningfulWords > 0) {
+                    $docHits = 0;
+                    foreach ($queryWords as $word) {
+                        if (str_contains($docTitle, $word)) {
+                            $docHits++;
+                        }
+                    }
+                    $docScore = $docHits / $totalMeaningfulWords;
                 }
+
+                // Weights: naming a document is an EXPLICIT instruction, so it
+                // is weighted close to raw similarity rather than as a tiebreak.
+                // At 0.20 the Alienation of Land Act still beat Offer to
+                // Purchase on "clause 11", because that Act's §11 ("when land
+                // has been sold in terms of a contract") is semantically nearer
+                // to the phrase "offer to purchase" than the OTP's own
+                // "FIXTURES AND FITTINGS" is. Similarity alone cannot resolve
+                // that; the user telling us which document does.
+                $structural = max($numberScore, $keywordScore);
+                $hybrid = ($cosine * 0.45) + ($structural * 0.25) + ($docScore * 0.30);
+
+                // Training chunks used to get a ×1.2 boost, to compensate for
+                // never having been embedded — they could only ever be reached
+                // by keyword, so without a thumb on the scale they lost every
+                // comparison to an embedded KB chunk.
+                //
+                // They are embedded now, by the same model, so that handicap is
+                // gone and the boost became an over-correction: it buried the
+                // legal documents. "What if my buyer cannot get a home loan"
+                // returned three CoreX training guides instead of Offer to
+                // Purchase §2.1 BOND FINANCE. Both pools now compete on equal
+                // footing and similarity decides.
+                //
+                // The two pools answer different questions — training guides
+                // for "how do I do X in CoreX", legal documents for "what does
+                // this clause say" — and a blanket multiplier cannot tell those
+                // apart. The query itself can.
 
                 return ['chunk' => $chunk, 'score' => $hybrid, 'is_training' => $isTraining];
             };

@@ -39,9 +39,19 @@ return [
         'url' => env('PORTAL_FETCH_URL', 'http://127.0.0.1:3105'),
     ],
 
-    'openai' => [
-        'key' => env('OPENAI_API_KEY'),
-    ],
+    // OpenAI was removed 2026-07-26 — CoreX runs on ONE AI vendor.
+    //
+    // It survived in two places: embeddings (Anthropic has no embeddings
+    // endpoint, so this was the genuine gap) and a redundant gpt-4o-mini
+    // fallback in the DocuPerfect importer behind a Claude primary.
+    // Embeddings are now self-hosted on the hf-ai service alongside Whisper
+    // (BAAI/bge-small-en-v1.5), which removes the second account, the second
+    // bill, and the failure that started all this: when the OpenAI quota
+    // silently ran out, every knowledge-base search fell back to keyword
+    // matching and Ellie began denying she had documents she was holding.
+    //
+    // Do not re-add a key here without a spec change. If something needs
+    // embeddings, call EmbeddingService — it talks to the local service.
 
     'p24_imap' => [
         'host' => env('P24_IMAP_HOST'),

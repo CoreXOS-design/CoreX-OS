@@ -12,6 +12,7 @@ use App\Services\AI\NavigationAtlasService;
 use App\Services\AI\TourKnowledgeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -161,16 +162,75 @@ final class EllieRetrievalRepairTest extends TestCase
         );
     }
 
+    public function test_named_document_wins_on_the_embedded_path_too(): void
+    {
+        $this->seedUser();
+
+        // Both documents have a clause 11, both embedded with the SAME vector —
+        // so cosine and the clause-number anchor are identical and the document
+        // name is the only thing that can separate them.
+        //
+        // This is the regression that switching from keyword-only to embedded
+        // search introduced: document-title scoring existed on the keyword path
+        // but NOT on the hybrid one, so the moment embeddings came back,
+        // "Offer to Purchase clause 11" silently started resolving to the
+        // Alienation of Land Act's §11 instead. The two paths must agree —
+        // which one happens to be active must never change the answer.
+        $vector = array_fill(0, 384, 0.05);
+        Http::fake(['*/embed' => Http::response(['embeddings' => [$vector], 'dim' => 384], 200)]);
+
+        $this->seedDocument('Offer to Purchase', [
+            ['11. FIXTURES AND FITTINGS', 'The Property is sold with all fixtures of a permanent nature.'],
+        ], embedding: $vector);
+
+        $this->seedDocument('Alienation of land Act', [
+            ['11. (1) When land has been sold', 'When land has been sold in terms of a contract, the seller shall...'],
+        ], embedding: $vector);
+
+        $results = app(KnowledgeSearchService::class)->search('Offer to Purchase clause 11', 2);
+
+        $this->assertNotEmpty($results['sources']);
+        $this->assertSame('Offer to Purchase', $results['sources'][0]['title']);
+    }
+
+    public function test_mismatched_embedding_dimensions_score_zero_not_garbage(): void
+    {
+        $service = app(\App\Services\AI\EmbeddingService::class);
+
+        // Changing the embedding model changes the vector length, and vectors
+        // from two different models are not comparable in ANY dimension. This
+        // used to compare the first min(count) components and return a
+        // plausible-looking number — the worst possible outcome, because
+        // ranking silently becomes noise instead of failing. 0.0 forces the
+        // stale rows out of the results and the re-embed to be noticed.
+        $this->assertSame(
+            0.0,
+            $service->cosineSimilarity(array_fill(0, 1536, 0.1), array_fill(0, 384, 0.1)),
+        );
+
+        // Same length still scores normally.
+        $this->assertGreaterThan(
+            0.9,
+            $service->cosineSimilarity(array_fill(0, 384, 0.1), array_fill(0, 384, 0.1)),
+        );
+    }
+
     public function test_knowledge_base_stays_searchable_without_embeddings(): void
     {
         $this->seedUser();
         $this->seedOtpDocument();
 
-        // No OPENAI_API_KEY -> embed() returns null. This path used to return
-        // training-doc matches ONLY, silently discarding every knowledge chunk;
-        // in production the account hit insufficient_quota and Ellie answered
-        // "I don't have that in our company documents" about documents she held.
-        config(['services.openai.key' => null]);
+        // Embedding service unreachable -> embed() returns null. This path used
+        // to return training-doc matches ONLY, silently discarding every
+        // knowledge chunk; in production the (then OpenAI) account hit
+        // insufficient_quota and Ellie answered "I don't have that in our
+        // company documents" about documents she was holding.
+        //
+        // Embeddings are self-hosted now, so the outage this guards against is
+        // the local service being down rather than a vendor quota — but the
+        // failure mode, and the requirement to degrade rather than go blank,
+        // are identical.
+        Http::fake(['*/embed' => Http::response('service unavailable', 503)]);
 
         $results = app(KnowledgeSearchService::class)->search('fixtures and fittings', 3);
 
@@ -193,7 +253,7 @@ final class EllieRetrievalRepairTest extends TestCase
     }
 
     /** @param array<int, array{0:string,1:string}> $sections */
-    private function seedDocument(string $title, array $sections, ?User $uploader = null): void
+    private function seedDocument(string $title, array $sections, ?User $uploader = null, ?array $embedding = null): void
     {
         $uploader ??= User::query()->first() ?? $this->seedUser();
 
@@ -222,7 +282,8 @@ final class EllieRetrievalRepairTest extends TestCase
                 'chunk_index'    => $i,
                 'section_title'  => $section,
                 'content'        => $body,
-                'has_embedding'  => false,
+                'embedding'      => $embedding,
+                'has_embedding'  => $embedding !== null,
             ]);
         }
     }
