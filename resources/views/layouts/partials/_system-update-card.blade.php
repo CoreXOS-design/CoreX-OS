@@ -6,12 +6,16 @@
      Spec: .ai/specs/system-updates.md §12
 
      Expects: $update (App\Models\SystemUpdate)
-     Optional: $showLink (bool, default true) — the preview suppresses navigation.
+     Optional: $showLink   (bool, default true) — the preview suppresses navigation.
+     Optional: $showHeader (bool, default true) — the What's New archive suppresses the
+               chip + title, because there they are the collapsed row the user clicked to
+               get here; repeating them inside the expansion reads as a duplicate.
 --}}
 @php
-    $chip      = $update->typeChip();
-    $showLink  = $showLink ?? true;
-    $imageUrl  = null;
+    $chip       = $update->typeChip();
+    $showLink   = $showLink ?? true;
+    $showHeader = $showHeader ?? true;
+    $imageUrl   = null;
 
     // Absorb a missing file: the row can point at an image that is no longer on
     // disk (spec §9.4). A broken <img> frame is not acceptable, so we only render
@@ -23,19 +27,21 @@
 
 <div class="space-y-4">
 
-    {{-- Type chip --}}
-    <div>
-        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide"
-              style="background:color-mix(in srgb, var({{ $chip['token'] }}, {{ $chip['fallback'] }}) 15%, transparent);
-                     color:var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
-            {{ $chip['label'] }}
-        </span>
-    </div>
+    @if($showHeader)
+        {{-- Type chip --}}
+        <div>
+            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide"
+                  style="background:color-mix(in srgb, var({{ $chip['token'] }}, {{ $chip['fallback'] }}) 15%, transparent);
+                         color:var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
+                {{ $chip['label'] }}
+            </span>
+        </div>
 
-    {{-- Title --}}
-    <h2 class="text-lg font-bold leading-snug" style="color:var(--text-primary);">
-        {{ $update->title }}
-    </h2>
+        {{-- Title --}}
+        <h2 class="text-lg font-bold leading-snug" style="color:var(--text-primary);">
+            {{ $update->title }}
+        </h2>
+    @endif
 
     {{-- Screenshot --}}
     @if($imageUrl)

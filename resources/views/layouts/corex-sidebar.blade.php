@@ -948,19 +948,7 @@
         </a>
         @endunless
 
-        {{-- AT-338 — What's New: the archive of system updates. Visible to every
-             authenticated user; the page filters server-side to what they are
-             eligible for (nothing published before their account existed).
-             Deliberately not feature-gated — an agency that could switch off
-             release notes would recreate the "ships inert" problem the feature
-             exists to solve. Spec: .ai/specs/system-updates.md §7.5 --}}
-        <a href="{{ route('corex.whats-new.index') }}"
-           class="corex-nav-item {{ request()->routeIs('corex.whats-new.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
-            </svg>
-            <span>What's New</span>
-        </a>
+        {{-- What's New moved to TOOLS, below Filing Register (2026-07-26). --}}
 
         {{-- AT-41 — Guided Tours: self-serve interactive walkthroughs. Visible to
              every authenticated user; the directory filters to their own tours. --}}
@@ -1620,6 +1608,24 @@
         </a>
         @endpermission
         @endfeature
+
+        {{-- AT-338 — What's New: the archive of system updates. Sits under Filing
+             Register in Tools (moved here 2026-07-26).
+
+             Carries NO @feature or @permission of its own, deliberately: an agency able
+             to switch off release notes would recreate the "ships inert" problem this
+             feature exists to solve. It is therefore visible to everyone who can see the
+             Tools section at all. The page itself still filters server-side to what the
+             viewer is eligible for (nothing published before their account existed), so
+             an ungated link can never leak another tenant's or an earlier era's content.
+             Spec: .ai/specs/system-updates.md §7.5 --}}
+        <a href="{{ route('corex.whats-new.index') }}"
+           class="corex-nav-item {{ request()->routeIs('corex.whats-new.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
+            </svg>
+            <span>What's New</span>
+        </a>
 
         @endpermission {{-- /sidebar.section.tools --}}
 
