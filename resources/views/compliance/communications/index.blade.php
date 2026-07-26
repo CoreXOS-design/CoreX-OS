@@ -11,8 +11,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Communications Log</h1>
-                <p class="text-sm text-white/60">Every PPRA submission, seller info email, and WhatsApp link sent from CoreX.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communications Log</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every PPRA submission, seller info email, and WhatsApp link sent from CoreX.</p>
             </div>
         </div>
     </div>
@@ -32,7 +32,7 @@
                 <option value="failed" {{ request('status') === 'failed' ? 'selected' : '' }}>Failed</option>
             </select>
             @if($hasFilters)
-            <a href="{{ route('compliance.communications.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear</a>
+            <a href="{{ route('compliance.communications.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Clear</a>
             @endif
             <span class="ml-auto text-xs" style="color:var(--text-muted);">
                 Showing {{ number_format($logs->count()) }} of {{ number_format($logs->total()) }}

@@ -1,22 +1,29 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="max-w-5xl mx-auto space-y-6"
      x-data="packBuilder()"
 >
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">
-                {{ isset($pack) ? 'Edit Pack — ' . $pack->name : 'Create Document Pack' }}
-            </h2>
-            <div class="text-sm text-white/60">Configure slots to define what this pack contains.</div>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    {{ isset($pack) ? 'Edit Pack — ' . $pack->name : 'Create Document Pack' }}
+                </h2>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">Configure slots to define what this pack contains.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.packs.index') }}" class="corex-btn-outline text-xs">Back</a>
+            </div>
         </div>
-        <a href="{{ route('docuperfect.packs.index') }}" class="text-sm text-white/70 hover:text-white">Back</a>
     </div>
 
     @if($errors->any())
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+                    color: var(--text-primary);">
             {{ $errors->first() }}
         </div>
     @endif
@@ -37,15 +44,15 @@
                 <div>
                     <label class="ds-label block mb-1">Pack Name</label>
                     <input type="text" name="name" value="{{ old('name', $pack->name ?? '') }}" required
-                           class="w-full rounded-lg border px-3 py-2 text-sm"
-                           style="border-color:var(--border);background:var(--surface);color:var(--text-primary)"
+                           class="w-full rounded-md border px-3 py-2 text-sm"
+                           style="border-color:var(--border);background:var(--surface-2);color:var(--text-primary)"
                            placeholder="e.g. Full Mandate Pack">
                 </div>
                 <div>
                     <label class="ds-label block mb-1">Description (optional)</label>
                     <input type="text" name="description" value="{{ old('description', $pack->description ?? '') }}"
-                           class="w-full rounded-lg border px-3 py-2 text-sm"
-                           style="border-color:var(--border);background:var(--surface);color:var(--text-primary)"
+                           class="w-full rounded-md border px-3 py-2 text-sm"
+                           style="border-color:var(--border);background:var(--surface-2);color:var(--text-primary)"
                            placeholder="e.g. All documents needed for a new mandate">
                 </div>
             </div>
@@ -134,14 +141,14 @@
                                     <div>
                                         <label class="text-xs font-medium" style="color:var(--text-muted)">Slot Label</label>
                                         <input type="text" x-model="slot.label" required
-                                               class="w-full rounded text-sm px-3 py-1.5"
-                                               style="border-color:var(--border)"
+                                               class="w-full rounded-md border text-sm px-3 py-1.5"
+                                               style="border-color:var(--border);background:var(--surface);color:var(--text-primary)"
                                                placeholder="e.g. Mandate Document">
                                     </div>
                                     <div>
                                         <label class="text-xs font-medium" style="color:var(--text-muted)">Slot Type</label>
                                         <select x-model="slot.slot_type" @change="onTypeChange(idx)"
-                                                class="w-full rounded text-sm px-3 py-1.5" style="border-color:var(--border)">
+                                                class="w-full rounded-md border text-sm px-3 py-1.5" style="border-color:var(--border);background:var(--surface);color:var(--text-primary)">
                                             <option value="required">Required — always included</option>
                                             <option value="selectable">Selectable — agent picks</option>
                                             <option value="attachment">Attachment — Knowledge Base</option>
@@ -153,7 +160,7 @@
                                 <div x-show="slot.slot_type === 'required'">
                                     <label class="text-xs font-medium" style="color:var(--text-muted)">Template</label>
                                     <select x-model="slot.template_id"
-                                            class="w-full rounded text-sm px-3 py-1.5" style="border-color:var(--border)">
+                                            class="w-full rounded-md border text-sm px-3 py-1.5" style="border-color:var(--border);background:var(--surface);color:var(--text-primary)">
                                         <option value="">Select template...</option>
                                         @foreach($templates as $tpl)
                                         <option value="{{ $tpl->id }}">{{ $tpl->name }}{{ $tpl->documentType ? ' (' . $tpl->documentType->name . ')' : '' }}</option>
@@ -165,7 +172,7 @@
                                     <div>
                                         <label class="text-xs font-medium" style="color:var(--text-muted)">Document Type</label>
                                         <select x-model="slot.document_type_id"
-                                                class="w-full rounded text-sm px-3 py-1.5" style="border-color:var(--border)">
+                                                class="w-full rounded-md border text-sm px-3 py-1.5" style="border-color:var(--border);background:var(--surface);color:var(--text-primary)">
                                             <option value="">Select document type...</option>
                                             @foreach($documentTypes as $dt)
                                             <option value="{{ $dt->id }}">{{ $dt->name }}</option>
@@ -189,7 +196,7 @@
                                     <div>
                                         <label class="text-xs font-medium" style="color:var(--text-muted)">Knowledge Base Category</label>
                                         <select x-model="slot.knowledge_category_id"
-                                                class="w-full rounded text-sm px-3 py-1.5" style="border-color:var(--border)">
+                                                class="w-full rounded-md border text-sm px-3 py-1.5" style="border-color:var(--border);background:var(--surface);color:var(--text-primary)">
                                             <option value="">Select category...</option>
                                             @foreach($knowledgeCategories as $kc)
                                             <option value="{{ $kc->id }}">{{ $kc->name }}</option>
@@ -238,7 +245,7 @@
                             <span><span class="text-amber-600 font-semibold">Choose from:</span> <span x-text="slot.label || 'Untitled'"></span> <span class="text-[color:var(--text-faint)]" x-show="slot.is_optional">(optional)</span></span>
                         </template>
                         <template x-if="slot.slot_type === 'attachment'">
-                            <span><span class="text-blue-600 font-semibold">Attach from:</span> <span x-text="slot.label || 'Untitled'"></span> <span class="text-[color:var(--text-faint)]" x-show="slot.is_optional">(optional)</span></span>
+                            <span><span class="font-semibold" style="color: var(--brand-icon, #0ea5e9);">Attach from:</span> <span x-text="slot.label || 'Untitled'"></span> <span class="text-[color:var(--text-faint)]" x-show="slot.is_optional">(optional)</span></span>
                         </template>
                     </li>
                 </template>

@@ -8,12 +8,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Web Packs</h1>
-                <p class="text-sm text-white/60">Group web templates into reusable packs.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Web Packs</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Group web templates into reusable packs.</p>
             </div>
             @if($canManage)
-            <div class="flex items-center gap-2">
-                <a href="{{ route('docuperfect.web-packs.create') }}" class="corex-btn-primary">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.web-packs.create') }}" class="corex-btn-primary text-xs">
                     + New Web Pack
                 </a>
             </div>

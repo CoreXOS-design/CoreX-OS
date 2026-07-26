@@ -8,13 +8,13 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="dp-packs-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Document Packs</h1>
-                <p class="text-sm text-white/60">Launch a pack to create all its documents at once.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Packs</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Launch a pack to create all its documents at once.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($canManage)
-                <a href="{{ route('docuperfect.packs.create') }}" class="corex-btn-primary text-sm">New Pack</a>
+                <a href="{{ route('docuperfect.packs.create') }}" class="corex-btn-primary text-xs">New Pack</a>
                 @endif
             </div>
         </div>

@@ -6,10 +6,10 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Agency Documents</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agency Documents</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Upload and manage your agency's compliance documents. Configure document types in
-                    <a href="{{ route('compliance.document-types.index') }}" class="font-semibold underline" style="color: #fff;">Settings → Document Types</a>.
+                    <a href="{{ route('compliance.document-types.index') }}" class="font-semibold underline" style="color: var(--brand-icon);">Settings → Document Types</a>.
                 </p>
             </div>
         </div>
@@ -88,7 +88,7 @@
                             $companyColour = $company ? $company->status_colour : ($config->required ? 'red' : 'slate');
                             $companyTone = $statusToken[$companyColour] ?? 'var(--text-muted)';
                         @endphp
-                        <div class="rounded-md p-3" style="border: 1px solid var(--border);">
+                        <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="text-[0.6875rem] font-semibold uppercase mb-2 tracking-wider" style="color: var(--text-muted);">Company</div>
                             <div class="flex items-center gap-1.5 mb-2">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: {{ $companyTone }};"></span>
@@ -124,7 +124,7 @@
                                 $showCard = $isAdmin || ($isBranchManager && $userBranchId === $br->id);
                             @endphp
                             @if($showCard)
-                                <div class="rounded-md p-3" style="border: 1px solid var(--border);">
+                                <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                                     <div class="text-[0.6875rem] font-semibold uppercase mb-2 tracking-wider" style="color: var(--text-muted);">{{ $br->name }}</div>
                                     @if($bProv)
                                         @php
@@ -182,24 +182,24 @@
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Policy / Reference</label>
                         <input type="text" name="policy_reference" maxlength="200" class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Effective From <span class="text-red-500">*</span></label>
                             <input type="date" name="effective_from" required :value="today" class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                         <div x-show="typeHasExpiry">
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Effective Until</label>
                             <input type="date" name="effective_until" class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
                         <textarea name="notes" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm"
-                                  style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
                     </div>
                 </div>
                 <div class="flex items-center justify-end gap-2 mt-5">

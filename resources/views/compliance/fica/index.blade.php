@@ -3,12 +3,12 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="fica-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">FICA Compliance</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">FICA Compliance</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     @if($canSeeAll)
                         All FICA submissions for the agency.
                     @else
@@ -17,16 +17,16 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('compliance.rmcp') }}" class="corex-btn-outline corex-btn-on-brand" data-tour="fica-rmcp">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.rmcp') }}" class="corex-btn-outline text-xs" data-tour="fica-rmcp">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
                     View RMCP
                 </a>
-                <a href="{{ route('compliance.fica.wet-ink.create') }}" class="corex-btn-outline corex-btn-on-brand" data-tour="fica-wetink">
+                <a href="{{ route('compliance.fica.wet-ink.create') }}" class="corex-btn-outline text-xs" data-tour="fica-wetink">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Create Wet-Ink FICA
                 </a>
-                <a href="{{ route('compliance.fica.create') }}" class="corex-btn-primary" data-tour="fica-online">
+                <a href="{{ route('compliance.fica.create') }}" class="corex-btn-primary text-xs" data-tour="fica-online">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     Send Online FICA
                 </a>
@@ -135,7 +135,7 @@
         <input type="text" name="search" value="{{ request('search') }}"
                placeholder="Search by contact name or email..."
                class="flex-1 rounded-md px-3 py-2 text-sm"
-               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         <div class="flex gap-2">
             <button type="submit" class="corex-btn-primary">Search</button>
             @if(request('search'))

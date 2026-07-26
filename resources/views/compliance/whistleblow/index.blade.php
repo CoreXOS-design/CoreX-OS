@@ -4,17 +4,17 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-whistleblow-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Compliance Reporting</h1>
-                <p class="text-sm text-white/60">File and track whistleblower reports to the PPRA.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compliance Reporting</h1>
+                <p class="text-xs" style="color: var(--text-muted);">File and track whistleblower reports to the PPRA.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('compliance.whistleblow.create')
-                <a href="{{ route('compliance.whistleblow.create') }}" data-tour="comp-whistleblow-new" class="corex-btn-primary inline-flex items-center gap-2 text-sm">
+                <a href="{{ route('compliance.whistleblow.create') }}" data-tour="comp-whistleblow-new" class="corex-btn-primary inline-flex items-center gap-2 text-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     File New Report
                 </a>

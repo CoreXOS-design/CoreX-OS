@@ -6,10 +6,10 @@
     <x-page-header title="Payroll Run {{ $run->run_number }}" :back-route="route('payroll.runs.index')" back-label="Runs" :flush="true">
         <x-slot:actions>
             @if($run->isDraft())
-                <button type="button" @click="showFinalise = true" class="corex-btn-primary text-sm">Finalise</button>
+                <button type="button" @click="showFinalise = true" class="corex-btn-primary text-xs">Finalise</button>
             @elseif($run->isFinalised())
-                <a href="{{ route('payroll.runs.report', $run) }}" class="corex-btn-outline text-sm">View Report</a>
-                <a href="{{ route('payroll.runs.bundle', $run) }}" class="corex-btn-primary text-sm">Download Bundle</a>
+                <a href="{{ route('payroll.runs.report', $run) }}" class="corex-btn-outline text-xs">View Report</a>
+                <a href="{{ route('payroll.runs.bundle', $run) }}" class="corex-btn-primary text-xs">Download Bundle</a>
             @endif
         </x-slot:actions>
     </x-page-header>
@@ -76,7 +76,7 @@
                 <p class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Total Deductions</p>
                 <p class="text-lg font-semibold mt-1 font-mono" style="color: var(--text-primary);">R {{ number_format(($run->total_paye ?? 0) + ($run->total_uif_employee ?? 0), 2) }}</p>
             </div>
-            <div class="rounded-md p-3 text-center" style="background: color-mix(in srgb, var(--brand-icon) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
+            <div class="rounded-md p-3 text-center" style="background: var(--surface); border: 1px solid var(--border);">
                 <p class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Total Net</p>
                 <p class="text-lg font-semibold mt-1 font-mono" style="color: var(--brand-icon);">R {{ number_format($run->total_net ?? 0, 2) }}</p>
             </div>
@@ -123,7 +123,7 @@
                             <tr>
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-2">
-                                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-[0.6875rem] font-bold text-white flex-shrink-0" style="background: var(--brand-icon);">{{ strtoupper(substr($ps->employee_name_snapshot, 0, 1)) }}</div>
+                                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-[0.6875rem] font-bold text-white flex-shrink-0" style="background: var(--brand-default);">{{ strtoupper(substr($ps->employee_name_snapshot, 0, 1)) }}</div>
                                         <div class="min-w-0">
                                             <p class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $ps->employee_name_snapshot }}</p>
                                             <p class="text-[0.6875rem] truncate" style="color: var(--text-muted);">{{ $ps->designation_snapshot }}</p>
@@ -185,7 +185,7 @@
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason for cancellation <span class="text-red-500">*</span></label>
                     <input type="text" name="cancellation_reason" required maxlength="500" placeholder="e.g. Wrong period selected"
-                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     @error('cancellation_reason') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                 </div>
                 <div class="flex gap-2">
@@ -200,7 +200,7 @@
     {{-- Finalise confirmation modal --}}
     @if($run->isDraft())
     <div x-show="showFinalise" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @click.self="showFinalise = false">
-        <div class="w-full max-w-md rounded-md p-6" style="background: var(--surface); box-shadow: 0 10px 30px rgba(0,0,0,0.18);">
+        <div class="w-full max-w-md rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.18);">
             <h3 class="text-lg font-semibold mb-3" style="color: var(--text-primary);">Finalise Payroll Run?</h3>
             <p class="text-sm mb-4" style="color: var(--text-secondary);">
                 This will finalise <strong>{{ number_format($run->payslip_count ?? 0) }}</strong> payslip(s) totalling

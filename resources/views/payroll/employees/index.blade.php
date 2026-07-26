@@ -4,15 +4,15 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (flat neutral bar — AT-336) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Payroll Employees</h1>
-                <p class="text-sm text-white/60">Manage employee payroll profiles, earnings, deductions and banking.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Payroll Employees</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Manage employee payroll profiles, earnings, deductions and banking.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('payroll.employees.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('payroll.employees.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                     Add Employee
                 </a>
@@ -81,7 +81,7 @@
     @if($employees->isEmpty())
     <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-             style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+             style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
         </div>
         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No payroll employees {{ $q ? 'match your search' : 'yet' }}</h3>
@@ -119,7 +119,7 @@
                     <tr style="{{ !$emp->is_active ? 'opacity:0.55;' : '' }}">
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style="background: var(--brand-icon, #0ea5e9);">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style="background: var(--brand-icon);">
                                     {{ strtoupper(substr($emp->user->name ?? '?', 0, 1)) }}
                                 </div>
                                 <div class="min-w-0">

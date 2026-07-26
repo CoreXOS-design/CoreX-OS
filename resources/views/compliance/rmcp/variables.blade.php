@@ -2,11 +2,23 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="RMCP Variables" :back-route="route('compliance.rmcp.index')" back-label="RMCP" :flush="true" />
+<div class="w-full space-y-5">
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight truncate" style="color: var(--text-primary);">RMCP Variables</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Merge fields substituted into every RMCP section.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.rmcp.index') }}" class="corex-btn-outline text-xs">&larr; RMCP</a>
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6">
-        <div class="mb-4 text-sm" style="color:var(--text-secondary);">
+    <div>
+        <div class="mb-4 text-sm" style="color: var(--text-secondary);">
             These variables are substituted into every RMCP section. Agency fields are pulled from Settings. Compliance Officer fields are pulled from the current appointed officer. Only <strong>Manual</strong> values can be edited here.
         </div>
 
@@ -30,13 +42,13 @@
                             </td>
                             <td class="px-4 py-3">
                                 @if($var['source'] === 'agency_column')
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent); color: var(--ds-navy, #0b2a4a);">Agency</span>
+                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-navy) 12%, transparent); color: var(--ds-navy);">Agency</span>
                                 @elseif($var['source'] === 'compliance_officer_column')
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color: var(--ds-green, #059669);">Officer</span>
+                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Officer</span>
                                 @elseif($var['source'] === 'computed')
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--text-muted, #9ca3af) 16%, transparent); color: var(--text-muted, #9ca3af);">Computed</span>
+                                <span class="ds-badge" style="background: color-mix(in srgb, var(--text-muted) 16%, transparent); color: var(--text-muted);">Computed</span>
                                 @else
-                                <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">Manual</span>
+                                <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Manual</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3" style="color: var(--text-primary);">
@@ -44,7 +56,7 @@
                                     <span x-text="value || '(empty)'" :style="value ? '' : 'color: var(--text-muted); font-style: italic;'"></span>
                                 </template>
                                 <template x-if="editing">
-                                    <input type="text" x-model="value" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="text" x-model="value" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </template>
                             </td>
                             <td class="px-4 py-3 text-right">

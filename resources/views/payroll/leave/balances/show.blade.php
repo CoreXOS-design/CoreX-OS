@@ -2,17 +2,26 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="{{ $employee->user->name }} — Leave Balances" :back-route="route('payroll.leave.balances.index')" back-label="Balances" :flush="true">
-        <x-slot:actions>
-            <form method="POST" action="{{ route('payroll.leave.balances.recalculate', $employee) }}" class="inline">
-                @csrf
-                <button type="submit" class="corex-btn-outline text-sm" onclick="return confirm('Recalculate all balances from transaction ledger?')">Recalculate</button>
-            </form>
-        </x-slot:actions>
-    </x-page-header>
+<div class="w-full space-y-5">
 
-    <div class="p-4 lg:p-6">
+    {{-- Page header (flat neutral bar — AT-336) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $employee->user->name }} &mdash; Leave Balances</h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <form method="POST" action="{{ route('payroll.leave.balances.recalculate', $employee) }}" class="inline">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs" onclick="return confirm('Recalculate all balances from transaction ledger?')">Recalculate</button>
+                </form>
+                <a href="{{ route('payroll.leave.balances.index') }}" class="corex-btn-outline text-xs">&larr; Balances</a>
+            </div>
+        </div>
+    </div>
+
+    <div>
         @if(session('success'))
             <div class="mb-4 rounded-md px-4 py-3 text-sm flex items-start gap-3"
                  style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
@@ -129,15 +138,15 @@
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Days (+ or -)</label>
-                                    <input type="number" name="days_delta" step="0.5" required class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="number" name="days_delta" step="0.5" required class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Effective Date</label>
-                                    <input type="date" name="effective_date" value="{{ date('Y-m-d') }}" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <input type="date" name="effective_date" value="{{ date('Y-m-d') }}" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div class="sm:col-span-3">
                                     <label class="block text-[10px] font-semibold mb-1" style="color: var(--text-secondary);">Reason (min 10 chars)</label>
-                                    <textarea name="reason" required minlength="10" rows="2" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Explain why this adjustment is necessary…"></textarea>
+                                    <textarea name="reason" required minlength="10" rows="2" class="w-full rounded-md px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Explain why this adjustment is necessary…"></textarea>
                                 </div>
                             </div>
                             <div class="flex gap-2">

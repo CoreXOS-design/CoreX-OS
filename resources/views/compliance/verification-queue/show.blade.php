@@ -1,16 +1,32 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5" x-data="{ showRejectModal: false, rejectReason: '' }">
+<div class="w-full space-y-5" x-data="{ showRejectModal: false, rejectReason: '' }">
 
-    {{-- Back link --}}
-    <a href="{{ route('compliance.verification.index') }}" style="display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; color:var(--brand-icon); text-decoration:none; font-weight:600;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px; height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-        Back to Queue
-    </a>
+    {{-- Page header (Pattern A — flat neutral) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ \App\Models\UserDocument::$documentTypeLabels[$document->document_type] ?? ucfirst(str_replace('_', ' ', $document->document_type)) }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $document->user->name ?? 'Unknown' }} &middot; uploaded {{ $document->created_at->format('d M Y') }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.verification.index') }}" class="corex-btn-outline text-xs no-underline">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    Back to Queue
+                </a>
+            </div>
+        </div>
+    </div>
 
     @if(session('success'))
-        <div style="border-radius:6px; border:1px solid #bbf7d0; background:color-mix(in srgb, var(--brand-icon) 8%, transparent); color:var(--brand-icon); padding:12px 16px; font-size:0.85rem; font-weight:500;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--ds-green);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <div class="flex-1">{{ session('success') }}</div>
+        </div>
     @endif
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -37,11 +53,11 @@
                 </div>
                 @else
                 <div style="text-align:center; padding:60px 20px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#64748b" style="width:48px; height:48px; margin:0 auto 12px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:48px; height:48px; margin:0 auto 12px; color:var(--text-muted);">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                     </svg>
                     <div style="font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">{{ $document->file_name }}</div>
-                    <a href="{{ $publicUrl }}" download style="font-size:0.8rem; padding:8px 20px; border-radius:6px; background:var(--brand-icon); color:var(--text-primary); text-decoration:none; font-weight:700;">Download File</a>
+                    <a href="{{ $publicUrl }}" download class="corex-btn-primary text-xs no-underline">Download File</a>
                 </div>
                 @endif
             </div>
@@ -109,7 +125,7 @@
                     @php $daysLeft = (int) now()->diffInDays($document->expiry_date, false); @endphp
                     <div class="flex justify-between">
                         <span style="font-size:0.75rem; color:var(--text-muted);">Expiry</span>
-                        <span style="font-size:0.75rem; font-weight:600; color:{{ $daysLeft <= 0 ? 'var(--ds-crimson)' : ($daysLeft <= 60 ? '#f59e0b' : 'var(--brand-icon)') }};">
+                        <span style="font-size:0.75rem; font-weight:600; color:{{ $daysLeft <= 0 ? 'var(--ds-crimson)' : ($daysLeft <= 60 ? 'var(--ds-amber)' : 'var(--text-secondary)') }};">
                             {{ $document->expiry_date->format('d M Y') }}
                             ({{ $daysLeft > 0 ? "in {$daysLeft} days" : 'EXPIRED' }})
                         </span>
@@ -122,10 +138,10 @@
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
                 @php
                     $statusConfig = [
-                        'pending' => ['bg' => 'rgba(245,158,11,0.12)', 'color' => '#f59e0b', 'text' => 'Pending Verification'],
-                        'verified' => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)', 'color' => 'var(--brand-icon)', 'text' => 'Verified'],
-                        'rejected' => ['bg' => 'rgba(239,68,68,0.12)', 'color' => 'var(--ds-crimson)', 'text' => 'Rejected'],
-                        'expired' => ['bg' => 'rgba(239,68,68,0.12)', 'color' => 'var(--ds-crimson)', 'text' => 'Expired'],
+                        'pending' => ['bg' => 'color-mix(in srgb, var(--ds-amber) 12%, transparent)', 'color' => 'var(--ds-amber)', 'text' => 'Pending Verification'],
+                        'verified' => ['bg' => 'color-mix(in srgb, var(--ds-green) 12%, transparent)', 'color' => 'var(--ds-green)', 'text' => 'Verified'],
+                        'rejected' => ['bg' => 'color-mix(in srgb, var(--ds-crimson) 12%, transparent)', 'color' => 'var(--ds-crimson)', 'text' => 'Rejected'],
+                        'expired' => ['bg' => 'color-mix(in srgb, var(--ds-crimson) 12%, transparent)', 'color' => 'var(--ds-crimson)', 'text' => 'Expired'],
                     ];
                     $sc = $statusConfig[$document->status] ?? $statusConfig['pending'];
                 @endphp
@@ -141,7 +157,7 @@
                 @endif
 
                 @if($document->status === 'rejected')
-                <div style="background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); border:1px solid rgba(239,68,68,0.2); border-radius:6px; padding:10px 14px; margin-top:8px;">
+                <div style="background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 20%, transparent); border-radius:6px; padding:10px 14px; margin-top:8px;">
                     <div style="font-size:0.7rem; font-weight:600; color:var(--ds-crimson); margin-bottom:4px;">Rejection Reason</div>
                     <div style="font-size:0.75rem; color:var(--text-primary);">{{ $document->rejected_reason }}</div>
                     <div style="font-size:0.65rem; color:var(--text-muted); margin-top:6px;">
@@ -159,15 +175,15 @@
                 <div class="space-y-2">
                     <form method="POST" action="{{ route('compliance.verification.verify', $document) }}">
                         @csrf
-                        <button type="submit" style="width:100%; padding:10px 16px; border-radius:6px; border:none; background:var(--brand-icon); color:var(--text-primary); font-size:0.8rem; font-weight:700; cursor:pointer;">Verify Document</button>
+                        <button type="submit" class="corex-btn-primary text-xs" style="width:100%; justify-content:center; padding:10px 16px;">Verify Document</button>
                     </form>
 
-                    <button @click="showRejectModal = true" style="width:100%; padding:10px 16px; border-radius:6px; border:1px solid var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); color:var(--ds-crimson); font-size:0.8rem; font-weight:600; cursor:pointer;">Reject Document</button>
+                    <button @click="showRejectModal = true" class="text-xs" style="width:100%; padding:10px 16px; border-radius:6px; border:1px solid color-mix(in srgb, var(--ds-crimson) 45%, transparent); background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); color:var(--ds-crimson); font-weight:600; cursor:pointer;">Reject Document</button>
 
                     @if($document->expiry_date && $document->expiry_date->isPast())
                     <form method="POST" action="{{ route('compliance.verification.expire', $document) }}">
                         @csrf
-                        <button type="submit" style="width:100%; padding:10px 16px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-muted); font-size:0.8rem; font-weight:600; cursor:pointer;">Mark as Expired</button>
+                        <button type="submit" class="corex-btn-outline text-xs" style="width:100%; justify-content:center; padding:10px 16px;">Mark as Expired</button>
                     </form>
                     @endif
                 </div>
@@ -194,8 +210,8 @@
                 @error('rejected_reason') <p style="font-size:0.7rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
 
                 <div class="flex items-center justify-end gap-3 mt-4">
-                    <button type="button" @click="showRejectModal = false" style="padding:8px 16px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-size:0.8rem; cursor:pointer;">Cancel</button>
-                    <button type="submit" :disabled="rejectReason.trim() === ''" style="padding:8px 20px; border-radius:6px; border:none; background:var(--ds-crimson); color:#fff; font-size:0.8rem; font-weight:700; cursor:pointer;">Reject</button>
+                    <button type="button" @click="showRejectModal = false" class="corex-btn-outline text-xs">Cancel</button>
+                    <button type="submit" :disabled="rejectReason.trim() === ''" class="text-xs" style="padding:8px 20px; border-radius:6px; border:none; background:var(--ds-crimson); color:#fff; font-weight:700; cursor:pointer;">Reject</button>
                 </div>
             </form>
         </div>

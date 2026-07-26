@@ -4,22 +4,16 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <nav class="text-xs" style="color: var(--text-muted);">
-        <a href="{{ route('compliance.rmcp.index') }}" style="color: var(--brand-icon);">RMCP</a>
-        <span class="mx-1">/</span>
-        <span>Dashboard</span>
-    </nav>
-
-    {{-- Page header --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">RMCP Compliance Dashboard</h1>
-                <p class="text-sm text-white/60">Monitor staff acknowledgement of the active Risk Management &amp; Compliance Programme.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">RMCP Compliance Dashboard</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Monitor staff acknowledgement of the active Risk Management &amp; Compliance Programme.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('compliance.rmcp.dashboard.report') }}" target="_blank" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.rmcp.index') }}" class="corex-btn-outline text-xs">&larr; RMCP</a>
+                <a href="{{ route('compliance.rmcp.dashboard.report') }}" target="_blank" class="corex-btn-outline text-xs">
                     Export Report
                 </a>
             </div>
@@ -67,7 +61,7 @@
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         @foreach($metrics as $m)
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: {{ $toneColor[$m['tone']] }};">{{ number_format($m['value']) }}</div>
+            <div class="text-[1.625rem] font-semibold leading-tight tabular-nums" style="color: {{ $toneColor[$m['tone']] }};">{{ number_format($m['value']) }}</div>
             <div class="text-xs font-medium mt-1" style="color: var(--text-secondary);">{{ $m['label'] }}</div>
         </div>
         @endforeach
@@ -106,12 +100,12 @@
                 <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
                 <input id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff..."
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                 <select id="status" name="status" onchange="this.form.submit()" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All statuses</option>
                     <option value="valid" {{ $filterStatus === 'valid' ? 'selected' : '' }}>Acknowledged</option>
                     <option value="in_progress" {{ $filterStatus === 'in_progress' ? 'selected' : '' }}>In Progress</option>

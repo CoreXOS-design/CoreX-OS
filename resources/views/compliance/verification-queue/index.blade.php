@@ -8,11 +8,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comp-verification-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Document Verification Queue</h1>
-                <p class="text-sm text-white/60">Review and verify agent compliance documents.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Document Verification Queue</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Review and verify agent compliance documents.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -30,7 +30,7 @@
     {{-- Stat cards --}}
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" data-tour="comp-verification-stats">
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-amber);">{{ number_format($pending->count()) }}</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--ds-amber);">{{ number_format($pending->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Pending Verification</div>
         </div>
         <button type="button" @click="showVerified = !showVerified"
@@ -38,7 +38,7 @@
                 :style="showVerified
                     ? 'background: var(--surface-2); border: 1px solid var(--border-hover); cursor: pointer;'
                     : 'background: var(--surface); border: 1px solid var(--border); cursor: pointer;'">
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-green);">{{ number_format($recentlyVerified->count()) }}</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--ds-green);">{{ number_format($recentlyVerified->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Verified (7 days)</div>
         </button>
         <button type="button" @click="showRejected = !showRejected"
@@ -46,7 +46,7 @@
                 :style="showRejected
                     ? 'background: var(--surface-2); border: 1px solid var(--border-hover); cursor: pointer;'
                     : 'background: var(--surface); border: 1px solid var(--border); cursor: pointer;'">
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-crimson);">{{ number_format($recentlyRejected->count()) }}</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--ds-crimson);">{{ number_format($recentlyRejected->count()) }}</div>
             <div class="text-xs font-semibold mt-1 uppercase tracking-wider" style="color: var(--text-muted);">Rejected (7 days)</div>
         </button>
     </div>
@@ -54,7 +54,7 @@
     {{-- Recently verified (collapsible — opens directly under the Verified stat) --}}
     <div x-show="showVerified" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Verified (7 days)</h3>
+            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Recently Verified (7 days)</h3>
             <button type="button" @click="showVerified = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
         </div>
         @if($recentlyVerified->isEmpty())
@@ -88,7 +88,7 @@
     {{-- Recently rejected (collapsible — opens directly under the Rejected stat) --}}
     <div x-show="showRejected" x-cloak x-transition class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Recently Rejected (7 days)</h3>
+            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Recently Rejected (7 days)</h3>
             <button type="button" @click="showRejected = false" class="text-xs font-semibold" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">Close</button>
         </div>
         @if($recentlyRejected->isEmpty())
@@ -124,7 +124,7 @@
     {{-- Pending --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="comp-verification-pending">
         <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Pending Documents</h3>
+            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Pending Documents</h3>
         </div>
 
         @if($pending->isEmpty())

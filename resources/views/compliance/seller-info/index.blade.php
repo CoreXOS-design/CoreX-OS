@@ -66,15 +66,15 @@
         }
      }">
 
-    {{-- Page header (branded — §2.4 Pattern A) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comp-seller-info-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Send Seller Information Pack</h1>
-                <p class="text-sm text-white/60">Send a legally-researched information pack to a seller about why proper compliance paperwork matters.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Send Seller Information Pack</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Send a legally-researched information pack to a seller about why proper compliance paperwork matters.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -107,15 +107,15 @@
                 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);" data-tour="comp-seller-info-tier">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Which Issue?</h3>
                     <div class="space-y-2">
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_1' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_1' ? 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_1" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">No mandate / FICA / MDF signed</span><br><span class="text-xs" style="color:var(--text-muted);">Covers mandate, FICA verification, MDF, court cases, risks</span></span>
                         </label>
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_2' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_2' ? 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_2" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Agent has no FFC displayed</span><br><span class="text-xs" style="color:var(--text-muted);">Focuses on how to verify an agent's credentials</span></span>
                         </label>
-                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_3' ? 'background:color-mix(in srgb, var(--brand-default,#0b2a4a) 6%, transparent); border:1px solid var(--brand-default,#0b2a4a)' : 'border:1px solid var(--border)'">
+                        <label class="flex items-start gap-3 cursor-pointer rounded-md p-3" :style="tier === 'tier_3' ? 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent)' : 'border:1px solid var(--border)'">
                             <input type="radio" name="tier" value="tier_3" x-model="tier" class="mt-0.5">
                             <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Agent appears unregistered</span><br><span class="text-xs" style="color:var(--text-muted);">Serious advisory tone — may be operating illegally</span></span>
                         </label>
@@ -129,7 +129,7 @@
 
                     <div class="relative" x-show="!selectedProperty">
                         <input type="text" x-model="propertySearch" @input="searchProperties()" @click.outside="propertyResults = []"
-                               class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface-2,#f0f2f8); border:1px solid var(--border); color:var(--text-primary);"
+                               class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="Search by address...">
                         <div x-show="propertyResults.length > 0" class="absolute z-50 w-full mt-1 rounded-md shadow-lg max-h-48 overflow-y-auto" style="background:var(--surface); border:1px solid var(--border);">
                             <template x-for="p in propertyResults" :key="p.id">
@@ -138,7 +138,7 @@
                         </div>
                     </div>
 
-                    <div x-show="selectedProperty" x-cloak class="flex items-center gap-2 rounded-md p-3" style="background:var(--surface-2,#f0f2f8); border:1px solid var(--border);">
+                    <div x-show="selectedProperty" x-cloak class="flex items-center gap-2 rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
                         <input type="hidden" name="property_id" :value="selectedProperty?.id || ''">
                         <span class="text-sm font-medium flex-1" style="color:var(--text-primary);" x-text="selectedProperty?.address"></span>
                         <button type="button" @click="clearProperty()" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#c41e3a); background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 8%, transparent);">Clear</button>
@@ -170,8 +170,8 @@
                         </template>
                         <template x-if="!r.fromProperty">
                             <div class="flex-1 grid grid-cols-2 gap-2">
-                                <input type="text" :name="'recipients[' + idx + '][name]'" x-model="r.name" placeholder="Name" class="rounded-md text-sm px-2 py-1.5" style="background:var(--surface-2,#f0f2f8); border:1px solid var(--border); color:var(--text-primary);">
-                                <input type="email" :name="'recipients[' + idx + '][email]'" x-model="r.email" placeholder="Email" required class="rounded-md text-sm px-2 py-1.5" style="background:var(--surface-2,#f0f2f8); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="text" :name="'recipients[' + idx + '][name]'" x-model="r.name" placeholder="Name" class="rounded-md text-sm px-2 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="email" :name="'recipients[' + idx + '][email]'" x-model="r.email" placeholder="Email" required class="rounded-md text-sm px-2 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </template>
                         <button type="button" @click="removeRecipient(idx)" class="text-xs flex-shrink-0 px-1.5 py-1 rounded-md" style="color:var(--text-muted);" title="Remove">
@@ -181,7 +181,7 @@
                 </template>
 
                 <button type="button" @click="addRecipient()" x-show="recipients.length < 10"
-                        class="inline-flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-md" style="color:var(--brand-default,#0b2a4a); background:color-mix(in srgb, var(--brand-default,#0b2a4a) 8%, transparent);">
+                        class="inline-flex items-center gap-2 text-sm font-semibold px-3 py-2 rounded-md" style="color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Add Recipient
                 </button>
@@ -197,7 +197,7 @@
             <button type="submit" :disabled="sending || enabledRecipients.length === 0" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                 <span x-text="sending ? 'Sending...' : ('Send to ' + enabledRecipients.length + ' recipient' + (enabledRecipients.length !== 1 ? 's' : ''))"></span>
             </button>
-            <button type="button" @click="copyWhatsappLink()" class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-colors" style="background:var(--whatsapp-green, #25D366);">
+            <button type="button" @click="copyWhatsappLink()" class="inline-flex items-center px-3.5 py-1.5 rounded-md text-[0.8125rem] font-semibold text-white transition-colors" style="background:var(--whatsapp-green, #25D366);">
                 <span x-text="linkCopied ? 'Link Copied!' : 'Copy WhatsApp Link'"></span>
             </button>
         </div>
@@ -209,7 +209,7 @@
         <div class="absolute inset-0 bg-black/50" style="backdrop-filter:blur(2px);" @click="previewing = false"></div>
         <div class="relative rounded-md shadow-2xl" style="width:700px; max-width:95vw; max-height:90vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);">
             <div class="p-4 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-lg font-semibold" style="color:var(--text-primary);">Email Preview</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Email Preview</h3>
                 <button type="button" @click="previewing = false" class="corex-btn-outline text-xs">Close</button>
             </div>
             <iframe :srcdoc="previewHtml" sandbox class="w-full" style="height:70vh; border:none; background:var(--email-canvas, #fff);"></iframe>

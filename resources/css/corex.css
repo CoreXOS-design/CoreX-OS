@@ -3312,4 +3312,23 @@ html.dark .corex-sidebar {
 .esign-shell { margin: -1rem; height: calc(100% + 2rem); }
 @media (min-width: 1024px) { .esign-shell { margin: -1.5rem; height: calc(100% + 3rem); } }
 
+/* --- 11. DocuPerfect template card (AT-336) -------------------------------- */
+/* `.corex-template-card` was carried on the /docuperfect/templates grid card with
+   NO rule behind it — so the card had `transition-all` and nothing to transition,
+   and no shadow. Give it the same shadow + brand-icon hover glow as the Properties
+   card (.pcard-v2 §2). The card's own inline surface/border stay authoritative;
+   the shadow values are inlined per theme because --pv2-shadow only resolves
+   inside the `.corex-props-v2` wrapper. */
+.corex-template-card {
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+html.dark .corex-template-card {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.30);
+}
+.corex-template-card:hover {
+    border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 50%, transparent) !important;
+    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);
+}
+
 /* End AT-336 restyle block */

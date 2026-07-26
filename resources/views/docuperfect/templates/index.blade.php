@@ -16,14 +16,14 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="dp-templates-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Template Management</h1>
-                <p class="text-sm text-white/60">Upload, organise, and configure your document templates.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Template Management</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Upload, organise, and configure your document templates.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm" data-tour="dp-templates-upload">
                     @csrf
-                    <label class="corex-btn-primary cursor-pointer text-sm inline-flex items-center gap-2">
+                    <label class="corex-btn-primary cursor-pointer text-xs inline-flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
                         </svg>
@@ -151,17 +151,17 @@
         <div>
             {{-- View toggle --}}
             <div x-cloak class="flex items-center justify-end gap-2">
-                <div class="flex items-center rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                <div class="flex items-center gap-0.5 rounded-md" style="height: 2.25rem; padding: 0.125rem; background: var(--surface-2); border: 1px solid var(--border);">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
-                            :style="viewMode === 'grid' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);'"
-                            class="px-2.5 py-1.5 transition-all duration-300" title="Grid view">
+                            :style="viewMode === 'grid' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: var(--text-muted);'"
+                            class="h-full px-2 rounded inline-flex items-center justify-center transition-all duration-300" title="Grid view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path d="M4 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5ZM14 5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5ZM4 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4ZM14 15a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-4Z"/>
                         </svg>
                     </button>
                     <button @click="viewMode = 'list'; localStorage.setItem('docuperfect_tpl_view', 'list')"
-                            :style="viewMode === 'list' ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);'"
-                            class="px-2.5 py-1.5 transition-all duration-300" title="List view">
+                            :style="viewMode === 'list' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: var(--text-muted);'"
+                            class="h-full px-2 rounded inline-flex items-center justify-center transition-all duration-300" title="List view">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
                         </svg>

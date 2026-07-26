@@ -5,12 +5,12 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (Pattern A — flat neutral bar) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Leave Audit Log</h1>
-                <p class="text-sm text-white/60">Immutable ledger of every leave transaction across the agency.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leave Audit Log</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Immutable ledger of every leave transaction across the agency.</p>
             </div>
         </div>
     </div>
@@ -39,7 +39,7 @@
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm">Apply</button>
+        <button type="submit" class="corex-btn-primary text-xs">Apply</button>
         @if($txnType || ($dateFrom ?? false) || ($dateTo ?? false))
             <a href="{{ route('payroll.leave.reports.audit-log') }}" class="text-xs font-medium" style="color:var(--text-muted);">Reset</a>
         @endif

@@ -1,28 +1,30 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="max-w-4xl mx-auto space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-        <div class="flex items-center justify-between">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Launch Pack &mdash; {{ $pack->name }}</h2>
+                <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Launch Pack &mdash; {{ $pack->name }}</h2>
                 @if($pack->description)
-                <div class="text-sm text-white/60 mt-1">{{ $pack->description }}</div>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $pack->description }}</p>
                 @endif
             </div>
-            <a href="{{ route('docuperfect.packs.index') }}" class="text-sm text-white/70 hover:text-white">Back</a>
-        </div>
-        <div class="mt-3">
-            @if($pack->creation_mode === 'linked')
-                <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded bg-cyan-500/20 text-cyan-200">
-                    <i class="fas fa-link text-[10px]"></i> Linked Pack &mdash; named fields will sync across documents
-                </span>
-            @else
-                <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded bg-slate-500/20 text-slate-200">
-                    <i class="fas fa-file text-[10px]"></i> Individual Documents &mdash; each document is standalone
-                </span>
-            @endif
+            <div class="flex flex-wrap items-center gap-2">
+                @if($pack->creation_mode === 'linked')
+                    <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md"
+                          style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                        <i class="fas fa-link text-[10px]"></i> Linked Pack &mdash; named fields will sync across documents
+                    </span>
+                @else
+                    <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md"
+                          style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                        <i class="fas fa-file text-[10px]"></i> Individual Documents &mdash; each document is standalone
+                    </span>
+                @endif
+                <a href="{{ route('docuperfect.packs.index') }}" class="corex-btn-outline text-xs">Back</a>
+            </div>
         </div>
     </div>
 
@@ -48,7 +50,8 @@
                 {{-- REQUIRED --}}
                 @if($slot->slot_type === 'required')
                     <div class="flex items-center gap-3">
-                        <span class="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center flex-shrink-0">
+                        <span class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                              style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">
                             <i class="fas fa-check text-xs"></i>
                         </span>
                         <div class="flex-1">
@@ -66,13 +69,14 @@
                                 <div class="text-xs text-red-500">Template not found &mdash; this slot will be skipped.</div>
                             @endif
                         </div>
-                        <span class="text-[10px] uppercase tracking-wider text-green-700 font-semibold">Required</span>
+                        <span class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--ds-green, #059669);">Required</span>
                     </div>
 
                 {{-- SELECTABLE --}}
                 @elseif($slot->slot_type === 'selectable')
                     <div class="mb-2 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+                        <span class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);">
                             <i class="fas fa-list text-xs"></i>
                         </span>
                         <div class="text-sm font-semibold text-[color:var(--text-primary)]">{{ $slot->label }}</div>
@@ -125,7 +129,8 @@
                 {{-- ATTACHMENT --}}
                 @elseif($slot->slot_type === 'attachment')
                     <div class="mb-2 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-[color:var(--brand-icon)]/15 text-[color:var(--brand-icon)] flex items-center justify-center flex-shrink-0">
+                        <span class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                              style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);">
                             <i class="fas fa-paperclip text-xs"></i>
                         </span>
                         <div class="text-sm font-semibold text-[color:var(--text-primary)]">{{ $slot->label }}</div>
@@ -169,7 +174,7 @@
         @endforeach
 
         <div class="pt-2">
-            <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5 w-full md:w-auto" style="background:#10b981;">
+            <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5 w-full md:w-auto">
                 <i class="fas fa-rocket mr-1"></i> Create Documents
             </button>
         </div>

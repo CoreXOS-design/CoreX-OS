@@ -7,15 +7,15 @@
 @endphp
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Public Holidays</h1>
-                <p class="text-sm text-white/60">South African public holidays excluded from working-day calculations.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Public Holidays</h1>
+                <p class="text-xs" style="color: var(--text-muted);">South African public holidays excluded from working-day calculations.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('payroll.leave.public-holidays.create') }}" class="corex-btn-primary text-sm inline-flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('payroll.leave.public-holidays.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Add Holiday
                 </a>

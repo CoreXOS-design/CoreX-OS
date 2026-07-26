@@ -3,8 +3,8 @@
 
 @section('corex-content')
 @php
-    // Status badge sits on the navy branded header — render as a white pill with a
-    // semantic-coloured label so every status stays legible against the navy background.
+    // AT-336 — the header is a flat neutral bar, so the status badge is a neutral
+    // surface-2 pill with a semantic-coloured label (theme-aware in both themes).
     $statusTextMap = [
         'draft'                 => 'var(--text-muted,#9ca3af)',
         'submitted'             => 'var(--ds-navy,#0b2a4a)',
@@ -21,45 +21,45 @@
 
 <div class="w-full space-y-5" x-data="ficaReview()">
 
-    {{-- Page header (branded — Pattern A) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                <a href="{{ route('compliance.fica.index') }}" class="inline-flex items-center gap-1 text-xs font-medium text-white/70 hover:text-white transition mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    Back to Compliance
-                </a>
                 <div class="flex items-center flex-wrap gap-2">
-                    <h1 class="text-xl font-bold text-white leading-tight">FICA Review</h1>
-                    <span class="ds-badge" style="background:#fff; color:{{ $statusTextColor }};">{{ $submission->status_label }}</span>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">FICA Review</h1>
+                    <span class="ds-badge" style="background:var(--surface-2); border:1px solid var(--border); color:{{ $statusTextColor }};">{{ $submission->status_label }}</span>
                     @if($submission->isWetInk())
-                        <span class="ds-badge" style="background:rgba(255,255,255,0.15); color:#fff;">
+                        <span class="ds-badge" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                             Wet-Ink Intake &mdash; Received {{ $submission->wet_ink_received_date?->format('d M Y') }}
                         </span>
                     @else
-                        <span class="ds-badge" style="background:rgba(255,255,255,0.15); color:#fff;">Online Intake</span>
+                        <span class="ds-badge" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">Online Intake</span>
                     @endif
                 </div>
-                <p class="text-sm text-white/60 mt-1">
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
                     {{ $submission->contact ? $submission->contact->full_name : 'Unknown contact' }}
                     &mdash; Requested by {{ $submission->requestedBy->name ?? 'Unknown' }} on {{ $submission->created_at->format('d M Y') }}
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap flex-shrink-0">
+            <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+                <a href="{{ route('compliance.fica.index') }}" class="corex-btn-outline text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    Back to Compliance
+                </a>
                 @if($submission->status === 'approved')
-                    <a href="{{ route('compliance.fica.pdf', $submission) }}" target="_blank" class="corex-btn-outline corex-btn-on-brand text-sm">
+                    <a href="{{ route('compliance.fica.pdf', $submission) }}" target="_blank" class="corex-btn-outline text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                         Download PDF
                     </a>
                 @endif
                 @if($submission->status === 'agent_approved' && auth()->user()->isComplianceOfficer())
-                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-sm">
+                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
                         Compliance Review
                     </a>
                 @elseif($submission->status === 'referred_to_co' && ($viewerIsPrimaryCo ?? false))
                     {{-- AT-236 — escalated pack: the primary CO opens the FULL review station (approve/reject/return) --}}
-                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-sm">
+                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
                         Review Escalated FICA
                     </a>
@@ -216,7 +216,7 @@
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 pb-3" style="border-bottom:1px dashed var(--border);">
                                 <div>
                                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Document Type *</label>
-                                    <select name="document_type[]" required class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <select name="document_type[]" required class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                         <option value="">Select type...</option>
                                         <option value="id_copy">ID Copy</option>
                                         <option value="proof_of_address">Proof of Address</option>
@@ -334,7 +334,7 @@
                                 <label class="flex items-center gap-1"><input type="radio" x-model="checklist.suspicious" value="no"> <span class="text-xs" style="color:var(--text-primary);">No</span></label>
                             </div>
                             <div x-show="checklist.suspicious === 'yes'" x-cloak class="mt-1">
-                                <textarea x-model="checklist.suspicious_details" rows="2" class="w-full rounded-md px-3 py-2 text-xs focus:outline-none" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Details..."></textarea>
+                                <textarea x-model="checklist.suspicious_details" rows="2" class="w-full rounded-md px-3 py-2 text-xs focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Details..."></textarea>
                             </div>
                         </div>
                         <div>
@@ -390,7 +390,7 @@
 
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Notes</label>
-                            <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Optional notes..."></textarea>
+                            <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Optional notes..."></textarea>
                         </div>
 
                         <button type="submit" class="corex-btn-primary w-full justify-center text-sm">
@@ -404,7 +404,7 @@
                     @csrf
                     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                         <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Request Corrections</h3>
-                        <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Describe what needs to be corrected..." required></textarea>
+                        <textarea name="reviewer_notes" rows="3" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Describe what needs to be corrected..." required></textarea>
                         <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-amber,#f59e0b); box-shadow:none;">
                             Request Corrections
                         </button>
@@ -416,7 +416,7 @@
                     @csrf
                     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                         <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Reject</h3>
-                        <textarea name="reviewer_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..." required></textarea>
+                        <textarea name="reviewer_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm focus:outline-none mb-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Reason for rejection..." required></textarea>
                         <button type="submit" class="corex-btn-primary w-full justify-center text-sm" style="background:var(--ds-crimson,#c41e3a); box-shadow:none;" onclick="return confirm('Are you sure you want to reject this FICA submission?')">
                             Reject
                         </button>

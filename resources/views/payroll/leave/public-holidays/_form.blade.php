@@ -36,7 +36,7 @@
         <input type="hidden" name="is_movable" value="0">
         <span class="relative inline-flex flex-shrink-0" style="width:38px; height:22px;">
             <input type="checkbox" name="is_movable" value="1" class="peer sr-only" {{ old('is_movable', $holiday->is_movable ?? false) ? 'checked' : '' }}>
-            <span class="absolute inset-0 rounded-full transition-colors bg-[var(--border)] peer-checked:bg-[var(--brand-button)]"></span>
+            <span class="absolute inset-0 rounded-full transition-colors bg-[var(--border)] peer-checked:bg-[var(--brand-icon)]"></span>
             <span class="absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow transition-transform peer-checked:translate-x-4"></span>
         </span>
         <span class="text-sm" style="color: var(--text-primary, #111827);">Moveable (calculated from Easter)</span>
