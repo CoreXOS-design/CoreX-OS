@@ -2658,8 +2658,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // What's New — the user-facing archive of system updates (auth only). The
-    // eligibility filter is applied server-side by SystemUpdateService, so an
-    // admin-only update never reaches a non-admin here. Spec §7.5.
+    // visibility filter is applied server-side by SystemUpdateService: only
+    // published, non-archived updates dated at or after the viewer joined are
+    // listed. There is deliberately NO audience/role filter — every update goes
+    // to every CoreX user (Johan, 2026-07-26, commit 3b8989eb). Spec §7.5.
     // (This group is already prefixed `corex`, so the URL is /corex/whats-new —
     // sitting beside /corex/guided-tours.)
     Route::get('/whats-new', [\App\Http\Controllers\CoreX\WhatsNewController::class, 'index'])
