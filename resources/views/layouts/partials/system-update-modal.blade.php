@@ -180,7 +180,17 @@ function coreXSystemUpdates(ids, dismissUrl) {
                       body,
                   });
 
-            Promise.resolve(post).catch(() => { /* see docblock — closing always wins */ });
+            // Closing always wins (see docblock) — but it must never be SILENT. A dropped
+            // CSRF header made every dismissal 419 for weeks and the only symptom users
+            // could report was "the pop-up keeps coming back"; nothing was logged, client
+            // or server, because the rejection was swallowed here. A failed dismissal now
+            // says so in the console, where the next person looking at this can see it.
+            Promise.resolve(post).catch((err) => {
+                console.warn(
+                    '[CoreX] System Update dismissal was not recorded — this pop-up will reappear.',
+                    err?.status ? `HTTP ${err.status}` : err,
+                );
+            });
         },
     };
 }
