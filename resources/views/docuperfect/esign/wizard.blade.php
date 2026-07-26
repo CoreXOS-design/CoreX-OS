@@ -24,13 +24,14 @@
     </div>
 
     {{-- ===== PROGRESS BAR (sticky header) ===== --}}
-    <div style="background: var(--surface); border-bottom: 1px solid var(--border);" class="px-6 py-3.5 flex-shrink-0">
+    <div class="px-6 py-3.5 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
             <div data-tour="esign-title">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">E-Sign Document</h1>
                 <p class="text-xs" style="color: var(--text-muted);" x-text="documentName ? documentName : 'Prepare a document and send it for signature'"></p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-outline text-xs">Back to Documents</a>
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <span class="text-xs" style="color: var(--text-muted);" x-text="'Step ' + currentStep + ' of 6'"></span>
             </div>
