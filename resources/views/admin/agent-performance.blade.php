@@ -52,21 +52,21 @@
 
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">
+                    <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                         Agent Performance — {{ $agent->name }}
                     </h2>
-                    <div class="text-sm text-white/60">
+                    <div class="text-xs" style="color: var(--text-muted);">
                         {{ $agent->email }} @if($branchName) — {{ $branchName }} @endif — {{ $period }}
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <a href="{{ route('admin.performance', ['period' => $period]) }}" class="px-3 py-1.5 text-sm font-semibold rounded border border-white/30 text-white hover:bg-white/10">Back</a>
-                    <form method="GET" action="{{ route('admin.agent.performance', ['userId' => $agent->id]) }}" class="flex items-center gap-2">
-                        <input type="month" name="period" value="{{ $period }}" class="h-8 text-sm rounded border border-white/20 bg-white/10 text-white px-2" />
-                        <button type="submit" class="px-3 py-1.5 text-sm font-semibold rounded bg-white/20 text-white hover:bg-white/30">Go</button>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('admin.performance', ['period' => $period]) }}" class="corex-btn-outline text-xs shrink-0">Back</a>
+                    <form method="GET" action="{{ route('admin.agent.performance', ['userId' => $agent->id]) }}" class="flex flex-wrap items-center gap-2">
+                        <input type="month" name="period" value="{{ $period }}" class="list-header-filter" />
+                        <button type="submit" class="corex-btn-primary text-xs">Go</button>
                     </form>
                 </div>
             </div>
@@ -81,23 +81,23 @@
             Business truth (ex VAT) from Deal Register &rarr; side share/external flags &rarr; agent split.
         </p>
 
-        <div class="ds-status-card">
+        <div class="ds-status-card" style="border-left-color: var(--border);">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                <div class="rounded-2xl border border-black/10 p-4" style="background:var(--surface-2)">
+                <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="ds-label">COMPANY RETAINED</div>
                     <div class="text-sm mt-1" style="color:var(--text-secondary)">Company retained (ex VAT)</div>
                     <div class="ds-value-xl leading-tight">R {{ number_format($moneyCompanyRetained, 0) }}</div>
 
                     <div class="mt-3 grid grid-cols-3 gap-2 text-xs" style="color:var(--text-secondary)">
-                        <div class="rounded-xl border border-black/10 p-2" style="background:var(--surface)">
+                        <div class="rounded-md p-2" style="background:var(--surface); border:1px solid var(--border)">
                             <div class="ds-label">Side Pool</div>
                             <div style="font-weight:700">R {{ number_format($moneyCompanyIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl border border-black/10 p-2" style="background:var(--surface)">
+                        <div class="rounded-md p-2" style="background:var(--surface); border:1px solid var(--border)">
                             <div class="ds-label">Agent Income</div>
                             <div style="font-weight:700">R {{ number_format($moneyAgentIncome, 0) }}</div>
                         </div>
-                        <div class="rounded-xl border border-black/10 p-2" style="background:var(--surface)">
+                        <div class="rounded-md p-2" style="background:var(--surface); border:1px solid var(--border)">
                             <div class="ds-label">Company Retained</div>
                             <div style="font-weight:700">R {{ number_format($moneyCompanyRetained, 0) }}</div>
                         </div>
@@ -111,7 +111,7 @@
                 </div>
 
                 {{-- Value --}}
-                <div class="rounded-2xl border border-black/10 p-4" style="background:var(--surface-2)">
+                <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="ds-label">VALUE</div>
                     <div class="text-sm mt-1" style="color:var(--text-secondary)">Sales Value (Actual / Target)</div>
                     <div class="ds-value-xl leading-tight">
@@ -124,11 +124,11 @@
                     <div class="mt-2 text-sm ds-value font-semibold">Progress {{ number_format($valuePct, 1) }}%</div>
 
                     <div class="mt-3 grid grid-cols-2 gap-2 text-xs" style="color:var(--text-secondary)">
-                        <div class="rounded-xl border border-black/10 p-2" style="background:var(--surface)">
+                        <div class="rounded-md p-2" style="background:var(--surface); border:1px solid var(--border)">
                             <div class="ds-label">Deals</div>
                             <div style="font-weight:700">{{ number_format($dealsActual, 0) }} / {{ number_format($dealsTarget, 0) }}</div>
                         </div>
-                        <div class="rounded-xl border border-black/10 p-2" style="background:var(--surface)">
+                        <div class="rounded-md p-2" style="background:var(--surface); border:1px solid var(--border)">
                             <div class="ds-label">Listings target</div>
                             <div style="font-weight:700">{{ number_format((int)($targets['listings'] ?? 0), 0) }}</div>
                         </div>
@@ -136,7 +136,7 @@
                 </div>
 
                 {{-- Pace --}}
-                <div class="rounded-2xl border border-black/10 p-4" style="background:var(--surface-2)">
+                <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="ds-label">PACE</div>
                     <div class="text-sm mt-1" style="color:var(--text-secondary)">Today: <span class="ds-value" style="font-weight:700">{{ number_format($todayPoints, 0) }}</span> pts</div>
                     <div class="text-sm mt-1" style="color:var(--text-secondary)">Status: <span class="ds-value" style="font-weight:700">{{ $pointsStatus }}</span></div>
@@ -158,9 +158,9 @@
         <h3 class="ds-section-header">Activity focus — Momentum</h3>
         <p class="ds-section-sub mb-4">Last 7 days points + today breakdown (agent scoped).</p>
 
-        <div class="ds-status-card">
+        <div class="ds-status-card" style="border-left-color: var(--border);">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div class="rounded-2xl border border-black/10 p-4" style="background:var(--surface-2)">
+                <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="text-sm font-semibold" style="color:var(--text-secondary)">Momentum (last 7 days)</div>
                     <div class="mt-3 grid grid-cols-7 gap-2">
                         @foreach($m7 as $d)
@@ -168,7 +168,7 @@
                                 $v = (float)($d['points'] ?? 0);
                                 $h = min(80, max(10, $v)); // keep it TV-friendly
                             @endphp
-                            <div class="rounded-xl border border-black/10 p-2 text-center" style="background:var(--surface)">
+                            <div class="rounded-md p-2 text-center" style="background:var(--surface); border:1px solid var(--border)">
                                 <div class="text-[10px]" style="color:var(--text-muted)">{{ \Carbon\Carbon::parse($d['date'])->format('D') }}</div>
                                 <div class="mt-2 h-20 flex items-end justify-center">
                                     <div class="w-4 rounded {{ $v > 0 ? 'ds-bar-navy' : '' }}" style="height: {{ $h }}px; {{ $v > 0 ? '' : 'background:var(--surface-2)' }}"></div>
@@ -179,7 +179,7 @@
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-black/10 p-4" style="background:var(--surface-2)">
+                <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="text-sm font-semibold" style="color:var(--text-secondary)">Today breakdown</div>
                     <div class="mt-3">
                         @if(empty($activities_today))
@@ -193,7 +193,7 @@
                                             <th class="py-2 text-right">Count</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-black/10">
+                                    <tbody class="divide-y divide-[color:var(--border)]">
                                         @foreach($activities_today as $k => $v)
                                             <tr>
                                                 <td class="py-2 pr-4 font-semibold" style="color:var(--text-primary)">{{ $pretty($k) }}</td>
@@ -213,11 +213,11 @@
         <h3 class="ds-section-header">Deals</h3>
         <p class="ds-section-sub mb-4">Includes per-deal company income (ex VAT), agent share, retained.</p>
 
-        <div class="ds-status-card">
-            <div class="rounded-2xl border border-black/10 overflow-hidden" style="background:var(--surface-2)">
+        <div class="ds-status-card" style="border-left-color: var(--border);">
+            <div class="rounded-lg overflow-hidden" style="background:var(--surface-2); border:1px solid var(--border)">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">
-                        <thead class="border-b border-black/10" style="background:var(--surface)">
+                        <thead style="background:var(--surface-2); border-bottom:1px solid var(--border)">
                             <tr class="text-left" style="color:var(--text-secondary)">
                                 <th class="px-4 py-3">Date</th>
                                 <th class="px-4 py-3">File / Deal</th>
@@ -231,9 +231,9 @@
                                 <th class="px-4 py-3 text-right">Split / Cut</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-black/10" style="background:var(--surface-2)">
+                        <tbody class="divide-y divide-[color:var(--border)]" style="background:var(--surface)">
                             @foreach($deals as $d)
-                                <tr class="hover:bg-black/5">
+                                <tr>
                                     <td class="px-4 py-3" style="color:var(--text-primary)">{{ $d->deal_date }}</td>
                                     <td class="px-4 py-3">
                                         <div class="ds-value" style="font-weight:700">{{ $d->file_no }}</div>
@@ -256,7 +256,7 @@
                                 </tr>
                             @endif
                         </tbody>
-                        <tfoot class="border-t border-black/10" style="background:var(--surface)">
+                        <tfoot style="background:var(--surface-2); border-top:1px solid var(--border)">
                             <tr>
                                 <td class="px-4 py-3 ds-value" style="font-weight:700" colspan="6">Totals</td>
                                 <td class="px-4 py-3 text-right ds-value" style="font-weight:700">R {{ number_format($dealsCompanyIncome,0) }}</td>

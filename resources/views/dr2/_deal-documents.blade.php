@@ -20,22 +20,22 @@
 @endphp
 
 <div class="corex-card" style="padding:1rem;" data-tour="dr2-deal-documents">
-    <h3 style="font-size:.9rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#6b7280);margin-bottom:.75rem;">
+    <h3 style="font-size:.9rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.75rem;">
         Documents{{ $stepId ? ' — this step' : '' }}
     </h3>
 
     {{-- Filed documents, with their 3-pillar reach --}}
     @if($dealDocs->isEmpty())
-        <p style="font-size:.85rem;color:var(--text-muted,#9ca3af);margin-bottom:.75rem;">No documents filed on this deal yet.</p>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:.75rem;">No documents filed on this deal yet.</p>
     @else
         <div style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:.85rem;">
             @foreach($dealDocs as $doc)
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.5rem .65rem;border:1px solid var(--border,rgba(0,0,0,.08));border-radius:8px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.5rem .65rem;border:1px solid var(--border);border-radius:8px;">
                 <div style="min-width:0;">
-                    <a href="{{ route('deals-dr2.documents.download', [$deal, $doc]) }}" style="font-size:.85rem;font-weight:600;color:var(--brand-default,#0b2a4a);">
+                    <a href="{{ route('deals-dr2.documents.download', [$deal, $doc]) }}" style="font-size:.85rem;font-weight:600;color:var(--brand-icon);">
                         {{ $doc->original_name }}
                     </a>
-                    <div style="font-size:.7rem;color:var(--text-muted,#9ca3af);">
+                    <div style="font-size:.7rem;color:var(--text-muted);">
                         {{ $doc->documentType->label ?? 'Unclassified' }}
                         · filed to deal
                         @if($doc->properties->isNotEmpty()) · property @endif
@@ -61,7 +61,7 @@
         </select>
         <button type="submit" class="corex-btn-primary" style="font-size:.8rem;padding:.4rem .9rem;">Upload &amp; file</button>
     </form>
-    <p style="font-size:.7rem;color:var(--text-muted,#9ca3af);margin-top:.5rem;">
+    <p style="font-size:.7rem;color:var(--text-muted);margin-top:.5rem;">
         Uploads file automatically to the deal, its property, and the linked contacts.
     </p>
 
@@ -75,15 +75,15 @@
                 ? \App\Models\DealV2\DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $deal->deal_v2_id)->with('document')->latest()->take(12)->get()
                 : collect();
         @endphp
-        <div style="margin-top:1rem;border-top:1px solid var(--border,rgba(0,0,0,.08));padding-top:.75rem;">
-            <h4 style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#6b7280);margin-bottom:.5rem;">Send documents to a party</h4>
+        <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.75rem;">
+            <h4 style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.5rem;">Send documents to a party</h4>
 
             {{-- Empty state — the door never just greys out: it explains WHY there is
                  nothing to send to yet and links to where a party gets linked. --}}
             @if(! $anySendable)
-                <div style="font-size:.78rem;color:var(--text-secondary,#4b5563);background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 6%, var(--surface,#fff));border:1px solid var(--border,rgba(0,0,0,.08));border-radius:8px;padding:.6rem .7rem;margin-bottom:.6rem;">
+                <div style="font-size:.78rem;color:var(--text-secondary);background:color-mix(in srgb, var(--brand-icon) 6%, var(--surface));border:1px solid var(--border);border-radius:8px;padding:.6rem .7rem;margin-bottom:.6rem;">
                     <div style="font-weight:600;margin-bottom:.15rem;">No party is linked to this deal yet.</div>
-                    <div style="color:var(--text-muted,#6b7280);">
+                    <div style="color:var(--text-muted);">
                         Link a seller, buyer, transferring attorney or bond originator to this deal, then send them documents from here.
                     </div>
                     @if($canEditDeal)
@@ -99,21 +99,21 @@
                             Send to {{ $p['label'] }}{{ count($p['default_documents']) ? ' · '.count($p['default_documents']).' default' : '' }}
                         </a>
                     @else
-                        <span style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;gap:.4rem;align-items:center;">
+                        <span style="font-size:.72rem;padding:.3rem .6rem;color:var(--text-faint);border:1px dashed var(--border);border-radius:8px;display:inline-flex;gap:.4rem;align-items:center;">
                             <span>{{ $p['label'] }} — {{ $p['note'] ?? 'not linked yet' }}</span>
-                            @if($canEditDeal)<a href="{{ route('deals-dr2.edit', $deal) }}" style="color:var(--brand-icon,#0ea5e9);text-decoration:underline;">link</a>@endif
+                            @if($canEditDeal)<a href="{{ route('deals-dr2.edit', $deal) }}" style="color:var(--brand-icon);text-decoration:underline;">link</a>@endif
                         </span>
                     @endif
                 @endforeach
             </div>
 
             @if($sentDist->isNotEmpty())
-                <h4 style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#6b7280);margin:.9rem 0 .4rem;">Sent — what went to whom</h4>
+                <h4 style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:.9rem 0 .4rem;">Sent — what went to whom</h4>
                 <div style="display:flex;flex-direction:column;gap:.3rem;">
                     @foreach($sentDist as $d)
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.78rem;padding:.35rem .5rem;border:1px solid var(--border,rgba(0,0,0,.06));border-radius:6px;">
-                            <span style="min-width:0;">{{ $d->document?->original_name ?? 'Document' }} <span style="color:#9ca3af;">→ {{ ucwords(str_replace('_',' ',$d->party_role)) }} · {{ $d->recipient_email ?: 'recipient' }}</span></span>
-                            <span style="white-space:nowrap;color:#9ca3af;">{{ $d->channel }}/{{ $d->delivery_mode==='secure_link'?'link':'attach' }}{{ $d->part_of>1 ? ' · pt '.$d->part_no.'/'.$d->part_of : '' }} · {{ $d->status }} · {{ $d->sent_at?->format('d M') }}</span>
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;font-size:.78rem;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;">
+                            <span style="min-width:0;">{{ $d->document?->original_name ?? 'Document' }} <span style="color:var(--text-faint);">→ {{ ucwords(str_replace('_',' ',$d->party_role)) }} · {{ $d->recipient_email ?: 'recipient' }}</span></span>
+                            <span style="white-space:nowrap;color:var(--text-faint);">{{ $d->channel }}/{{ $d->delivery_mode==='secure_link'?'link':'attach' }}{{ $d->part_of>1 ? ' · pt '.$d->part_no.'/'.$d->part_of : '' }} · {{ $d->status }} · {{ $d->sent_at?->format('d M') }}</span>
                         </div>
                     @endforeach
                 </div>

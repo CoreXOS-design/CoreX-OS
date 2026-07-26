@@ -8,12 +8,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-commercial-evals-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Commercial Market Evaluations</h1>
-                <p class="text-sm text-white/60">Evaluate commercial, industrial, hospitality &amp; agricultural properties</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Commercial Market Evaluations</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Evaluate commercial, industrial, hospitality &amp; agricultural properties</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary" data-tour="re-commercial-evals-new">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary text-xs" data-tour="re-commercial-evals-new">
                     + New Evaluation
                 </a>
             </div>

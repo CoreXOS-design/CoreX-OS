@@ -11,8 +11,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Consent — Review</h1>
-                <p class="text-sm text-white/60 max-w-2xl">Agents who chose NOT to capture their WhatsApp with a matched contact, and why. This is a declaration for compliance — message content is never shown here. If you judge a chat to be business, flag it for the agent to reconsider; you cannot override their choice.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">WhatsApp Consent — Review</h1>
+                <p class="text-xs max-w-2xl" style="color: var(--text-muted);">Agents who chose NOT to capture their WhatsApp with a matched contact, and why. This is a declaration for compliance — message content is never shown here. If you judge a chat to be business, flag it for the agent to reconsider; you cannot override their choice.</p>
             </div>
         </div>
     </div>

@@ -8,14 +8,14 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Viewing Packs</h1>
-                <p class="text-sm text-white/60">Buyer-facing property packs assembled for viewings.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Viewing Packs</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Buyer-facing property packs assembled for viewings.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 @if($showArchived)
-                    <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">Active packs</a>
+                    <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline text-xs">Active packs</a>
                 @else
-                    <a href="{{ route('corex.viewing-packs.index', ['archived' => 1]) }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">View archived</a>
+                    <a href="{{ route('corex.viewing-packs.index', ['archived' => 1]) }}" class="corex-btn-outline text-xs">View archived</a>
                 @endif
             </div>
         </div>

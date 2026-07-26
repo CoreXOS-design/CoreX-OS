@@ -3,9 +3,15 @@
 
 @section('corex-content')
 <div class="space-y-6">
+    {{-- Page header — flat neutral bar (AT-336). Type scale matches /worksheet:
+         16px bold title + 12px muted subtitle. --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-xl font-bold text-white leading-tight">Lost Deals Analysis</h1>
-        <p class="text-sm text-white/60">Understand why buyers and sellers leave. Last {{ number_format($days) }} days.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Lost Deals Analysis</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Understand why buyers and sellers leave. Last {{ number_format($days) }} days.</p>
+            </div>
+        </div>
     </div>
 
     {{-- Summary cards --}}

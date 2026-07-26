@@ -55,17 +55,18 @@
         <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight tracking-tight">
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                         Company Dashboard — {{ $r['period'] ?? now()->format('Y-m') }}
                     </h1>
-                    <p class="text-sm text-white/60">Admin view</p>
+                    <p class="text-xs" style="color: var(--text-muted);">Admin view</p>
                 </div>
-                <form method="GET" action="{{ route('admin.performance') }}" class="flex items-center gap-2">
-                    <input type="month" name="period" value="{{ $r['period'] ?? now()->format('Y-m') }}"
-                           class="rounded-md px-3 py-1.5 text-sm transition-all duration-300"
-                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #ffffff;" />
-                    <button type="submit" class="corex-btn-primary">Go</button>
-                </form>
+                <div class="flex flex-wrap items-center gap-2">
+                    <form method="GET" action="{{ route('admin.performance') }}" class="flex flex-wrap items-center gap-2">
+                        <input type="month" name="period" value="{{ $r['period'] ?? now()->format('Y-m') }}"
+                               class="list-header-filter" />
+                        <button type="submit" class="corex-btn-primary text-xs">Go</button>
+                    </form>
+                </div>
             </div>
         </div>
 
@@ -211,27 +212,27 @@
             </div>
 
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card block">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card block" style="border-left-color: var(--border);">
                     <div class="ds-label">Active</div>
                     <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['total'] ?? 0)) }}</div>
                 </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card block">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card block" style="border-left-color: var(--border);">
                     <div class="ds-label">Avg DOM</div>
                     <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['avg_days_on_market'] ?? 0)) }}</div>
                 </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card block">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card block" style="border-left-color: var(--border);">
                     <div class="ds-label">Stale</div>
                     <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['stale'] ?? 0)) }}</div>
                 </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card block">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card block" style="border-left-color: var(--border);">
                     <div class="ds-label">Expiring</div>
                     <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['expiring_soon'] ?? 0)) }}</div>
                 </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card block">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card block" style="border-left-color: var(--border);">
                     <div class="ds-label">Expired</div>
                     <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['expired'] ?? 0)) }}</div>
                 </a>
@@ -247,7 +248,7 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="ds-status-card">
+                <div class="ds-status-card" style="border-left-color: var(--border);">
                     <div class="ds-label mb-1">Company Value (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-xl">
                         R {{ number_format($companyValueActual, 0) }}
@@ -259,7 +260,7 @@
                     <div class="mt-2 text-sm ds-value">Progress {{ number_format($valuePct, 1) }}%</div>
                 </div>
 
-                <div class="ds-status-card">
+                <div class="ds-status-card" style="border-left-color: var(--border);">
                     <div class="ds-label mb-1">Company Deals (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-xl">
                         {{ (int)$companyDealsActual }}
@@ -300,7 +301,7 @@
                     @endphp
 
                     <a href="{{ route('admin.branch.performance', ['branchId' => $bid, 'period' => ($r['period'] ?? now()->format('Y-m'))]) }}"
-                       class="ds-status-card block transition-all duration-300">
+                       class="ds-status-card block transition-all duration-300" style="border-left-color: var(--border);">
                         <div class="ds-label">BRANCH</div>
                         <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $bName }}</div>
 
@@ -325,7 +326,7 @@
                         </div>
                     </a>
                 @empty
-                    <div class="ds-status-card md:col-span-2 xl:col-span-3 py-12 text-center">
+                    <div class="ds-status-card md:col-span-2 xl:col-span-3 py-12 text-center" style="border-left-color: var(--border);">
                         <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                              style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                             <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
@@ -344,7 +345,7 @@
             <h2 class="ds-section-header">Agents — Targets vs Actuals</h2>
             <div class="ds-section-sub mb-4">This is the management view: who is on pace, who is behind, and where to intervene.</div>
 
-            <div class="ds-status-card overflow-hidden" style="padding:0">
+            <div class="ds-status-card overflow-hidden" style="padding:0; border-left-color: var(--border);">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">
                         <thead>
@@ -410,7 +411,7 @@
                                             </a>
                                             @if(!empty($row['is_archived']))
                                                 <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold align-middle"
-                                                      style="background: var(--surface-muted, #f1f5f9); color: var(--text-muted, #64748b);"
+                                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);"
                                                       title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
                                             @endif
                                         </div>
@@ -464,7 +465,7 @@
             <h2 class="ds-section-header">TV Access Codes</h2>
 
             {{-- Company TV Code --}}
-            <div class="ds-status-card p-5">
+            <div class="ds-status-card p-5" style="border-left-color: var(--border);">
                 <div class="font-semibold text-sm mb-3" style="color: var(--text-primary);">Company TV Display</div>
                 @if(isset($companyTvCode) && $companyTvCode)
                     <div class="flex items-center gap-4 mb-3">
@@ -490,7 +491,7 @@
                         </form>
                         <form method="POST" action="{{ route('admin.tv-code.revoke-company') }}">
                             @csrf
-                            <button type="submit" class="corex-btn-primary" style="background: #dc2626; box-shadow: 0 4px 12px color-mix(in srgb, #dc2626 25%, transparent);"
+                            <button type="submit" class="corex-btn-primary" style="background: var(--ds-crimson); box-shadow: 0 4px 12px color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                     onclick="return confirm('Revoke company TV code?')">
                                 Revoke
                             </button>
@@ -506,7 +507,7 @@
             </div>
 
             {{-- Branch TV Codes --}}
-            <div class="ds-status-card p-5">
+            <div class="ds-status-card p-5" style="border-left-color: var(--border);">
                 @if(isset($tvCodes) && $tvCodes->count())
                     <div class="overflow-x-auto">
                         <table class="ds-table w-full text-sm">
@@ -540,7 +541,7 @@
                                             <form method="POST" action="{{ route('admin.tv-code.revoke') }}" class="inline">
                                                 @csrf
                                                 <input type="hidden" name="code_id" value="{{ $tc->id }}">
-                                                <button type="submit" class="corex-btn-primary" style="background: #dc2626; padding: 0.25rem 0.625rem; font-size: 0.6875rem; box-shadow: 0 2px 6px color-mix(in srgb, #dc2626 25%, transparent);"
+                                                <button type="submit" class="corex-btn-primary" style="background: var(--ds-crimson); padding: 0.25rem 0.625rem; font-size: 0.6875rem; box-shadow: 0 2px 6px color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                                         onclick="return confirm('Revoke this code?')">
                                                     Revoke
                                                 </button>

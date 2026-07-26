@@ -13,18 +13,16 @@
                  soft-deleted reports. Default view hides archived rows. --}}
             @if($showArchived)
                 <a href="{{ route('market-intelligence.reports.index') }}"
-                   class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                   class="corex-btn-outline text-xs">
                     Hide archived
                 </a>
             @else
                 <a href="{{ route('market-intelligence.reports.index', ['archived' => 1]) }}"
-                   class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                   class="corex-btn-outline text-xs">
                     Show archived ({{ number_format($stats['archived'] ?? 0) }})
                 </a>
             @endif
-            <a href="{{ route('market-intelligence.reports.create') }}" class="corex-btn-primary text-sm" data-tour="mic-reports-upload">
+            <a href="{{ route('market-intelligence.reports.create') }}" class="corex-btn-primary text-xs" data-tour="mic-reports-upload">
                 Upload a report
             </a>
         </x-slot:actions>
@@ -88,13 +86,13 @@
                             $parseColor = match ($r->parse_status) {
                                 'parsed'  => '#10b981',
                                 'failed'  => '#dc2626',
-                                'parsing' => '#0ea5e9',
+                                'parsing' => 'var(--brand-icon, #0ea5e9)',
                                 default   => 'var(--text-muted)',
                             };
                             $spotColor = match ($r->spot_check_status) {
                                 'passed'  => '#10b981',
                                 'flagged' => '#d97706',
-                                'running' => '#0ea5e9',
+                                'running' => 'var(--brand-icon, #0ea5e9)',
                                 default   => 'var(--text-muted)',
                             };
                         @endphp

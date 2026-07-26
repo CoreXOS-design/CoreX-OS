@@ -6,20 +6,25 @@
 
     {{-- Page Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="text-sm text-white/60 mb-1">
-            <a class="hover:underline text-white/60 transition-all duration-300" href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">&larr; Back to Activity</a>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $branchName }} &mdash; {{ $def->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="text-xs space-x-2" style="color: var(--text-muted);">
+                    <a class="hover:underline" style="color: var(--brand-icon, #0ea5e9);" href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}">Company Summary</a>
+                    <span>&rsaquo;</span>
+                    <a class="hover:underline" style="color: var(--brand-icon, #0ea5e9);" href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">{{ $def->name }}</a>
+                    <span>&rsaquo;</span>
+                    <span style="color: var(--text-secondary);">{{ $branchName }}</span>
+                </div>
+                <a class="corex-btn-outline text-xs" href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">&larr; Back to Activity</a>
+            </div>
         </div>
-        <div class="text-sm text-white/60 space-x-2">
-            <a class="hover:underline transition-all duration-300" href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}">Company Summary</a>
-            <span>&rsaquo;</span>
-            <a class="hover:underline transition-all duration-300" href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">{{ $def->name }}</a>
-            <span>&rsaquo;</span>
-            <span class="text-white/80">{{ $branchName }}</span>
-        </div>
-        <h1 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">{{ $branchName }} &mdash; {{ $def->name }}</h1>
-        <p class="text-sm text-white/60">
-            {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
-        </p>
     </div>
 
     {{-- Stats Cards --}}

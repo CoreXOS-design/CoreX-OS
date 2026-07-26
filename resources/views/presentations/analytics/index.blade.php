@@ -9,17 +9,17 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (AT-336 — flat neutral chrome, worksheet type scale) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-analytics-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Presentations Analytics</h1>
-                <p class="text-sm text-white/60">Lifecycle pipeline: generated → shared → viewed → leads → outcomes.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Presentations Analytics</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Lifecycle pipeline: generated → shared → viewed → leads → outcomes.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if(\Illuminate\Support\Facades\Route::has('presentations.index'))
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
                     Presentations
                 </a>
@@ -95,7 +95,7 @@
             <h2 class="ds-section-header mb-3">Funnel</h2>
             @php
                 $rows = [
-                    ['Generated',          $generatedCount,       'var(--brand-default, #0b2a4a)'],
+                    ['Generated',          $generatedCount,       'var(--text-faint)'],
                     ['Shared with seller', $sharedCount,          'var(--brand-icon, #0ea5e9)'],
                     ['Viewed by seller',   $viewedCount,          'var(--ds-cyan, #00b4d8)'],
                     ['Outcome recorded',   $outcomeRecordedCount, 'var(--ds-amber, #f59e0b)'],

@@ -27,15 +27,15 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Outreach &amp; Canvassing</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outreach &amp; Canvassing</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Every canvassing and outreach action in one place — source-tagged so you can always
                     see where a pitch came from. MIC prospecting, direct contact, and comms-tile figures
                     are kept separate and never blended.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -43,11 +43,11 @@
     {{-- Tab switcher --}}
     <div class="flex gap-1" style="border-bottom:1px solid var(--border,#e5e7eb);">
         <button @click="tab = 'activity'"
-                :style="tab === 'activity' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-secondary,#6b7280);'"
+                :style="tab === 'activity' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-muted,#9ca3af);'"
                 :class="tab === 'activity' ? 'border-b-2' : 'border-b-2 border-transparent'"
                 class="px-4 py-2.5 text-sm font-semibold">Activity Feed</button>
         <button @click="tab = 'consent'"
-                :style="tab === 'consent' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-secondary,#6b7280);'"
+                :style="tab === 'consent' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-muted,#9ca3af);'"
                 :class="tab === 'consent' ? 'border-b-2' : 'border-b-2 border-transparent'"
                 class="px-4 py-2.5 text-sm font-semibold">Consent Funnel</button>
     </div>
@@ -63,15 +63,15 @@
                    style="background:var(--surface,#fff); border:1px solid {{ $filterSource === $src ? 'var('.$sourceTokens[$src].')' : 'var(--border,#e5e7eb)' }};">
                     <div class="flex items-center gap-2">
                         <span class="inline-block w-2.5 h-2.5 rounded-full" style="background:var({{ $sourceTokens[$src] }});"></span>
-                        <span class="text-xs font-semibold" style="color:var(--text-secondary,#6b7280);">{{ $sourceLabels[$src] }}</span>
+                        <span class="text-xs font-semibold" style="color:var(--text-muted,#9ca3af);">{{ $sourceLabels[$src] }}</span>
                     </div>
                     <div class="text-2xl font-bold mt-1 tabular-nums" style="color:var(--text-primary,#0b2a4a);">{{ number_format($sub[$src] ?? 0) }}</div>
                 </a>
             @endforeach
 
             {{-- Total = a VISIBLE SUM of the three parts (mic + direct + comms-tile). --}}
-            <div class="rounded-md px-4 py-3" style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb);">
-                <div class="text-xs font-semibold" style="color:var(--text-secondary,#6b7280);">Total actions</div>
+            <div class="rounded-md px-4 py-3" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
+                <div class="text-xs font-semibold" style="color:var(--text-muted,#9ca3af);">Total actions</div>
                 <div class="text-2xl font-bold mt-1 tabular-nums" style="color:var(--text-primary,#0b2a4a);">{{ number_format($feed['total'] ?? 0) }}</div>
                 <div class="text-[0.625rem] mt-0.5" style="color:var(--text-muted,#9ca3af);">
                     = {{ number_format($sub['mic_prospect'] ?? 0) }} + {{ number_format($sub['direct_contact'] ?? 0) }} + {{ number_format($sub['comms_tile'] ?? 0) }}
@@ -84,13 +84,13 @@
             <input type="hidden" name="tab" value="activity">
             <label class="text-xs" style="color:var(--text-secondary,#6b7280);">Window</label>
             <select name="days" onchange="this.form.submit()" class="px-3 py-1.5 text-sm rounded-md"
-                    style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
+                    style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
                 @foreach([30 => 'Last 30 days', 90 => 'Last 90 days', 180 => 'Last 180 days', 365 => 'Last year'] as $d => $lbl)
                     <option value="{{ $d }}" {{ (int)$filterDays === $d ? 'selected' : '' }}>{{ $lbl }}</option>
                 @endforeach
             </select>
             <select name="source" onchange="this.form.submit()" class="px-3 py-1.5 text-sm rounded-md"
-                    style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
+                    style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
                 <option value="">All sources</option>
                 @foreach($sourceLabels as $sk => $sl)
                     <option value="{{ $sk }}" {{ $filterSource === $sk ? 'selected' : '' }}>{{ $sl }}</option>

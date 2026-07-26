@@ -1,20 +1,21 @@
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">Deal Log</h2>
-                    <div class="text-sm text-white/60">#{{ $deal->deal_no }} &middot; Audit trail (newest first)</div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Log</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">#{{ $deal->deal_no }} &middot; Audit trail (newest first)</p>
                 </div>
-                <a href="{{ route('admin.deals') }}"
-                   class="inline-flex items-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/15">
-                    &larr; Back to Deal Register
-                </a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('admin.deals') }}" class="corex-btn-outline text-xs shrink-0">
+                        &larr; Back to Deal Register
+                    </a>
+                </div>
             </div>
         </div>
     </x-slot>
 
-    <div class="space-y-6">
+    <div class="space-y-6 corex-legacy-v2">
         {{-- AT-267 — view-only lock when the current user may not edit this deal (an assistant
              viewing a colleague's deal at their agent's breadth). --}}
         @include('partials._readonly-lock', [
@@ -26,16 +27,18 @@
             <h2 class="ds-section-header">Timeline</h2>
             <div class="ds-section-sub mb-4">System-created events + user actions.</div>
 
-            <div class="ds-status-card">
+            <div class="ds-status-card" style="border-left-color: var(--border);">
 
                 @if(session('status'))
-                    <div class="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    <div class="mb-3 rounded-md px-4 py-3 text-sm"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
                         {{ session('status') }}
                     </div>
                 @endif
 
                 @if($errors->any())
-                    <div class="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <div class="mb-3 rounded-md px-4 py-3 text-sm"
+                         style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
                         {{ $errors->first() }}
                     </div>
                 @endif
@@ -44,9 +47,9 @@
                     @csrf
                     <div class="flex-1">
                         <label class="ds-label block mb-1">Add remark (creates timeline entry)</label>
-                        <input type="text" name="remark" class="w-full rounded-xl" style="border-color:var(--border)" placeholder="Type a remark and click Add..." value="">
+                        <input type="text" name="remark" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="Type a remark and click Add..." value="">
                     </div>
-                    <button type="submit" class="corex-btn-primary h-10 px-4 text-sm">Add</button>
+                    <button type="submit" class="corex-btn-primary h-10 px-4 text-xs">Add</button>
                 </form>
 
                 @if($logs->isEmpty())
@@ -59,7 +62,7 @@
                                 $who = $actor?->name ?? ($log->actor_user_id ? 'Unknown user' : 'System');
                             @endphp
 
-                            <div class="rounded-xl border px-4 py-3" style="background:var(--surface); border-left: 3px solid var(--ds-cyan);">
+                            <div class="rounded-md px-4 py-3" style="background:var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon);">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <div class="text-sm font-semibold" style="color:var(--text-primary)">{{ $log->event_type }}</div>
                                     <div class="text-xs" style="color:var(--text-muted)">{{ optional($log->created_at)->format('Y-m-d H:i') }}</div>

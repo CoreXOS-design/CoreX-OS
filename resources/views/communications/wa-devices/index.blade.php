@@ -6,11 +6,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comms-wa-devices-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">WhatsApp Capture</h1>
-                <p class="text-sm text-white/60">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">WhatsApp Capture</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Register the device that runs the read-only capture extension. Business WhatsApp conversations with loaded contacts are archived for compliance.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -35,8 +35,7 @@
         <form method="POST" action="{{ route('communications.wa-devices.backfill-toggle') }}" class="shrink-0">
             @csrf
             <input type="hidden" name="enabled" value="{{ $backfillEnabled ? '0' : '1' }}">
-            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
-                    style="background: {{ $backfillEnabled ? 'var(--surface-2)' : 'var(--brand-button, #0ea5e9)' }}; color: {{ $backfillEnabled ? 'var(--text-secondary)' : '#fff' }}; border:1px solid var(--border);"
+            <button type="submit" class="{{ $backfillEnabled ? 'corex-btn-outline' : 'corex-btn-primary' }} text-xs"
                     onclick="return confirm('{{ $backfillEnabled ? 'Turn OFF body backfill? Only live messages will be captured.' : 'Turn ON read-only body backfill for this agency?' }}')">
                 {{ $backfillEnabled ? 'Turn OFF' : 'Turn ON' }}
             </button>
@@ -63,8 +62,7 @@
             @csrf
             <input type="number" name="days" min="1" max="365" value="{{ (int) $embargoRetentionDays }}"
                    class="w-20 text-xs rounded-md px-2 py-2" style="background: var(--surface-2); color: var(--text-primary); border:1px solid var(--border);">
-            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
-                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+            <button type="submit" class="corex-btn-primary text-xs">
                 Save
             </button>
         </form>
@@ -93,8 +91,7 @@
                     <option value="{{ $code }}" @selected($transcriptionLanguage === $code)>{{ $label }}</option>
                 @endforeach
             </select>
-            <button type="submit" class="text-xs font-semibold rounded-md px-3 py-2"
-                    style="background: var(--brand-button, #0ea5e9); color:#fff; border:1px solid var(--border);">
+            <button type="submit" class="corex-btn-primary text-xs">
                 Save
             </button>
         </form>

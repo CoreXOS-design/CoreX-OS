@@ -7,8 +7,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Communications Access Requests</h1>
-                <p class="text-sm text-white/60">Colleagues asking to see a contact's email &amp; WhatsApp threads. Approve or decline — approval grants access for the requester's current session only.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communications Access Requests</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Colleagues asking to see a contact's email &amp; WhatsApp threads. Approve or decline — approval grants access for the requester's current session only.</p>
             </div>
         </div>
     </div>
@@ -34,15 +34,15 @@
             <div class="flex flex-wrap items-center gap-2 shrink-0">
                 {{-- AT-132 — approve WITH MODE: this session vs always (this thread). --}}
                 <button type="button" @click="act({{ $req->id }}, 'approve', 'session')" :disabled="busy"
-                        class="corex-btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                        class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                         style="background: var(--ds-green, #059669); box-shadow: 0 4px 12px color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);"
                         title="Grant access for this session only — ends at logout and at midnight">Approve · this session</button>
                 <button type="button" @click="act({{ $req->id }}, 'approve', 'always')" :disabled="busy"
-                        class="corex-btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                        class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Grant standing access to this thread — survives logout and midnight until revoked">Approve · always</button>
                 <button type="button" @click="act({{ $req->id }}, 'decline')" :disabled="busy"
-                        class="corex-btn-outline text-sm disabled:opacity-40 disabled:cursor-not-allowed">Decline</button>
-                <a href="{{ route('corex.contacts.show', $req->contact_id) }}" class="corex-btn-outline text-sm">View contact</a>
+                        class="corex-btn-outline text-xs disabled:opacity-40 disabled:cursor-not-allowed">Decline</button>
+                <a href="{{ route('corex.contacts.show', $req->contact_id) }}" class="corex-btn-outline text-xs">View contact</a>
             </div>
         </div>
     @empty

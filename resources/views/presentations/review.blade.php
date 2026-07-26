@@ -70,7 +70,7 @@
     .review-pin { background: transparent !important; border: 0 !important; }
     .review-pin svg { display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
     .review-pin-cross { outline: 2px dashed var(--ds-amber, #f59e0b); outline-offset: 2px; border-radius: 6px; }
-    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--brand-default, #0b2a4a); color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
+    .review-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.30); color: var(--text-primary); padding: 8px 16px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 9999; }
     .review-toast.show { opacity: 1; }
     /* Build 3 — condition picker + valuation strip. */
     .cond-picker { padding: 5px 10px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); min-width: 280px; }
@@ -132,17 +132,16 @@
     <div class="rounded-md px-6 py-5 corex-page-banner mb-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Review Presentation</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review Presentation</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Confirm the subject facts and the comparable sales we picked, then continue.
                     Untick anything you don't want included — your overrides are logged for future learning.
                 </p>
             </div>
             @if($presentation->property)
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('corex.properties.show', $presentation->property) }}" target="_blank"
-                   class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                   class="corex-btn-outline text-xs">
                     Open property record
                 </a>
             </div>

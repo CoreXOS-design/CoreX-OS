@@ -26,13 +26,13 @@
         toggleUrlTpl: '{{ $toggleUrlTpl }}',
      })">
 
-    {{-- Header (Pattern A — branded, full-width) --}}
+    {{-- Header (Pattern A — flat neutral, full-width) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Activity Scoring</h1>
-                <p class="text-sm text-white/60">
-                    Configure how much each agent action is worth, and switch actions on or off for your agency. Changes here only affect <span class="font-semibold text-white/80">{{ $agencyName ?? 'your agency' }}</span> — system defaults are preserved.
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Activity Scoring</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Configure how much each agent action is worth, and switch actions on or off for your agency. Changes here only affect <span class="font-semibold" style="color: var(--text-secondary);">{{ $agencyName ?? 'your agency' }}</span> — system defaults are preserved.
                 </p>
             </div>
         </div>

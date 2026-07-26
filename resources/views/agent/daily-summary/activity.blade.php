@@ -1,37 +1,29 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-                <div class="text-sm text-white/60">
-                    <a class="hover:underline text-white/60" href="{{ route('agent.daily.summary', array_filter(['range'=>$range, 'month'=>$month])) }}">&larr; Back to Summary</a>
-                </div>
-                <h2 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">{{ $def->name }}</h2>
-                <div class="text-sm text-white/60">
+                <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $def->name }}</h2>
+                <div class="text-xs" style="color: var(--text-muted);">
                     {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
                 </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <a class="corex-btn-outline text-xs" href="{{ route('agent.daily.summary', array_filter(['range'=>$range, 'month'=>$month])) }}">&larr; Back to Summary</a>
             </div>
         </div>
     </div>
 
     {{-- Stats Cards --}}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="ds-status-card">
-            <div class="ds-label">Total Count</div>
-            <div class="ds-value-xl">{{ (int)$totalCount }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Weight</div>
-            <div class="ds-value-xl">{{ number_format((float)$def->weight, 2) }}</div>
-        </div>
-        <div class="ds-status-card">
-            <div class="ds-label">Total Points</div>
-            <div class="ds-value-xl">{{ number_format((float)$totalPoints, 0) }}</div>
-        </div>
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Total Count" :value="number_format((int)$totalCount)" />
+        <x-corex-kpi-card title="Weight" :value="number_format((float)$def->weight, 2)" />
+        <x-corex-kpi-card title="Total Points" :value="number_format((float)$totalPoints, 0)" />
     </div>
 
     {{-- Dates Table --}}
@@ -45,9 +37,9 @@
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Date</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Count</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Points</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Date</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
                     </tr>
                 </thead>
                 <tbody>

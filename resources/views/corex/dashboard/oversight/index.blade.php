@@ -7,12 +7,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-oversight-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Manager Oversight</h1>
-                <p class="text-sm text-white/60">Outstanding items for the agents in your scope.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Manager Oversight</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Outstanding items for the agents in your scope.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('corex.settings.user.oversight') }}" class="corex-btn-outline" data-tour="cc-oversight-settings">Oversight Settings</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.settings.user.oversight') }}" class="corex-btn-outline text-xs" data-tour="cc-oversight-settings">Oversight Settings</a>
             </div>
         </div>
     </div>

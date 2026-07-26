@@ -1673,7 +1673,7 @@
             </div>
 
             {{-- Add new match form --}}
-            <div class="rounded-md p-5 space-y-5" style="background:var(--surface-2); border:1px solid var(--border);">
+            <div class="rounded-md p-5 space-y-5" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Add New Match Criteria</h3>
 
                 @include('corex.contacts._match-form', ['contact' => $contact, 'match' => null])

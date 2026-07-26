@@ -3,19 +3,20 @@
 
 @section('corex-content')
 <div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="w-full space-y-6">
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header — flat neutral bar (AT-336). Type scale matches /worksheet:
+         16px bold title + 12px muted subtitle, actions in the right cluster at 12px. --}}
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-today-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0" data-tour="cc-today-greeting">
-                <h1 class="text-xl font-bold text-white leading-tight">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
-                <p class="text-sm text-white/60">{{ now()->format('l, d F Y') }}</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ now()->format('l, d F Y') }}</p>
             </div>
-            <div class="flex items-center gap-3 flex-shrink-0">
-                @include('layouts.partials.tour-header-launcher')
-                <span class="text-xs hidden md:inline text-white/60" x-text="lastRefresh"></span>
+            <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="text-xs hidden md:inline" style="color: var(--text-muted);" x-text="lastRefresh"></span>
                 <button type="button" @click="refresh()" :disabled="refreshing"
                         data-tour="cc-today-refresh"
-                        class="corex-btn-outline corex-btn-on-brand disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                        class="corex-btn-outline text-xs disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         title="Refresh">
                     <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
@@ -26,10 +27,10 @@
                 <a href="{{ url('/corex/settings?s=command-center') }}"
                    title="Command Center Settings"
                    aria-label="Command Center Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+                   onmouseover="this.style.background='var(--surface-2)'; this.style.color='var(--text-primary)';"
+                   onmouseout="this.style.background='transparent'; this.style.color='var(--text-secondary)';">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -84,7 +85,7 @@
     <template x-if="hoveredCard && viewMode === 'compact'">
         <div class="fixed z-50 pointer-events-none" :style="tooltipPos()" x-cloak>
             <template x-for="card in cards.filter(c => c.card_id === hoveredCard)" :key="card.card_id">
-                <div class="rounded-md p-3 text-xs max-w-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+                <div class="rounded-md p-3 text-xs max-w-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
                     <div class="font-semibold mb-1.5" x-text="card.title"></div>
                     <template x-for="(item, idx) in card.items.slice(0, 3)" :key="idx">
                         <div class="py-0.5 truncate" style="color:var(--text-secondary);" x-text="tooltipItemText(card, item)"></div>

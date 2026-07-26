@@ -12,18 +12,24 @@
     $recipient  = collect($recipients)->first(fn ($r) => ! empty($r['email'])) ?? ($recipients[0] ?? null);
     $limitBytes = $sizeLimitMb * 1024 * 1024;
 @endphp
+<div class="w-full dr2-distribute">
+
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Send documents — {{ $party['label'] }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Deal {{ $deal->deal_no ?? $deal->id }}@if($deal->property_address) · {{ $deal->property_address }}@endif</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('deals-dr2.pipeline', $deal) }}" class="corex-btn-outline text-xs shrink-0">← Deal</a>
+            </div>
+        </div>
+    </div>
+
 <div style="max-width: 860px; margin: 0 auto; padding: 1rem;"
      x-data="composeSend({ mode: '{{ $party['delivery_mode'] }}', channel: '{{ $party['channel'] }}', limit: {{ $limitBytes }} })">
 
     @if(session('error'))<div class="corex-alert corex-alert-danger" style="margin:1rem 0;">{{ session('error') }}</div>@endif
-
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;">
-        <div>
-            <h1 style="font-size:1.35rem;font-weight:800;color:var(--brand-default,#0b2a4a);">Send documents — {{ $party['label'] }}</h1>
-            <div style="color:var(--text-muted,#6b7280);font-size:.9rem;">Deal {{ $deal->deal_no ?? $deal->id }}@if($deal->property_address) · {{ $deal->property_address }}@endif</div>
-        </div>
-        <a href="{{ route('deals-dr2.pipeline', $deal) }}" class="corex-btn-secondary">← Deal</a>
-    </div>
 
     {{-- Party switcher --}}
     <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;">
@@ -35,7 +41,7 @@
     </div>
 
     @if(!$recipient)
-        <div class="corex-card" style="padding:1.5rem;text-align:center;color:#6b7280;">
+        <div class="corex-card" style="padding:1.5rem;text-align:center;color:var(--text-muted);">
             {{ $party['note'] ?? 'No recipient linked for this party on the deal.' }}
         </div>
     @else
@@ -45,11 +51,11 @@
 
         {{-- Recipient --}}
         <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
-            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem;">Recipient</h3>
+            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:.5rem;">Recipient</h3>
             @if(count($recipients) > 1)
                 {{-- AT-280 — multiple linked contacts: let the agent pick who receives the docs, defaulted to the first emailable one. --}}
-                <div style="color:#6b7280;font-size:.8rem;margin-bottom:.4rem;">Multiple contacts are linked to this party — choose who receives the documents:</div>
-                <select name="recipient_id" class="corex-input" style="width:100%;padding:.5rem;border:1px solid var(--border,#d1d5db);border-radius:.4rem;font-size:.9rem;">
+                <div style="color:var(--text-muted);font-size:.8rem;margin-bottom:.4rem;">Multiple contacts are linked to this party — choose who receives the documents:</div>
+                <select name="recipient_id" class="corex-input" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:.4rem;font-size:.9rem;">
                     @foreach($recipients as $r)
                         <option value="{{ $r['id'] }}" @selected((int)($r['id'] ?? 0) === (int)($recipient['id'] ?? 0))>{{ $r['name'] }} — {{ $r['email'] ?: 'no email on file' }}@if($r['phone']) · ☎ {{ $r['phone'] }}@endif</option>
                     @endforeach
@@ -57,7 +63,7 @@
             @else
                 <input type="hidden" name="recipient_id" value="{{ $recipient['id'] ?? '' }}">
                 <div style="font-weight:600;">{{ $recipient['name'] }}</div>
-                <div style="color:#6b7280;font-size:.85rem;">
+                <div style="color:var(--text-muted);font-size:.85rem;">
                     @if($recipient['email'])✉ {{ $recipient['email'] }}@endif
                     @if($recipient['phone']) &nbsp; ☎ {{ $recipient['phone'] }}@endif
                 </div>
@@ -82,24 +88,24 @@
 
         {{-- Documents: matrix defaults (checked) + add from the deal/property/contacts --}}
         <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
-            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem;">Documents <span style="font-weight:400;text-transform:none;">— the matrix pre-selected these; untick or add any</span></h3>
+            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:.5rem;">Documents <span style="font-weight:400;text-transform:none;">— the matrix pre-selected these; untick or add any</span></h3>
             @if($corpus->isEmpty())
-                <p style="color:#9ca3af;font-size:.85rem;">No documents filed on this deal, its property, or its contacts yet.</p>
+                <p style="color:var(--text-faint);font-size:.85rem;">No documents filed on this deal, its property, or its contacts yet.</p>
             @else
                 <input type="text" x-model="search" placeholder="Filter documents…" class="corex-input" style="width:100%;margin-bottom:.6rem;font-size:.85rem;">
                 <div style="display:flex;flex-direction:column;gap:.3rem;max-height:320px;overflow:auto;">
                     @foreach($corpus as $doc)
                         @php $isDefault = in_array($doc->id, $defaultIds, true); @endphp
                         <label class="doc-row" data-name="{{ strtolower($doc->original_name.' '.($doc->documentType->label ?? '')) }}"
-                               style="display:flex;align-items:center;gap:.6rem;padding:.35rem .5rem;border:1px solid var(--border,#eee);border-radius:6px;"
+                               style="display:flex;align-items:center;gap:.6rem;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;"
                                x-show="!search || '{{ strtolower(addslashes($doc->original_name)) }}'.includes(search.toLowerCase())">
                             <input type="checkbox" name="document_ids[]" value="{{ $doc->id }}" @checked($isDefault)
                                    data-size="{{ (int) ($doc->size ?? 0) }}" @change="recount()" x-ref="doc" style="width:1.05rem;height:1.05rem;">
                             <span style="flex:1;">
                                 {{ $doc->original_name }}
-                                <span style="color:#9ca3af;font-size:.75rem;">· {{ $doc->documentType->label ?? 'Unclassified' }}@if($isDefault) · <span style="color:#166534;">matrix default</span>@endif</span>
+                                <span style="color:var(--text-faint);font-size:.75rem;">· {{ $doc->documentType->label ?? 'Unclassified' }}@if($isDefault) · <span style="color:#166534;">matrix default</span>@endif</span>
                             </span>
-                            <span style="color:#9ca3af;font-size:.72rem;">{{ $doc->size ? number_format($doc->size/1024,0).' KB' : '' }}</span>
+                            <span style="color:var(--text-faint);font-size:.72rem;">{{ $doc->size ? number_format($doc->size/1024,0).' KB' : '' }}</span>
                         </label>
                     @endforeach
                 </div>
@@ -108,13 +114,13 @@
 
         {{-- Editable message --}}
         <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
-            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem;">Message</h3>
+            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:.5rem;">Message</h3>
             <textarea name="message" rows="4" class="corex-input" style="width:100%;" placeholder="Optional note to the recipient…">{{ old('message') }}</textarea>
         </div>
 
         {{-- PREVIEW-before-send --}}
-        <div class="corex-card" style="padding:1rem;margin-bottom:1rem;background:#f9fafb;">
-            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem;">Before you send</h3>
+        <div class="corex-card" style="padding:1rem;margin-bottom:1rem;background:var(--surface-2);">
+            <h3 style="font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:.5rem;">Before you send</h3>
             <div style="font-size:.9rem;">
                 <strong x-text="count"></strong> document(s) to <strong>{{ $recipient['name'] }}</strong>
                 via <strong x-text="channel==='whatsapp' ? 'WhatsApp' : 'email'"></strong>
@@ -130,6 +136,42 @@
     </form>
     @endif
 </div>
+
+</div>{{-- /dr2-distribute --}}
+
+@push('head')
+<style>
+    /* AT-336 — .corex-card / .corex-input / .corex-alert are undefined in corex.css,
+       so these panels rendered bare. Scoped to this page so nothing leaks app-wide. */
+    .dr2-distribute .corex-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px var(--shadow, rgba(15,23,42,0.06));
+    }
+    .dr2-distribute .corex-input {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        border-radius: 6px;
+        padding: 0.4rem 0.6rem;
+        transition: border-color 150ms ease;
+    }
+    .dr2-distribute .corex-input:focus { outline: none; border-color: var(--brand-icon); }
+    .dr2-distribute .corex-alert {
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .dr2-distribute .corex-alert-danger {
+        background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+        border-color: color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+    }
+</style>
+@endpush
 
 <script>
 function composeSend(init) {

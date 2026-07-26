@@ -39,23 +39,25 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Guided Tours</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Guided Tours</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Short, interactive walkthroughs of CoreX — click one and it takes you to the screen and
                     walks you through it, step by step. Your own training, any time you need a refresher.
                 </p>
             </div>
 
-            {{-- Search: filters cards and sections live as you type. --}}
-            <div class="relative w-full md:w-72 flex-shrink-0">
-                <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/50" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-                <input type="search" x-model="q"
-                       placeholder="Search tours…"
-                       aria-label="Search tours"
-                       class="corex-tour-search w-full rounded-md border-0 pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:ring-2"
-                       style="background: rgba(255,255,255,0.12); --tw-ring-color: var(--brand-icon, #0ea5e9);">
+            <div class="flex flex-wrap items-center gap-2">
+                {{-- Search: filters cards and sections live as you type. --}}
+                <div class="relative w-full md:w-72 flex-shrink-0">
+                    <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    <input type="search" x-model="q"
+                           placeholder="Search tours…"
+                           aria-label="Search tours"
+                           class="corex-tour-search w-full rounded-md pl-9 pr-3 py-1.5 text-xs outline-none focus:outline-none focus:ring-2"
+                           style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); --tw-ring-color: var(--brand-icon, #0ea5e9);">
+                </div>
             </div>
         </div>
     </div>

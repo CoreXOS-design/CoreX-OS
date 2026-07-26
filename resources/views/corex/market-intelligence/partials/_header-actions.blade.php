@@ -10,7 +10,7 @@
      so it appears on every MIC page (not just the ones passing these actions). --}}
 @if($isManager)
     <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
-           style="color: rgba(255,255,255,0.8);"
+           style="color: var(--text-secondary);"
            title="Audit-only: include listings already promoted to agency stock">
         <input type="checkbox"
                {{ $includeInStockToggle ? 'checked' : '' }}
@@ -23,8 +23,7 @@
         Show in-stock too
     </label>
     <a href="{{ route('settings.prospecting.index') }}"
-       class="corex-btn-outline text-sm"
-       style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);"
+       class="corex-btn-outline text-xs"
        title="Configure prospecting segments and suggested-action thresholds">
         Setup
     </a>

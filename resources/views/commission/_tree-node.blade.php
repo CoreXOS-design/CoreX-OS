@@ -37,7 +37,7 @@
         </div>
 
         <div class="flex items-center gap-3 flex-shrink-0">
-            <span class="text-xs" style="color: var(--text-secondary);">R {{ number_format($node['gci_month'], 0) }}</span>
+            <span class="text-xs tabular-nums" style="color: var(--text-secondary);">R {{ number_format($node['gci_month'], 0) }}</span>
             @if($node['is_capped'])
                 <span class="ds-badge ds-badge-warning">Capped</span>
             @endif

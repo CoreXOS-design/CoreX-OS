@@ -6,10 +6,10 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-my-performance-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Performance</h1>
-                <p class="text-sm text-white/60">{{ $user->name }} · Last {{ number_format($days) }} days</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Performance</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $user->name }} · Last {{ number_format($days) }} days</p>
             </div>
-            <div class="flex items-center gap-2" data-tour="cc-my-performance-range">
+            <div class="flex flex-wrap items-center gap-2" data-tour="cc-my-performance-range">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @foreach([7 => '7d', 30 => '30d', 90 => '90d', 365 => 'Year'] as $d => $label)
                     <a href="{{ route('command-center.reporting.agent', ['days' => $d]) }}"

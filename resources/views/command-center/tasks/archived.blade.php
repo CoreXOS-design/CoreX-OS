@@ -12,19 +12,21 @@
 
 <div class="space-y-4">
 
-    <div class="flex items-center justify-between gap-2">
-        <div>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">Archived Tasks</h1>
-            <p class="text-xs mt-0.5" style="color:var(--text-muted);">
-                {{ $total }} archived task(s), grouped by day archived. Restore moves a task back to Done.
-            </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Archived Tasks</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $total }} archived task(s), grouped by day archived. Restore moves a task back to Done.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('command-center.tasks') }}" class="corex-btn-outline text-xs">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    Back to Board
+                </a>
+            </div>
         </div>
-        <a href="{{ route('command-center.tasks') }}"
-           class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium"
-           style="background:var(--surface-2); color:var(--text-secondary);">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-            Back to Board
-        </a>
     </div>
 
     @if(session('success'))
@@ -95,9 +97,7 @@
                                     </div>
                                     <form method="POST" action="{{ route('command-center.tasks.restore', $task->id) }}">
                                         @csrf
-                                        <button type="submit"
-                                                class="text-xs px-2.5 py-1 rounded-md font-medium"
-                                                style="background:var(--surface-2); color:var(--text-secondary);">
+                                        <button type="submit" class="corex-btn-outline text-xs">
                                             Restore
                                         </button>
                                     </form>

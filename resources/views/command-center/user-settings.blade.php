@@ -7,12 +7,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-user-settings-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Dashboard Settings</h1>
-                <p class="text-sm text-white/60">Customise your reminders, alerts, and calendar preferences.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Dashboard Settings</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Customise your reminders, alerts, and calendar preferences.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline text-xs">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Dashboard
                 </a>

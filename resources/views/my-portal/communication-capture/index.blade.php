@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 — branded header (Pattern A), rounded-md cards, full-width layout (w-full), tokens via var(--token, #fallback). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 — flat neutral header (AT-336 corex-page-banner), rounded-md cards, full-width layout (w-full), tokens via var(--token, #fallback). --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -6,12 +6,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="portal-comm-capture-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Communication Capture</h1>
-                <p class="text-sm text-white/60">Link your mailbox so your client email is captured to the agency archive (a legal 5-year requirement). Your password is stored encrypted and is never shown back to anyone.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communication Capture</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Link your mailbox so your client email is captured to the agency archive (a legal 5-year requirement). Your password is stored encrypted and is never shown back to anyone.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-                <a href="{{ route('agent.portal') }}" class="corex-btn-outline" data-tour="portal-comm-capture-back">My Portal</a>
+                <a href="{{ route('agent.portal') }}" class="corex-btn-outline text-xs" data-tour="portal-comm-capture-back">My Portal</a>
             </div>
         </div>
     </div>

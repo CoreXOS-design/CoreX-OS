@@ -5,14 +5,21 @@
 <div style="max-width: 720px; margin: 0 auto; padding: 0 20px;">
     @include('corex.market-intelligence.partials.tabs')
 
-    <nav style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
-        <a href="{{ route('market-intelligence.reports.index') }}" style="color: var(--brand-button); text-decoration: none;">← All reports</a>
-    </nav>
-
-    <h1 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0;">Upload a market report</h1>
-    <p style="font-size: 0.8125rem; color: var(--text-muted); margin: 0 0 16px 0;">
-        PDF only, up to 20MB. The format is auto-detected; pick a type manually only if auto-detect picks the wrong one.
-    </p>
+    {{-- Page header — flat neutral bar (AT-336). Back link sits in the right
+         action cluster rather than stacked above the title. --}}
+    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Upload a market report</h1>
+                <p class="text-xs" style="margin: 2px 0 0 0; color: var(--text-muted);">
+                    PDF only, up to 20MB. The format is auto-detected; pick a type manually only if auto-detect picks the wrong one.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.reports.index') }}" class="corex-btn-outline text-xs">← All reports</a>
+            </div>
+        </div>
+    </div>
 
     @if($errors->any())
         <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem;

@@ -18,8 +18,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Deal → Property Link Review</h1>
-                <p class="text-sm text-white/60">Deals where the auto-matcher found ambiguous or low-confidence property candidates. Review and resolve so sales history surfaces correctly across the system.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal → Property Link Review</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Deals where the auto-matcher found ambiguous or low-confidence property candidates. Review and resolve so sales history surfaces correctly across the system.</p>
             </div>
         </div>
     </div>
@@ -44,7 +44,7 @@
             <a href="{{ route('corex.admin.deal-link-review.index', ['status' => $key]) }}"
                class="px-3.5 py-2 text-[13px] whitespace-nowrap no-underline transition-colors duration-150"
                style="color: {{ $active ? 'var(--text-primary)' : 'var(--text-muted)' }};
-                      border-bottom: 2px solid {{ $active ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
+                      border-bottom: 2px solid {{ $active ? 'var(--brand-icon, #0ea5e9)' : 'transparent' }};
                       font-weight: {{ $active ? '600' : '500' }};">
                 {{ $label }}
             </a>

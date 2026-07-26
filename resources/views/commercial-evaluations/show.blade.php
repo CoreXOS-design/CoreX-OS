@@ -13,12 +13,12 @@
 
 <div class="w-full">
 
-    {{-- Branded header bar (Pattern A) --}}
+    {{-- Page header (flat neutral — AT-336) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
-        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="flex items-center gap-3 mb-1.5">
-                    <h2 class="text-xl font-bold text-white leading-tight">{{ $evaluation->property_name }}</h2>
+                <div class="flex flex-wrap items-center gap-3 mb-1.5">
+                    <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $evaluation->property_name }}</h2>
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $typeBadge }}">
                         {{ $typeLabel }}
                     </span>
@@ -27,7 +27,7 @@
                     </span>
                 </div>
                 @if($evaluation->address)
-                    <p class="text-sm text-white/70 font-medium">{{ $evaluation->address }}</p>
+                    <p class="text-xs font-medium" style="color: var(--text-secondary);">{{ $evaluation->address }}</p>
                 @endif
                 @php
                     $details = array_filter([
@@ -39,16 +39,18 @@
                     ]);
                 @endphp
                 @if(!empty($details))
-                    <p class="text-xs text-white/40 mt-1">{!! implode(' &middot; ', $details) !!}</p>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">{!! implode(' &middot; ', $details) !!}</p>
                 @endif
                 @if($evaluation->seller_name)
-                    <p class="text-xs text-white/40 mt-0.5">Seller: {{ $evaluation->seller_name }}</p>
+                    <p class="text-xs mt-0.5" style="color: var(--text-faint);">Seller: {{ $evaluation->seller_name }}</p>
                 @endif
-                <p class="text-xs text-white/40 mt-0.5">Created {{ $evaluation->created_at->format('Y-m-d') }}</p>
+                <p class="text-xs mt-0.5" style="color: var(--text-faint);">Created {{ $evaluation->created_at->format('Y-m-d') }}</p>
             </div>
-            <a href="{{ route('commercial-evaluations.index') }}" class="corex-btn-outline">
-                &larr; All Evaluations
-            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('commercial-evaluations.index') }}" class="corex-btn-outline text-xs">
+                    &larr; All Evaluations
+                </a>
+            </div>
         </div>
     </div>
 
@@ -582,9 +584,11 @@
 
                     {{-- Guidance questions panel --}}
                     <input type="hidden" name="guidance_answers" :value="guidanceJson()">
-                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 rounded-md"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                                border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);">
                         <div class="flex items-center justify-between mb-2">
-                            <p class="text-xs font-semibold text-green-800">
+                            <p class="text-xs font-semibold" style="color: var(--ds-green);">
                                 Seller questions — <span x-text="currentConfig.label || 'crop'"></span>
                             </p>
                             <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-[var(--text-faint)]'"
@@ -599,7 +603,7 @@
                                          @click="toggleQuestion(q.id)">
                                         <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
                                                :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
-                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-[color:var(--ds-green)] font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
                                         <template x-if="hasAnswer(q.id)">
                                             <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                         </template>
@@ -691,7 +695,7 @@
                             $yieldPct = $crop->yield_percentage ?? 0;
                             $currentYield = $crop->current_yield_tons_per_ha;
                         @endphp
-                        <div class="p-4 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+                        <div class="p-4 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="flex items-start justify-between mb-2">
                                 <div>
                                     <span class="font-semibold text-sm" style="color: var(--text-primary);">{{ $cropLabel }}</span>
@@ -908,9 +912,11 @@
 
                     {{-- Guidance questions panel --}}
                     <input type="hidden" name="guidance_answers" :value="guidanceJson()">
-                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 rounded-md"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                                border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);">
                         <div class="flex items-center justify-between mb-2">
-                            <p class="text-xs font-semibold text-green-800">
+                            <p class="text-xs font-semibold" style="color: var(--ds-green);">
                                 Seller questions — <span x-text="currentConfig.label || 'livestock'"></span>
                             </p>
                             <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-[var(--text-faint)]'"
@@ -925,7 +931,7 @@
                                          @click="toggleQuestion(q.id)">
                                         <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
                                                :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
-                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-[color:var(--ds-green)] font-medium' : 'text-[var(--text-secondary)]'" x-text="q.question"></span>
                                         <template x-if="hasAnswer(q.id)">
                                             <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                                         </template>
@@ -996,7 +1002,7 @@
                         @php
                             $lsLabel = $livestockConfig[$ls->livestock_type]['label'] ?? ucfirst(str_replace('_', ' ', $ls->livestock_type));
                         @endphp
-                        <div class="p-4 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+                        <div class="p-4 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="flex items-start justify-between mb-2">
                                 <div>
                                     <span class="font-semibold text-sm" style="color: var(--text-primary);">{{ $lsLabel }}</span>
@@ -1269,7 +1275,7 @@
         @endphp
 
         {{-- Summary Card --}}
-        <div class="ds-status-card mb-6" style="border-top:3px solid var(--brand-default, #0b2a4a);">
+        <div class="ds-status-card mb-6" style="border-top:3px solid var(--brand-icon, #0ea5e9);">
             <div class="px-5 py-4">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Recommended Market Evaluation</h3>
@@ -1286,9 +1292,11 @@
                         <span class="text-xs block mb-1" style="color: var(--text-muted);">Conservative</span>
                         <span class="text-xl font-bold font-mono" style="color: var(--text-primary);">{{ $formatZar($rec['low'] ?? null) }}</span>
                     </div>
-                    <div class="p-4 bg-emerald-50 rounded-md text-center border-2 border-emerald-300">
-                        <span class="text-xs text-emerald-600 font-semibold block mb-1">Market Evaluation</span>
-                        <span class="text-xl font-bold text-emerald-700 font-mono">{{ $formatZar($rec['mid'] ?? null) }}</span>
+                    <div class="p-4 rounded-md text-center"
+                         style="background: color-mix(in srgb, var(--ds-emerald) 12%, transparent);
+                                border: 2px solid color-mix(in srgb, var(--ds-emerald) 40%, transparent);">
+                        <span class="text-xs font-semibold block mb-1" style="color: var(--ds-emerald);">Market Evaluation</span>
+                        <span class="text-xl font-bold font-mono" style="color: var(--ds-emerald);">{{ $formatZar($rec['mid'] ?? null) }}</span>
                     </div>
                     <div class="p-4 rounded-md text-center" style="background: var(--surface-2);">
                         <span class="text-xs block mb-1" style="color: var(--text-muted);">Optimistic</span>

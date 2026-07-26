@@ -10,8 +10,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My WhatsApp Consent</h1>
-                <p class="text-sm text-white/60 max-w-2xl">Decide, per contact, whether your WhatsApp chats with them are captured to CoreX for compliance. Only contacts that match a CoreX record appear here — personal numbers are never captured. This controls capture (FICA); it is separate from a contact's marketing opt-out.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My WhatsApp Consent</h1>
+                <p class="text-xs max-w-2xl" style="color: var(--text-muted);">Decide, per contact, whether your WhatsApp chats with them are captured to CoreX for compliance. Only contacts that match a CoreX record appear here — personal numbers are never captured. This controls capture (FICA); it is separate from a contact's marketing opt-out.</p>
             </div>
         </div>
     </div>

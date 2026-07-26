@@ -8,11 +8,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Commission Management</h1>
-                <p class="text-sm text-white/60">View, confirm, and manage all commission entries.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Commission Management</h1>
+                <p class="text-xs" style="color: var(--text-muted);">View, confirm, and manage all commission entries.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -39,7 +39,7 @@
             <div>
                 <label for="filter_agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
                 <select id="filter_agent_id" name="agent_id" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All Agents</option>
                     @foreach($allAgents as $agent)
                         <option value="{{ $agent->id }}" {{ request('agent_id') == $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
@@ -51,7 +51,7 @@
             <div>
                 <label for="filter_status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                 <select id="filter_status" name="status" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="all" {{ request('status') === 'all' ? 'selected' : '' }}>All</option>
                     <option value="pending" {{ request('status') === 'pending' ? 'selected' : '' }}>Pending</option>
                     <option value="confirmed" {{ request('status') === 'confirmed' ? 'selected' : '' }}>Confirmed</option>
@@ -64,7 +64,7 @@
             <div>
                 <label for="filter_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
                 <select id="filter_type" name="transaction_type" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="all" {{ request('transaction_type') === 'all' ? 'selected' : '' }}>All</option>
                     <option value="sale" {{ request('transaction_type') === 'sale' ? 'selected' : '' }}>Sale</option>
                     <option value="rental_letting" {{ request('transaction_type') === 'rental_letting' ? 'selected' : '' }}>Letting</option>
@@ -79,7 +79,7 @@
                 <label for="filter_date_from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
                 <input id="filter_date_from" type="date" name="date_from" value="{{ request('date_from') }}"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
 
             {{-- Date to --}}
@@ -87,7 +87,7 @@
                 <label for="filter_date_to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
                 <input id="filter_date_to" type="date" name="date_to" value="{{ request('date_to') }}"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
 
             {{-- Filter / Clear buttons --}}

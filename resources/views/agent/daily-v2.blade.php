@@ -26,25 +26,25 @@
 --}}
 <div class="w-full space-y-5" x-data="{ search: '' }">
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-agent-daily-header">
+    {{-- Page header — flat neutral bar (AT-336). `corex-page-banner` bleeds it to
+         the content edges and carries the 1px bottom border; no brand fill. --}}
+    <div class="corex-page-banner" data-tour="at-agent-daily-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <div class="text-sm text-white/60">
-                    <a class="hover:underline text-white/60" href="{{ route('agent.daily.summary') }}">&larr; Summary</a>
-                </div>
-                <h1 class="text-xl font-bold text-white leading-tight mt-1">Daily Activity</h1>
-                <p class="text-sm text-white/60">{{ \Carbon\Carbon::parse($selectedDate)->toFormattedDateString() }}</p>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Daily Activity</h1>
+                <p class="text-xs" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($selectedDate)->toFormattedDateString() }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a class="corex-btn-outline text-xs" href="{{ route('agent.daily.summary') }}">&larr; Summary</a>
                 <a href="{{ route('agent.daily.print', ['date' => $selectedDate]) }}" target="_blank"
-                   class="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/20">
+                   class="corex-btn-outline text-xs">
                     Print
                 </a>
                 <form method="GET" action="{{ route('agent.daily') }}">
                     <input type="date" name="date" value="{{ $selectedDate }}"
-                           class="rounded-md border-0 bg-white/10 text-white text-xs px-3 py-1.5 [color-scheme:dark]"
+                           class="ds-field rounded-md text-xs px-3 py-1.5"
+                           style="color-scheme: light dark;"
                            onchange="this.form.submit()" />
                 </form>
             </div>
@@ -141,7 +141,7 @@
         </div>
 
         @if($autoAcquired->isNotEmpty() || $autoProvisional->isNotEmpty())
-            <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x" style="border-color:var(--border);">
+            <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[color:var(--border)]" style="border-color:var(--border);">
                 {{-- Auto — Acquired (natural height, no inner scroll) --}}
                 <div class="px-4 py-2">
                     <div class="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">

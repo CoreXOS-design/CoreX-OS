@@ -55,7 +55,7 @@
                        :disabled="@if($deps) !{{ $deps }}Id @else false @endif"
                        autocomplete="off"
                        class="w-full px-3 py-2 text-sm rounded-md outline-none transition-all duration-300"
-                       style="border:1px solid var(--border); background:var(--surface); color:var(--text-primary);">
+                       style="border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
 
                 <div x-show="dropdown.{{ $level }} && filtered.{{ $level }}.length > 0" x-cloak
                      class="absolute z-30 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md"

@@ -8,8 +8,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0" data-tour="portal-agency-docs-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Agency Documents</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agency Documents</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     @if($splitEnabled && $branchName)
                         Your compliance documents at {{ $branchName }}. Where a branch-specific version exists, it is shown. Otherwise the company-wide version applies.
                     @else
@@ -17,10 +17,9 @@
                     @endif
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('agent.portal') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('agent.portal') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     My Portal
                 </a>
@@ -74,7 +73,7 @@
                     @if($prov)
                         {{-- Download + metadata --}}
                         <a href="{{ route('my-portal.agency-documents.download', $prov) }}"
-                           class="corex-btn-primary inline-flex items-center gap-1.5 mb-3"
+                           class="corex-btn-primary text-xs inline-flex items-center gap-1.5 mb-3"
                            @if($loop->first) data-tour="portal-agency-docs-download" @endif>
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                             Download

@@ -7,12 +7,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="dp-dashboard-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Documents</h1>
-                <p class="text-sm text-white/60">Documents you've created from templates.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Documents</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Documents you've created from templates.</p>
             </div>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary" data-tour="dp-dashboard-create">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary text-xs" data-tour="dp-dashboard-create">
                     + Create New Document
                 </a>
             </div>

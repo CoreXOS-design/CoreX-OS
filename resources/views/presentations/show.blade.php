@@ -10,8 +10,8 @@
 
 @php
     // Status badge → design-system .ds-badge variant (never raw colours).
-    // Header background is navy (--brand-default), so avoid ds-badge-info
-    // (also navy) which would blend in. Positive states use green; draft grey.
+    // Header is a flat neutral bar (AT-336), so ds-badge-info would still read
+    // as brand-on-neutral. Positive states use green; draft grey.
     $statusBadge = match($presentation->status) {
         'presented' => 'ds-badge-success',
         'locked'    => 'ds-badge-success',
@@ -22,15 +22,15 @@
 
 <div class="w-full space-y-6">
 
-{{-- Branded page header (Pattern A) — full-width brand bar, matches Properties / Core Matches --}}
+{{-- Page header (AT-336 — flat neutral bar, matches Properties) --}}
 <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
         <div>
             <div class="flex items-center gap-3 mb-1.5 flex-wrap">
-                <h1 class="text-xl font-bold text-white leading-tight">{{ $presentation->title }}</h1>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $presentation->title }}</h1>
                 <span class="ds-badge {{ $statusBadge }}">{{ ucfirst($presentation->status) }}</span>
             </div>
-            <p class="text-sm text-white/70 font-medium">{{ $presentation->property_address ?? 'No address set' }}</p>
+            <p class="text-xs font-medium" style="color: var(--text-muted);">{{ $presentation->property_address ?? 'No address set' }}</p>
 
             {{-- Property details row --}}
             @php
@@ -56,20 +56,20 @@
                 ]);
             @endphp
             @if(!empty($propDetails))
-                <p class="text-xs text-white/50 mt-1">{{ implode(' · ', $propDetails) }}</p>
+                <p class="text-xs mt-1" style="color: var(--text-faint);">{{ implode(' · ', $propDetails) }}</p>
             @endif
 
             @if($presentation->seller_name)
-                <p class="text-xs text-white/50 mt-0.5">Seller: {{ $presentation->seller_name }}</p>
+                <p class="text-xs mt-0.5" style="color: var(--text-faint);">Seller: {{ $presentation->seller_name }}</p>
             @endif
-            <p class="text-xs text-white/50 mt-0.5">Created {{ $presentation->created_at->format('Y-m-d') }}</p>
+            <p class="text-xs mt-0.5" style="color: var(--text-faint);">Created {{ $presentation->created_at->format('Y-m-d') }}</p>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-            <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="corex-btn-primary">
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="corex-btn-primary text-xs">
                 {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
             </a>
             <a href="{{ route('presentations.index') }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+               class="corex-btn-outline text-xs">
                 &larr; All Presentations
             </a>
         </div>
@@ -1951,7 +1951,7 @@
 @if(config('features.presentation_live_updates_v1') && config('features.portal_extension_capture_v1'))
 {{-- New captures banner (fixed at top of captures section) --}}
 <div id="live-new-captures-banner" class="hidden fixed bottom-4 right-4 z-50 px-4 py-2 text-white text-sm font-medium rounded-md shadow-lg cursor-pointer transition-colors"
-     style="background: var(--brand-default, #0b2a4a);"
+     style="background: var(--brand-button);"
      onclick="window.__liveUpdates && window.__liveUpdates.scrollToCaptures()">
     <span id="live-banner-text">0 new captures</span>
 </div>

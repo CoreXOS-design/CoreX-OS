@@ -11,19 +11,13 @@
             background: var(--surface-2);
             border: 1px solid var(--border);
             color: var(--text-primary);
-            transition: all 300ms;
+            transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
         }
         .targets-input:focus {
             outline: none;
-            border-color: var(--brand-button);
-            box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent);
+            border-color: var(--brand-icon);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-icon) 15%, transparent);
         }
-        .targets-period-select {
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.25);
-            color: #fff;
-        }
-        .targets-period-select option { color: #000; }
     </style>
 @endpush
 
@@ -34,8 +28,8 @@
         <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">Targets</h1>
-                    <p class="text-sm text-white/60">
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Targets</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">
                         @if($isAdmin) Admin scope
                         @elseif($isBM) Branch Manager scope
                         @else Agent scope
@@ -43,31 +37,29 @@
                     </p>
                 </div>
 
-                <div class="flex items-center gap-2 flex-wrap">
+                <div class="flex flex-wrap items-center gap-2">
                     @if(!empty($isAdmin))
-                        <a href="{{ route('admin.targets.activity.setup') }}" class="corex-btn-outline text-sm"
-                           style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Activity Setup</a>
+                        <a href="{{ route('admin.targets.activity.setup') }}" class="corex-btn-outline text-xs">Activity Setup</a>
                     @endif
 
                     @if($canEditTargets)
                         <form method="POST" action="{{ route('admin.targets.carry-forward') }}" class="inline" onsubmit="return confirm('Copy last month\'s targets to this month? Existing entries will not be overwritten.')">
                             @csrf
-                            <button type="submit" class="corex-btn-outline text-sm"
-                                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">Copy Previous Month</button>
+                            <button type="submit" class="corex-btn-outline text-xs">Copy Previous Month</button>
                         </form>
                     @endif
 
                     @if(!$isAgent)
                         <form method="GET" action="{{ route('admin.targets') }}" class="flex items-center gap-2">
-                            <select name="period" class="targets-period-select rounded-md text-sm px-3 py-1.5 transition-all duration-300">
+                            <select name="period" class="list-header-filter">
                                 @foreach($periods as $p)
                                     <option value="{{ $p }}" {{ $p === $period ? 'selected' : '' }}>{{ $p }}</option>
                                 @endforeach
                             </select>
-                            <button class="corex-btn-primary">View</button>
+                            <button class="corex-btn-primary text-xs">View</button>
                         </form>
                     @else
-                        <div class="text-white/80 text-sm font-medium">{{ $period }}</div>
+                        <div class="text-xs font-medium" style="color: var(--text-muted);">{{ $period }}</div>
                     @endif
                 </div>
             </div>

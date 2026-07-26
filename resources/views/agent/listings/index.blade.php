@@ -14,11 +14,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-agent-listings-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Listing Stock</h1>
-                <p class="text-sm text-white/60">Read-only view from imported Propcon stock.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Listing Stock</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Read-only view from imported Propcon stock.</p>
             </div>
             <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -41,7 +41,10 @@
         </svg>
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="ds-badge ds-badge-info" title="Current listing view">{{ strtoupper((string)(($context['filter'] ?? '') ?: 'active')) }}</span>
+                <span class="ds-badge" title="Current listing view"
+                      style="background: color-mix(in srgb, var(--brand-icon) 20%, transparent);
+                             color: var(--brand-icon);
+                             border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">{{ strtoupper((string)(($context['filter'] ?? '') ?: 'active')) }}</span>
                 <strong>{{ $context['title'] ?? 'Listings' }}</strong>
                 <span class="text-xs" style="color: var(--text-muted);">·</span>
                 <span class="text-xs" style="color: var(--text-muted);">{{ number_format($contextCount) }} {{ \Illuminate\Support\Str::plural('listing', $contextCount) }}</span>
@@ -223,7 +226,7 @@
                                    value="{{ $cmaText }}"
                                    placeholder="e.g. 1250000"
                                    class="w-28 text-right rounded-md px-2 py-1 text-xs transition-all duration-300"
-                                   style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" />
+                                   style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                             <button type="submit" class="corex-btn-primary" style="padding: 0.25rem 0.625rem; font-size: 0.75rem; box-shadow: none;">
                                 Save
                             </button>
@@ -296,7 +299,7 @@
     }
     .al-listing-table tbody tr.al-listing-address:hover,
     .al-listing-table tbody tr.al-listing-row:hover {
-        background: color-mix(in srgb, var(--brand-icon) 6%, var(--surface));
+        background: var(--surface-2);
     }
 </style>
 @endsection

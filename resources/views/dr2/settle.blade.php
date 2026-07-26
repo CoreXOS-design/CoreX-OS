@@ -1,23 +1,21 @@
 <x-app-layout>
     {{-- SETTLE_BLADE_FINGERPRINT: 2026-01-26_1602 --}}
     <x-slot name="header">
-        <div style="background:var(--brand-default,#0b2a4a);" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">Settlement &mdash; Deal #{{ $deal->deal_no }}</h2>
-                    <div class="text-sm text-white/60">{{ $deal->property_address ?: 'No address' }}</div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Settlement &mdash; Deal #{{ $deal->deal_no }}</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">{{ $deal->property_address ?: 'No address' }}</p>
                 </div>
-                <div class="flex items-center gap-3">
-                    <a href="{{ route('deals-dr2.index') }}"
-                       class="inline-flex items-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/15">
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
                         &larr; Back
                     </a>
                     <a href="{{ route('deals-dr2.settle.print', $deal) }}" target="_blank"
-                       class="inline-flex items-center rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
+                       class="corex-btn-outline text-xs shrink-0">
                         Print Settlement
                     </a>
-                    <button form="settleForm"
-                            class="corex-btn-primary px-5 py-2.5 text-sm">
+                    <button form="settleForm" class="corex-btn-primary text-xs">
                         Save Settlement
                     </button>
                 </div>
@@ -116,7 +114,7 @@
                                 <label class="ds-label block mb-1">Share %</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Share %</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_share[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_share.'.$r['user_id'], $r['share_percent']) }}">
@@ -126,7 +124,7 @@
                                 <label class="ds-label block mb-1">Cut %</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Cut %</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_agent_cut[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_agent_cut.'.$r['user_id'], $r['agent_cut_percent']) }}">
@@ -138,14 +136,14 @@
                                 <div class="flex items-center gap-2 flex-nowrap">
                                     @php $pm = old('listing_paye_method.'.$r['user_id'], $r['paye_method']); @endphp
                                     <select class="w-32 shrink-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                            style="background:var(--surface); color:var(--text-primary)"
+                                            style="background:var(--surface-2); color:var(--text-primary)"
                                             name="listing_paye_method[{{ $r['user_id'] }}]">
                                         <option value="percentage" {{ $pm === 'percentage' ? 'selected' : '' }}>%</option>
                                         <option value="fixed" {{ $pm === 'fixed' ? 'selected' : '' }}>Fixed</option>
                                     </select>
 
                                     <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                            type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                            name="listing_paye_value[{{ $r['user_id'] }}]"
                                            value="{{ old('listing_paye_value.'.$r['user_id'], $r['paye_value']) }}">
@@ -159,7 +157,7 @@
                                 <label class="ds-label block mb-1">Deduct</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Deduct</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="listing_deductions[{{ $r['user_id'] }}]"
                                        value="{{ old('listing_deductions.'.$r['user_id'], $r['deductions']) }}">
@@ -180,7 +178,7 @@
                         <div class="mt-2 grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-12">
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="text"
                                        placeholder="Deduction reason (optional)"
                                        name="listing_deductions_description[{{ $r['user_id'] }}]"
@@ -240,7 +238,7 @@
                                 <label class="ds-label block mb-1">Share %</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Share %</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_share[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_share.'.$r['user_id'], $r['share_percent']) }}">
@@ -250,7 +248,7 @@
                                 <label class="ds-label block mb-1">Cut %</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Cut %</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_agent_cut[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_agent_cut.'.$r['user_id'], $r['agent_cut_percent']) }}">
@@ -262,14 +260,14 @@
                                 <div class="flex items-center gap-2 flex-nowrap">
                                     @php $pm = old('selling_paye_method.'.$r['user_id'], $r['paye_method']); @endphp
                                     <select class="w-32 shrink-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                            style="background:var(--surface); color:var(--text-primary)"
+                                            style="background:var(--surface-2); color:var(--text-primary)"
                                             name="selling_paye_method[{{ $r['user_id'] }}]">
                                         <option value="percentage" {{ $pm === 'percentage' ? 'selected' : '' }}>%</option>
                                         <option value="fixed" {{ $pm === 'fixed' ? 'selected' : '' }}>Fixed</option>
                                     </select>
 
                                     <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                            type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                            name="selling_paye_value[{{ $r['user_id'] }}]"
                                            value="{{ old('selling_paye_value.'.$r['user_id'], $r['paye_value']) }}">
@@ -283,7 +281,7 @@
                                 <label class="ds-label block mb-1">Deduct</label>
                                 <label class="md:hidden text-xs" style="color:var(--text-muted)">Deduct</label>
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="number" inputmode="decimal" min="0" placeholder="0.00" step="0.01"
                                        name="selling_deductions[{{ $r['user_id'] }}]"
                                        value="{{ old('selling_deductions.'.$r['user_id'], $r['deductions']) }}">
@@ -304,7 +302,7 @@
                         <div class="mt-2 grid grid-cols-1 md:grid-cols-16 gap-3">
                             <div class="md:col-span-12">
                                 <input class="w-full flex-1 min-w-0 rounded-xl ring-1 ring-[var(--border)] px-3 py-2 md:py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-icon)]"
-                                       style="background:var(--surface); color:var(--text-primary)"
+                                       style="background:var(--surface-2); color:var(--text-primary)"
                                        type="text"
                                        placeholder="Deduction reason (optional)"
                                        name="selling_deductions_description[{{ $r['user_id'] }}]"

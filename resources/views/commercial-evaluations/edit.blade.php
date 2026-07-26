@@ -16,10 +16,14 @@
         </x-slot>
     </x-sticky-action-bar>
 
-    {{-- Branded header (Pattern A) --}}
+    {{-- Page header (flat neutral — AT-336) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner mb-6">
-        <h2 class="text-xl font-bold text-white leading-tight">Edit Evaluation</h2>
-        <p class="text-sm text-white/60 mt-0.5">{{ $evaluation->property_name }}</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Evaluation</h2>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $evaluation->property_name }}</p>
+            </div>
+        </div>
     </div>
 
     @if($errors->any())

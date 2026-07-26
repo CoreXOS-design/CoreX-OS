@@ -19,7 +19,13 @@ You are doing a **restyle-only** audit-and-fix of ONE CoreX page (and every sub-
 - Open that view AND every partial / sub-view it `@include`s or `@extends`, and — for multi-step flows (deal register, evaluations, wizards, onboarding steps) — **every step view**. List them before editing. Audit all of them.
 
 ### 2. What "correct" looks like (check each)
-- **Header:** must be the flat neutral header, NOT a solid `--brand-default` navy/blue block. If it's still an inline brand banner, convert it: add the `corex-page-banner` marker class and remove the inline `background:var(--brand-default…)` (the CSS then makes it flat + full-bleed + neutralises inner white text/buttons). If it already uses `<x-page-header>` / `<x-list-header>` / `corex-page-banner`, leave the header alone.
+- **Header:** must be the flat neutral header, NOT a solid `--brand-default` navy/blue block. If it's still an inline brand banner, convert it: add the `corex-page-banner` marker class and remove the inline `background:var(--brand-default…)` (the CSS then makes it flat + full-bleed + neutralises inner white text/buttons).
+- **Header typography — match `/worksheet` exactly** (that page is the canonical header; open `resources/views/worksheet/index.blade.php` and copy its scale). Even if the header already carries `corex-page-banner`, fix its type scale:
+  - Title: `class="text-base font-bold leading-tight"` + `style="color: var(--text-primary);"` — **not** `text-xl`, and **not** `text-white`.
+  - Subtitle/date-range: `class="text-xs"` + `style="color: var(--text-muted);"` — **not** `text-sm`.
+  - Right-cluster items (ghost buttons, links, meta text): `text-xs`. The primary CTA in a header is `corex-btn-primary text-xs`.
+  - Structure: `<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">` with the title block left and a `<div class="flex flex-wrap items-center gap-2">` action cluster right.
+- **Back / breadcrumb links belong in the RIGHT action cluster, not stacked above the title.** A `← Dashboard` / `← Back to X` link sitting on its own line above the H1 is the old branded-banner pattern — move it into the right-hand cluster and style it `corex-btn-outline text-xs`. Keep the exact same `href`/route. If moving it means it can no longer sit inside a `<form>`, wrap the link and the form together in the action-cluster div rather than nesting the link in the form.
 - **Surfaces:** every card / panel / tile / table / modal body = `var(--surface)` background + `1px var(--border)`. No `bg-white`, `bg-gray-*`, `bg-slate-*`, or raw hex neutrals.
 - **Inner wells / inputs / hovers / table headers:** `var(--surface-2)`.
 - **Text:** heading `var(--text-primary)`, body `var(--text-secondary)`, muted `var(--text-muted)`, faint `var(--text-faint)`. No `text-gray-*` / `text-slate-*`.
@@ -55,4 +61,5 @@ Then `git diff` your changes and confirm no line touches routes/Alpine/handlers/
 - Work down the sidebar in order: **Today → Calendar/Tasks → My Portal → Real Estate (Properties ✓, Contacts, Buyer Pipeline, Presentations, Viewing Packs, Market Intelligence, Core Matches, Map, Outreach, Portal Leads) → Deals (each step) → Commercial Evaluations → Compliance → Documents → Communications → Payroll → Admin/Settings.**
 - Many pages are already 90% done by the foundation + sweeps; the audit mostly catches: a still-branded header, a stray hardcoded colour the sweep left, a light/dark contrast miss, or a hardcoded `sky/blue` accent.
 - Check BOTH themes (toggle in the sidebar footer) — a colour can pass in dark and fail in light.
+- The most common miss after the sweep is **header type scale**: the sweep neutralised the colours but left `text-xl` titles and `text-sm` subtitles from the old navy banner. Compare side-by-side with `/worksheet` — if the title looks bigger than that page's, it's wrong.
 - If a header's full-bleed border overlaps something above it, that page has content above the banner — tell the agent to make that banner `sticky:false`/non-bleed or move it.

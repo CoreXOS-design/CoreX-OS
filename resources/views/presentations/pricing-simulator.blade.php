@@ -5,24 +5,24 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
 ══════════════════════════════════════════════════════════════════════════ --}}
-<div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-6">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+<div class="rounded-md px-6 py-4 mb-6 corex-page-banner">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Pricing Simulator</h2>
-            <div class="text-sm text-white/60">
+            <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Pricing Simulator</h2>
+            <div class="text-xs" style="color: var(--text-muted);">
                 {{ $presentation->title }}
                 @if($presentation->property_address)
                     &nbsp;&middot;&nbsp; {{ $presentation->property_address }}
                 @endif
             </div>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             <a href="{{ route('presentations.analysis', $presentation) }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline text-xs">
                 &larr; Analysis
             </a>
             <a href="{{ route('presentations.show', $presentation) }}"
-               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline text-xs">
                 &larr; Overview
             </a>
         </div>
@@ -204,7 +204,7 @@
      NARRATIVE CALLOUT
 ══════════════════════════════════════════════════════════════════════════ --}}
 <div class="rounded-md p-4 mb-6" id="narrative-box" style="background: color-mix(in srgb, var(--brand-icon) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
-    <h3 class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--brand-default, #0b2a4a);">Key Insight</h3>
+    <h3 class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--brand-icon);">Key Insight</h3>
     <p class="text-sm leading-relaxed" id="narrative-text" style="color: var(--text-primary);">{{ $narrative }}</p>
 </div>
 

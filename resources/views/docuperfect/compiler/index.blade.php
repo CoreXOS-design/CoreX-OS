@@ -9,8 +9,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Compile Studio</h1>
-                <p class="text-sm text-white/60">Internal tool — compile a document once into a canonical, linted, versioned e-sign template. The signed artifact is the compiled artifact.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compile Studio</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Internal tool — compile a document once into a canonical, linted, versioned e-sign template. The signed artifact is the compiled artifact.</p>
             </div>
         </div>
     </div>
@@ -28,13 +28,13 @@
         <form method="POST" action="{{ route('docuperfect.compiler.start') }}" enctype="multipart/form-data" class="space-y-3">
             @csrf
             <div class="flex flex-wrap gap-2">
-                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='reference' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
+                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='reference' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
                     <input type="radio" name="source" value="reference" x-model="source" class="hidden"> CoreX reference template
                 </label>
-                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='html' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
+                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='html' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
                     <input type="radio" name="source" value="html" x-model="source" class="hidden"> Paste HTML
                 </label>
-                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='upload' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
+                <label class="text-xs font-semibold px-3 py-2 rounded cursor-pointer" :style="source==='upload' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);'">
                     <input type="radio" name="source" value="upload" x-model="source" class="hidden"> Upload DOCX / PDF / HTML
                 </label>
             </div>

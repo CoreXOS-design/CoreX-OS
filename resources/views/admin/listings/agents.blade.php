@@ -8,8 +8,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Listings per Agent</h1>
-                <p class="text-sm text-white/60">Read-only overview from imported listing stock.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Listings per Agent</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Read-only overview from imported listing stock.</p>
             </div>
         </div>
     </div>

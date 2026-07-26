@@ -47,18 +47,18 @@
 
 <div class="w-full space-y-5">
 
-    {{-- Page header (Pattern A — branded) --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-outcomes-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Outcomes Dashboard</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outcomes Dashboard</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Win rate, loss reasons, and pipeline health across {{ number_format($totalPresentations) }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline corex-btn-on-brand text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
                     Presentations
                 </a>
             </div>

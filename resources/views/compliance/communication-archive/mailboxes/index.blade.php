@@ -6,12 +6,12 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Archive Mailboxes</h1>
-                <p class="text-sm text-white/60">Agency-held IMAP mailboxes polled into the Communication Archive.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Archive Mailboxes</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Agency-held IMAP mailboxes polled into the Communication Archive.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-sm">Archive</a>
-                <a href="{{ route('compliance.comm-mailboxes.create') }}" class="corex-btn-primary text-sm">Add Mailbox</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-xs">Archive</a>
+                <a href="{{ route('compliance.comm-mailboxes.create') }}" class="corex-btn-primary text-xs">Add Mailbox</a>
             </div>
         </div>
     </div>

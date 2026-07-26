@@ -7,11 +7,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-portal-leads-intro">
-                <h1 class="text-xl font-bold tracking-tight text-white leading-tight">Portal Leads</h1>
-                <p class="text-sm" style="color: rgba(255,255,255,0.6);">Buyer enquiries received from Property24, Private Property and the agency website.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Portal Leads</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Buyer enquiries received from Property24, Private Property and the agency website.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <div class="text-xs" style="color: var(--text-muted);">
                     Total: <span class="font-semibold" style="color: var(--text-primary);">{{ $leads->total() }}</span>
                 </div>
@@ -77,11 +77,9 @@
 
         <div class="flex items-end gap-2">
             <button type="submit"
-                    class="w-full rounded-md text-sm font-semibold text-white px-3 py-2 shadow-lg transition-all duration-300"
-                    style="background: var(--brand-button, #0ea5e9);">Apply</button>
+                    class="corex-btn-primary text-xs w-full justify-center">Apply</button>
             <a href="{{ route('corex.portal-leads.index') }}"
-               class="text-xs whitespace-nowrap transition-all duration-300"
-               style="color: var(--text-muted);">Reset</a>
+               class="corex-btn-outline text-xs whitespace-nowrap">Reset</a>
         </div>
     </form>
 

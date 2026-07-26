@@ -7,11 +7,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Email Setup</h1>
-                <p class="text-sm text-white/60">Link each user's mailbox so their email feeds the Communication Archive. Passwords are stored encrypted and never shown — retrieving one is a separate, logged action.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Email Setup</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Link each user's mailbox so their email feeds the Communication Archive. Passwords are stored encrypted and never shown — retrieving one is a separate, logged action.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-sm">View Archive</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-btn-outline text-xs">View Archive</a>
             </div>
         </div>
     </div>

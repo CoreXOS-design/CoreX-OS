@@ -6,12 +6,18 @@
 <div class="w-full space-y-4">
 
     {{-- Header --}}
-    <div>
-        <a href="{{ route('corex.admin.deal-link-review.index') }}"
-           class="text-xs no-underline" style="color: var(--text-muted);">← Back to queue</a>
-        <h1 class="text-xl font-bold leading-tight mt-1.5" style="color: var(--text-primary);">
-            Review match for: {{ $deal?->property_address ?: '—' }}
-        </h1>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    Review match for: {{ $deal?->property_address ?: '—' }}
+                </h1>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('corex.admin.deal-link-review.index') }}"
+                   class="corex-btn-outline text-xs no-underline">← Back to queue</a>
+            </div>
+        </div>
     </div>
 
     @if($errors->any())
@@ -133,13 +139,13 @@
                 <label for="property_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property ID</label>
                 <input id="property_id" type="number" name="property_id" required min="1" placeholder="e.g. 1234"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="flex-1">
                 <label for="review_note" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note <span style="color: var(--text-muted);">(optional)</span></label>
                 <input id="review_note" type="text" name="review_note" maxlength="2000" placeholder="Why you picked this property"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <button type="submit" class="corex-btn-primary whitespace-nowrap">Link</button>
         </form>

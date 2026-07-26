@@ -1,15 +1,16 @@
 <x-app-layout>
     <x-slot name="header">
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">Deal Log</h2>
-                    <div class="text-sm text-white/60">#{{ $deal->deal_no }} &middot; Audit trail (newest first)</div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Log</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">#{{ $deal->deal_no }} &middot; Audit trail (newest first)</p>
                 </div>
-                <a href="{{ route('deals-dr2.index') }}"
-                   class="inline-flex items-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/15">
-                    &larr; Back to Deal Register
-                </a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
+                        &larr; Back to Deal Register
+                    </a>
+                </div>
             </div>
         </div>
     </x-slot>
@@ -37,7 +38,10 @@
                     @csrf
                     <div class="flex-1">
                         <label class="ds-label block mb-1">Add remark (creates timeline entry)</label>
-                        <input type="text" name="remark" class="w-full rounded-xl" style="border-color:var(--border)" placeholder="Type a remark and click Add..." value="">
+                        <input type="text" name="remark"
+                               class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
+                               style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"
+                               placeholder="Type a remark and click Add..." value="">
                     </div>
                     <button type="submit" class="corex-btn-primary h-10 px-4 text-sm">Add</button>
                 </form>
@@ -52,7 +56,7 @@
                                 $who = $actor?->name ?? ($log->actor_user_id ? 'Unknown user' : 'System');
                             @endphp
 
-                            <div class="rounded-xl border px-4 py-3" style="background:var(--surface); border-color:var(--border); border-left: 3px solid var(--ds-cyan);">
+                            <div class="rounded-md border px-4 py-3" style="background:var(--surface); border-color:var(--border); border-left: 3px solid var(--brand-icon);">
                                 <div class="flex flex-wrap items-center justify-between gap-2">
                                     <div class="text-sm font-semibold" style="color:var(--text-primary)">{{ $log->event_type }}</div>
                                     <div class="text-xs" style="color:var(--text-muted)">{{ optional($log->created_at)->format('Y-m-d H:i') }}</div>

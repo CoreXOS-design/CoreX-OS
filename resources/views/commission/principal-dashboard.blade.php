@@ -8,8 +8,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Commission Overview</h1>
-                <p class="text-sm text-white/60">Agency-wide commission performance, revenue share, and P&amp;L.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Commission Overview</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Agency-wide commission performance, revenue share, and P&amp;L.</p>
             </div>
         </div>
     </div>
@@ -21,30 +21,30 @@
 
         {{-- Card 1: Agency GCI --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Agency GCI</div>
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--text-primary);">R {{ number_format($agencyGCIMonth, 0) }}</div>
-            <div class="text-xs mt-1" style="color: var(--text-secondary);">YTD: R {{ number_format($agencyGCIYear, 0) }}</div>
+            <div class="text-[0.6875rem] font-medium uppercase tracking-wider mb-1" style="color: var(--text-muted);">Agency GCI</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--text-primary);">R {{ number_format($agencyGCIMonth, 0) }}</div>
+            <div class="text-xs mt-1 tabular-nums" style="color: var(--text-secondary);">YTD: R {{ number_format($agencyGCIYear, 0) }}</div>
         </div>
 
         {{-- Card 2: Company Dollar --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Company Dollar</div>
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--text-primary);">R {{ number_format($companyDollarMonth, 0) }}</div>
-            <div class="text-xs mt-1" style="color: var(--text-secondary);">YTD: R {{ number_format($companyDollarYear, 0) }}</div>
+            <div class="text-[0.6875rem] font-medium uppercase tracking-wider mb-1" style="color: var(--text-muted);">Company Dollar</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--text-primary);">R {{ number_format($companyDollarMonth, 0) }}</div>
+            <div class="text-xs mt-1 tabular-nums" style="color: var(--text-secondary);">YTD: R {{ number_format($companyDollarYear, 0) }}</div>
         </div>
 
         {{-- Card 3: Rev Share Paid --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Rev Share Paid</div>
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--ds-green);">R {{ number_format($revSharePaidMonth, 0) }}</div>
-            <div class="text-xs mt-1" style="color: var(--text-secondary);">YTD: R {{ number_format($revSharePaidYear, 0) }}</div>
+            <div class="text-[0.6875rem] font-medium uppercase tracking-wider mb-1" style="color: var(--text-muted);">Rev Share Paid</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: var(--ds-green);">R {{ number_format($revSharePaidMonth, 0) }}</div>
+            <div class="text-xs mt-1 tabular-nums" style="color: var(--text-secondary);">YTD: R {{ number_format($revSharePaidYear, 0) }}</div>
         </div>
 
         {{-- Card 4: Net Agency (loss = danger state per spec §1.5) --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Net Agency</div>
-            <div class="text-[1.625rem] font-semibold leading-tight" style="color: {{ $netAgencyMonth >= 0 ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">R {{ number_format($netAgencyMonth, 0) }}</div>
-            <div class="text-xs mt-1" style="color: var(--text-secondary);">YTD: R {{ number_format($netAgencyYear, 0) }}</div>
+            <div class="text-[0.6875rem] font-medium uppercase tracking-wider mb-1" style="color: var(--text-muted);">Net Agency</div>
+            <div class="text-[1.625rem] font-bold leading-tight tabular-nums" style="color: {{ $netAgencyMonth >= 0 ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">R {{ number_format($netAgencyMonth, 0) }}</div>
+            <div class="text-xs mt-1 tabular-nums" style="color: var(--text-secondary);">YTD: R {{ number_format($netAgencyYear, 0) }}</div>
         </div>
     </div>
 
@@ -52,7 +52,7 @@
          MONTHLY AGENCY CHART
          ══════════════════════════════════════ --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-        <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Monthly Agency Revenue — Last 12 Months</h3>
+        <h3 class="text-base font-bold mb-4" style="color: var(--text-primary);">Monthly Agency Revenue — Last 12 Months</h3>
         <div style="position: relative; height: 300px;">
             <canvas id="agencyChart"></canvas>
         </div>
@@ -63,7 +63,7 @@
          ══════════════════════════════════════ --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Agent Performance</h3>
+            <h3 class="text-base font-bold" style="color: var(--text-primary);">Agent Performance</h3>
         </div>
 
         <div class="overflow-x-auto">
@@ -102,10 +102,10 @@
                                     {{ $agent['name'] }}
                                 </a>
                             </td>
-                            <td class="px-4 py-3 text-right whitespace-nowrap {{ $rank <= 3 && $agent['gci_month'] > 0 ? 'font-semibold' : '' }}" style="color: var(--text-primary);">
+                            <td class="px-4 py-3 text-right whitespace-nowrap tabular-nums {{ $rank <= 3 && $agent['gci_month'] > 0 ? 'font-semibold' : '' }}" style="color: var(--text-primary);">
                                 R {{ number_format($agent['gci_month'], 0) }}
                             </td>
-                            <td class="px-4 py-3 text-right whitespace-nowrap" style="color: var(--text-secondary);">
+                            <td class="px-4 py-3 text-right whitespace-nowrap tabular-nums" style="color: var(--text-secondary);">
                                 R {{ number_format($agent['gci_year'], 0) }}
                             </td>
                             <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -116,14 +116,14 @@
                                         <div class="ds-progress-track" style="width: 4rem;">
                                             <div class="ds-progress-bar ds-bar-navy" style="width: {{ $agent['cap_percent'] }}%;"></div>
                                         </div>
-                                        <span class="text-xs" style="color: var(--text-secondary);">{{ number_format($agent['cap_percent'], 0) }}%</span>
+                                        <span class="text-xs tabular-nums" style="color: var(--text-secondary);">{{ number_format($agent['cap_percent'], 0) }}%</span>
                                     </div>
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-center" style="color: var(--text-secondary);">
+                            <td class="px-4 py-3 text-center tabular-nums" style="color: var(--text-secondary);">
                                 {{ number_format($agent['tx_count']) }}
                             </td>
-                            <td class="px-4 py-3 text-right whitespace-nowrap" style="color: var(--ds-green);">
+                            <td class="px-4 py-3 text-right whitespace-nowrap tabular-nums" style="color: var(--ds-green);">
                                 R {{ number_format($agent['rev_share_earned'], 0) }}
                             </td>
                         </tr>
@@ -144,10 +144,10 @@
          ══════════════════════════════════════ --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);"
          x-data="{ expandedNodes: {} }">
-        <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Sponsorship Tree</h3>
+        <h3 class="text-base font-bold mb-4" style="color: var(--text-primary);">Sponsorship Tree</h3>
 
         @if(empty($sponsorshipTree))
-            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                      style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
@@ -170,28 +170,28 @@
          MONTHLY P&L SUMMARY
          ══════════════════════════════════════ --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-        <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Year-to-Date P&amp;L Summary</h3>
+        <h3 class="text-base font-bold mb-4" style="color: var(--text-primary);">Year-to-Date P&amp;L Summary</h3>
 
         <div class="space-y-2 max-w-md">
             <div class="flex items-center justify-between py-1.5" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm" style="color: var(--text-secondary);">Total GCI</span>
-                <span class="text-sm font-semibold" style="color: var(--text-primary);">R {{ number_format($pnl['total_gci'], 0) }}</span>
+                <span class="text-sm font-semibold tabular-nums" style="color: var(--text-primary);">R {{ number_format($pnl['total_gci'], 0) }}</span>
             </div>
             <div class="flex items-center justify-between py-1.5" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm" style="color: var(--text-secondary);">Less: Agent Splits</span>
-                <span class="text-sm" style="color: var(--text-secondary);">(R {{ number_format($pnl['agent_splits'], 0) }})</span>
+                <span class="text-sm tabular-nums" style="color: var(--text-secondary);">(R {{ number_format($pnl['agent_splits'], 0) }})</span>
             </div>
             <div class="flex items-center justify-between py-1.5" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm" style="color: var(--text-secondary);">Less: Revenue Share</span>
-                <span class="text-sm" style="color: var(--text-secondary);">(R {{ number_format($pnl['rev_share'], 0) }})</span>
+                <span class="text-sm tabular-nums" style="color: var(--text-secondary);">(R {{ number_format($pnl['rev_share'], 0) }})</span>
             </div>
             <div class="flex items-center justify-between py-1.5" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm" style="color: var(--text-secondary);">Less: Platform Costs ({{ number_format($activeAgentCount) }} agents)</span>
-                <span class="text-sm" style="color: var(--text-secondary);">(R {{ number_format($pnl['platform_costs'], 0) }})</span>
+                <span class="text-sm tabular-nums" style="color: var(--text-secondary);">(R {{ number_format($pnl['platform_costs'], 0) }})</span>
             </div>
             <div class="flex items-center justify-between py-2 mt-1" style="border-top: 2px solid var(--border);">
                 <span class="text-sm font-bold" style="color: var(--text-primary);">Net Agency Revenue</span>
-                <span class="text-lg font-bold" style="color: {{ $pnl['net_revenue'] >= 0 ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
+                <span class="text-lg font-bold tabular-nums" style="color: {{ $pnl['net_revenue'] >= 0 ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
                     R {{ number_format($pnl['net_revenue'], 0) }}
                 </span>
             </div>

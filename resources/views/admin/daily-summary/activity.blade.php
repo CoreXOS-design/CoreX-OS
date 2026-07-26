@@ -8,11 +8,14 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <a href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}" class="text-sm text-white/60 hover:underline transition-all duration-300">&larr; Back to Company Summary</a>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight mt-1">{{ $def->name }}</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $def->name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $start->toFormattedDateString() }} &rarr; {{ $end->toFormattedDateString() }}
                 </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <a class="corex-btn-outline text-xs" href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}">&larr; Back to Company Summary</a>
             </div>
         </div>
     </div>

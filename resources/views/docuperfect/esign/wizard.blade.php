@@ -9,8 +9,8 @@
     $safeStep = $currentStep ?? 1;
 @endphp
 
-<div x-data="esignWizard()" x-cloak class="flex flex-col w-full h-[calc(100vh-64px)] rounded-md overflow-hidden"
-     style="border: 1px solid var(--border);">
+<div x-data="esignWizard()" x-cloak class="esign-shell flex flex-col w-full overflow-hidden"
+     style="height: calc(100vh - 64px); margin-top: -16px; margin-bottom: -16px;">
 
     {{-- ===== TOAST NOTIFICATION ===== --}}
     <div x-show="toast.show" x-transition:enter="transition ease-out duration-300"
@@ -24,22 +24,22 @@
     </div>
 
     {{-- ===== PROGRESS BAR (sticky header) ===== --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="px-6 py-5 flex-shrink-0">
+    <div style="background: var(--surface); border-bottom: 1px solid var(--border);" class="px-6 py-3.5 flex-shrink-0">
         <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xl font-bold text-white leading-tight flex items-center gap-2" data-tour="esign-title">
+            <h2 class="text-base font-bold leading-tight flex items-center gap-2" style="color: var(--text-primary);" data-tour="esign-title">
                 <span class="whitespace-nowrap">E-Sign Document —</span>
                 <input type="text"
                        x-model="documentName"
-                       class="bg-transparent text-white/80 font-normal text-base border-0 border-b border-transparent
-                              focus:border-white/40 outline-none transition-colors px-0 py-0"
-                       style="min-width:200px; max-width:500px;"
+                       class="bg-transparent font-normal text-sm border-0 border-b border-transparent
+                              focus:border-[color:var(--border-hover)] outline-none transition-colors px-0 py-0"
+                       style="min-width:200px; max-width:500px; color: var(--text-secondary);"
                        :size="Math.max(20, (documentName || '').length + 2)"
                        placeholder="Document name..."
                 />
             </h2>
-            <div class="flex items-center gap-2">
-                @include('layouts.partials.tour-header-launcher')
-                <span class="text-sm text-white/60" x-text="'Step ' + currentStep + ' of 6'"></span>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="text-xs" style="color: var(--text-muted);" x-text="'Step ' + currentStep + ' of 6'"></span>
             </div>
         </div>
         <div class="flex gap-1" data-tour="esign-rail">
@@ -48,9 +48,9 @@
                      :class="canGoToStep(i+1) ? 'cursor-pointer' : 'cursor-default'"
                      @click="canGoToStep(i+1) && goToStep(i+1)">
                     <div class="h-1.5 rounded-full transition-all duration-300"
-                         :style="(i+1) < currentStep ? 'background: var(--ds-green);' : ((i+1) === currentStep ? 'background: #ffffff;' : 'background: rgba(255,255,255,0.2);')"></div>
+                         :style="(i+1) < currentStep ? 'background: var(--ds-green);' : ((i+1) === currentStep ? 'background: var(--brand-icon, #0ea5e9);' : 'background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border);')"></div>
                     <span class="text-[0.6875rem] leading-tight"
-                          :class="(i+1) <= currentStep ? 'text-white/70' : 'text-white/30'"
+                          :style="(i+1) <= currentStep ? 'color: var(--text-secondary);' : 'color: var(--text-faint);'"
                           x-text="label"></span>
                 </div>
             </template>
@@ -125,7 +125,7 @@
                     </div>
                 </div>
 
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Select Template</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Select Template</h3>
 
                 {{-- Category filter buttons --}}
                 <div class="flex items-center gap-2 mb-3">
@@ -148,7 +148,7 @@
 
                 <input type="text" x-model="templateSearch" placeholder="Search templates..."
                        class="w-full rounded-md px-3 py-2 text-sm mb-4"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" />
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
 
                 {{-- Template groups by type --}}
                 <template x-for="group in templateGroups" :key="group.type">
@@ -170,7 +170,7 @@
                                         class="w-full text-left p-3 rounded-md transition-all duration-300"
                                         :style="selectedTemplateId === t.id
                                             ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
-                                            : 'background: var(--surface); border: 1px solid var(--border);'">
+                                            : 'background: var(--surface-2); border: 1px solid var(--border);'">
                                     <div class="font-medium text-sm flex items-center flex-wrap gap-1" style="color: var(--text-primary);">
                                         <span x-text="t.name"></span>
                                         <span x-show="t.render_type === 'web'" class="ds-badge ds-badge-info">Web</span>
@@ -205,7 +205,7 @@
                                         class="w-full text-left p-3 rounded-md transition-all duration-300"
                                         :style="selectedPackId === p.id
                                             ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
-                                            : 'background: var(--surface); border: 1px solid var(--border);'">
+                                            : 'background: var(--surface-2); border: 1px solid var(--border);'">
                                     <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
                                         <span x-text="p.name"></span>
                                         <span class="ds-badge ds-badge-info ml-2">Web</span>
@@ -239,7 +239,7 @@
                                                 class="w-full text-left p-3 rounded-md transition-all duration-300"
                                                 :style="selectedPdfPackId === p.id
                                                     ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);'
-                                                    : 'background: var(--surface); border: 1px solid var(--border);'">
+                                                    : 'background: var(--surface-2); border: 1px solid var(--border);'">
                                             <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
                                                 <span x-text="p.name"></span>
                                                 <span class="ds-badge ds-badge-default ml-2">Pack</span>
@@ -257,7 +257,7 @@
                                     </template>
                                     <template x-if="!p.esign_eligible">
                                         <div class="w-full text-left p-3 rounded-md opacity-50 cursor-not-allowed"
-                                             style="background: var(--surface); border: 1px solid var(--border);">
+                                             style="background: var(--surface-2); border: 1px solid var(--border);">
                                             <div class="font-medium text-sm flex items-center" style="color: var(--text-primary);">
                                                 <span x-text="p.name"></span>
                                                 <span class="ds-badge ds-badge-default ml-2">Pack</span>
@@ -283,7 +283,7 @@
 
             {{-- ======== STEP 2: Property ======== --}}
             <div x-show="currentStep === 2" x-cloak>
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Property Details</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Property Details</h3>
 
                 {{-- Property search --}}
                 <div class="relative mb-4" @click.outside="propSearchOpen = false" @keydown.escape.window="propSearchOpen = false">
@@ -297,7 +297,7 @@
                                @keydown.arrow-up.prevent="propSearchIdx = Math.max(propSearchIdx - 1, 0)"
                                @keydown.enter.prevent="if (propSearchOpen && propSearchResults[propSearchIdx]) selectProperty(propSearchResults[propSearchIdx])"
                                class="w-full rounded-md px-3 py-2 text-sm pr-8"
-                               :style="property._selected ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                               :style="property._selected ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                placeholder="Start typing to search...">
                         <div class="absolute right-2 top-1/2 -translate-y-1/2">
                             <svg x-show="propSearching" class="w-4 h-4 animate-spin" style="color: var(--text-muted);" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="opacity-75"/></svg>
@@ -363,26 +363,26 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address</label>
-                        <input type="text" x-model="property.address" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 21 Dee Road, Uvongo">
+                        <input type="text" x-model="property.address" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 21 Dee Road, Uvongo">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Suburb</label>
-                            <input type="text" x-model="property.suburb" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Uvongo">
+                            <input type="text" x-model="property.suburb" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Uvongo">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Unit / Erf Number</label>
-                            <input type="text" x-model="property.erf" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Erf 789">
+                            <input type="text" x-model="property.erf" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Erf 789">
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Complex Name</label>
-                            <input type="text" x-model="property.complex_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Ocean View">
+                            <input type="text" x-model="property.complex_name" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Ocean View">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property Type</label>
-                            <select x-model="property.property_type" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <select x-model="property.property_type" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 <option value="">Select...</option>
                                 <option value="house">House</option>
                                 <option value="unit">Unit</option>
@@ -399,12 +399,12 @@
 
             {{-- ======== STEP 3: Recipients ======== --}}
             <div x-show="currentStep === 3" x-cloak>
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Recipients</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Recipients</h3>
 
                 <div class="space-y-3">
                     <template x-for="(r, ri) in recipients" :key="ri">
                         <div class="p-4 rounded-md transition-colors"
-                             :style="r.readonly ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);' : (r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' : 'background: var(--surface); border: 1px solid var(--border);')">
+                             :style="r.readonly ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);' : (r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' : 'background: var(--surface-2); border: 1px solid var(--border);')">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-2">
                                     <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
@@ -422,10 +422,10 @@
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Role</label>
                                     <template x-if="r.readonly">
-                                        <input type="text" value="Agent" disabled class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">
+                                        <input type="text" value="Agent" disabled class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
                                     </template>
                                     <template x-if="!r.readonly">
-                                        <select x-model="r.role" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <select x-model="r.role" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                             <option value="">Select role...</option>
                                             {{-- Hidden fallback preserves bound value for roles not in the list --}}
                                             <option x-show="false" :value="r.role" x-text="getRoleLabel(r.role)" selected></option>
@@ -472,7 +472,7 @@
                                                    @keydown.arrow-up.prevent="r._searchIdx = Math.max((r._searchIdx || 0) - 1, 0)"
                                                    @keydown.enter.prevent="if (r._searchOpen && r._searchResults?.[r._searchIdx]) selectContact(ri, r._searchResults[r._searchIdx])"
                                                    class="w-full rounded-md px-3 py-2 text-sm pr-8"
-                                                   :style="r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                                                   :style="r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                                    placeholder="Start typing to search...">
                                             <div class="absolute right-2 top-1/2 -translate-y-1/2">
                                                 <svg x-show="r._searching" class="w-4 h-4 animate-spin" style="color: var(--text-muted);" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="opacity-75"/></svg>
@@ -522,13 +522,13 @@
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Full Name</label>
                                     <input type="text" x-model="r.name" :readonly="r.readonly"
                                            class="w-full rounded-md px-3 py-2 text-sm"
-                                           :style="r.readonly ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                           :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">ID Number</label>
                                     <input type="text" x-model="r.id_number" :readonly="r.readonly"
                                            class="w-full rounded-md px-3 py-2 text-sm"
-                                           :style="r.readonly ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                                           :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="SA ID or Passport">
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
@@ -536,20 +536,20 @@
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
                                         <input type="email" x-model="r.email" :readonly="r.readonly"
                                                class="w-full rounded-md px-3 py-2 text-sm"
-                                               :style="r.readonly ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                               :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                     </div>
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Cell Phone</label>
                                         <input type="tel" x-model="r.cell" :readonly="r.readonly"
                                                class="w-full rounded-md px-3 py-2 text-sm"
-                                               :style="r.readonly ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                               :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Physical Address</label>
                                     <input type="text" x-model="r.address" :readonly="r.readonly"
                                            class="w-full rounded-md px-3 py-2 text-sm"
-                                           :style="r.readonly ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                                           :style="r.readonly ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                            placeholder="Residential address">
                                 </div>
                             </div>
@@ -573,7 +573,7 @@
 
             {{-- ======== STEP 4: Details ======== --}}
             <div x-show="currentStep === 4" x-cloak>
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Document Details</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Document Details</h3>
 
                 {{-- Auto-fill notice --}}
                 <div x-show="property._selected && (details._autoFilled || false)" class="mb-4 px-3 py-2 rounded-md text-xs flex items-center gap-2"
@@ -596,31 +596,31 @@
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Asking Price (R)</label>
                                 <input type="text" x-model="details.price"
                                        @input="updatePreviewField('price', $event.target.value)"
-                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 2500000">
+                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 2500000">
                             </div>
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Commission (%)</label>
                                 <input type="text" x-model="details.commission"
                                        @input="updatePreviewField('commission_percent', $event.target.value)"
-                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 7.5">
+                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 7.5">
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate Start Date</label>
                                     <input type="date" x-model="details.mandate_start"
                                            @input="updatePreviewField('mandate_start', $event.target.value)"
-                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate Expiry Date</label>
                                     <input type="date" x-model="details.mandate_expiry"
                                            @input="updatePreviewField('mandate_expiry', $event.target.value)"
-                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                     <div class="flex flex-wrap gap-1.5 mt-2">
                                         <template x-for="opt in [{m:1,l:'1 Mo'},{m:3,l:'3 Mo'},{m:6,l:'6 Mo'},{m:9,l:'9 Mo'}]" :key="opt.m">
                                             <button type="button" @click="quickFillExpiry(opt.m)"
                                                     class="px-2.5 py-1 rounded-full text-xs font-medium transition"
-                                                    :style="details.mandate_expiry === calcExpiryDate(opt.m) ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                    :style="details.mandate_expiry === calcExpiryDate(opt.m) ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                     x-text="opt.l"></button>
                                         </template>
                                     </div>
@@ -637,13 +637,13 @@
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly Rental (R)</label>
                                     <input type="text" x-model="details.monthly_rental"
                                            @input="updatePreviewField('monthly_rental', $event.target.value); updatePreviewField('rental_amount', $event.target.value)"
-                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 12000">
+                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 12000">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit (R)</label>
                                     <input type="text" x-model="details.deposit"
                                            @input="updatePreviewField('deposit_amount', $event.target.value)"
-                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 12000">
+                                           class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 12000">
                                 </div>
                             </div>
 
@@ -653,7 +653,7 @@
                                 <input type="date" x-model="details.lease_start"
                                        @change="calculateLeaseEnd()"
                                        @input="updatePreviewField('lease_start', $event.target.value)"
-                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                       class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-xs font-medium mb-2" style="color: var(--text-secondary);">Lease Duration</label>
@@ -662,7 +662,7 @@
                                         <button type="button"
                                                 @click="details._duration = opt.value; calculateLeaseEnd()"
                                                 class="px-3 py-1.5 rounded-md text-xs font-medium transition"
-                                                :style="details._duration === opt.value ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                :style="details._duration === opt.value ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                 x-text="opt.label"></button>
                                     </template>
                                 </div>
@@ -672,18 +672,18 @@
                                 <input type="date" x-model="details.lease_end"
                                        :readonly="details._duration !== 0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       :style="details._duration !== 0 ? 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                       :style="details._duration !== 0 ? 'background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                 <p x-show="details._duration !== 0 && details.lease_end" class="text-xs mt-1" style="color: var(--text-muted);" x-text="'Auto-calculated: ' + details._duration + ' months from start'"></p>
                             </div>
 
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Commission (%)</label>
-                                    <input type="text" x-model="details.commission" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 8.5">
+                                    <input type="text" x-model="details.commission" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 8.5">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Marketing Fee (R)</label>
-                                    <input type="text" x-model="details.marketing_fee" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 2500">
+                                    <input type="text" x-model="details.marketing_fee" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 2500">
                                 </div>
                             </div>
                         </div>
@@ -699,7 +699,7 @@
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);" x-text="mf.name"></label>
                                         <input type="text"
                                                x-model="details['named_field_' + mf.id]"
-                                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                               class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                                :placeholder="mf.name">
                                     </div>
                                 </template>
@@ -711,7 +711,7 @@
 
             {{-- ======== STEP 5: Fill & Review ======== --}}
             <div x-show="currentStep === 5" x-cloak>
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Fill & Review</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Fill & Review</h3>
                 <p class="text-xs mb-4" style="color: var(--text-muted);">Fields are shown in document order. Pre-filled values come from property and recipient data. Multi-recipient roles render one input per recipient.</p>
 
                 {{-- All fields in document order — walk-fix B uses
@@ -754,7 +754,7 @@
                                        @input="setFieldValue(f.id, $event.target.value)"
                                        @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                                       :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                        :placeholder="fieldLabel(f)">
                             </template>
 
@@ -765,7 +765,7 @@
                                        @input="setFieldValue(f.id, $event.target.value)"
                                        @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                       :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                             </template>
 
                             {{-- Selection dropdown --}}
@@ -774,7 +774,7 @@
                                         @change="setFieldValue(f.id, $event.target.value)"
                                         @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
                                         class="w-full rounded-md px-3 py-2 text-sm"
-                                        :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'">
+                                        :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'">
                                     <option value="">Select...</option>
                                     <template x-for="opt in (f.options || [])" :key="opt">
                                         <option :value="opt" x-text="opt" :selected="fieldValues[f.id] === opt"></option>
@@ -789,7 +789,7 @@
                                         <button type="button"
                                                 @click="setFieldValue(f.id, opt); highlightField(f.id)"
                                                 class="px-3 py-1.5 rounded-md text-xs font-medium transition"
-                                                :style="fieldValues[f.id] === opt ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border);'"
+                                                :style="fieldValues[f.id] === opt ? 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'"
                                                 x-text="opt"></button>
                                     </template>
                                 </div>
@@ -814,7 +814,7 @@
                                           @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
                                           rows="3"
                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                          :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'"
+                                          :style="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                           :placeholder="fieldLabel(f)"></textarea>
                             </template>
 
@@ -851,14 +851,14 @@
                               @input="updateClausesPreview()"
                               rows="6"
                               class="mt-3 w-full rounded-md px-3 py-2 text-sm"
-                              :style="(otherConditionsText.trim() ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);') + 'min-height:120px; resize:vertical;'"
+                              :style="(otherConditionsText.trim() ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);') + 'min-height:120px; resize:vertical;'"
                               placeholder="Type additional conditions here, or use 'Insert Clause' to add from the library. Separate each clause with a blank line for per-clause initials tracking."></textarea>
                 </div>
             </div>
 
             {{-- ======== STEP 6: Signing Setup ======== --}}
             <div x-show="currentStep === 6" x-cloak>
-                <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Signing Setup</h3>
+                <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Signing Setup</h3>
 
                 {{-- Delivery Mode Selection --}}
                 <template x-if="effectiveDeliveryModes.length > 1">
@@ -867,7 +867,7 @@
                         <div class="space-y-2">
                             <template x-for="mode in effectiveDeliveryModes" :key="mode">
                                 <label class="flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all"
-                                       :style="deliveryMode === mode ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface); border: 1px solid var(--border);'">
+                                       :style="deliveryMode === mode ? 'background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, transparent); border: 1px solid var(--brand-button, #0ea5e9);' : 'background: var(--surface-2); border: 1px solid var(--border);'">
                                     <input type="radio" name="delivery_mode" :value="mode" x-model="deliveryMode"
                                            class="mt-0.5" style="accent-color: var(--brand-button, #0ea5e9);">
                                     <div>
@@ -911,7 +911,7 @@
                                         <input type="email"
                                                x-model="r.email"
                                                :disabled="r.skipEmail"
-                                               :style="r.skipEmail ? 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);' : 'background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);'"
+                                               :style="r.skipEmail ? 'background: var(--surface); color: var(--text-muted); border: 1px solid var(--border);' : 'background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);'"
                                                class="w-full rounded-md px-3 py-1.5 text-sm"
                                                placeholder="Email address">
                                         <p class="text-xs mt-1" style="color: var(--text-muted);">Edit if signer uses a different email address</p>
@@ -934,21 +934,21 @@
                                                     x-show="ri > 0"
                                                     @click="moveRecipient(ri, 'up')"
                                                     class="text-xs px-2 py-1 rounded-md flex items-center gap-1 transition"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
+                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                                                 &uarr; Move Up
                                             </button>
                                             <button type="button"
                                                     x-show="ri < recipients.length - 1"
                                                     @click="moveRecipient(ri, 'down')"
                                                     class="text-xs px-2 py-1 rounded-md flex items-center gap-1 transition"
-                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
+                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                                                 &darr; Move Down
                                             </button>
                                         </div>
                                         <select x-model="signingActions[ri]"
                                                 :disabled="r.skipEmail"
                                                 class="text-xs rounded-md px-2 py-1"
-                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                             <option value="send_after" x-bind:disabled="!r.email || r.skipEmail">Send after previous</option>
                                             <option value="sign_later">Sign later (deferred)</option>
                                         </select>
@@ -1233,13 +1233,13 @@
                 <div class="p-4" style="border-bottom: 1px solid var(--border);">
                     <input type="text" x-model="clauseSearch" placeholder="Search clauses..."
                            class="w-full text-sm rounded-md px-3 py-2"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
 
                 <div class="flex-1 overflow-y-auto p-4 space-y-2">
                     <template x-for="clause in filteredClauses" :key="clause.id">
                         <div class="p-3 rounded-md cursor-pointer transition-colors"
-                             style="background: var(--surface); border: 1px solid var(--border);"
+                             style="background: var(--surface-2); border: 1px solid var(--border);"
                              @click="insertClause(clause)">
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-semibold" style="color: var(--text-primary);" x-text="clause.name"></span>

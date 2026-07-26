@@ -8,24 +8,24 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">{{ $pack->title ?: ('Viewing Pack #' . $pack->id) }}</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $pack->title ?: ('Viewing Pack #' . $pack->id) }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Buyer: {{ optional($pack->contact)->full_name ?? '—' }}
                     · Agent: {{ optional($pack->agent)->name ?? '—' }}
                     · Status: {{ ucfirst($pack->status) }}
                 </p>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">&larr; All packs</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline text-xs">&larr; All packs</a>
                 @if(optional($pack->contact))
-                    <a href="{{ route('command-center.buyers.show', $pack->contact_id) }}" class="corex-btn-outline" style="color:#fff; border-color: rgba(255,255,255,0.3);">Open buyer</a>
+                    <a href="{{ route('command-center.buyers.show', $pack->contact_id) }}" class="corex-btn-outline text-xs">Open buyer</a>
                 @endif
                 {{-- Two SEPARATE files, two SEPARATE buttons (compliance spine §1) — never a combined download. --}}
                 @if($pack->viewingPackProperties->isNotEmpty())
-                    <a href="{{ route('corex.viewing-packs.buyer-pack', $pack) }}" class="corex-btn-primary no-underline" target="_blank" rel="noopener">Download Buyer Pack</a>
-                    <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" class="corex-btn-outline no-underline"
+                    <a href="{{ route('corex.viewing-packs.buyer-pack', $pack) }}" class="corex-btn-primary text-xs no-underline" target="_blank" rel="noopener">Download Buyer Pack</a>
+                    <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" class="corex-btn-outline text-xs no-underline"
                        target="_blank" rel="noopener"
-                       style="color:#fff; border-color:#b91c1c; background:#b91c1c;"
+                       style="color:#fff; border-color: var(--ds-crimson); background: var(--ds-crimson);"
                        title="Confidential — agent eyes only. A separate file from the buyer pack; never hand this to the buyer.">Download Agent Sheet 🔒</a>
                 @endif
             </div>
@@ -51,12 +51,12 @@
                     <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
                     <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
                            class="w-full rounded-md px-3 py-1.5 text-sm"
-                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div class="sm:w-44">
                     <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                     <select id="vp-status" name="status" class="w-full rounded-md px-3 py-1.5 text-sm"
-                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         @foreach(\App\Models\ViewingPack::STATUSES as $s)
                             <option value="{{ $s }}" @selected($pack->status === $s)>{{ ucfirst($s) }}</option>
                         @endforeach
@@ -112,7 +112,7 @@
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
                  x-data="coreMatchesUx(@js($cmData), {{ $cmScoreFloor }})">
                 <div class="flex items-center justify-between mb-1">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Core Matches</h3>
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Core Matches</h3>
                     <span class="text-xs" style="color: var(--text-muted);">showing <span x-text="filtered().length"></span> of {{ $coreMatches->count() }}</span>
                 </div>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">The buyer's matched properties, scored by the canonical match engine.</p>
@@ -199,12 +199,12 @@
             {{-- Ad-hoc search --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
                  x-data="adhocPropertySearch('{{ route('corex.viewing-packs.properties.search', $pack) }}')">
-                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Add any property</h3>
+                <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Add any property</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Search by address, suburb or reference. Properties that aren't a Core Match are still added — the system notes the miss silently.</p>
 
                 <input type="text" x-model="q" @input.debounce.300ms="search()" placeholder="Start typing an address, suburb or ref…"
                        class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
 
                 <ul class="mt-2 space-y-2" x-show="results.length" x-cloak>
                     <template x-for="r in results" :key="r.id">
@@ -235,7 +235,7 @@
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
                  x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
                 <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Selected properties</h3>
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Selected properties</h3>
                     <span class="text-xs" style="color: var(--text-muted);"><span x-text="items.length"></span> selected</span>
                 </div>
 
@@ -279,7 +279,7 @@
                  unchanged: per-property eligible docs, Redact/Re-redact, INCLUDED/NEEDS
                  REDACTION badges, VIEW REDACTED, add/remove via the in-place vpAction). --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <h3 class="text-lg font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
+                <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Only documents whose type is eligible for the buyer pack are shown. Identity / compliance documents never appear here. Documents are optional.</p>
 
                 @if($docPanel->isEmpty())

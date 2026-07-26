@@ -76,7 +76,7 @@
                     <div>
                         <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
                         <input type="hidden" name="listing_type" :value="listingType">
-                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface-2); border:1px solid var(--border);">
                             <button type="button"
                                     @click="listingType = 'sale'"
                                     :class="listingType === 'sale' ? 'text-white' : ''"
@@ -99,12 +99,12 @@
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Wishlist Name <span class="font-normal" style="color:var(--text-muted);">(optional)</span></label>
                         <input type="text" name="name" value="{{ $val('name') }}" placeholder='e.g. "3-bed Margate sale"' maxlength="120"
                                class="w-full rounded-md px-3 py-2 text-sm"
-                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
 
                     {{-- Primary flag — only render when there are siblings to demote OR in edit mode --}}
                     @if($siblingCount > 0 || $isEdit)
-                    <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
                         <input type="checkbox" id="match_is_primary" name="is_primary" value="1"
                                @checked(old('is_primary', $isEdit ? (bool) $match->is_primary : false))
                                class="mt-0.5">
@@ -120,7 +120,7 @@
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
                             <select name="category" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="">— Any —</option>
                                 @foreach($matchCategories as $cat)
                                 <option value="{{ $cat->name }}" @selected($val('category') === $cat->name)>{{ $cat->name }}</option>
@@ -136,7 +136,7 @@
                                 <button type="button"
                                         @click="selected.includes('{{ $type->name }}') ? selected = selected.filter(v => v !== '{{ $type->name }}') : selected.push('{{ $type->name }}')"
                                         :class="selected.includes('{{ $type->name }}') ? 'text-white' : ''"
-                                        :style="selected.includes('{{ $type->name }}') ? 'background:var(--brand-button, #0ea5e9); border-color:var(--brand-button, #0ea5e9);' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);'"
+                                        :style="selected.includes('{{ $type->name }}') ? 'background:var(--brand-button, #0ea5e9); border-color:var(--brand-button, #0ea5e9);' : 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);'"
                                         class="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150">
                                     {{ $type->name }}
                                 </button>
@@ -168,12 +168,12 @@
                             <div>
                                 <input type="number" name="price_min" value="{{ $val('price_min') }}" placeholder="Min price" min="0" step="50000"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
                                 <input type="number" name="price_max" value="{{ $val('price_max') }}" placeholder="Max price" min="0" step="50000"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                     </div>
@@ -186,20 +186,20 @@
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Min Bedrooms</label>
                                 <input type="number" name="beds_min" value="{{ $val('beds_min') }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Max Bedrooms <span class="font-normal" style="color:var(--text-muted);">(leave blank for no limit)</span></label>
                                 <input type="number" name="bedrooms_max" value="{{ $val('bedrooms_max') }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             @foreach([['baths_min','Bathrooms'],['garages_min','Garages'],['parking_min','Parking']] as [$field,$label])
                             <div>
                                 <label class="block text-[10px] mb-1" style="color:var(--text-muted);">{{ $label }}</label>
                                 <input type="number" name="{{ $field }}" value="{{ $val($field) }}" placeholder="Any" min="0" max="20"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             @endforeach
                         </div>
@@ -212,10 +212,10 @@
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="floor_size_min" value="{{ $val('floor_size_min') }}" placeholder="Min" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <input type="number" name="floor_size_max" value="{{ $val('floor_size_max') }}" placeholder="Max" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <div>
@@ -223,10 +223,10 @@
                             <div class="grid grid-cols-2 gap-2">
                                 <input type="number" name="erf_size_min" value="{{ $val('erf_size_min') }}" placeholder="Min" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <input type="number" name="erf_size_max" value="{{ $val('erf_size_max') }}" placeholder="Max" min="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                     </div>
@@ -248,7 +248,7 @@
                             <button type="button"
                                     @click="selected.includes('{{ $token }}') ? selected = selected.filter(v => v !== '{{ $token }}') : selected.push('{{ $token }}')"
                                     :class="selected.includes('{{ $token }}') ? 'text-white' : ''"
-                                    :style="selected.includes('{{ $token }}') ? 'background:{{ $bucketColor }}; border-color:{{ $bucketColor }};' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);'"
+                                    :style="selected.includes('{{ $token }}') ? 'background:{{ $bucketColor }}; border-color:{{ $bucketColor }};' : 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);'"
                                     class="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150">
                                 {{ $featureLabel($token) }}
                             </button>
@@ -265,7 +265,7 @@
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
                         <textarea name="notes" rows="2" placeholder="Any additional requirements..."
                                   class="w-full rounded-md px-3 py-2 text-sm resize-none"
-                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ $val('notes') }}</textarea>
+                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ $val('notes') }}</textarea>
                     </div>
 
                     <div class="flex justify-end">

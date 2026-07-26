@@ -6,14 +6,13 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-comm-archive-intro">
-                <h1 class="text-xl font-bold text-white leading-tight">Communication Archive</h1>
-                <p class="text-sm text-white/60">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communication Archive</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Immutable record of business email &amp; WhatsApp — retained for compliance.</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('compliance.comm-mailboxes.index') }}" data-tour="comp-comm-archive-mailboxes"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                   style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);">Mailboxes</a>
-                @include('layouts.partials.tour-header-launcher')
+                   class="corex-btn-outline text-xs">Mailboxes</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>

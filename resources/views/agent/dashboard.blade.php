@@ -80,25 +80,24 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="at-agent-dashboard-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight tracking-tight">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
                     My Dashboard — {{ $snapshot['month_label'] }}
                 </h1>
-                <p class="text-sm text-white/60">
+                <p class="text-xs" style="color: var(--text-muted);">
                     {{ $snapshot['range']['start'] }} → {{ $snapshot['range']['end'] }}
                 </p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <form method="GET" action="{{ route('agent.dashboard') }}" class="flex items-center gap-2">
-                    <label for="period" class="text-xs font-semibold text-white/70">Period</label>
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="GET" action="{{ route('agent.dashboard') }}" class="flex flex-wrap items-center gap-2">
+                    <label for="period" class="text-xs font-semibold" style="color: var(--text-muted);">Period</label>
                     <input id="period" type="month" name="period" value="{{ $snapshot['period'] ?? '' }}"
-                           class="h-9 text-sm rounded-md border border-white/20 bg-white/10 text-white px-2 transition-all duration-300" />
-                    <button type="submit"
-                            class="px-3 py-1.5 text-sm font-semibold rounded-md bg-white/20 text-white hover:bg-white/30 transition-all duration-300">
+                           class="list-header-filter" />
+                    <button type="submit" class="corex-btn-outline text-xs">
                         Go
                     </button>
                 </form>
-                @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('agent.daily') }}" class="corex-btn-primary" data-tour="at-agent-dashboard-daily-cta">Daily Activity</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('agent.daily') }}" class="corex-btn-primary text-xs" data-tour="at-agent-dashboard-daily-cta">Daily Activity</a>
             </div>
         </div>
     </div>
@@ -446,7 +445,7 @@
                 <div class="ds-status-card p-2 text-center">
                     <div class="text-xs font-semibold" style="color: var(--text-muted);">{{ $dt->format('D') }}</div>
                     <div class="mt-2 h-16 flex items-end justify-center">
-                        <div class="w-6 rounded-md" style="height: {{ $h }}px; background: var(--brand-default, #0b2a4a);"></div>
+                        <div class="w-6 rounded-md" style="height: {{ $h }}px; background: var(--brand-icon, #0ea5e9);"></div>
                     </div>
                     <div class="mt-2 text-xs font-bold" style="color: var(--text-primary);">{{ number_format($pts, 1) }}</div>
                 </div>
