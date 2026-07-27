@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DR2 Pipeline — Phased Layout Mockup (full detail)</title>
+<style>
+  :root{
+    --blue:#2563eb; --navy:#0f172a; --ink:#1e293b; --muted:#64748b; --faint:#94a3b8;
+    --line:#e2e8f0; --bg:#f4f6fa; --card:#ffffff; --soft:#f7f9fc;
+    --red:#ef4444; --amber:#f59e0b; --green:#22c55e; --done:#16a34a; --gold:#eab308;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.4;}
+  .topbar{background:var(--navy);color:#cbd5e1;font-size:11px;letter-spacing:.06em;
+    text-align:center;padding:5px;font-weight:600}
+  .wrap{padding:20px 26px 60px;max-width:1280px;margin:0 auto}
+  .crumb{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+  h1{font-size:19px;margin:0;color:var(--navy);font-weight:700}
+  .sub{color:var(--muted);font-size:13px;margin:2px 0 0}
+  .back{color:var(--blue);font-size:12.5px;text-decoration:none;font-weight:600;white-space:nowrap}
+  .flash{background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;font-size:12px;
+    border-radius:8px;padding:7px 12px;margin:10px 0 4px}
+  .banner{margin:12px 0 16px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;
+    border-radius:10px;color:#9a3412;font-size:12.5px}
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+  .toolrow{display:flex;justify-content:flex-end;align-items:center;gap:7px;margin:0 0 12px;
+    font-size:12px;color:var(--muted)}
+  .chk{width:14px;height:14px;border:1.5px solid #cbd5e1;border-radius:3px;display:inline-block}
+
+  /* legend */
+  .legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:0 0 16px;font-size:11.5px;color:var(--muted)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
+  .dot.red{background:var(--red)} .dot.amber{background:var(--amber)}
+  .dot.green{background:var(--green)} .dot.done{background:var(--done)}
+  .star{color:var(--gold);font-size:12px}
+  .lock{font-size:10.5px;opacity:.6}
+  .off{color:var(--faint);font-weight:500;font-size:11.5px}
+
+  /* anchor */
+  .anchor{background:#eef2ff;border:1px solid #dbe4ff;border-radius:11px;padding:11px 14px;margin-bottom:14px}
+
+  /* stages */
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px 18px;margin:0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .stage-h{display:flex;align-items:center;gap:10px}
+  .stage-n{width:24px;height:24px;flex:0 0 24px;border-radius:7px;background:var(--blue);
+    color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .stage-t{font-size:15px;font-weight:700;color:var(--navy)}
+  .stage-s{color:var(--muted);font-size:12px;margin:3px 0 14px 34px}
+
+  /* condition groups */
+  .grp{border:1px solid var(--line);border-radius:11px;padding:10px 12px 12px;margin-bottom:12px;background:var(--soft)}
+  .grp:last-child{margin-bottom:0}
+  .grp-h{font-size:12.5px;font-weight:700;color:var(--ink);margin:0 0 9px;display:flex;align-items:center;gap:7px}
+  .grp-h .ic{font-size:14px}
+  .grp-h .pill-active{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+    color:#065f46;background:#d1fae5;border-radius:5px;padding:2px 6px}
+
+  /* step row */
+  .row{background:#fff;border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:8px}
+  .row:last-child{margin-bottom:0}
+  .rowtop{display:flex;align-items:center;gap:9px}
+  .nm{font-weight:600;font-size:13px;color:var(--ink);flex:1;min-width:0}
+  .rt{display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .date{font-size:12px;color:var(--muted);font-weight:600}
+  .status{font-size:11px;color:var(--faint)}
+  .status.done{color:var(--done);font-weight:700;background:#dcfce7;border-radius:5px;padding:1px 7px}
+  .acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0 19px}
+  .acts button{font-size:11px;color:var(--muted);background:#fff;border:1px solid var(--line);
+    border-radius:6px;padding:2px 9px;cursor:pointer;font-family:inherit}
+  .acts button:hover{background:#f1f5f9}
+  .acts button.rm{color:#b91c1c;border-color:#fecaca}
+  .acts button.seq{color:var(--blue);border-color:#bfdbfe;font-weight:600}
+  .conn{height:12px;width:2px;background:#cbd5e1;margin:0 0 8px 22px}
+
+  /* transfer children */
+  .kids{margin:8px 0 0 26px;padding-left:14px;border-left:2px solid #e2e8f0}
+  .clbl{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin:12px 0 8px 2px}
+  .parallel{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  /* gate */
+  .gate{margin:14px 0;display:flex;justify-content:center}
+  .gate-inner{background:linear-gradient(90deg,#1e3a8a,#2563eb);color:#fff;border-radius:12px;
+    padding:12px 22px;display:flex;align-items:center;gap:12px;box-shadow:0 3px 10px rgba(37,99,235,.28);width:100%}
+  .gate-star{font-size:18px;color:#fde68a}
+  .gate-t{font-weight:800;font-size:15px;letter-spacing:.02em}
+  .gate-s{font-size:12px;opacity:.9}
+  .arrow{text-align:center;color:#94a3b8;font-size:16px;margin:2px 0}
+  .addbtn{margin-top:14px;font-size:12.5px;color:var(--blue);background:#fff;border:1px dashed #bfdbfe;
+    border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit;font-weight:600}
+
+  /* right panel */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    box-shadow:0 1px 2px rgba(15,23,42,.04);position:sticky;top:14px}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:4px 6px 0;flex-wrap:wrap}
+  .tabs .t{font-size:11px;color:var(--muted);padding:8px 9px;border-radius:8px 8px 0 0;cursor:pointer;font-weight:600}
+  .tabs .t.on{color:var(--blue);background:#eff4ff}
+  .pbody{padding:16px}
+  .pbody h3{font-size:14px;margin:0 0 4px;color:var(--navy)}
+  .pbody p.h{font-size:12px;color:var(--muted);margin:0 0 14px}
+  .cond{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .cond .cn{font-weight:700;font-size:13.5px;color:var(--navy)}
+  .cond .cs{font-size:11.5px;color:var(--muted);font-weight:500}
+  .cond .badge{font-size:10px;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--navy);
+    border-radius:6px;padding:4px 9px}
+  .soon{font-size:11.5px;color:var(--faint);font-style:italic;margin-top:14px;line-height:1.5}
+  .foot{color:var(--faint);font-size:11.5px;margin-top:22px;text-align:center}
+  @media(max-width:960px){.grid{grid-template-columns:1fr}.panel{position:static}}
+</style>
+</head>
+<body>
+  <div class="topbar">QA · QATESTING1.COREXOS.CO.ZA</div>
+  <div class="wrap">
+
+    <div class="crumb">
+      <div>
+        <h1>Deal Pipeline</h1>
+        <p class="sub">Deal 1811 &mdash; Unit 90, Eden Wilds, 15628 Eastview, Port Edward</p>
+      </div>
+      <a class="back" href="#">&larr; DR2 Register</a>
+    </div>
+
+    <div class="banner">
+      <b>Proposed phased layout (mockup).</b> Conditions run as parallel tracks &rarr; converge on a single <b>Granted</b> gate &rarr; transfer runs as a shallow date-ordered sequence. Every step keeps its full action set (N/A · Edit due · Sequence · Remove · Comments) so this is the real density, not a simplified view.
+    </div>
+
+    <div class="legend">
+      <span><span class="dot done"></span> completed</span>
+      <span><span class="dot red"></span> overdue / due now</span>
+      <span><span class="dot amber"></span> due soon</span>
+      <span><span class="dot green"></span> on track</span>
+      <span><span class="star">★</span> milestone</span>
+      <span><span class="lock">🔒</span> locked</span>
+      <span><span class="off">(+7d)</span> days after previous</span>
+    </div>
+
+    <div class="grid">
+      <!-- ================= LEFT : PIPELINE ================= -->
+      <div>
+        <div class="toolrow"><span class="chk"></span> Hide completed steps</div>
+
+        <!-- anchor -->
+        <div class="anchor">
+          <div class="rowtop">
+            <span class="dot done"></span>
+            <span class="nm">Deal Signed <span class="star">★</span></span>
+            <span class="rt"><span class="date">22 Jul 2026</span> <span class="status done">Completed</span></span>
+          </div>
+          <div class="acts"><button>Edit due</button><button class="seq">Sequence</button><button>Comments (0)</button></div>
+        </div>
+
+        <!-- STAGE 1 -->
+        <div class="stage">
+          <div class="stage-h"><div class="stage-n">1</div><div class="stage-t">Suspensive Conditions</div></div>
+          <div class="stage-s">All of these must be met for the deal to be granted. They run in parallel.</div>
+
+          <!-- Bond -->
+          <div class="grp">
+            <div class="grp-h"><span class="ic">🏦</span> Bond <span class="pill-active">ACTIVE</span></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot red"></span>
+                <span class="nm">Bond Application Submitted <span class="off">(+3d)</span></span>
+                <span class="rt"><span class="date">25 Jul 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+            <div class="conn"></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot amber"></span>
+                <span class="nm">Bond Approved <span class="star">★</span> <span class="lock">🔒</span> <span class="off">(+21d)</span></span>
+                <span class="rt"><span class="date">15 Aug 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+            <div class="conn"></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot green"></span>
+                <span class="nm">Guarantees Issued <span class="off">(+10d)</span></span>
+                <span class="rt"><span class="date">25 Aug 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+          </div>
+
+          <!-- Cash -->
+          <div class="grp">
+            <div class="grp-h"><span class="ic">💰</span> Cash &middot; 2 payments <span class="pill-active">ACTIVE</span></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot red"></span>
+                <span class="nm">Proof of Funds <span class="star">★</span> <span class="off">(+3d)</span></span>
+                <span class="rt"><span class="date">25 Jul 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+            <div class="soon" style="margin-top:8px">Proof of funds is what grants the deal. The two actual payments are received later, at the deeds office — see stage 2.</div>
+          </div>
+
+          <!-- Sale -->
+          <div class="grp">
+            <div class="grp-h"><span class="ic">🏠</span> Sale of another property <span class="pill-active">ACTIVE</span></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot red"></span>
+                <span class="nm">Linked Property Sold <span class="star">★</span></span>
+                <span class="rt"><span class="date">22 Jul 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+          </div>
+
+          <!-- FICA -->
+          <div class="grp">
+            <div class="grp-h"><span class="ic">📋</span> FICA / Compliance</div>
+            <div class="row">
+              <div class="rowtop"><span class="dot amber"></span>
+                <span class="nm">FICA Completed (Buyer) <span class="off">(+7d)</span></span>
+                <span class="rt"><span class="date">29 Jul 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+            <div class="conn"></div>
+            <div class="row">
+              <div class="rowtop"><span class="dot green"></span>
+                <span class="nm">FICA Completed (Seller) <span class="off">(+7d)</span></span>
+                <span class="rt"><span class="date">01 Aug 2026</span><span class="status">Not started</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- GATE -->
+        <div class="arrow">▼</div>
+        <div class="gate"><div class="gate-inner">
+          <span class="gate-star">★</span>
+          <div><div class="gate-t">GRANTED</div>
+          <div class="gate-s">Deal becomes unconditional once every condition above is met · projected 15 Aug</div></div>
+        </div></div>
+        <div class="arrow">▼</div>
+
+        <!-- STAGE 2 -->
+        <div class="stage">
+          <div class="stage-h"><div class="stage-n">2</div><div class="stage-t">Transfer &amp; Registration</div></div>
+          <div class="stage-s">Runs once the deal is granted — a single sequence, in date order.</div>
+
+          <div class="row">
+            <div class="rowtop"><span class="dot red"></span>
+              <span class="nm">Attorneys Instructed <span class="off">(+3d)</span></span>
+              <span class="rt"><span class="date">25 Jul 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+          </div>
+          <div class="conn"></div>
+          <div class="row">
+            <div class="rowtop"><span class="dot amber"></span>
+              <span class="nm">Documents Signed <span class="off">(+5d)</span></span>
+              <span class="rt"><span class="date">30 Jul 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+          </div>
+          <div class="conn"></div>
+          <div class="row">
+            <div class="rowtop"><span class="dot green"></span>
+              <span class="nm">Transfer Duty / SARS Receipt <span class="off">(+7d)</span></span>
+              <span class="rt"><span class="date">06 Aug 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+          </div>
+          <div class="conn"></div>
+
+          <div class="clbl">COCs — run in parallel</div>
+          <div class="parallel">
+            <div class="row">
+              <div class="rowtop"><span class="dot green"></span>
+                <span class="nm">Electrical COC <span class="off">(+14d)</span></span>
+                <span class="rt"><span class="date">08 Aug</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+            <div class="row">
+              <div class="rowtop"><span class="dot green"></span>
+                <span class="nm">Beetle Certificate <span class="off">(+14d)</span></span>
+                <span class="rt"><span class="date">08 Aug</span></span></div>
+              <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            </div>
+          </div>
+          <div class="conn"></div>
+
+          <div class="row">
+            <div class="rowtop"><span class="dot green"></span>
+              <span class="nm">Rates Clearance <span class="off">(+21d)</span></span>
+              <span class="rt"><span class="date">15 Aug 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+          </div>
+          <div class="conn"></div>
+
+          <div class="row">
+            <div class="rowtop"><span class="dot green"></span>
+              <span class="nm">Deeds Office Lodgement <span class="star">★</span> <span class="off">(+5d)</span></span>
+              <span class="rt"><span class="date">20 Aug 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+            <div class="kids">
+              <div class="row" style="margin-bottom:8px">
+                <div class="rowtop"><span class="dot green"></span>
+                  <span class="nm">Payment Received (1 of 2)</span>
+                  <span class="rt"><span class="date">20 Aug 2026</span><span class="status">Not started</span></span></div>
+                <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+              </div>
+              <div class="row">
+                <div class="rowtop"><span class="dot green"></span>
+                  <span class="nm">Payment Received (2 of 2)</span>
+                  <span class="rt"><span class="date">20 Aug 2026</span><span class="status">Not started</span></span></div>
+                <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+              </div>
+            </div>
+          </div>
+          <div class="conn"></div>
+
+          <div class="row">
+            <div class="rowtop"><span class="dot green"></span>
+              <span class="nm">Registration / Transfer <span class="star">★</span> <span class="off">(+10d)</span></span>
+              <span class="rt"><span class="date">30 Aug 2026</span><span class="status">Not started</span></span></div>
+            <div class="acts"><button>N/A</button><button>Edit due</button><button class="seq">Sequence</button><button class="rm">Remove</button><button>Comments (0)</button></div>
+          </div>
+        </div>
+
+        <button class="addbtn">+ Add custom step</button>
+      </div>
+
+      <!-- ================= RIGHT : PANEL ================= -->
+      <div class="panel">
+        <div class="tabs">
+          <span class="t on">Deal Structure</span>
+          <span class="t">Supplier Work Orders</span>
+          <span class="t">Documents</span>
+          <span class="t">Email Parties</span>
+          <span class="t">Proforma Invoice</span>
+        </div>
+        <div class="pbody">
+          <h3>Deal Structure</h3>
+          <p class="h">This deal's pipeline is built from these suspensive conditions:</p>
+          <div class="cond"><div><div class="cn">Bond</div></div><span class="badge">ACTIVE</span></div>
+          <div class="cond"><div><div class="cn">Cash</div><div class="cs">2 payments</div></div><span class="badge">ACTIVE</span></div>
+          <div class="cond"><div><div class="cn">Subject to sale of another property</div></div><span class="badge">ACTIVE</span></div>
+          <div class="soon">Restructure (change conditions with a reason + addendum) is coming soon.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="foot">Mockup only — real data from deal 1811 on QA1. Layout proposal for review before build.</p>
+  </div>
+</body>
+</html>
