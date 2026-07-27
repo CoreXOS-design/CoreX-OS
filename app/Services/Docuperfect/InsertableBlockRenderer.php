@@ -693,6 +693,16 @@ final class InsertableBlockRenderer
             return $candidate;
         }
 
+        // Per-document scope suffix (PACKS): `OTHER_CONDITIONS__<docKey>` keeps each
+        // pack SEGMENT's other-conditions block independent (its own block_id, its
+        // own frames + per-frame initials — a condition on doc A never bleeds to
+        // doc B). Preserve the scoped token verbatim so synthBlockFromToken derives
+        // a per-segment block_id. Must run BEFORE the fuzzy pass, which would
+        // otherwise collapse a short-docKey token back onto the bare canonical.
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__[A-Z0-9_]+$/', $candidate)) {
+            return $candidate;
+        }
+
         // Fuzzy match — catch common misspellings (typo'd one char,
         // dropped underscore, etc.) without inviting unrelated tokens
         // to collapse onto canonical ones.
@@ -734,6 +744,25 @@ final class InsertableBlockRenderer
             'INCLUDED_ITEMS'   => 'included_items',
             'EXCLUDED_ITEMS'   => 'excluded_items',
         ];
+
+        // Per-segment scoped token (packs): `OTHER_CONDITIONS__<docKey>` → a
+        // block_id scoped to that pack document, so each segment's conditions +
+        // per-frame initials are independent. Bare (single-doc) tokens keep
+        // block_id `other_conditions` unchanged (backward-compatible).
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__(.+)$/', $token, $sm)) {
+            $canonical = $sm[1];
+            $purpose   = $purposeMap[$canonical];
+            $scope     = \Illuminate\Support\Str::slug($sm[2], '_');
+            return [
+                'id'              => strtolower($canonical) . '__' . $scope,
+                'purpose'         => $purpose,
+                'label'           => $this->defaultLabelFor($purpose),
+                'position_marker' => "~~~~{$token}~~~~",
+                'auto_number'     => $purpose === 'other_conditions',
+                'locked'          => false,
+            ];
+        }
+
         $purpose = $purposeMap[$token] ?? 'custom_named';
         return [
             'id'              => strtolower($token),

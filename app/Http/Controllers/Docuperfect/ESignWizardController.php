@@ -1811,6 +1811,11 @@ class ESignWizardController extends Controller
             // pack get distinct, stable keys; never DOM-position-derived.
             $mergedHtml = $this->stampDisclosureDocKeys($mergedHtml);
 
+            // PER-DOCUMENT other-conditions: scope each segment's OTHER_CONDITIONS
+            // marker to its wrapper docKey so a condition added to one pack document
+            // never bleeds into another (independent frames + initials per segment).
+            $mergedHtml = $this->scopePackOtherConditionsMarkers($mergedHtml);
+
             $webTemplateData = [
                 'merged_html'        => $mergedHtml,
                 'template_ids'       => $templateIds,
@@ -2840,6 +2845,44 @@ class ESignWizardController extends Controller
             \Log::warning('STAMP_DISCLOSURE_DOCKEY_FAILED', ['error' => $e->getMessage()]);
             return $html;
         }
+    }
+
+    /**
+     * PER-DOCUMENT other-conditions in a PACK. Each pack SEGMENT
+     * (`.corex-document-wrapper[data-disclosure-doc]`) has its own
+     * `~~~~OTHER_CONDITIONS~~~~` marker. Left bare, every segment resolves to the
+     * SAME `other_conditions` block_id, so a condition added to one document bleeds
+     * into all of them. This scopes each segment's marker to its wrapper's docKey —
+     * `~~~~OTHER_CONDITIONS__<docKey>~~~~` — so InsertableBlockRenderer derives an
+     * independent block_id per document (its own frames + per-frame initials +
+     * re-engagement, no cross-document bleed).
+     *
+     * Forward pass: each marker takes the nearest PRECEDING `data-disclosure-doc`
+     * (its enclosing wrapper, opened just before it in document order). Only runs
+     * for real packs (≥2 wrappers); a single document keeps the bare marker so its
+     * `other_conditions` block_id is unchanged (backward-compatible).
+     */
+    private function scopePackOtherConditionsMarkers(string $html): string
+    {
+        if (trim($html) === '' || substr_count($html, 'corex-document-wrapper') < 2) {
+            return $html;
+        }
+        $currentKey = null;
+        $out = preg_replace_callback(
+            '/data-disclosure-doc="([^"]+)"|~{4,}\s*OTHER_CONDITIONS\s*~{4,}/i',
+            function ($m) use (&$currentKey) {
+                if (isset($m[1]) && $m[1] !== '') {
+                    $currentKey = preg_replace('/[^A-Za-z0-9_]/', '', $m[1]);
+                    return $m[0];
+                }
+                if ($currentKey === null || $currentKey === '') {
+                    return $m[0];
+                }
+                return '~~~~OTHER_CONDITIONS__' . $currentKey . '~~~~';
+            },
+            $html
+        );
+        return $out ?? $html;
     }
 
     private function autoFillFields(array $fields, array $stepData): array
