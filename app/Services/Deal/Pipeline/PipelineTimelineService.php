@@ -76,8 +76,23 @@ class PipelineTimelineService
             ];
         }
 
-        // Phase bands derived between consecutive milestone gates (labelled by the gate they lead to).
+        // Anti-overlap: stagger each milestone LABEL onto its own level when gates cluster near a date.
         $ms = collect($gates)->sortBy('day')->values();
+        $labelGap = (int) ceil(130 / 21);
+        $ends = [];
+        $mileLevels = 1;
+        $ms = $ms->map(function ($m) use (&$ends, &$mileLevels, $labelGap) {
+            $lvl = 0;
+            while (isset($ends[$lvl]) && $m['day'] < $ends[$lvl]) {
+                $lvl++;
+            }
+            $ends[$lvl] = $m['day'] + $labelGap;
+            $mileLevels = max($mileLevels, $lvl + 1);
+            $m['lvl'] = $lvl;
+            return $m;
+        });
+
+        // Phase bands derived between consecutive milestone gates (labelled by the gate they lead to).
         $phases = [];
         $prev = 0;
         foreach ($ms as $m) {
@@ -113,6 +128,7 @@ class PipelineTimelineService
             'days'       => $days,
             'phases'     => $phases,
             'miles'      => $ms->all(),
+            'mile_levels' => $mileLevels,
             'tiles'      => $tiles,
             'comments'   => $comments,
         ];

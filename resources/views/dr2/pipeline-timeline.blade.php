@@ -180,7 +180,8 @@
   const root=document.getElementById('dr2tl'); if(!root) return;
   const BOARD=@json($board ?? ['empty'=>true]);
   if(BOARD.empty) return;
-  const DAYW=BOARD.day_width||21, PADX=14, ROWH=78, ROWTOP=88, TRACKH=52;
+  const DAYW=BOARD.day_width||21, PADX=14, ROWH=78, TRACKH=52;
+  const MLVL=BOARD.mile_levels||1, ROWTOP=96+MLVL*13; // push tiles below the (possibly stacked) milestone labels
   const BASE=new Date(BOARD.base_date+'T00:00:00Z');
   const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const x=d=>PADX+d*DAYW;
@@ -205,9 +206,11 @@
     const ax=document.getElementById('axis'); ax.style.width=W+'px'; ax.innerHTML='';
     for(let d=0;d<=BOARD.days;d+=7){const t=document.createElement('div');t.className='tick';t.style.left=x(d)+'px';t.textContent=dstr(d);ax.appendChild(t);}
     const bd=document.getElementById('bands'); bd.innerHTML='';
-    BOARD.phases.forEach((p,i)=>{const b=document.createElement('div');b.className='band'+(i%2?' even':'');b.style.left=x(p.from)+'px';b.style.width=(p.to-p.from)*DAYW+'px';b.innerHTML='<span class="bname">'+p.name+'</span>';bd.appendChild(b);});
+    const bnameTop=(MLVL*13+6); // band labels sit BELOW the stacked milestone labels
+    BOARD.phases.forEach((p,i)=>{const b=document.createElement('div');b.className='band'+(i%2?' even':'');b.style.left=x(p.from)+'px';b.style.width=(p.to-p.from)*DAYW+'px';b.innerHTML='<span class="bname" style="top:'+bnameTop+'px">'+p.name+'</span>';bd.appendChild(b);});
     const ms=document.getElementById('miles'); ms.innerHTML='';
-    BOARD.miles.forEach(m=>{const el=document.createElement('div');el.className='mile '+m.state;el.style.left=x(m.day)+'px';el.innerHTML='<span class="cap"></span><span class="txt">★ '+m.name+' · '+dstr(m.day)+'</span>';ms.appendChild(el);});
+    BOARD.miles.forEach(m=>{const el=document.createElement('div');el.className='mile '+m.state;el.style.left=x(m.day)+'px';
+      el.innerHTML='<span class="cap"></span><span class="txt" style="top:'+(3+(m.lvl||0)*13)+'px">★ '+m.name+' · '+dstr(m.day)+'</span>';ms.appendChild(el);});
     const td=document.getElementById('today'); if(BOARD.today_day>=0&&BOARD.today_day<=BOARD.days){td.style.display='';td.style.left=x(BOARD.today_day)+'px';}else{td.style.display='none';}
     const tl=document.getElementById('tiles'); tl.innerHTML='';
     tiles.forEach(t=>{

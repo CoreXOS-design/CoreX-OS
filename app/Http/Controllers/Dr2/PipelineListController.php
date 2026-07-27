@@ -30,6 +30,7 @@ class PipelineListController extends Controller
         private readonly Dr1PipelineService $pipelines,
         private readonly DealPipelineLockService $lock,
         private readonly PipelineEventService $events,
+        private readonly \App\Services\Deal\Pipeline\PipelineTimelineService $timeline,
     ) {
     }
 
@@ -40,8 +41,8 @@ class PipelineListController extends Controller
         }
 
         $ctx = $this->pipelineContext($deal);
-        // Same normalized activity as the timeline (comments now; email/WhatsApp later), newest first.
-        $ctx['activity'] = $this->events->eventsForDeal($deal)->reverse()->values();
+        // The mockup board payload gives the same comments feed the timeline uses.
+        $ctx['board'] = $this->timeline->buildBoard($deal);
 
         return view('dr2.pipeline-list', $ctx);
     }
