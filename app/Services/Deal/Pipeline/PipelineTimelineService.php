@@ -107,7 +107,7 @@ class PipelineTimelineService
 
         // Comments — the normalizer stream (step comments now; email/WhatsApp later), for the footer +
         // the on-timeline pins positioned by the date each was made.
-        $comments = $this->events->eventsForDeal($deal)->map(function ($e) use ($idx) {
+        $comments = $this->events->eventsForDeal($deal)->map(function ($e) use ($idx, $days) {
             return [
                 'id'     => $e->sourceType . ':' . $e->sourceId,
                 'target' => $e->isStepScoped() ? (int) $e->stepId : 'deal',
