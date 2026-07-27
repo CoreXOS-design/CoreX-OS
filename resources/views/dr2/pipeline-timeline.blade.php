@@ -50,7 +50,7 @@
   /* phase bands (behind) */
   #dr2tl .band{position:absolute;top:34px;bottom:0;z-index:0;border-left:1px dashed #dbe4ff;background:rgba(99,102,241,.03)}
   #dr2tl .band.alt{background:rgba(37,99,235,.045)}
-  #dr2tl .band .bname{position:absolute;top:26px;left:10px;font-size:11px;font-weight:800;color:#4f46e5;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;opacity:.9}
+  #dr2tl .band .bname{position:absolute;left:10px;font-size:11px;font-weight:800;color:#4f46e5;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;opacity:.85}
 
   /* date axis */
   #dr2tl .axis{position:sticky;top:0;height:34px;background:#fbfcfe;border-bottom:1px solid #e2e8f0;z-index:5}
@@ -68,8 +68,9 @@
   #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:#ef4444;background:#fff;padding:0 3px;border-radius:3px}
 
   /* the TILE = the duration bar */
-  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:86px;
+  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:78px;
     padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(15,23,42,.10);overflow:hidden}
+  #dr2tl .ttile:hover{z-index:8;box-shadow:0 6px 16px rgba(37,99,235,.20)}
   #dr2tl .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
   #dr2tl .ttile.active::before{background:#2563eb}#dr2tl .ttile.done::before{background:#16a34a}#dr2tl .ttile.upcoming::before{background:#cbd5e1}
   #dr2tl .th{display:flex;align-items:center;gap:6px}
@@ -80,8 +81,10 @@
   #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px}
   #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #dr2tl .sub .d{color:#64748b;font-weight:700}
-  #dr2tl .tacts{display:flex;gap:4px;margin-top:auto;flex-wrap:wrap;overflow:hidden;max-height:38px}
-  #dr2tl .tacts .b{font-size:9.5px;line-height:1;padding:4px 6px;border:1px solid #e2e8f0;border-radius:5px;background:#fff;color:#64748b;cursor:pointer;font-family:inherit;white-space:nowrap}
+  #dr2tl .tacts{display:flex;gap:4px;margin-top:auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:thin}
+  #dr2tl .tacts::-webkit-scrollbar{height:5px}
+  #dr2tl .tacts::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+  #dr2tl .tacts .b{font-size:9.5px;line-height:1;padding:4px 6px;border:1px solid #e2e8f0;border-radius:5px;background:#fff;color:#64748b;cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto}
   #dr2tl .tacts .b:hover{background:#f1f5f9}
   #dr2tl .tacts .b.go{color:#065f46;border-color:#a7f3d0;background:#ecfdf5;font-weight:600}
   #dr2tl .tacts .b.seq{color:#2563eb;border-color:#bfdbfe;font-weight:600}
@@ -127,8 +130,9 @@
 @php($DAYW = (int) ($board['day_width'] ?? 21))
 @php($PADX = 14)
 @php($mileLevels = max(1, (int) ($board['mile_levels'] ?? 1)))
-@php($ROWTOP = 54 + $mileLevels * 18)
-@php($ROWH = 104)
+@php($ROWTOP = 58 + $mileLevels * 17)
+@php($ROWH = 94)
+@php($bandLabelTop = max(2, $ROWTOP - 34 - 15))
 <div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
 
   <div class="thead">
@@ -211,7 +215,7 @@
         {{-- phase bands --}}
         @foreach($board['phases'] as $i => $p)
           <div class="band {{ $i % 2 ? 'alt' : '' }}" style="left:{{ $PADX + $p['from'] * $DAYW }}px;width:{{ max(0, ($p['to'] - $p['from']) * $DAYW) }}px;">
-            <span class="bname">{{ $p['name'] }}</span>
+            <span class="bname" style="top:{{ $bandLabelTop }}px;">{{ $p['name'] }}</span>
           </div>
         @endforeach
 
@@ -233,7 +237,7 @@
           @php($r = $rowById->get((int) $tile['id']))
           @php($s = $r['model'] ?? null)
           @php($left = $PADX + (int) $tile['start'] * $DAYW)
-          @php($floorW = max(112, (int) $tile['dur'] * $DAYW - 4))
+          @php($floorW = max(128, (int) $tile['dur'] * $DAYW - 4))
           @php($cap = $capRight[(int) $tile['id']] ?? null)
           @php($maxW = $cap !== null ? max(46, ($PADX + (int) $cap * $DAYW) - $left - 4) : $floorW)
           @php($width = (int) min($floorW, $maxW))
