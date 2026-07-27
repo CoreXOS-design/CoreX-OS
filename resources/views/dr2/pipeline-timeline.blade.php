@@ -58,7 +58,7 @@
             {{-- Today line --}}
             <template x-if="data.today_index >= 0 && data.today_index <= data.total_days">
                 <div :style="`position:absolute;top:0;bottom:0;left:${data.today_index*dw}px;width:2px;background:#ef4444;z-index:6;`">
-                    <div style="position:absolute;top:2px;left:3px;font-size:.6rem;color:#ef4444;font-weight:700;white-space:nowrap;">today</div>
+                    <div style="position:absolute;bottom:2px;left:3px;font-size:.6rem;color:#ef4444;font-weight:700;white-space:nowrap;background:rgba(255,255,255,.85);padding:0 2px;border-radius:2px;">today</div>
                 </div>
             </template>
 
