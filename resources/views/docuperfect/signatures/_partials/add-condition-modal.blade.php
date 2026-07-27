@@ -60,22 +60,36 @@
 // detail. The previous wiring lived inside Phase 1B.5's override-modal
 // partial (deleted in Phase 1B.6) — re-homed here so the dispatch survives.
 (function () {
-    function attachAddConditionHandlers() {
-        document.querySelectorAll('.btn-add-condition').forEach((btn) => {
-            if (btn.__phase1b7HandlerAttached) return;
-            btn.__phase1b7HandlerAttached = true;
-            btn.addEventListener('click', function (e) {
-                e.preventDefault();
-                window.dispatchEvent(new CustomEvent('open-add-condition-modal', {
-                    detail: {
-                        blockId: btn.dataset.blockId,
-                        purpose: btn.dataset.blockPurpose,
-                        label:   btn.dataset.blockLabel,
-                    },
-                }));
-            });
-        });
-    }
+    // Recipient-signing fix — DELEGATED handlers on document.
+    // The "+ Add condition" and per-condition ".btn-add-initial" buttons are
+    // NOT static HTML: the document body arrives via Alpine x-html and is then
+    // relocated by paginateDocument() in a deferred $nextTick+setTimeout, i.e.
+    // AFTER DOMContentLoaded / alpine:initialized. The prior one-shot
+    // querySelectorAll attachment bound to zero buttons (they didn't exist yet)
+    // and never re-ran, so on the recipient signing surface "+ Add condition"
+    // and the per-condition initial slots were dead. Event delegation on
+    // document survives every x-html inject + pagination rebuild + in-place
+    // condition-row append — no re-attachment needed.
+    document.addEventListener('click', function (e) {
+        const addBtn = e.target.closest('.btn-add-condition');
+        if (addBtn) {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('open-add-condition-modal', {
+                detail: {
+                    blockId: addBtn.dataset.blockId,
+                    purpose: addBtn.dataset.blockPurpose,
+                    label:   addBtn.dataset.blockLabel,
+                },
+            }));
+            return;
+        }
+        const initBtn = e.target.closest('.btn-add-initial');
+        if (initBtn && !initBtn.disabled && !initBtn.classList.contains('initial-filled')) {
+            e.preventDefault();
+            postInitial(initBtn);
+            return;
+        }
+    });
 
     // Phase 1B.7 (FIX C) — wire per-condition initial buttons to POST the
     // initialCondition endpoint. On 201 the slot transitions to filled by
@@ -110,6 +124,10 @@
                 const letters = slot.querySelector('strong')?.textContent || '';
                 slot.innerHTML = '<strong style="color:#047857; letter-spacing:0.05em;">' + letters + '</strong>'
                     + '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">just now</small>';
+                // Recipient-signing fix — the condition-initial slots are now
+                // first-class required items; refresh the submit gate so this
+                // freshly-filled slot drops out of the "N remaining" count.
+                document.dispatchEvent(new CustomEvent('corex-refresh-signing-count'));
             } else {
                 const j = await r.json().catch(() => ({}));
                 alert(j.error || ('Could not initial (' + r.status + ')'));
@@ -118,36 +136,14 @@
             alert('Network error: ' + e.message);
         }
     }
-
-    function attachInitialHandlers() {
-        document.querySelectorAll('.btn-add-initial').forEach((btn) => {
-            if (btn.__phase1b7InitialAttached) return;
-            btn.__phase1b7InitialAttached = true;
-            btn.addEventListener('click', function (e) {
-                e.preventDefault();
-                postInitial(btn);
-            });
-        });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            attachAddConditionHandlers();
-            attachInitialHandlers();
-        });
-    } else {
-        attachAddConditionHandlers();
-        attachInitialHandlers();
-    }
-    document.addEventListener('alpine:initialized', function () {
-        attachAddConditionHandlers();
-        attachInitialHandlers();
-    });
-    // Phase 1B.9 — when a new condition row is appended in-place we fire
-    // this event so the freshly-rendered .btn-add-initial buttons get
-    // their click handler attached without a page reload.
+    // Handlers are DELEGATED on document (top of this IIFE) so they survive
+    // x-html inject + pagination + in-place row append. No per-element
+    // attachment / lifecycle re-binding is needed. The legacy
+    // 'phase-1b7-reattach-initial-handlers' event is now a no-op but is still
+    // dispatched by _appendConditionRow for backward-compat; instead we refresh
+    // the submit-gate count when a new condition row is appended.
     document.addEventListener('phase-1b7-reattach-initial-handlers', function () {
-        attachInitialHandlers();
+        document.dispatchEvent(new CustomEvent('corex-refresh-signing-count'));
     });
 })();
 

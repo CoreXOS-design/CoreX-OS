@@ -1561,6 +1561,14 @@ function externalSign() {
                 this.signingMethod = null;
             });
 
+            // Recipient-signing fix — when a per-condition initial is filled or
+            // a new condition is added (delegated handlers in the add-condition
+            // modal partial, outside Alpine scope), refresh the submit gate so
+            // the "N remaining" count reflects the just-completed condition.
+            document.addEventListener('corex-refresh-signing-count', () => {
+                if (this.isWebTemplate) this.updateIncompleteCount();
+            });
+
             // For web templates: split into A4 pages, convert editable field spans to inputs, make sig elements interactive
             // Only init if the document container is already visible (signingMethod already set)
             if (this.isWebTemplate && this.signingMethod === 'electronic') {
@@ -1905,6 +1913,20 @@ function externalSign() {
                 });
             }
 
+            // 5b. Per-condition initial slots (THIS signer's, not yet filled).
+            //     The renderer emits `.btn-add-initial.initial-active` ONLY for
+            //     the current party's un-filled slots; a filled one loses
+            //     `.initial-active` (gains `.initial-filled`). Every condition
+            //     the signer is a party to — including ones the AGENT added —
+            //     must be initialed before submit (previously uncounted, so the
+            //     agent was never required to initial conditions they added and
+            //     recipients could skip them).
+            if (container) {
+                container.querySelectorAll('.btn-add-initial.initial-active[data-condition-id]').forEach(el => {
+                    items.push({ el, label: 'Condition initial' });
+                });
+            }
+
             // 6. Consent checkbox (always last)
             if (!this.webConsented) {
                 const consentEl = document.getElementById('consent-checkbox-label');
@@ -1986,6 +2008,17 @@ function externalSign() {
                 container.querySelectorAll('input.field-editable[data-viewer-editable]').forEach(inp => {
                     total++;
                     if (!inp.value || !inp.value.trim()) incomplete++;
+                });
+            }
+
+            // 7. Per-condition initial slots (THIS signer's). Interactive slots
+            //    carry `.btn-add-initial[data-condition-id]`; filled ones are
+            //    `.initial-filled`. Counting them makes initialing each
+            //    condition (agent-added OR recipient-added) a required step.
+            if (container) {
+                container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
+                    total++;
+                    if (!el.classList.contains('initial-filled')) incomplete++;
                 });
             }
 
