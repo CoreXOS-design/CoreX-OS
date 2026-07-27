@@ -156,7 +156,7 @@
               @if($board['gate']['granted'])
                 Deal is unconditional — every suspensive condition above is met.
               @else
-                Deal becomes unconditional once every condition above is met@if($board['gate']['projected']) · projected {{ $board['gate']['projected'] }}@endif
+                Deal becomes unconditional once every condition above is met{{ $board['gate']['projected'] ? ' · projected '.$board['gate']['projected'] : '' }}
               @endif
             </div>
           </div>

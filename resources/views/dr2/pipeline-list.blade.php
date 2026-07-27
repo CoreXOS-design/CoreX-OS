@@ -116,7 +116,7 @@
                 <div class="dr2-ph-gate__t">{{ $board['gate']['granted'] ? 'GRANTED' : 'GRANTED — pending' }}</div>
                 <div class="dr2-ph-gate__s">
                   @if($board['gate']['granted'])Deal is unconditional — every suspensive condition above is met.
-                  @else Deal becomes unconditional once every condition above is met@if($board['gate']['projected']) · projected {{ $board['gate']['projected'] }}@endif @endif
+                  @else Deal becomes unconditional once every condition above is met{{ $board['gate']['projected'] ? ' · projected '.$board['gate']['projected'] : '' }}@endif
                 </div>
               </div>
             </div>
