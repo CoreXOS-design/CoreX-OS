@@ -1,6 +1,6 @@
 # Pipeline Dashboard — spec
 
-> **Status:** Phase 1 (foundation) + Phase 2 (timeline dashboard) BUILT on QA1. Phases 3–4 specced, not built.
+> **Status:** Phases 1 (foundation) + 2 (timeline) + 3 (list) BUILT on QA1. Phase 4 specced, not built.
 > **Scope guard:** QA1 only throughout. Approved by Johan 2026-07-27 (parked feature, un-parked).
 > Two views over ONE shared foundation; the agent picks a default and can switch.
 
@@ -133,8 +133,16 @@ Sources available to absorb (audit): `deal_step_comments` (step, live), `deal_ac
   toggle Timeline | Board. Blade `dr2/pipeline-timeline.blade.php` (self-contained Alpine, no external
   gantt lib). Tests: `tests/Feature/Dr2/PipelineRescheduleTest.php` (cascade fan-in + sibling + held +
   frozen + render). Proven on deals 180 (concurrent) & 168 (linear).
-- **Phase 3 — List view:** vertical list, grab-to-reorder (display `position` only — bulk position
-  POST, adapting the template-editor drag pattern), inline edit, same action set via shared wrappers.
+- **Phase 3 — List view (BUILT):** `GET deals-dr2/{deal}/pipeline/list` + `POST …/pipeline/reorder`
+  (grab-to-reorder — writes `position` ONLY, never deps/dates, decision 4) + `POST …/steps/{step}/dates`
+  (inline Edit-dates — sets planned_start + due_date explicitly, decision 2). `PipelineListController`.
+  Vertical rows with a ⠿ drag grip + native HTML5 DnD, a clickable # for sequence-click (jump to a
+  position), and the full action set — Complete / Edit dates / Sequence / N-A / Remove / Comment —
+  reusing the board routes with `?from=list`. The activity feed uses the same `PipelineEventService` as
+  the timeline. Blade `dr2/pipeline-list.blade.php`. NB: "Sequence" here = display reorder, NOT the
+  AT-334 `follows` action (which rewires dependencies) — kept deliberately separate. Tests:
+  `tests/Feature/Dr2/PipelineListReorderTest.php` (reorder=position-only · foreign-id drop · edit-dates
+  pins start+end · end≥start · render). Proven on deals 180 & 168.
 - **Phase 4 — per-agent default wiring + email/WhatsApp event sources** (register the two new sources
   on the normalizer; resolve deal via `communication_links`).
 

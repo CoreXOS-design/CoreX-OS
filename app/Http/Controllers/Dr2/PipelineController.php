@@ -36,7 +36,11 @@ class PipelineController extends Controller
      */
     private function pipelineRedirect(Deal $deal): RedirectResponse
     {
-        $route = request('from') === 'timeline' ? 'deals-dr2.pipeline.timeline' : 'deals-dr2.pipeline';
+        $route = match (request('from')) {
+            'timeline' => 'deals-dr2.pipeline.timeline',
+            'list'     => 'deals-dr2.pipeline.list',
+            default    => 'deals-dr2.pipeline',
+        };
         return redirect()->route($route, $deal);
     }
 

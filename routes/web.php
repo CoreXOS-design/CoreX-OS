@@ -725,6 +725,10 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // Pipeline Dashboard Phase 2 — the TIMELINE view + horizontal drag-to-reschedule (JSON preview/commit).
     Route::get('/{deal}/pipeline/timeline',               [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.timeline');
     Route::post('/{deal}/pipeline/steps/{step}/reschedule', [\App\Http\Controllers\Dr2\PipelineTimelineController::class, 'reschedule'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reschedule');
+    // Pipeline Dashboard Phase 3 — the LIST view + grab-to-reorder (position ONLY) + inline edit-dates.
+    Route::get('/{deal}/pipeline/list',                   [\App\Http\Controllers\Dr2\PipelineListController::class, 'show'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.list');
+    Route::post('/{deal}/pipeline/reorder',               [\App\Http\Controllers\Dr2\PipelineListController::class, 'reorder'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.reorder');
+    Route::post('/{deal}/pipeline/steps/{step}/dates',    [\App\Http\Controllers\Dr2\PipelineListController::class, 'editDates'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.dates');
     Route::post('/{deal}/pipeline/attach',                [\App\Http\Controllers\Dr2\PipelineController::class, 'attach'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.attach');
     // AT-334 — build the pipeline from chosen suspensive conditions (Deal Structure tab).
     Route::post('/{deal}/pipeline/structure',             [\App\Http\Controllers\Dr2\PipelineController::class, 'saveStructure'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.structure');
