@@ -139,7 +139,7 @@
                     // Phase 3 primary/WhatsApp/email designations but changeable
                     // before every send. Same selector data feeds the Phase 4
                     // could-not-send reselect-and-resend picker (contact_phone_id /
-                    // contact_email_id) — one source of truth for "which number".
+                    // contact_email_id) — one source of truth for which number.
                     waNumbers: @js($contact->phones->map(fn($p) => [
                         'id' => $p->id,
                         'display' => $p->phone . ($p->label ? ' (' . $p->label . ')' : '') . ($p->is_whatsapp ? ' — WhatsApp' : ''),
@@ -183,12 +183,12 @@
                         // USA (or any non-ZA) number could never resolve on WhatsApp: a
                         // number typed with a local-style leading 0 got a ZA country code
                         // prepended to non-ZA digits (agents literally could not reach a
-                        // USA contact — "can't load a USA number"). The digits are built
+                        // USA contact — can't load a USA number. The digits are built
                         // server-side by WhatsAppNumberFormatter using THIS number's own
                         // dial code (contact_phones.dial_code), never a hardcoded '27'.
                         // Outreach selector — the agent's chosen number (selectedPhoneId),
                         // defaulting to the Phase 3 WhatsApp/primary designation but
-                        // changeable per send via the "Send to" dropdown below.
+                        // changeable per send via the Send-to dropdown below.
                         const target = this.waNumbers.find(p => p.id === this.selectedPhoneId) ?? this.waNumbers[0];
                         if (!target) { alert('This contact has no phone number.'); return; }
                         window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
