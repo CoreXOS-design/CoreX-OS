@@ -45,6 +45,11 @@ class AgencyObserver
             // historical hardcoded set) so the work-order dropdown is populated.
             \App\Models\DealV2\AgencyServiceType::seedDefaultsFor($agency->id);
 
+            // Contact-details Phase 2 — seed the agency's contact-label list
+            // (Personal/Business/Contact) so the phone/email label dropdown is
+            // never empty for a brand-new agency.
+            \App\Models\ContactIdentifierLabel::seedDefaultsFor($agency->id);
+
             // Seed leave visibility matrix with defaults
             foreach (AgencyLeaveVisibilityMatrix::defaultRows() as $row) {
                 AgencyLeaveVisibilityMatrix::withoutGlobalScopes()->firstOrCreate(

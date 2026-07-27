@@ -3130,6 +3130,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{contactSource}', [\App\Http\Controllers\CoreX\ContactSourceController::class, 'destroy'])->name('destroy');
     });
 
+    // Contact-details Phase 2 — Contact Labels (settings): the managed list
+    // assignable to each tel/email on a contact.
+    Route::prefix('settings/contact-identifier-labels')->middleware('permission:access_settings')->name('corex.settings.contact-identifier-labels.')->group(function () {
+        Route::post('/',                          [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'store'])->name('store');
+        Route::put('/{contactIdentifierLabel}',    [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'update'])->name('update');
+        Route::delete('/{contactIdentifierLabel}', [\App\Http\Controllers\CoreX\ContactIdentifierLabelController::class, 'destroy'])->name('destroy');
+    });
+
     // Contact Tags (settings)
     Route::prefix('settings/contact-tags')->middleware('permission:access_settings')->name('corex.settings.contact-tags.')->group(function () {
         Route::post('/',              [\App\Http\Controllers\CoreX\ContactTagController::class, 'store'])->name('store');

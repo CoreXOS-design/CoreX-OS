@@ -208,10 +208,10 @@
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-phone">
-                    @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567'])
+                    @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'labels' => $contactIdentifierLabels])
                 </div>
                 <div class="sm:col-span-2 lg:col-span-3" data-tour="contact-email">
-                    @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com'])
+                    @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional — but a contact needs at least one phone or email)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'labels' => $contactIdentifierLabels])
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
@@ -583,10 +583,10 @@
                                  code (part of "agent couldn't load a USA number"). Same
                                  multi-identifier repeater as the full edit form now, so
                                  quick-edit can never reintroduce a country-blind number. --}}
-                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get()])
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
                         <div class="sm:col-span-2 lg:col-span-3">
-                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get()])
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get(), 'labels' => $contactIdentifierLabels])
                         </div>
                         <div class="sm:col-span-2 lg:col-span-3">
                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>

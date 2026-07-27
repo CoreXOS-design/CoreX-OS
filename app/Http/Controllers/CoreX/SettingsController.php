@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
+use App\Models\ContactIdentifierLabel;
 use App\Models\ContactTag;
 use App\Models\ContactType;
 use App\Models\CommissionSetting;
@@ -87,6 +88,8 @@ class SettingsController extends Controller
         // parent is surfaced separately so it can be re-homed.
         $data['contactTypes']    = ContactType::parents()->with('subTags')->get()->unique('name')->values();
         $data['contactSources']  = ContactSource::orderBy('sort_order')->orderBy('name')->get();
+        // Contact-details Phase 2 — the label list assignable to each tel/email.
+        $data['contactIdentifierLabels'] = ContactIdentifierLabel::orderBy('sort_order')->orderBy('name')->get();
         // Legacy tags awaiting a parent (pre-normalisation). BOUNDED: on an
         // un-normalised install EVERY tag is unassigned, so an unbounded render
         // would OOM the settings page — cap the rendered forms and surface the

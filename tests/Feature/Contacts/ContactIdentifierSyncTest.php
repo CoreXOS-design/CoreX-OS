@@ -248,4 +248,64 @@ final class ContactIdentifierSyncTest extends TestCase
         $this->assertSame('14155552671', $svc->normalizePhone('1 (415) 555-2671'));
         $this->assertSame('447911123456', $svc->normalizePhone('+44 7911 123456'));
     }
+
+    /**
+     * Contact-details Phase 2 — a managed label persists on BOTH a phone and
+     * an email row via the same shared list, and the legacy string `label`
+     * mirror stays in sync with whichever label is selected.
+     */
+    public function test_sync_persists_a_managed_label_on_phone_and_email(): void
+    {
+        $label = \App\Models\ContactIdentifierLabel::create([
+            'agency_id' => $this->agencyId, 'name' => 'Personal', 'sort_order' => 0,
+        ]);
+
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true, 'label_id' => $label->id],
+        ], [
+            ['value' => 'a@example.com', 'is_primary' => true, 'label_id' => $label->id],
+        ]);
+
+        $contact->refresh();
+        $phone = $contact->phones()->first();
+        $email = $contact->emails()->first();
+        $this->assertSame($label->id, $phone->contact_identifier_label_id);
+        $this->assertSame('Personal', $phone->label, 'string mirror kept in sync with the selected label');
+        $this->assertSame($label->id, $email->contact_identifier_label_id);
+        $this->assertSame('Personal', $email->label);
+    }
+
+    /** A contact with several numbers can label EACH one independently. */
+    public function test_a_contact_with_multiple_numbers_can_label_each(): void
+    {
+        $personal = \App\Models\ContactIdentifierLabel::create(['agency_id' => $this->agencyId, 'name' => 'Personal']);
+        $business = \App\Models\ContactIdentifierLabel::create(['agency_id' => $this->agencyId, 'name' => 'Business']);
+
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true,  'label_id' => $personal->id],
+            ['value' => '0822222222', 'is_primary' => false, 'label_id' => $business->id],
+            ['value' => '0823333333', 'is_primary' => false, 'label_id' => null], // no label
+        ], []);
+
+        $contact->refresh();
+        $byPhone = $contact->phones()->get()->keyBy('phone');
+        $this->assertSame($personal->id, $byPhone['0821111111']->contact_identifier_label_id);
+        $this->assertSame($business->id, $byPhone['0822222222']->contact_identifier_label_id);
+        $this->assertNull($byPhone['0823333333']->contact_identifier_label_id);
+    }
+
+    /** Existing (pre-Phase-2) identifier rows are unaffected — label stays NULL until re-picked. */
+    public function test_existing_data_unaffected_by_the_label_feature(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true], // no label_id key at all — simulates pre-Phase-2 caller
+        ], []);
+
+        $phone = $contact->refresh()->phones()->first();
+        $this->assertNull($phone->contact_identifier_label_id);
+        $this->assertSame('0821111111', $phone->phone, 'number itself untouched');
+    }
 }
