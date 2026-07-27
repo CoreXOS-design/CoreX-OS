@@ -7,9 +7,9 @@
      Extracted as its own partial (pre-existing bug fix, found while verifying
      Phase 4 in a real browser — NOT a Phase 4 change): part of the same
      class of Blade-compiler defect as _assigned-agents.blade.php /
-     _linked-properties.blade.php — show.blade.php silently lost this @if's
-     opening tag past a certain size. Splitting it out resolves it; no logic
-     changed here. --}}
+     _linked-properties.blade.php — show.blade.php silently lost this
+     if-block's opening tag. Splitting it out resolves it; no logic changed
+     here. --}}
 @if(session('held_address_warning'))
     @php $heldWarn = session('held_address_warning'); @endphp
     <div class="rounded-md p-4 mb-4" role="alert"

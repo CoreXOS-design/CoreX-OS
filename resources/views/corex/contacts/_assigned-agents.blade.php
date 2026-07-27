@@ -6,15 +6,13 @@
      Extracted as its own partial (pre-existing bug fix, found while
      verifying Phase 4 in a real browser — NOT a Phase 4 change): the
      surrounding show.blade.php is a ~2300-line file, and Blade's compiler
-     silently failed to compile the @php…@endphp opening tag right here
-     (a PCRE backtrack/recursion-limit-class failure on very large files —
-     confirmed by testing Blade::compileString() against the file exactly
-     as it stood before Phase 4 touched anything). $canReassign never got
-     assigned, so @if($canReassign) threw "Undefined variable" on EVERY
-     contact page — a pre-existing 500, not something Phase 4 introduced.
-     Moving this self-contained section into its own file compiles it
-     independently and resolves it, same technique used for
-     _recent-sends.blade.php. Reported to Johan; no logic changed here. --}}
+     silently failed to compile the php-block/endphp opening tag right here.
+     $canReassign never got assigned, so the if-block reading it threw
+     "Undefined variable" on EVERY contact page — a pre-existing 500, not
+     something Phase 4 introduced. Moving this self-contained section into
+     its own file compiles it independently and resolves it, same technique
+     used for _recent-sends.blade.php. Reported to Johan; no logic changed
+     here. --}}
 @php $canReassign = auth()->user()?->hasPermission('contacts.reassign_agent'); @endphp
 <div class="pt-2 border-t" style="border-color:var(--border);">
     <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
