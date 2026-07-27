@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
+use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -171,6 +172,62 @@ class FicaSubmission extends Model
     }
 
     // ── Scopes ──
+
+    /**
+     * AT-346 — resolve the per-user FICA visibility tier: 'own' | 'branch' | 'all'.
+     *
+     * Mirrors the Contacts/Properties pattern (PermissionService::getDataScope +
+     * the Role Manager `fica.view` scope), with ONE structural elevator: an
+     * owner-role user or an appointed Compliance Officer / Responsible Officer
+     * reviews the whole agency's FICA by definition, so they always resolve to
+     * 'all' and the CO review station is never narrowed.
+     *
+     * NOTE (AT-346 design decision — flag for Johan): `manage_compliance` is an
+     * ACTION permission ("Manage Compliance Records"), NOT a visibility elevator.
+     * It deliberately does NOT force 'all' here — otherwise every user who can
+     * reach the FICA page (the route is gated by `access_compliance`, which branch
+     * managers hold alongside `manage_compliance`) would see everything and the
+     * whole own/branch/company tier would be a no-op. Visibility breadth is now
+     * driven purely by the role's `fica.view` scope: admin='all', branch_manager=
+     * 'branch', agent='own' (scope_defaults), defaulting to the most restrictive
+     * 'own' when no wider scope is granted. A custom compliance role that needs
+     * agency-wide sight is granted `fica.view = all` in Role Manager.
+     */
+    public static function ficaScopeFor(User $user): string
+    {
+        if ($user->isOwnerRole() || $user->isComplianceOfficer()) {
+            return 'all';
+        }
+
+        return PermissionService::getDataScope($user, 'fica') ?? 'own';
+    }
+
+    /**
+     * AT-346 — constrain a FICA query to the records the given user may see.
+     * 'own'    → only submissions they requested (fica_submissions.requested_by)
+     * 'branch' → their branch (fica_submissions.branch_id vs effectiveBranchId)
+     * 'all'    → agency-wide (AgencyScope already bounds the tenant)
+     * A user with no resolvable scope/branch is shown nothing (1 = 0), never all.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        $scope = static::ficaScopeFor($user);
+
+        if ($scope === 'all') {
+            return $query;
+        }
+
+        if ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId();
+
+            return $branchId
+                ? $query->where($this->getTable() . '.branch_id', $branchId)
+                : $query->whereRaw('1 = 0');
+        }
+
+        // 'own' (and the safe default for any unexpected value)
+        return $query->where($this->getTable() . '.requested_by', $user->id);
+    }
 
     public function scopePending(Builder $query): Builder
     {
