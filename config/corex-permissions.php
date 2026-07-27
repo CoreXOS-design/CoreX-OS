@@ -386,6 +386,11 @@ return [
         ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'type' => 'access',  'module' => 'ellie',            'sort_order' => 1],
         ['key' => 'use_ellie_voice',             'label' => 'Use Ellie Voice Commands',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 2],
         ['key' => 'use_property_image_ai',       'label' => 'Use AI Image Recognition',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 3],
+        // Global, CoreX-team-managed allowlist of external pages Ellie may search
+        // (.ai/specs/ellie-reference-sources.md) — deliberately EXCLUDED from
+        // admin's all-minus-exclude default below, same treatment as
+        // agency_setup.track. Only super_admin gets it, via the '*' wildcard.
+        ['key' => 'manage_reference_sources',    'label' => 'Manage Ellie Reference Sources (owner)', 'section' => 'ellie', 'type' => 'access', 'module' => 'ellie', 'sort_order' => 4],
 
         // ── P24 Market Intelligence ──
         ['key' => 'manage_p24',                  'label' => 'Manage P24 Market Intel',     'section' => 'p24',              'type' => 'access',  'module' => 'p24',              'sort_order' => 1],
@@ -630,7 +635,9 @@ return [
             // ask) — the deal-pipeline deck tile ships with DR2. Admin gets it via all-minus-exclude.
             // agency_setup.track is the platform-owner cross-agency progress
             // board — owner-only, so admin is excluded from the all-minus rule.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track'],
+            // manage_reference_sources is likewise platform-owner-only: it's a
+            // global, not per-agency, allowlist (ellie-reference-sources spec).
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

@@ -1633,7 +1633,7 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -1718,6 +1718,16 @@
         </a>
         @endpermission
         @endfeature
+
+        {{-- Ellie Reference Sources (ellie-reference-sources spec) — super_admin only --}}
+        @permission('manage_reference_sources')
+        <a href="{{ route('admin.ellie.reference-sources.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ellie.reference-sources.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+            <span>Ellie Reference Sources</span>
+        </a>
+        @endpermission
 
         {{-- Marketing Suppressions (AT-49) --}}
         @feature('marketing-suppressions')

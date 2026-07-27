@@ -10,6 +10,7 @@ use App\Models\Docuperfect\Clause;
 use App\Models\Docuperfect\Template;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\AI\EllieReferenceSourceSearchService;
 use App\Services\AI\KnowledgeSearchService;
 use App\Services\AI\NavigationAtlasService;
 use App\Services\AI\TourKnowledgeService;
@@ -54,6 +55,7 @@ class EllieToolkit
         private readonly NavigationAtlasService $navigation,
         private readonly TourKnowledgeService $tours,
         private readonly AgentPerformanceService $performance,
+        private readonly EllieReferenceSourceSearchService $referenceSources,
     ) {
     }
 
@@ -81,6 +83,26 @@ class EllieToolkit
                     'type' => 'object',
                     'properties' => [
                         'query' => ['type' => 'string', 'description' => 'What to look up. Use full words, not the abbreviation the user typed.'],
+                        'limit' => ['type' => 'integer', 'description' => 'Number of excerpts (default 4).'],
+                    ],
+                    'required' => ['query'],
+                ],
+            ],
+            [
+                'name' => 'search_reference_sites',
+                'description' =>
+                    'Search a small, admin-approved allowlist of external web pages — NOT the open '
+                    . 'internet. USE THIS ONLY as a second resort, after search_knowledge and the live '
+                    . 'pillar/calculator tools have come back empty, for facts CoreX itself does not '
+                    . 'track (e.g. a specific bank\'s current rate page an admin has approved). If this '
+                    . 'also returns nothing, say plainly that you could not find it — do NOT answer from '
+                    . 'your own general knowledge instead. Whenever you use a result from this tool, '
+                    . 'name the source URL it came from in your reply so the user knows it came from an '
+                    . 'external page, not CoreX.',
+                'input_schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'query' => ['type' => 'string', 'description' => 'What to look up.'],
                         'limit' => ['type' => 'integer', 'description' => 'Number of excerpts (default 4).'],
                     ],
                     'required' => ['query'],
@@ -246,6 +268,7 @@ class EllieToolkit
         try {
             $result = match ($tool) {
                 'search_knowledge'        => $this->searchKnowledge($input),
+                'search_reference_sites'  => $this->searchReferenceSites($input),
                 'find_page'               => $this->findPage($input, $user),
                 'find_how_to'             => $this->findHowTo($input, $user),
                 'list_document_templates' => $this->listTemplates($input, $user),
@@ -299,6 +322,33 @@ class EllieToolkit
         return [
             'excerpts' => $context,
             'sources'  => $found['sources'],
+        ];
+    }
+
+    private function searchReferenceSites(array $input): array
+    {
+        $query = trim((string) ($input['query'] ?? ''));
+        if ($query === '') {
+            return ['error' => 'A search query is required.'];
+        }
+
+        $found = $this->referenceSources->search($query, $this->limit($input, 4, 8));
+
+        $context = trim((string) ($found['context'] ?? ''));
+
+        if ($context === '') {
+            return ['result' => 'no results', 'hint' => 'No approved external source matched. Do not answer from general knowledge instead — say you could not find it.'];
+        }
+
+        if (mb_strlen($context) > self::MAX_EXCERPT_CHARS) {
+            $context = mb_substr($context, 0, self::MAX_EXCERPT_CHARS)
+                . "\n\n[…excerpt truncated — search with more specific words if you need the rest]";
+        }
+
+        return [
+            'excerpts' => $context,
+            'sources'  => $found['sources'],
+            'note'     => 'This came from an approved EXTERNAL page, not CoreX\'s own knowledge base — cite the source URL when you use it.',
         ];
     }
 

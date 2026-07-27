@@ -540,6 +540,13 @@ class EllieAgentService
           the number.
         - You may call several tools, and you may call the same tool again with better search
           words if the first result is thin. Do that BEFORE telling someone you do not know.
+        - search_reference_sites searches a small, admin-approved allowlist of external pages —
+          NOT the open internet, and you have no other way to reach the internet. Try it ONLY
+          after search_knowledge and the live/calculator tools have come back empty. If it also
+          returns nothing, say so plainly — never answer such a question from your own general
+          knowledge, which for these questions is unreliable and not CoreX's. Whenever you DO use
+          a result from it, name the source URL in your reply so the user knows it came from an
+          external page, not CoreX's own knowledge.
 
         NEVER say "I don't have access to that" or "I don't have that in my knowledge base"
         without having actually searched first. That was the single biggest complaint about

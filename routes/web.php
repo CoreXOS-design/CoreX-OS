@@ -952,6 +952,17 @@ Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:a
     Route::delete('/{record}', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'destroy'])->name('admin.deposit-trust-interest.destroy');
 });
 
+// ===== ELLIE EXTERNAL REFERENCE SOURCES (ellie-reference-sources spec) =====
+// Global, CoreX-team-managed allowlist of external pages Ellie may search when
+// her own knowledge base and pillar data don't have an answer. super_admin only.
+Route::prefix('admin/ellie/reference-sources')->middleware(['auth', 'permission:manage_reference_sources'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'index'])->name('admin.ellie.reference-sources.index');
+    Route::post('/', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'store'])->name('admin.ellie.reference-sources.store');
+    Route::post('/{referenceSource}/refresh', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'refresh'])->name('admin.ellie.reference-sources.refresh');
+    Route::post('/{referenceSource}/toggle-active', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'toggleActive'])->name('admin.ellie.reference-sources.toggleActive');
+    Route::delete('/{referenceSource}', [\App\Http\Controllers\Admin\EllieReferenceSourceController::class, 'destroy'])->name('admin.ellie.reference-sources.destroy');
+});
+
 // ===== KNOWLEDGE BASE =====
 Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base', 'feature:knowledge-base'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\KnowledgeController::class, 'index'])->name('admin.knowledge.index');

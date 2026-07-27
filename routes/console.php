@@ -274,6 +274,12 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
 Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
 
+// ── Ellie External Reference Sources (ellie-reference-sources spec) ──
+// Re-fetches every admin-approved external page so Ellie's answers (e.g. a
+// bank's current interest rate) don't silently go stale. SSRF-guarded fetch
+// lives in EllieReferenceSourceFetchService; this is only the daily sweep.
+Schedule::command('ellie:refresh-reference-sources')->dailyAt('05:30')->withoutOverlapping()->onOneServer();
+
 // ── Deal Register V2 (WS0) — RAG timer ──
 // Keeps persisted step/deal RAG + deal calendar-event colour in sync as deadlines
 // approach (green→amber→red→overdue), independent of user activity.
