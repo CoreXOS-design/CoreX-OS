@@ -53,6 +53,7 @@
   #dr2tl .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
   /* the timeline is action-button driven — no drag here; the grip is for the List view */
   #dr2tl .dr2-tile__grip{display:none}
+  #dr2tl .dr2-band__drop{display:none}
   #dr2tl-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:9px 15px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:160}
   #dr2tl-toast.on{opacity:1}
 </style>

@@ -33,6 +33,7 @@
   #dr2ls .cadd{display:flex;gap:8px;padding:8px 15px;border-top:1px solid #e2e8f0;align-items:center;flex-wrap:wrap}
   #dr2ls .cadd select,#dr2ls .cadd input{font-family:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px}
   #dr2ls .cadd input{flex:1;min-width:120px}#dr2ls .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
+  #dr2ls .dr2-band__drop{display:none}
 </style>
 
 @php($from = 'list')

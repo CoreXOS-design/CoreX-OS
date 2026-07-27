@@ -183,8 +183,34 @@ class PipelineTimelineService
         if ($anchor) $exclude[(int) $anchor->id] = true;
         if ($gate)   $exclude[(int) $gate->id]   = true;
 
-        // Stage 1 = the remainder (the suspensive-condition tracks), grouped by condition.
-        $stage1Steps = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
+        // The remainder = everything the composer left out of anchor / gate / Stage 2. Only the steps
+        // that actually belong to a suspensive CONDITION (condition_key set) form Stage 1 groups. A
+        // remainder step with NO condition (e.g. a compliance step orphaned by a broken predecessor
+        // edge, so it wasn't reachable from the gate) is post-grant transfer work — it merges into
+        // Stage 2 by date rather than inventing a bogus "Other conditions" group.
+        $remainder   = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
+        $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+        $orphans     = $remainder->reject(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+
+        // Merge orphans into the Stage-2 segment list as their own sequence points, ordered with the
+        // composer's segments by earliest due date so they read in the right place in the sequence.
+        $stage2Segments = $composed['stage2'];
+        foreach ($orphans as $o) {
+            $stage2Segments[] = ['type' => 'sequence', 'step' => $o];
+        }
+        $segDue = function (array $seg): int {
+            if (($seg['type'] ?? null) === 'sequence') {
+                return $seg['step']->due_date ? strtotime((string) $seg['step']->due_date) : PHP_INT_MAX;
+            }
+            $min = PHP_INT_MAX;
+            foreach ($seg['lanes'] ?? [] as $lane) {
+                foreach ($lane as $m) {
+                    if ($m->due_date) $min = min($min, strtotime((string) $m->due_date));
+                }
+            }
+            return $min;
+        };
+        usort($stage2Segments, fn ($a, $b) => $segDue($a) <=> $segDue($b));
 
         $catalog   = app(\App\Services\DealV2\Dr2ConditionCatalog::class)->conditions();
         $groupMeta = [
@@ -241,8 +267,8 @@ class PipelineTimelineService
             'stage1'    => ['groups' => $stage1Groups],
             'stage2'    => [
                 'active'   => (bool) $granted,
-                'segments' => $composed['stage2'],
-                'has'      => ! empty($composed['stage2']),
+                'segments' => $stage2Segments,
+                'has'      => ! empty($stage2Segments),
             ],
             'all_ids'   => $steps->pluck('id')->map(fn ($id) => (int) $id)->all(),
             'comments'  => $comments,
