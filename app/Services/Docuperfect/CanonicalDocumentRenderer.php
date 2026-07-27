@@ -240,11 +240,6 @@ class CanonicalDocumentRenderer
             if (trim($canonical) === '') {
                 return; // nothing baked yet (pre-send); compose() will include conditions
             }
-            $blocksMeta = $document->template?->insertable_blocks ?? [];
-            if (! is_array($blocksMeta) || $blocksMeta === []) {
-                return;
-            }
-
             $renderer = app(InsertableBlockRenderer::class);
             $dom = new \DOMDocument();
             @$dom->loadHTML(
@@ -252,6 +247,35 @@ class CanonicalDocumentRenderer
                 LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
             );
             $xpath   = new \DOMXPath($dom);
+
+            $blocksMeta = $document->template?->insertable_blocks ?? [];
+            if (! is_array($blocksMeta) || $blocksMeta === []) {
+                // Step 2 — raw-marker templates (the real Exclusive mandate,
+                // Mandatory Disclosure, etc.) carry NO insertable_blocks metadata:
+                // their `~~~~OTHER_CONDITIONS~~~~` marker was expanded via the
+                // unbound-marker fallback at compose time. Without this, the
+                // surgical re-bake below was a no-op for exactly those templates,
+                // so a per-condition initial captured after v1 (e.g. the KICKER
+                // re-engagement cascade) never reached the stored canonical / PDF.
+                // Synthesise the block list from the already-rendered
+                // `<div class="insertable-block" data-block-id=…>` nodes so the
+                // re-bake works regardless of whether metadata exists.
+                $blocksMeta = [];
+                foreach ($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]') as $node) {
+                    if (! $node instanceof \DOMElement) {
+                        continue;
+                    }
+                    $blocksMeta[] = [
+                        'id'          => $node->getAttribute('data-block-id'),
+                        'purpose'     => $node->getAttribute('data-purpose') ?: 'other_conditions',
+                        'auto_number' => $node->getAttribute('data-auto-number') === '1',
+                    ];
+                }
+                if ($blocksMeta === []) {
+                    return;
+                }
+            }
+
             $changed = false;
 
             foreach ($blocksMeta as $block) {

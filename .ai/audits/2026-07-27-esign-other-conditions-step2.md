@@ -89,11 +89,36 @@ initials baked into the print artifact as adopted ink). Design = Johan's clarifi
 - `app/Services/Docuperfect/SignatureService.php`
 - `tests/Feature/Docuperfect/SigningView/OtherConditionsFramesTest.php`
 
+## Raw-marker re-bake fix (follow-up, required for the real templates)
+`CanonicalDocumentRenderer::refreshInsertableBlocks` (Step 1) bailed early when the template
+had no `insertable_blocks` metadata — but the REAL Exclusive mandate / Mandatory Disclosure use
+a raw `~~~~OTHER_CONDITIONS~~~~` marker (unbound-marker fallback), so it was a no-op for exactly
+those templates → a per-frame initial captured after v1 (the KICKER re-engagement) never reached
+the stored canonical/PDF. Fixed: when metadata is absent, synthesise the block list from the
+already-rendered `<div class="insertable-block" data-block-id=…>` nodes (id + data-purpose +
+data-auto-number) and re-bake those. Regression test:
+`OtherConditionsFramesTest::test_refresh_bakes_late_initial_into_raw_marker_canonical`.
+
+## QA1 END-TO-END PROOF — DONE (2026-07-27, corex_qa1)
+Deployed to QA1 (origin/QA1), seeded the disclosure (template #71, blade template-123 w/ marker),
+added the same one-line marker to QA1's live Exclusive-mandate blade (template-67, clause 2.8) so
+the proof runs on QA1's actual mandate. Real persistent proof docs created; `SignaturePdfService`
+download route renders live from the baked canonical (no pre-generated PDF needed).
+
+**26/26 assertions passed** (script `scratchpad/qa1_proof.php`), on BOTH templates:
+- Scenario A (agent frames): 2 frames → 2 rows; frame 2 carries clause-library provenance;
+  SCREEN + PDF both show both frame texts and 4 per-frame initials as ADOPTED INK; guidance not in
+  canonical; PDF strips add-button + guidance; exactly 2 seller + 2 agent slots (no drop/bleed/wrong-party).
+- Scenario B (KICKER, mandate doc 468): recipient frame → amendment PENDING + AMENDMENT_REVIEW →
+  agent approves → template AMENDMENT_INITIALING, completed parties re-issued fresh tokens,
+  re-engagement email sent using the "new condition" variant → each re-engaged party initials just
+  the new frame → finalized doc has 3 frames, SCREEN + regenerated PDF both carry the new frame with
+  6 ink initials, chrome stripped.
+
+**Johan can open (QA1, logged in):**
+- Exclusive mandate — review `https://qatesting1.corexos.co.za/docuperfect/documents/468/signatures/review`,
+  PDF `…/documents/468/signatures/download`
+- Mandatory Disclosure — review `…/documents/469/signatures/review`, PDF `…/documents/469/signatures/download`
+
 ## Pending
-- **QA1 end-to-end proof** (the deliverable Johan asked for before Step 3): deploy to QA1,
-  register disclosure 123 (`db:seed --class=SalesMandatoryDisclosureEsignSeeder`), run a real
-  mandate + disclosure ceremony proving (1) agent-added frames initialled by all parties &
-  printed as adopted ink; (2) a recipient-added frame → agent approves → an already-completed
-  party is re-engaged and initials just that frame; (3) screen == PDF per-frame, nothing
-  dropped/bled/wrong-party.
 - Step 3 (separate): real tick ✓ marks + government-form fidelity.

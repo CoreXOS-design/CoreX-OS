@@ -191,6 +191,39 @@ final class OtherConditionsFramesTest extends TestCase
         $this->assertStringContainsString('.forEach(function(e){e.remove();})', $out);
     }
 
+    public function test_refresh_bakes_late_initial_into_raw_marker_canonical(): void
+    {
+        // The real mandate/disclosure templates carry NO insertable_blocks
+        // metadata (raw ~~~~OTHER_CONDITIONS~~~~ marker). This pins that
+        // refreshInsertableBlocks still bakes a late-captured per-frame initial
+        // into the stored canonical for such templates (the KICKER path).
+        [$sigTpl, $userId] = $this->makeTemplate();
+        $doc = $sigTpl->document;
+        $doc->update(['web_template_data' => array_merge($doc->web_template_data ?? [], [
+            'merged_html'     => '<p>3.7 ~~~~OTHER_CONDITIONS~~~~</p><div class="corex-signature-section">sign</div>',
+            'signed_initials' => ['seller' => ['data:image/png;base64,SELLERINK'], 'agent' => ['data:image/png;base64,AGENTINK']],
+        ])]);
+        // One agent frame + ONE party initial, then compose (bakes 1 ink).
+        app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+            ->syncFramesToStructuredRows($sigTpl, [['content' => 'Frame X', 'source' => 'custom']]);
+        $cond = DocumentCondition::where('signature_template_id', $sigTpl->id)->first();
+        ConditionInitial::create(['initialable_type' => DocumentCondition::class, 'initialable_id' => $cond->id, 'party_key' => 'seller', 'initialed_at' => now()]);
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTpl);
+        $doc->refresh();
+        $before = substr_count((string) ($doc->web_template_data['canonical_html'] ?? ''), 'condition-initial-ink');
+
+        // A LATE initial arrives (the KICKER: another party initials after the
+        // canonical was baked). refreshInsertableBlocks must fold it in even
+        // though the template has no insertable_blocks metadata.
+        ConditionInitial::create(['initialable_type' => DocumentCondition::class, 'initialable_id' => $cond->id, 'party_key' => 'agent', 'initialed_at' => now()]);
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->refreshInsertableBlocks($sigTpl->fresh());
+        $doc->refresh();
+        $after = substr_count((string) ($doc->web_template_data['canonical_html'] ?? ''), 'condition-initial-ink');
+
+        $this->assertSame(1, $before, 'compose baked exactly the first party ink');
+        $this->assertSame(2, $after, 'refresh folded the late second-party ink into the raw-marker canonical');
+    }
+
     /**
      * Minimal template + document + signing template with a 2-party set
      * (seller + agent) so the renderer paints per-party initial slots.
