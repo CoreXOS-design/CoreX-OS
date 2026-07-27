@@ -116,6 +116,11 @@ return [
         ['key' => 'view_compliance_reports', 'label' => 'View Compliance Reports',         'section' => 'compliance',       'type' => 'access',  'module' => 'compliance',       'sort_order' => 3],
         ['key' => 'compliance.view',         'label' => 'View',                            'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 10],
         ['key' => 'compliance.manage',       'label' => 'Manage',                          'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 11],
+        // AT-346 — FICA list visibility tier (own / branch / company). Scoped `.view`
+        // key: Role Manager renders an own/branch/all Data Scope selector for it, and
+        // FicaSubmission::scopeVisibleTo() reads it via getDataScope($user, 'fica').
+        // Default per role (scope_defaults): agent=own, branch_manager=branch, admin=all.
+        ['key' => 'fica.view',               'label' => 'View FICA List (own/branch/company)', 'section' => 'compliance',   'type' => 'action',  'module' => 'fica',             'sort_order' => 12],
         ['key' => 'compliance.fica.send',    'label' => 'Send FICA Requests',              'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 12],
         ['key' => 'compliance.fica.review',  'label' => 'Review FICA Submissions',         'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 13],
         ['key' => 'compliance.fica.approve', 'label' => 'Approve/Reject FICA',             'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 14],
@@ -700,7 +705,7 @@ return [
                 'targets.view', 'targets.create', 'targets.edit',
                 'calculators.manage',
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
-                'compliance.view', 'compliance.manage',
+                'compliance.view', 'compliance.manage', 'fica.view', // AT-346: branch-scoped FICA list
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
                 'triage_communications', 'view_communication_flag_register',
@@ -810,6 +815,7 @@ return [
                 'communication.view', 'communication.send',
                 'triage_communications',
                 'communications.view', // AT-118 per-contact comms gate — own scope (via scope_defaults)
+                'fica.view', // AT-346 FICA list visibility — own scope for agents (via scope_defaults)
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
                 'access_docuperfect_packs', 'access_clause_library',
