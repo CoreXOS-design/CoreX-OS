@@ -3414,9 +3414,23 @@
                 }
                 // Single source of truth — see Property::getAvailableGalleryTags()
                 $availableTags = $property->getAvailableGalleryTags();
+                // Grid tiles render at ~150px — the full-resolution original
+                // (avg ~3MB, seen up to 6MB+) is 40-80x more than the tile needs.
+                // A 49-photo gallery of originals is 100MB+ of dead weight on
+                // every page load. thumbFor() reuses the SAME small (~500px)
+                // web thumbnail already generated for list/grid surfaces
+                // (Property::thumbFor() / PropertyThumbnailService) — falls back
+                // to the original URL if a thumb hasn't been generated yet, so
+                // nothing breaks for a brand-new upload mid-backfill. The
+                // lightbox and save/reorder/tag/delete flows are untouched —
+                // they still operate on the full-resolution URLs in $galleryImages.
+                $thumbMap = [];
+                foreach ($galleryImages as $img) {
+                    $thumbMap[$img] = $property->thumbFor($img);
+                }
             @endphp
 
-            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}'), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
+            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}', {{ Js::from($thumbMap) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
 
                 {{-- Header --}}
                 <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
@@ -3661,7 +3675,7 @@
                              @dragstart="(!tagMode && !selectMode) && dragStart(idx, $event)"
                              @dragover.prevent="(!tagMode && !selectMode) && dragOver(idx, $event)"
                              @drop.prevent="(!tagMode && !selectMode) && dragDrop(idx)">
-                            <img :src="img" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+                            <img :src="thumbs[img] || img" loading="lazy" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
 
                             {{-- Cover badge --}}
                             <div x-show="idx === 0" class="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white" style="background:rgba(0,0,0,0.7);">COVER</div>
@@ -6553,10 +6567,14 @@ document.addEventListener('keydown', function(e) {
 
 // Smart Gallery Manager
 // Tag-based gallery manager
-function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags, fingerprint) {
+function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags, fingerprint, initThumbs) {
     return {
         images: initImages || [],
         tags: initTags || {},
+        // Full-res URL → small web thumbnail (grid display only). See the
+        // $thumbMap comment in show.blade.php. Never used for save/reorder/
+        // tag/delete payloads — those always operate on `images` (full-res).
+        thumbs: initThumbs || {},
         availableTags: availableTags || [],
         propertyId, csrfToken,
         // Fingerprint of the gallery this page was rendered from. Sent on every
