@@ -165,7 +165,13 @@
                         // now built server-side by WhatsAppNumberFormatter using THIS
                         // number's own dial code (contact_phones.dial_code), never a
                         // hardcoded '27'.
-                        let phone = '{{ \App\Support\WhatsAppNumberFormatter::forDeepLink($contact->phone, $contact->primaryPhone?->dial_code) }}';
+                        // Contact-details Phase 3 — uses the designated primary-WhatsApp
+                        // number when one exists (may differ from the primary CONTACT
+                        // number, e.g. an office line vs a personal cell), falling back
+                        // to the primary contact number for every contact that has no
+                        // WhatsApp designation yet (the pre-Phase-3 default).
+                        @php($waPhone = $contact->whatsAppPhone())
+                        let phone = '{{ \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhone?->phone ?? $contact->phone, $waPhone?->dial_code ?? $contact->primaryPhone?->dial_code) }}';
                         window.location.href = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(this.waMessage);
                         this.increment('whatsapp', { body: this.waMessage });
                         this.showWa = false;

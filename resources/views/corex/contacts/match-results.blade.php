@@ -10,7 +10,11 @@
     // replace a leading '0' with South Africa's '27' regardless of the
     // number's real country (same defect as show.blade.php's sendWa()).
     // WhatsAppNumberFormatter uses the number's OWN dial code instead.
-    $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($contact->phone, $contact->primaryPhone?->dial_code);
+    // Contact-details Phase 3 — prefer the designated primary-WhatsApp
+    // number (may differ from the primary contact number); falls back to
+    // the primary contact number when no WhatsApp designation exists yet.
+    $waPhoneRecord = $contact->whatsAppPhone();
+    $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhoneRecord?->phone ?? $contact->phone, $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code);
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
 
     $defaultEmailSubject = \App\Models\PerformanceSetting::get('matches_email_subject', 'Your personalised property matches');

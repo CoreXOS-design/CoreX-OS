@@ -54,6 +54,24 @@ class ContactIdentifierService
     }
 
     /**
+     * Contact-details Phase 3 — make $phone the contact's primary WhatsApp
+     * number (clears siblings). Independent of setPrimaryPhone() — the two
+     * can point at different numbers.
+     */
+    public function setPrimaryWhatsApp(ContactPhone $phone): void
+    {
+        DB::transaction(function () use ($phone) {
+            ContactPhone::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $phone->contact_id)
+                ->where('id', '!=', $phone->id)
+                ->update(['is_primary_whatsapp' => false]);
+
+            $phone->is_primary_whatsapp = true;
+            $phone->saveQuietly();
+        });
+    }
+
+    /**
      * Canonical multi-identifier write for the form / API.
      *
      * Upserts the contact's phones + emails from structured input, soft-deletes
@@ -173,6 +191,9 @@ class ContactIdentifierService
                 'country_iso' => $item['country_iso'] ?? null,
                 'dial_code' => $item['dial_code'] ?? null,
                 'label_id' => $labelId,
+                // Contact-details Phase 3 — phone-only; ignored for emails.
+                'is_whatsapp' => ! empty($item['is_whatsapp']),
+                'is_primary_whatsapp' => ! empty($item['is_primary_whatsapp']),
             ];
         }
 
@@ -200,6 +221,7 @@ class ContactIdentifierService
                 if ($rawCol === 'phone') {
                     $row->country_iso = $inc['country_iso'] ?: 'ZA';
                     $row->dial_code = $inc['dial_code'] ?: '+27';
+                    $row->is_whatsapp = $inc['is_whatsapp'];
                 }
                 $row->save();
             } else {
@@ -213,10 +235,16 @@ class ContactIdentifierService
                     ...($rawCol === 'phone' ? [
                         'country_iso' => $inc['country_iso'] ?: 'ZA',
                         'dial_code' => $inc['dial_code'] ?: '+27',
+                        'is_whatsapp' => $inc['is_whatsapp'],
                     ] : []),
                 ]);
             }
-            $rows[] = ['row' => $row, 'is_primary' => $inc['is_primary']];
+            $rows[] = [
+                'row' => $row,
+                'is_primary' => $inc['is_primary'],
+                'is_whatsapp' => $inc['is_whatsapp'],
+                'is_primary_whatsapp' => $inc['is_primary_whatsapp'],
+            ];
         }
 
         if ($rows === []) {
@@ -233,6 +261,37 @@ class ContactIdentifierService
         }
         $primary ??= $rows[0]['row'];
         $setPrimary($primary);
+
+        // Contact-details Phase 3 — primary WhatsApp, phone-only. Unlike
+        // is_primary (which always needs exactly one when any rows exist),
+        // "no WhatsApp number designated" is a normal, common state — most
+        // contacts won't have any is_whatsapp row at all, so there's nothing
+        // to auto-promote a fallback for.
+        if ($rawCol === 'phone') {
+            $whatsAppRows = array_filter($rows, fn ($r) => $r['is_whatsapp']);
+            if ($whatsAppRows !== []) {
+                $waPrimary = null;
+                foreach ($whatsAppRows as $r) {
+                    if ($r['is_primary_whatsapp']) {
+                        $waPrimary = $r['row'];
+                        break;
+                    }
+                }
+                // Exactly one WhatsApp-flagged number → it's unambiguously
+                // THE one, whether or not the agent explicitly radio'd it.
+                // Several, none explicitly marked → first one wins (same
+                // first-wins tie-break as is_primary above).
+                $waPrimary ??= reset($whatsAppRows)['row'];
+                $this->setPrimaryWhatsApp($waPrimary);
+            } else {
+                // No row flagged is_whatsapp this save — clear any stale
+                // pick rather than leaving a primary-WhatsApp on a number
+                // that's no longer flagged WhatsApp-capable at all.
+                ContactPhone::withoutGlobalScope(AgencyScope::class)
+                    ->where('contact_id', $contact->id)
+                    ->update(['is_primary_whatsapp' => false]);
+            }
+        }
     }
 
     /**

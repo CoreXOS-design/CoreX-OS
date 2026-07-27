@@ -101,7 +101,7 @@
                         : null,
                     ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
-                    ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags'],
+                    ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
                     ['key'=>'feature-matches',       'label'=>'Matches',               'type'=>'section', 'keywords'=>'whatsapp message'],
@@ -2078,8 +2078,12 @@
                     </div>{{-- /x-show open (Contact Sources) --}}
                 </div>{{-- /x-data accordion (Contact Sources) --}}
 
-                {{-- ── Contact Labels (accordion) — Phase 2: one shared list for tel + email ── --}}
-                <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                {{-- ── Contact Labels (accordion) — Phase 2: one shared list for tel + email.
+                     Defaults OPEN (unlike the other accordions here) — this is the newest
+                     feature in this section and agents/admins need to find it without an
+                     extra click; it was previously missed entirely because "labels" wasn't
+                     in this section's settings-search keywords (fixed above). ── --}}
+                <div x-data="{ open: true }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
                     <button type="button" @click="open = !open"
                             class="w-full flex items-center justify-between px-4 py-3 transition-colors"
                             style="background:var(--surface-2);"
