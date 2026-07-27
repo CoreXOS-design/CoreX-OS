@@ -9476,6 +9476,7 @@ CREATE TABLE `properties` (
   `gallery_images_json` json DEFAULT NULL,
   `gallery_categories_json` json DEFAULT NULL,
   `gallery_custom_tags` json DEFAULT NULL,
+  `gallery_tag_order` json DEFAULT NULL,
   `gallery_upload_keys` json DEFAULT NULL,
   `rental_upload_keys` json DEFAULT NULL,
   `rental_images_json` json DEFAULT NULL COMMENT 'Rental inspection galleries: {in_inspection:{date,images[]}, out_inspection:{date,images[]}, custom:[{id,name,date,images[]}]}. Only used when listing_type=rental.',
@@ -14014,3 +14015,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1038,'2026_07_26_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1039,'2026_07_26_000002_create_system_update_views_table',194);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1040,'2026_08_10_000003_create_ellie_reference_sources_table',195);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1041,'2026_08_10_000004_create_ellie_reference_chunks_table',196);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1042,'2026_08_10_000005_add_gallery_tag_order_to_properties',197);
