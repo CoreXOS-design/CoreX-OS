@@ -24,17 +24,27 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * as SA numbers, so the default backfill is accurate, not a placeholder. Used
  * by WhatsAppNumberFormatter to build a correct click-to-chat deep link — never
  * assume +27 for a number that carries its own dial code.
+ *
+ * `is_whatsapp`/`is_primary_whatsapp` (contact-details Phase 3) — a number can
+ * be flagged as reachable on WhatsApp independently of being the primary
+ * CONTACT number; exactly one is_primary_whatsapp per contact when any
+ * is_whatsapp rows exist (same single-primary invariant as is_primary, kept
+ * by ContactIdentifierService). A contact's office line can be the primary
+ * contact number while a personal cell is the primary WhatsApp number.
  */
 class ContactPhone extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'contact_id', 'phone', 'country_iso', 'dial_code', 'label', 'contact_identifier_label_id', 'is_primary',
+        'agency_id', 'contact_id', 'phone', 'country_iso', 'dial_code', 'label', 'contact_identifier_label_id',
+        'is_primary', 'is_whatsapp', 'is_primary_whatsapp',
     ];
 
     protected $casts = [
         'is_primary' => 'boolean',
+        'is_whatsapp' => 'boolean',
+        'is_primary_whatsapp' => 'boolean',
     ];
 
     /**

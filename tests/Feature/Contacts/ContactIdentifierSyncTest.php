@@ -308,4 +308,68 @@ final class ContactIdentifierSyncTest extends TestCase
         $this->assertNull($phone->contact_identifier_label_id);
         $this->assertSame('0821111111', $phone->phone, 'number itself untouched');
     }
+
+    /**
+     * Contact-details Phase 3 — a single WhatsApp-flagged number is
+     * unambiguously the primary WhatsApp number, even without an explicit
+     * is_primary_whatsapp flag. Primary contact and primary WhatsApp can be
+     * DIFFERENT numbers (the whole point of the split).
+     */
+    public function test_single_whatsapp_number_becomes_primary_whatsapp_automatically(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true, 'is_whatsapp' => false], // office line, primary contact
+            ['value' => '0822222222', 'is_primary' => false, 'is_whatsapp' => true],  // personal cell, WhatsApp
+        ], []);
+
+        $contact->refresh();
+        $this->assertSame('0821111111', $contact->primaryPhone->phone, 'primary CONTACT number unchanged');
+        $this->assertSame('0822222222', $contact->primaryWhatsAppPhone->phone, 'primary WHATSAPP is the OTHER number');
+        $this->assertSame('0822222222', $contact->whatsAppPhone()->phone);
+    }
+
+    /** With 2+ WhatsApp-flagged numbers, the explicit is_primary_whatsapp flag wins. */
+    public function test_explicit_primary_whatsapp_wins_among_multiple_whatsapp_numbers(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true, 'is_whatsapp' => true, 'is_primary_whatsapp' => false],
+            ['value' => '0822222222', 'is_primary' => false, 'is_whatsapp' => true, 'is_primary_whatsapp' => true],
+        ], []);
+
+        $contact->refresh();
+        $this->assertSame('0822222222', $contact->primaryWhatsAppPhone->phone);
+        $this->assertFalse($contact->phones()->where('phone', '0821111111')->first()->is_primary_whatsapp);
+    }
+
+    /** No number flagged is_whatsapp → no primary-WhatsApp designation (normal, common state). */
+    public function test_no_whatsapp_flag_means_no_primary_whatsapp_designation(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true],
+        ], []);
+
+        $contact->refresh();
+        $this->assertNull($contact->primaryWhatsAppPhone);
+        $this->assertSame('0821111111', $contact->whatsAppPhone()->phone, 'falls back to primary contact number');
+    }
+
+    /** Re-syncing without any is_whatsapp flag clears a stale prior designation. */
+    public function test_removing_whatsapp_flag_on_resync_clears_primary_whatsapp(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true, 'is_whatsapp' => true],
+        ], []);
+        $this->assertNotNull($contact->refresh()->primaryWhatsAppPhone);
+
+        // Re-save with the WhatsApp checkbox now unticked.
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821111111', 'is_primary' => true, 'is_whatsapp' => false],
+        ], []);
+
+        $this->assertNull($contact->refresh()->primaryWhatsAppPhone);
+    }
 }

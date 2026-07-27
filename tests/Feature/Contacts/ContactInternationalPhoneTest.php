@@ -36,6 +36,13 @@ final class ContactInternationalPhoneTest extends TestCase
         return [$agencyId, $agent];
     }
 
+    /** ContactType is a global fixed six-row table (AT-79) — store() requires
+     *  at least one parent_type_ids match; this creates one of the six. */
+    private function ownerContactTypeId(): int
+    {
+        return \App\Models\ContactType::create(['name' => 'Owner', 'esign_role' => null])->id;
+    }
+
     public function test_a_usa_number_can_be_created_via_the_real_form_submission(): void
     {
         [, $agent] = $this->seedFixture();
@@ -46,6 +53,7 @@ final class ContactInternationalPhoneTest extends TestCase
             'phones'     => [
                 ['value' => '+1 415 555 2671', 'country_iso' => 'US', 'is_primary' => true],
             ],
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('first_name', 'Jane')->where('last_name', 'American')->firstOrFail();
@@ -65,6 +73,7 @@ final class ContactInternationalPhoneTest extends TestCase
             'first_name' => 'Sipho',
             'last_name'  => 'Local',
             'phone'      => '0825559999',
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825559999')->firstOrFail();
@@ -85,6 +94,7 @@ final class ContactInternationalPhoneTest extends TestCase
             'phones'     => [
                 ['value' => '0825551234', 'country_iso' => 'XX', 'is_primary' => true], // not a real country
             ],
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('first_name', 'Tam')->firstOrFail();

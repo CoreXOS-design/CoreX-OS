@@ -617,6 +617,9 @@ class ContactController extends Controller
                 'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'country_iso' => $countryIso,
                 'dial_code'   => $dialCode,
+                // Contact-details Phase 3 — WhatsApp designation, phone rows only.
+                'is_whatsapp'         => is_array($row) && filter_var($row['is_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'is_primary_whatsapp' => is_array($row) && filter_var($row['is_primary_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
             ];
         }
         if ($out !== [] && !collect($out)->contains(fn ($r) => $r['is_primary'])) {
@@ -673,6 +676,9 @@ class ContactController extends Controller
             // Contact-details Phase 2 — managed label; ContactIdentifierService
             // re-verifies agency ownership, never trusts the exists() check alone.
             'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
+            // Contact-details Phase 3 — WhatsApp designation, phone-only.
+            'phones.*.is_whatsapp'         => 'nullable|boolean',
+            'phones.*.is_primary_whatsapp' => 'nullable|boolean',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
@@ -911,6 +917,9 @@ class ContactController extends Controller
             // Contact-details Phase 2 — managed label; ContactIdentifierService
             // re-verifies agency ownership, never trusts the exists() check alone.
             'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
+            // Contact-details Phase 3 — WhatsApp designation, phone-only.
+            'phones.*.is_whatsapp'         => 'nullable|boolean',
+            'phones.*.is_primary_whatsapp' => 'nullable|boolean',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',

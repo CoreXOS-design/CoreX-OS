@@ -362,6 +362,28 @@ class Contact extends Model
         return $this->hasOne(ContactEmail::class)->where('is_primary', true);
     }
 
+    /**
+     * Contact-details Phase 3 — the number outreach should use for WhatsApp,
+     * independent of primaryPhone(). Falls back to primaryPhone() at the call
+     * site (this relation itself returns null if no number is flagged
+     * is_primary_whatsapp) — see WhatsAppNumberFormatter call sites.
+     */
+    public function primaryWhatsAppPhone(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ContactPhone::class)->where('is_primary_whatsapp', true);
+    }
+
+    /**
+     * THE number every WhatsApp click-to-chat builder should use: the
+     * designated primary-WhatsApp number if one exists, else the primary
+     * CONTACT number (the pre-Phase-3 behaviour every existing contact still
+     * gets, since most have no WhatsApp designation at all).
+     */
+    public function whatsAppPhone(): ?ContactPhone
+    {
+        return $this->primaryWhatsAppPhone ?? $this->primaryPhone;
+    }
+
     // ── AT-131 — THE canonical contact search/result pair (mirrors AT-128's
     //    Property::scopeSearchAddress + toSearchResult). Every contact picker uses
     //    these so the search can never drift bespoke again. ──
