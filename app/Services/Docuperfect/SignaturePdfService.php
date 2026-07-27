@@ -305,7 +305,13 @@ class SignaturePdfService
         // print media are applied (measure with the fonts the PDF actually prints).
         // A document.fonts.ready fallback covers any caller that does not use the hook.
         $boot = '<script>(function(){function run(){var c=document.getElementById("pdfDocContent")||document.body;'
-            . 'try{if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
+            . 'try{'
+            // Step 2 (Johan) — the print-from-approved artifact carries NO interactive
+            // chrome: strip every add-condition control + any screen-only guidance
+            // (the "one condition at a time" hint) before paginating, so they can never
+            // reach the PDF regardless of what the served canonical held.
+            . 'c.querySelectorAll(".btn-add-condition,.condition-add-guidance,[data-screen-only]").forEach(function(e){e.remove();});'
+            . 'if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
             . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');'
             . 'try{restoreStoredDisclosure(c,' . $disclosureJson . ');}catch(e){}}catch(e){}}'
             . 'window.__corexRepaginate=run;'

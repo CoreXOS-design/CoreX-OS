@@ -1927,7 +1927,13 @@ class ESignWizardController extends Controller
                     $otherConditionsText = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $selectedClauses));
                 }
             }
-            if (!empty($otherConditionsText)) {
+            // Step 2 (Johan) — skip the legacy static "Additional Conditions"
+            // injection when the template carries an ~~~~OTHER_CONDITIONS~~~~
+            // marker: the InsertableBlockRenderer expands that marker into the
+            // structured condition rows (with per-party initials), so injecting
+            // here as well would render the conditions TWICE. No-marker (legacy)
+            // templates keep the injection as their only way to show conditions.
+            if (!empty($otherConditionsText) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 // Split by double-newline for individual clause blocks
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
@@ -2152,12 +2158,22 @@ class ESignWizardController extends Controller
                 'other_conditions_text' => trim($stepData['fill_review']['other_conditions_text'] ?? '') ?: null,
             ]);
 
-            // Phase 1B.5 — bridge the legacy textarea content into structured
-            // document_conditions rows so the recipient-signing surface (which
-            // reads from those rows, not other_conditions_text) renders them.
+            // Phase 1B.5 / Step 2 (Johan) — persist the agent's other-conditions
+            // into structured document_conditions rows so the signing surface
+            // (which reads those rows, not other_conditions_text) renders them,
+            // one row per condition (each initialled per-party). Prefer the
+            // discrete FRAMES the wizard now submits (one frame = one row, with
+            // clause-library provenance); fall back to the legacy text bridge
+            // only when no frames are present (older step data / other flows).
             try {
-                app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
-                    ->syncToStructuredRows($sigTemplate);
+                $frames = $stepData['fill_review']['other_condition_frames'] ?? [];
+                if (is_array($frames) && $frames !== []) {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncFramesToStructuredRows($sigTemplate, $frames);
+                } else {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncToStructuredRows($sigTemplate);
+                }
             } catch (\Throwable $e) {
                 \Log::warning('LegacyOtherConditionsBridge sync failed (non-fatal)', [
                     'sig_template_id' => $sigTemplate->id,
@@ -4351,7 +4367,9 @@ class ESignWizardController extends Controller
                     $otherConditionsText2 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
                 }
             }
-            if (!empty($otherConditionsText2)) {
+            // Step 2 (Johan) — skip legacy injection when a marker is present
+            // (renderer expands it to rows; injecting here too = double render).
+            if (!empty($otherConditionsText2) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText2))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
                 $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
@@ -4523,7 +4541,9 @@ class ESignWizardController extends Controller
                     $otherConditionsText3 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
                 }
             }
-            if (!empty($otherConditionsText3)) {
+            // Step 2 (Johan) — skip legacy injection when a marker is present
+            // (renderer expands it to rows; injecting here too = double render).
+            if (!empty($otherConditionsText3) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
                 $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText3))));
                 $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
                 $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
@@ -4639,10 +4659,19 @@ class ESignWizardController extends Controller
                 'other_conditions_text' => trim($stepData['fill_review']['other_conditions_text'] ?? '') ?: null,
             ]);
 
-            // Phase 1B.5 — bridge to structured document_conditions rows
+            // Phase 1B.5 / Step 2 (Johan) — persist to structured
+            // document_conditions rows; prefer discrete frames (one row per
+            // condition + clause-library provenance), fall back to the legacy
+            // text bridge when no frames were submitted.
             try {
-                app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
-                    ->syncToStructuredRows($sigTemplate);
+                $frames = $stepData['fill_review']['other_condition_frames'] ?? [];
+                if (is_array($frames) && $frames !== []) {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncFramesToStructuredRows($sigTemplate, $frames);
+                } else {
+                    app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
+                        ->syncToStructuredRows($sigTemplate);
+                }
             } catch (\Throwable $e) {
                 \Log::warning('LegacyOtherConditionsBridge sync failed (wet-ink path)', [
                     'sig_template_id' => $sigTemplate->id,

@@ -288,6 +288,12 @@ class SigningController extends Controller
                 $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
                     ->stampConditionSigningToken($webTemplateHtml, (string) $token);
 
+                // Step 2 (Johan) — screen-only "one condition at a time" guidance
+                // beside each add-condition control. Display overlay only; stripped
+                // from the print-from-approved canonical/PDF (see SignaturePdfService).
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->injectAddConditionGuidance($webTemplateHtml);
+
                 // Editable field-name list — the signing view still consumes
                 // this array (client input-affordance gating). Prefer CDS
                 // field_mappings with editable_by; fall back to the static map.
