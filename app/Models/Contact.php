@@ -1176,6 +1176,11 @@ class Contact extends Model
      * count: reconciliation PROMOTES a provisional row in place, so a click and
      * its eventual real send are always exactly one row. Purged rows excluded.
      *
+     * Contact-details Phase 4 — a row flagged send_status=not_delivered is
+     * EXCLUDED. A failed send is kept on record (the audit trail), but it must
+     * never inflate the "N messages sent" tile — that's the whole point of the
+     * flag existing.
+     *
      * Uses the eager-loaded relation when present (no extra query), otherwise a
      * single scoped count.
      */
@@ -1186,6 +1191,7 @@ class Contact extends Model
                 ->where('channel', $channel)
                 ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
                 ->whereNull('purged_at')
+                ->where('send_status', \App\Models\Communications\Communication::SEND_STATUS_SENT)
                 ->count();
         }
 
@@ -1193,6 +1199,7 @@ class Contact extends Model
             ->where('channel', $channel)
             ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
             ->whereNull('communications.purged_at')
+            ->where('communications.send_status', \App\Models\Communications\Communication::SEND_STATUS_SENT)
             ->count();
     }
 
@@ -1207,6 +1214,37 @@ class Contact extends Model
 
         if (! $this->last_contacted_at || $at->gt($this->last_contacted_at)) {
             $this->forceFill(['last_contacted_at' => $at])->save();
+        }
+    }
+
+    /**
+     * Contact-details Phase 4 — re-derive last_contacted_at from the comms
+     * that ACTUALLY count as reaching the contact (send_status=sent), rather
+     * than just bumping it forward. touchLastContacted() alone can't undo a
+     * false "communicated" fact: it only ever moves the marker forward, so
+     * flagging a send not_delivered AFTER it already advanced the marker
+     * needs this — recompute the true MAX(occurred_at) across every
+     * still-counting outbound send and set (or null) it exactly.
+     *
+     * Called whenever a communication's send_status changes (flag as
+     * not_delivered, revert back to sent, or a resend lands) — never at
+     * normal send time, where touchLastContacted()'s forward-only bump is
+     * correct and cheaper (no recompute needed for the 99% case).
+     */
+    public function recomputeLastContacted(): void
+    {
+        $max = $this->communications()
+            ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+            ->where('communications.send_status', \App\Models\Communications\Communication::SEND_STATUS_SENT)
+            ->whereNull('communications.purged_at')
+            ->max('communications.occurred_at');
+
+        $new = $max ? \Illuminate\Support\Carbon::parse($max) : null;
+        $unchanged = ($this->last_contacted_at === null && $new === null)
+            || ($this->last_contacted_at !== null && $new !== null && $this->last_contacted_at->eq($new));
+
+        if (! $unchanged) {
+            $this->forceFill(['last_contacted_at' => $new])->save();
         }
     }
 }

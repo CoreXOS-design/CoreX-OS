@@ -498,6 +498,40 @@ class ContactController extends Controller
         $waSent    = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP);
         $emailSent = $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_EMAIL);
 
+        // Contact-details Phase 4 — the "could not send" flow needs a per-send
+        // list to act on (none existed before this — the comms-tile path had no
+        // individual-send UI at all). Reuses the ALREADY eager-loaded
+        // `communications` relation (no extra query), most recent first, capped
+        // at 15 — this is an action list, not the full archive (that's the
+        // Communications tab).
+        $recentSends = $contact->communications
+            ->where('direction', \App\Models\Communications\Communication::DIRECTION_OUTBOUND)
+            ->whereNull('purged_at')
+            ->sortByDesc('occurred_at')
+            ->take(15)
+            ->values();
+
+        // Audit strip for the panel above — reads the SAME domain_event_log the
+        // 3 Phase 4 events auto-write to (no parallel audit table). Grouped by
+        // communication_id in the Blade view so each row can show its own chain.
+        $sendAuditLog = \Illuminate\Support\Facades\DB::table('domain_event_log')
+            ->where('subject_type', \App\Models\Contact::class)
+            ->where('subject_id', $contact->id)
+            ->whereIn('event_name', [
+                \App\Events\Communication\CommunicationMarkedNotDelivered::class,
+                \App\Events\Communication\CommunicationSendStatusReverted::class,
+                \App\Events\Communication\CommunicationResent::class,
+            ])
+            ->orderBy('occurred_at')
+            ->get()
+            ->map(function ($row) {
+                $row->context = json_decode($row->context, true) ?? [];
+                return $row;
+            });
+
+        $sendAuditActors = \App\Models\User::whereIn('id', $sendAuditLog->pluck('actor_user_id')->filter()->unique())
+            ->pluck('name', 'id');
+
         // AT-136 — the viewing agent's WhatsApp-capture decision for THIS contact
         // (per-agent; SEPARATE from AT-125 marketing opt-out). null = no WA match yet.
         $myCaptureStatus = $viewer
@@ -513,7 +547,7 @@ class ContactController extends Controller
             ->paginate(50, ['*'], 'history')
             ->appends(['tab' => 'history']);
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'recentSends', 'sendAuditLog', 'sendAuditActors'));
     }
 
     public function checkDuplicate(Request $request)
@@ -1253,6 +1287,80 @@ class ContactController extends Controller
             'last_contacted'          => $last->format('d M Y H:i'),
             'last_contacted_relative' => $last->diffForHumans(),
         ]);
+    }
+
+    /**
+     * Contact-details Phase 4 — flag a previously-recorded send as "could not
+     * send / not delivered". Agent-initiated (WhatsApp is click-to-chat — CoreX
+     * has no delivery signal of its own to detect this automatically); the
+     * agent finds out on their own phone and reports it back here.
+     */
+    public function markCommunicationNotDelivered(
+        Request $request,
+        Contact $contact,
+        \App\Models\Communications\Communication $communication,
+        \App\Services\Communications\CommunicationSendStatusService $service
+    ) {
+        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
+
+        $data = $request->validate(['reason' => 'nullable|string|max:500']);
+
+        $service->markNotDelivered($communication, $contact, auth()->id(), $data['reason'] ?? null);
+
+        return back()->with('success', 'Marked as could not send. The contact is no longer counted as reached by this send.');
+    }
+
+    /** Contact-details Phase 4 — undo a not_delivered flag (flagged by mistake, or the contact confirmed they DID get it). */
+    public function revertCommunicationSendStatus(
+        Contact $contact,
+        \App\Models\Communications\Communication $communication,
+        \App\Services\Communications\CommunicationSendStatusService $service
+    ) {
+        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
+
+        $service->revertToSent($communication, $contact, auth()->id());
+
+        return back()->with('success', 'Reverted — this send counts again.');
+    }
+
+    /**
+     * Contact-details Phase 4 — reselect a different phone/email (owned by
+     * THIS contact — never an arbitrary posted string) and resend. Creates a
+     * NEW communications row; the original flagged row is never modified.
+     */
+    public function resendCommunication(
+        Request $request,
+        Contact $contact,
+        \App\Models\Communications\Communication $communication,
+        \App\Services\Communications\CommunicationSendStatusService $service
+    ) {
+        abort_unless($this->communicationBelongsToContact($communication, $contact), 404);
+        abort_unless($communication->isNotDelivered(), 400, 'Only a not-delivered send can be resent.');
+
+        if ($communication->channel === \App\Models\Communications\Communication::CHANNEL_WHATSAPP) {
+            $data = $request->validate(['contact_phone_id' => 'required|integer']);
+            $recipient = $contact->phones()->findOrFail($data['contact_phone_id'])->phone;
+        } else {
+            $data = $request->validate(['contact_email_id' => 'required|integer']);
+            $recipient = $contact->emails()->findOrFail($data['contact_email_id'])->email;
+        }
+
+        $service->resend(
+            $communication,
+            $contact,
+            $recipient,
+            $communication->subject,
+            $communication->body_text,
+            auth()->id()
+        );
+
+        return back()->with('success', 'Resent to the reselected ' . ($communication->channel === 'email' ? 'email address' : 'number') . '.');
+    }
+
+    /** Contact-details Phase 4 — a communication must actually belong to this contact (agency-scoped via the relation) before any status action touches it. */
+    private function communicationBelongsToContact(\App\Models\Communications\Communication $communication, Contact $contact): bool
+    {
+        return $contact->communications()->where('communications.id', $communication->id)->exists();
     }
 
     public function destroy(Contact $contact)

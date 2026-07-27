@@ -3083,6 +3083,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/birthday-reminder', [\App\Http\Controllers\CoreX\ContactController::class, 'toggleBirthdayReminder'])->name('birthday-reminder.toggle');
         Route::post('/{contact}/increment', [\App\Http\Controllers\CoreX\ContactController::class, 'incrementChannel'])->name('increment');
 
+        // Contact-details Phase 4 — outreach could-not-send flow
+        Route::post('/{contact}/communications/{communication}/not-delivered', [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationNotDelivered'])->name('communications.not-delivered');
+        Route::post('/{contact}/communications/{communication}/revert',        [\App\Http\Controllers\CoreX\ContactController::class, 'revertCommunicationSendStatus'])->name('communications.revert');
+        Route::post('/{contact}/communications/{communication}/resend',       [\App\Http\Controllers\CoreX\ContactController::class, 'resendCommunication'])->name('communications.resend');
+
         // Notes
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
