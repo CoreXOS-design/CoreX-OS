@@ -116,7 +116,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\Deal\Pipeline\PipelineEventService::class, function ($app) {
             return new \App\Services\Deal\Pipeline\PipelineEventService([
                 $app->make(\App\Services\Deal\Pipeline\CommentEventSource::class),
-                // Phase 4: EmailEventSource, WhatsAppEventSource (communications via communication_links).
+                // Phase 4 — email + WhatsApp (comms archive via communication_links → the DR2 twin).
+                $app->make(\App\Services\Deal\Pipeline\CommunicationEventSource::class),
             ]);
         });
 

@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PipelineUserPreference extends Model
 {
-    public const VIEWS = ['timeline', 'list'];
+    public const VIEWS = ['timeline', 'list', 'board'];
 
     protected $fillable = [
         'user_id',

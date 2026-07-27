@@ -44,10 +44,30 @@ class PipelineController extends Controller
         return redirect()->route($route, $deal);
     }
 
+    /**
+     * Pipeline Dashboard Phase 4 — land the agent on their remembered view (board | timeline | list).
+     * A neutral entry the deal's "Pipeline" link points at; each view also remembers itself on visit.
+     */
+    public function viewDefault(Deal $deal): RedirectResponse
+    {
+        $view  = auth()->id() ? \App\Models\DealV2\PipelineUserPreference::viewForUser(auth()->id()) : 'board';
+        $route = match ($view) {
+            'timeline' => 'deals-dr2.pipeline.timeline',
+            'list'     => 'deals-dr2.pipeline.list',
+            default    => 'deals-dr2.pipeline',
+        };
+        return redirect()->route($route, $deal);
+    }
+
     /** A deal's pipeline board — steps with LIVE RAG, or the attach form when none is set. */
     public function show(Deal $deal): View
     {
         $deal->load(['pipelineSteps.comments.user']);
+
+        // Phase 4 — visiting the board makes it this agent's remembered default view.
+        if ($uid = auth()->id()) {
+            \App\Models\DealV2\PipelineUserPreference::setViewForUser($uid, 'board');
+        }
 
         $steps = $deal->pipelineSteps->map(function (DealStepInstance $s) {
             $terminal = in_array($s->status, ['completed', 'skipped'], true);

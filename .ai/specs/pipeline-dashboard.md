@@ -1,6 +1,6 @@
 # Pipeline Dashboard — spec
 
-> **Status:** Phases 1 (foundation) + 2 (timeline) + 3 (list) BUILT on QA1. Phase 4 specced, not built.
+> **Status:** Phases 1–4 BUILT on QA1. The two-view dashboard is complete over one shared foundation.
 > **Scope guard:** QA1 only throughout. Approved by Johan 2026-07-27 (parked feature, un-parked).
 > Two views over ONE shared foundation; the agent picks a default and can switch.
 
@@ -143,8 +143,16 @@ Sources available to absorb (audit): `deal_step_comments` (step, live), `deal_ac
   AT-334 `follows` action (which rewires dependencies) — kept deliberately separate. Tests:
   `tests/Feature/Dr2/PipelineListReorderTest.php` (reorder=position-only · foreign-id drop · edit-dates
   pins start+end · end≥start · render). Proven on deals 180 & 168.
-- **Phase 4 — per-agent default wiring + email/WhatsApp event sources** (register the two new sources
-  on the normalizer; resolve deal via `communication_links`).
+- **Phase 4 — per-agent default view + email/WhatsApp event sources (BUILT):**
+  `CommunicationEventSource` reads the comms archive (`communications`) linked to the deal via
+  `communication_links` (morph → the DR2 twin `App\Models\DealV2\DealV2`, id = `deal_v2_id`); `channel`
+  is the event type (email|whatsapp), comms carry a real `direction`, deal-scoped (no step link yet).
+  Registered on `PipelineEventService` beside `CommentEventSource` — no DTO/aggregator change. Per-agent
+  default view: `PipelineUserPreference::VIEWS` gains `board`; each view remembers itself on visit
+  (timeline/list/board); a neutral entry `GET deals-dr2/{deal}/pipeline/view` redirects to the
+  remembered view; the DR2 register's "Pipeline" link points at it (attached pipelines only; "Attach"
+  still → board). Test `tests/Feature/Dr2/PipelineEventSourcesAndPrefTest.php` (linked-email event ·
+  no-twin · pref round-trip all three · entry redirect).
 
 ### 4.1 Phase-2 drag-cascade rule (recorded now; not built)
 
