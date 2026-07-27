@@ -11,9 +11,11 @@ use App\Models\FicaComplianceOfficer;
 use App\Models\FicaDocument;
 use App\Models\FicaResendLog;
 use App\Models\FicaStatusHistory;
+use App\Models\Compliance\FicaTfsScreening;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use App\Services\Compliance\FicaReferralService;
+use App\Services\Compliance\Tfs\TfsScreeningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -33,15 +35,18 @@ class FicaController extends Controller
         $isCO = $user->isComplianceOfficer();                 // any FICA appointment (RO or CO)
         $isPrimaryCo = $user->isPrimaryComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // Elize
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
-        $canSeeAll = $isCO || $isAdmin;
+
+        // AT-346 — per-user FICA visibility scope (own / branch / company), driven by
+        // the Role Manager `fica.view` grant and mirroring Contacts/Properties. The CO
+        // review station, owners and admins resolve to 'all'; branch managers to their
+        // branch; ordinary agents to their own requests. See FicaSubmission::scopeVisibleTo().
+        $scope = FicaSubmission::ficaScopeFor($user);
+        $canSeeAll = $scope === 'all';
         $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
 
-        // Base query — AgencyScope on FicaSubmission handles tenancy:
-        // super_admin/owner with no switcher sees all, others see their agency.
-        $baseQuery = FicaSubmission::query();
-        if (! $canSeeAll) {
-            $baseQuery->where('requested_by', $user->id);
-        }
+        // Base query — AgencyScope handles tenancy; visibleTo() applies the own/branch/
+        // company tier so no user ever sees FICA records outside their granted scope.
+        $baseQuery = FicaSubmission::query()->visibleTo($user);
 
         // Counts (per status)
         $countBase = (clone $baseQuery);
@@ -60,10 +65,10 @@ class FicaController extends Controller
         //   RO Approvals      = agent_approved (any authorized reviewer / RO works it)
         //   CO Approvals Needed = referred_to_co (escalated — the primary CO only)
         $roQueueCount = $isCO
-            ? FicaSubmission::where('status', 'agent_approved')->count()
+            ? FicaSubmission::where('status', 'agent_approved')->visibleTo($user)->count()
             : 0;
         $coQueueCount = $isPrimaryCo
-            ? FicaSubmission::where('status', 'referred_to_co')->count()
+            ? FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->count()
             : 0;
 
         // Build filtered query
@@ -73,12 +78,16 @@ class FicaController extends Controller
 
         if ($tab === 'ro_queue') {
             // RO Approvals — the shared review pool, any authorized reviewer.
+            // AT-346: still scoped to the viewer's tier (CO = all; a branch manager
+            // reviewer would see only their branch's escalations).
             $query = FicaSubmission::where('status', 'agent_approved')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab === 'co_queue') {
             // CO Approvals Needed — escalated packs, the primary CO's station.
             $query = FicaSubmission::where('status', 'referred_to_co')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
                 ->oldest('referred_at');
         } elseif ($tab !== 'all') {
@@ -97,7 +106,7 @@ class FicaController extends Controller
         // CO Approvals Needed stats (escalations awaiting the primary CO)
         $coQueueStats = null;
         if ($isPrimaryCo && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('status', 'referred_to_co')->min('referred_at');
+            $oldest = FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->min('referred_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
                 'oldest_days' => $oldest ? (int) now()->diffInDays($oldest) : 0,
@@ -236,12 +245,114 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
 
+        // Auto-screen on view too (safety net for pre-existing / retry) — idempotent.
+        try {
+            app(TfsScreeningService::class)->screenIfNeeded($submission);
+        } catch (\Throwable $e) {
+            Log::warning('TFS auto-screen on show failed', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
+        }
+
         $submission->load(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy']);
 
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
+        $tfsScreening = $submission->latestTfsScreening();
 
-        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo'));
+        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening'));
+    }
+
+    /**
+     * Run (or re-run) TFS sanctions screening for this submission. Records a
+     * version-stamped FicaTfsScreening row. Screening never approves — it informs
+     * the gate; a HIT / review blocks approval until a CO resolves it.
+     */
+    public function screenTfs(FicaSubmission $submission, TfsScreeningService $svc)
+    {
+        $this->authorizeAgency($submission);
+        $screening = $svc->screen($submission, Auth::user());
+
+        return redirect()->back()->with('success', 'TFS screening run — result: ' . $screening->badge() . '.');
+    }
+
+    /**
+     * CO decision on a flagged screening (a HIT or a review). "clear" resolves it as a
+     * false positive (clears the gate); "confirm" records a confirmed hit (keeps it blocked).
+     */
+    public function tfsDecision(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        $actor = Auth::user();
+        abort_unless($actor->isComplianceOfficer(), 403, 'Only a Compliance Officer may decide a TFS match.');
+
+        $data = $request->validate([
+            'screening_id' => 'required|integer',
+            'action'       => 'required|in:clear,confirm',
+            'note'         => 'nullable|string|max:2000',
+        ]);
+
+        $screening = FicaTfsScreening::where('fica_submission_id', $submission->id)->findOrFail($data['screening_id']);
+        $decision = $data['action'] === 'clear' ? 'cleared_false_positive' : 'confirmed_hit';
+        $screening->update([
+            'decision'      => $decision,
+            'decided_by'    => $actor->id,
+            'decided_at'    => now(),
+            'decision_note' => $data['note'] ?? null,
+        ]);
+
+        FicaStatusHistory::record($submission, 'tfs_' . $decision, $submission->status, $submission->status, $actor, $data['note'] ?? null);
+
+        return redirect()->back()->with('success', 'TFS decision recorded (' . str_replace('_', ' ', $decision) . ').');
+    }
+
+    /**
+     * Sanctions approval backstop. NON-BLOCKING by default — only a TIER 3 exact-ID
+     * match (a locked screening) refuses approval; a Tier-2 name match is amber but
+     * continues, and a clean/unscreened submission is not blocked. The UI hides the
+     * action buttons on a lock; this is the server-side enforcement of the same rule.
+     */
+    private function tfsApprovalGuard(FicaSubmission $submission, string $redirectRoute)
+    {
+        $tfs = $submission->latestTfsScreening();
+        if (! $tfs || ! $tfs->blocksApproval()) {
+            return null;
+        }
+
+        return redirect()->route($redirectRoute, $submission)->withErrors([
+            'tfs' => 'This submission is an exact sanctions-list match and is locked — it cannot be approved. Use "Report to CO".',
+        ]);
+    }
+
+    /**
+     * TIER 3 "Report to CO" — the only action on a locked (exact-ID) sanctions match.
+     * Escalates to the Compliance Officer regardless of the agency's general refer-to-CO
+     * toggle (a sanctions hit must always be reportable), with an auto-composed note.
+     */
+    public function tfsReport(FicaSubmission $submission, FicaReferralService $referrals)
+    {
+        $this->authorizeAgency($submission);
+
+        $tfs = $submission->latestTfsScreening();
+        if (! $tfs || ! $tfs->isLocked()) {
+            return redirect()->route('compliance.fica.show', $submission)
+                ->with('success', 'No active sanctions lock to report.');
+        }
+        if (! in_array($submission->status, FicaReferralService::REFERABLE_FROM, true)) {
+            return back()->withErrors(['tfs' => 'This FICA can no longer be escalated — it is ' . $submission->status_label . '.']);
+        }
+        if (! $referrals->resolveRecipient((int) $submission->agency_id)) {
+            return back()->withErrors(['tfs' =>
+                'Cannot escalate: your agency has no active Compliance Officer to receive it. '
+                . 'An administrator must appoint one under Company Settings → Compliance Officers.',
+            ]);
+        }
+
+        $refs = collect($tfs->candidates ?? [])->pluck('ref')->filter()->implode(', ');
+        $note = 'AUTOMATIC SANCTIONS ESCALATION — exact TFS ID/passport match on the FIC UN Consolidated list ('
+            . ($refs ?: 'match') . '). Reported by ' . Auth::user()->name . '.';
+        $referrals->refer($submission, Auth::user(), $note);
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Reported to the Compliance Officer — this sanctions match has been escalated.');
     }
 
     /**
@@ -250,6 +361,11 @@ class FicaController extends Controller
     public function agentApprove(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        // TFS sanctions gate — block an unresolved hit / review / unscreened submission.
+        if ($block = $this->tfsApprovalGuard($submission, 'compliance.fica.show')) {
+            return $block;
+        }
 
         $validated = $request->validate([
             'risk_rating'         => 'required|integer|in:1,2,3',
@@ -297,8 +413,9 @@ class FicaController extends Controller
         // station owner only; the view hides the buttons a non-owner cannot use so
         // there are no dead buttons (No-Silent-Locks), matching the server guard.
         $viewerOwnsReferralStation = $referrals->isReferralStationOwner($submission, Auth::user());
+        $tfsScreening = $submission->latestTfsScreening();
 
-        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'viewerOwnsReferralStation'));
+        return view('compliance.fica.compliance-review', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'viewerOwnsReferralStation', 'tfsScreening'));
     }
 
     /**
@@ -309,6 +426,12 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer(), 403);
+
+        // TFS sanctions gate — a hit / undecided review / unscreened pack cannot be
+        // finally approved. The CO resolves the flag (clear / confirm) first.
+        if ($block = $this->tfsApprovalGuard($submission, 'compliance.fica.compliance-review')) {
+            return $block;
+        }
 
         // AT-269 (P2-49) — the CO-decision station is action-enforced, not just
         // hidden. A referred pack may only be decided by its recipient / the primary
@@ -1001,8 +1124,16 @@ class FicaController extends Controller
     }
 
     /**
-     * Ensure submission belongs to the user's agency.
-     * Super-admin / owner-role users bypass (they can access any agency).
+     * Ensure submission belongs to the user's agency AND falls within the user's
+     * FICA visibility scope (own / branch / company).
+     *
+     * Super-admin / owner-role users bypass (they can access any agency). For
+     * everyone else this is the single per-record choke-point every read and
+     * action method already calls, so AT-346 enforces the own/branch/company tier
+     * here once — a user can neither view nor act on a FICA record outside their
+     * granted scope. The scope check only ever RESTRICTS on top of the existing
+     * role/status guards (Compliance Officers / admins resolve to 'all', so the
+     * CO review station is unaffected); it can never widen access.
      */
     private function authorizeAgency(FicaSubmission $submission): void
     {
@@ -1011,6 +1142,14 @@ class FicaController extends Controller
             return;
         }
         abort_unless($submission->agency_id === $user->effectiveAgencyId(), 403);
+
+        // AT-346 — per-user scope membership. visibleTo() re-applies the own/branch/
+        // company filter; if this record is not inside it, the user may not touch it.
+        abort_unless(
+            FicaSubmission::query()->visibleTo($user)->whereKey($submission->getKey())->exists(),
+            403,
+            'This FICA record is outside your access scope.'
+        );
     }
 
     /**
