@@ -84,11 +84,13 @@
   #dr2tl .tacts{display:flex;gap:4px;margin-top:auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:thin}
   #dr2tl .tacts::-webkit-scrollbar{height:5px}
   #dr2tl .tacts::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
-  #dr2tl .tacts .b{font-size:9.5px;line-height:1;padding:4px 6px;border:1px solid #e2e8f0;border-radius:5px;background:#fff;color:#64748b;cursor:pointer;font-family:inherit;white-space:nowrap;flex:0 0 auto}
-  #dr2tl .tacts .b:hover{background:#f1f5f9}
-  #dr2tl .tacts .b.go{color:#065f46;border-color:#a7f3d0;background:#ecfdf5;font-weight:600}
-  #dr2tl .tacts .b.seq{color:#2563eb;border-color:#bfdbfe;font-weight:600}
-  #dr2tl .tacts .b.rm{color:#b91c1c;border-color:#fecaca}
+  /* !important beats the .hfc-card button[type=submit] global (which is also !important); our
+     id-scoped selector is more specific, so submit buttons (Reopen/Remove) match type=button ones. */
+  #dr2tl .tacts .b{font-size:9.5px!important;line-height:1!important;padding:4px 6px!important;border:1px solid #e2e8f0!important;border-radius:5px!important;background:#fff!important;color:#64748b!important;cursor:pointer;font-family:inherit;font-weight:600!important;white-space:nowrap;flex:0 0 auto}
+  #dr2tl .tacts .b:hover{background:#f1f5f9!important}
+  #dr2tl .tacts .b.go{color:#065f46!important;border-color:#a7f3d0!important;background:#ecfdf5!important}
+  #dr2tl .tacts .b.seq{color:#2563eb!important;border-color:#bfdbfe!important}
+  #dr2tl .tacts .b.rm{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
   #dr2tl .tacts form{display:inline}
   #dr2tl .pin{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#fff;border:1.5px solid #4f46e5;color:#4f46e5;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:4}
 
