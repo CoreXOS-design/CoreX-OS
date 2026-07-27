@@ -39,10 +39,11 @@ class PipelineTimelineController extends Controller
             PipelineUserPreference::setViewForUser($uid, 'timeline');
         }
 
-        // The same deal-context data (for the collapsible top tabs) + the APPROVED phased board payload
-        // (anchor → Stage 1 condition groups → Granted gate → Stage 2 sequence).
+        // The same deal-context data (for the collapsible top tabs) + the HORIZONTAL date-Gantt board
+        // payload (tiles positioned by date + auto-stacked rows, milestone diamonds, derived phase bands,
+        // a today line, and the comment feed). This is the timeline read-model — NOT the List's phased one.
         $ctx = $this->pipelineContext($deal);
-        $ctx['board'] = $this->timeline->buildPhased($deal);
+        $ctx['board'] = $this->timeline->buildBoard($deal);
 
         return view('dr2.pipeline-timeline', $ctx);
     }

@@ -33,14 +33,27 @@ class PipelineTimelineService
      */
     public function buildBoard(Deal $deal): array
     {
-        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)
-            ->orderBy('position')->orderBy('id')->get()
-            ->filter(fn ($s) => $s->planned_start_date && $s->due_date)
-            ->values();
+        $allSteps = DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->orderBy('position')->orderBy('id')->get();
+
+        // Only steps with BOTH a start and an end can sit on a date axis.
+        $steps = $allSteps->filter(fn ($s) => $s->planned_start_date && $s->due_date)->values();
 
         if ($steps->isEmpty()) {
             return ['empty' => true, 'day_width' => 21];
         }
+
+        // Deal-level comment target = the composer's anchor (Deal Signed), else the first step, so the
+        // footer's "General (deal)" option always has a real step to attach a deal-scope note to.
+        $anchor   = app(\App\Services\DealV2\DealLaneComposer::class)->board($allSteps)['anchor'] ?? null;
+        $anchorId = $anchor ? (int) $anchor->id : (int) (optional($allSteps->first())->id ?? 0);
+
+        // Steps that cannot be positioned on the axis (missing a start or end) are surfaced in a small
+        // "unscheduled" strip — never silently dropped (spec §3).
+        $unscheduled = $allSteps
+            ->filter(fn ($s) => ! ($s->planned_start_date && $s->due_date))
+            ->map(fn ($s) => ['id' => (int) $s->id, 'name' => $s->name])
+            ->values()->all();
 
         $base   = $steps->reduce(fn ($c, $s) => ($c === null || $s->planned_start_date->lt($c)) ? $s->planned_start_date->copy() : $c)->startOfDay();
         $maxEnd = $steps->reduce(fn ($c, $s) => ($c === null || $s->due_date->gt($c)) ? $s->due_date->copy() : $c)->startOfDay();
@@ -60,6 +73,7 @@ class PipelineTimelineService
             $endI   = $idx($s->due_date);
             if ($s->is_milestone) {
                 $gates[] = [
+                    'id'    => (int) $s->id,
                     'name'  => $s->name,
                     'day'   => $endI,
                     'state' => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
@@ -72,9 +86,31 @@ class PipelineTimelineService
                 'start'  => $startI,
                 'dur'    => max(1, $endI - $startI),
                 'status' => $statusOf($s),
-                'star'   => false,
+                'star'   => (bool) $s->is_suspensive,
             ];
         }
+
+        // Greedy interval row-packing: sort by start, drop each tile into the first row whose last tile
+        // has already ended (no overlap); else a new row underneath. So overlapping tiles never collide.
+        usort($tiles, fn ($a, $b) => [$a['start'], $a['start'] + $a['dur']] <=> [$b['start'], $b['start'] + $b['dur']]);
+        $rowEnds = [];
+        foreach ($tiles as &$t) {
+            $placed = false;
+            foreach ($rowEnds as $r => $end) {
+                if ($t['start'] >= $end) {
+                    $t['row'] = $r;
+                    $rowEnds[$r] = $t['start'] + $t['dur'];
+                    $placed = true;
+                    break;
+                }
+            }
+            if (! $placed) {
+                $t['row'] = count($rowEnds);
+                $rowEnds[] = $t['start'] + $t['dur'];
+            }
+        }
+        unset($t);
+        $rowCount = max(1, count($rowEnds));
 
         // Anti-overlap: stagger each milestone LABEL onto its own level when gates cluster near a date.
         $ms = collect($gates)->sortBy('day')->values();
@@ -121,16 +157,19 @@ class PipelineTimelineService
         })->values()->all();
 
         return [
-            'empty'      => false,
-            'day_width'  => 21,
-            'base_date'  => $base->toDateString(),
-            'today_day'  => $idx(Carbon::now()),
-            'days'       => $days,
-            'phases'     => $phases,
-            'miles'      => $ms->all(),
+            'empty'       => false,
+            'day_width'   => 21,
+            'base_date'   => $base->toDateString(),
+            'today_day'   => $idx(Carbon::now()),
+            'days'        => $days,
+            'phases'      => $phases,
+            'miles'       => $ms->all(),
             'mile_levels' => $mileLevels,
-            'tiles'      => $tiles,
-            'comments'   => $comments,
+            'tiles'       => $tiles,
+            'row_count'   => $rowCount,
+            'anchor_id'   => $anchorId,
+            'unscheduled' => $unscheduled,
+            'comments'    => $comments,
         ];
     }
 
