@@ -117,6 +117,9 @@ class ContactController extends Controller
         // The four fixed parents, each with its agency-scoped sub-tags — feeds
         // the type/tag pop-up picker on the contact forms (AT-79).
         $contactTypes = ContactType::parents()->with('subTags')->get()->unique('name')->values();
+        // Contact-details Phase 2 — the label list for the phone/email repeaters.
+        $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
+            ->orderBy('sort_order')->orderBy('name')->get();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
@@ -124,7 +127,7 @@ class ContactController extends Controller
             : null;
 
         return view('corex.contacts.index', compact(
-            'contacts', 'contactTypes', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+            'contacts', 'contactTypes', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
         ));
     }
 
@@ -416,6 +419,9 @@ class ContactController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
         $contactTypes     = ContactType::parents()->with('subTags')->get()->unique('name')->values();
+        // Contact-details Phase 2 — the label list for the phone/email repeaters.
+        $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
+            ->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();
@@ -772,7 +778,8 @@ class ContactController extends Controller
 
         // MERGE NOTE (QA2 -> Staging, 2026-07-26): both sides added a view variable here —
         // AT-321-C's $fullAuditLog and AT-267's $canEdit. They are independent; both are kept.
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'canEdit'));
+        // Contact-details Phase 2 adds $contactIdentifierLabels (tel/email label dropdown).
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'canEdit'));
     }
 
     public function checkDuplicate(Request $request)
@@ -864,9 +871,15 @@ class ContactController extends Controller
             // ContactIdentifierService ignores them for that kind). A tampered/
             // unrecognised ISO falls back to ZA rather than trusting the client.
             [$countryIso, $dialCode] = $this->resolveDialCode(is_array($row) ? ($row['country_iso'] ?? null) : null);
+            // Contact-details Phase 2 — managed label, both kinds. The RAW id is
+            // passed through unresolved — ContactIdentifierService::syncKind() is
+            // THE canonical resolution point (agency-scoped to the contact, not
+            // the ambient auth-user scope), so every writer (form, API, importer,
+            // console) gets the same agency-ownership check, not just this one.
             $out[] = [
                 'value'      => $value,
                 'label'      => $label !== '' ? $label : null,
+                'label_id'   => is_array($row) ? ($row['label_id'] ?? null) : null,
                 'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'country_iso' => $countryIso,
                 'dial_code'   => $dialCode,
@@ -923,10 +936,14 @@ class ContactController extends Controller
             // Contact-details Phase 1 — country dial prefix; unrecognised/absent
             // resolves to ZA in resolveDialCode(), never trusted as-is.
             'phones.*.country_iso' => 'nullable|string|max:2',
+            // Contact-details Phase 2 — managed label; ContactIdentifierService
+            // re-verifies agency ownership, never trusts the exists() check alone.
+            'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
             'emails.*.is_primary' => 'nullable|boolean',
+            'emails.*.label_id'   => 'nullable|integer|exists:contact_identifier_labels,id',
             // Type/tag assignments arrive via the pop-up picker and are applied
             // after creation (applyTypeAssignments) — not a single column.
             'notes'           => 'nullable|string|max:1000',
@@ -1158,10 +1175,14 @@ class ContactController extends Controller
             // Contact-details Phase 1 — country dial prefix; unrecognised/absent
             // resolves to ZA in resolveDialCode(), never trusted as-is.
             'phones.*.country_iso' => 'nullable|string|max:2',
+            // Contact-details Phase 2 — managed label; ContactIdentifierService
+            // re-verifies agency ownership, never trusts the exists() check alone.
+            'phones.*.label_id'    => 'nullable|integer|exists:contact_identifier_labels,id',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
             'emails.*.is_primary' => 'nullable|boolean',
+            'emails.*.label_id'   => 'nullable|integer|exists:contact_identifier_labels,id',
             // Type/tag assignments handled by applyTypeAssignments (the picker).
             'notes'           => 'nullable|string|max:1000',
             // Agent assignment — primary (reassignable) + optional co-agent.
