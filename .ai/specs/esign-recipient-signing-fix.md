@@ -1,5 +1,31 @@
 # E-sign RECIPIENT signing surface + agent-initial gap — handoff spec
 
+## AUTHORITATIVE — Johan clarification 2026-07-27
+
+This section OVERRIDES anything below it that conflicts. Johan is the authority.
+
+- The Y/N/N-A radio buttons on the disclosure (MDF) and the COC statements
+  (Addendum B) are for the RECIPIENT to click and sign, on BOTH documents. They
+  must be recipient-clickable. Do NOT gate them to owner/agent-only. Any prior
+  "gate MDF's disclosure to owner-only" direction is WRONG and must be reversed if
+  it was applied.
+- THE BLOCKER (fix this first, everything else is downstream): during AGENT
+  signing, the agent is never prompted to initial the other-conditions / clauses.
+  Because the agent cannot initial the clauses, the document must NOT and cannot
+  legitimately advance to the recipients. Requirement: the agent-signing flow MUST
+  require the agent to initial EACH clause/condition before the document moves to
+  recipient signing. Johan tested at recipient level only because agent-level was
+  already broken here.
+- Only after the agent-initial-clauses step works: recipient side must let the
+  recipient tick each radio, initial each agent-added condition, and +Add +
+  initial their own — on both MDF and Addendum B.
+- Proof bar for the fresh session: drive AGENT signing in a real browser first
+  (agent is forced to initial every clause, then submit), THEN recipient signing
+  (radios tickable, conditions initialable, +Add works) — on both MDF (472) and
+  Addendum B (481). Screenshot each.
+
+---
+
 Branch `esign-input-followup`. QA1 only. Written as a checkpoint before the fix
 begins — the prior fix (per-document other-conditions persist/route/render, QA1
 `7e4f1885`, `esign-input-followup` `4a2ebf5c`) is committed and live; this is the
