@@ -134,6 +134,24 @@
                     waMessage: 'Hi {{ addslashes($contact->first_name) }}',
                     emailSubject: 'Hi {{ addslashes($contact->first_name) }}',
                     emailBody: 'Hi {{ addslashes($contact->first_name) }}',
+                    // Outreach number/email selector — the agent picks WHICH of the
+                    // contact's numbers/emails a send goes to, defaulting to the
+                    // Phase 3 primary/WhatsApp/email designations but changeable
+                    // before every send. Same selector data feeds the Phase 4
+                    // could-not-send reselect-and-resend picker (contact_phone_id /
+                    // contact_email_id) — one source of truth for "which number".
+                    waNumbers: @js($contact->phones->map(fn($p) => [
+                        'id' => $p->id,
+                        'display' => $p->phone . ($p->label ? ' (' . $p->label . ')' : '') . ($p->is_whatsapp ? ' — WhatsApp' : ''),
+                        'deeplink' => \App\Support\WhatsAppNumberFormatter::forDeepLink($p->phone, $p->dial_code),
+                    ])->values()),
+                    selectedPhoneId: {{ $contact->whatsAppPhone()?->id ?? 'null' }},
+                    emailAddresses: @js($contact->emails->map(fn($e) => [
+                        'id' => $e->id,
+                        'display' => $e->email . ($e->label ? ' (' . $e->label . ')' : ''),
+                        'email' => $e->email,
+                    ])->values()),
+                    selectedEmailId: {{ $contact->primaryEmail?->id ?? 'null' }},
                     async increment(channel, payload = {}) {
                         // Optimistic bump for instant feedback; reconciled by the
                         // server's derived count below (AT-59).
@@ -143,7 +161,11 @@
                             const res = await fetch('{{ route('corex.contacts.increment', $contact) }}', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                                body: JSON.stringify({ channel, subject: payload.subject ?? null, body: payload.body ?? null })
+                                body: JSON.stringify({
+                                    channel, subject: payload.subject ?? null, body: payload.body ?? null,
+                                    contact_phone_id: payload.contactPhoneId ?? null,
+                                    contact_email_id: payload.contactEmailId ?? null,
+                                })
                             });
                             const data = await res.json();
                             if (channel === 'whatsapp') this.waCount = data.count;
@@ -161,24 +183,23 @@
                         // USA (or any non-ZA) number could never resolve on WhatsApp: a
                         // number typed with a local-style leading 0 got a ZA country code
                         // prepended to non-ZA digits (agents literally could not reach a
-                        // USA contact — "can't load a USA number"). The digits below are
-                        // now built server-side by WhatsAppNumberFormatter using THIS
-                        // number's own dial code (contact_phones.dial_code), never a
-                        // hardcoded '27'.
-                        // Contact-details Phase 3 — uses the designated primary-WhatsApp
-                        // number when one exists (may differ from the primary CONTACT
-                        // number, e.g. an office line vs a personal cell), falling back
-                        // to the primary contact number for every contact that has no
-                        // WhatsApp designation yet (the pre-Phase-3 default).
-                        @php($waPhone = $contact->whatsAppPhone())
-                        let phone = '{{ \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhone?->phone ?? $contact->phone, $waPhone?->dial_code ?? $contact->primaryPhone?->dial_code) }}';
-                        window.location.href = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(this.waMessage);
-                        this.increment('whatsapp', { body: this.waMessage });
+                        // USA contact — "can't load a USA number"). The digits are built
+                        // server-side by WhatsAppNumberFormatter using THIS number's own
+                        // dial code (contact_phones.dial_code), never a hardcoded '27'.
+                        // Outreach selector — the agent's chosen number (selectedPhoneId),
+                        // defaulting to the Phase 3 WhatsApp/primary designation but
+                        // changeable per send via the "Send to" dropdown below.
+                        const target = this.waNumbers.find(p => p.id === this.selectedPhoneId) ?? this.waNumbers[0];
+                        if (!target) { alert('This contact has no phone number.'); return; }
+                        window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
+                        this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
                         this.showWa = false;
                     },
                     sendEmail() {
-                        window.location.href = 'mailto:' + encodeURIComponent({{ Illuminate\Support\Js::from($contact->email) }}) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
-                        this.increment('email', { subject: this.emailSubject, body: this.emailBody });
+                        const target = this.emailAddresses.find(e => e.id === this.selectedEmailId) ?? this.emailAddresses[0];
+                        if (!target) { alert('This contact has no email address.'); return; }
+                        window.location.href = 'mailto:' + encodeURIComponent(target.email) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
+                        this.increment('email', { subject: this.emailSubject, body: this.emailBody, contactEmailId: target.id });
                         this.showEmail = false;
                     }
                  }" class="space-y-3">
@@ -280,6 +301,16 @@
                         <div class="text-xs font-bold" style="color:#25d366;">WhatsApp Message</div>
                     </div>
                     <div class="mb-3">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Send to</label>
+                        <select x-model.number="selectedPhoneId"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <template x-for="p in waNumbers" :key="p.id">
+                                <option :value="p.id" x-text="p.display"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Template</label>
                         <select @change="waMessage = $el.value"
                                 class="w-full rounded-md px-3 py-2 text-sm"
@@ -326,6 +357,16 @@
                     <div class="flex items-center gap-2 mb-3">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                         <div class="text-xs font-bold" style="color:var(--brand-icon, #0ea5e9);">Email Message</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Send to</label>
+                        <select x-model.number="selectedEmailId"
+                                class="w-full rounded-md px-3 py-2 text-sm"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <template x-for="e in emailAddresses" :key="e.id">
+                                <option :value="e.id" x-text="e.display"></option>
+                            </template>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Template</label>
