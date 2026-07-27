@@ -25,6 +25,99 @@ class PipelineTimelineService
     ) {
     }
 
+    /**
+     * The APPROVED-MOCKUP shape (tmp/dr2_timeline_agreed.html): white step TILES positioned by date +
+     * auto-stacked, gold milestone GATES, phase BANDS between gates, a date axis, today, and comments
+     * (both the on-timeline pins and the footer feed). Reads the real dr1_deal_id steps + normalized
+     * comment events. day 0 = the earliest planned start; every index is a whole day.
+     */
+    public function buildBoard(Deal $deal): array
+    {
+        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->orderBy('position')->orderBy('id')->get()
+            ->filter(fn ($s) => $s->planned_start_date && $s->due_date)
+            ->values();
+
+        if ($steps->isEmpty()) {
+            return ['empty' => true, 'day_width' => 21];
+        }
+
+        $base   = $steps->reduce(fn ($c, $s) => ($c === null || $s->planned_start_date->lt($c)) ? $s->planned_start_date->copy() : $c)->startOfDay();
+        $maxEnd = $steps->reduce(fn ($c, $s) => ($c === null || $s->due_date->gt($c)) ? $s->due_date->copy() : $c)->startOfDay();
+        $idx    = fn (Carbon $d) => (int) $base->diffInDays($d->copy()->startOfDay(), false);
+        $days   = max(7, $idx($maxEnd) + 5);
+
+        $statusOf = function (DealStepInstance $s) {
+            if ($s->status === 'completed') return 'done';
+            if ($s->status === 'active') return 'active';
+            return 'upcoming'; // not_started / overdue / skipped render as upcoming/grey
+        };
+
+        $tiles = [];
+        $gates = [];
+        foreach ($steps as $s) {
+            $startI = $idx($s->planned_start_date);
+            $endI   = $idx($s->due_date);
+            if ($s->is_milestone) {
+                $gates[] = [
+                    'name'  => $s->name,
+                    'day'   => $endI,
+                    'state' => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
+                ];
+                continue;
+            }
+            $tiles[] = [
+                'id'     => $s->id,
+                'name'   => $s->name,
+                'start'  => $startI,
+                'dur'    => max(1, $endI - $startI),
+                'status' => $statusOf($s),
+                'star'   => false,
+            ];
+        }
+
+        // Phase bands derived between consecutive milestone gates (labelled by the gate they lead to).
+        $ms = collect($gates)->sortBy('day')->values();
+        $phases = [];
+        $prev = 0;
+        foreach ($ms as $m) {
+            if ($m['day'] > $prev) {
+                $phases[] = ['name' => $m['name'], 'from' => $prev, 'to' => $m['day']];
+            }
+            $prev = $m['day'];
+        }
+        if ($days > $prev) {
+            $phases[] = ['name' => 'After ' . ($ms->last()['name'] ?? ''), 'from' => $prev, 'to' => $days];
+        }
+
+        // Comments — the normalizer stream (step comments now; email/WhatsApp later), for the footer +
+        // the on-timeline pins positioned by the date each was made.
+        $comments = $this->events->eventsForDeal($deal)->map(function ($e) use ($idx) {
+            return [
+                'id'     => $e->sourceType . ':' . $e->sourceId,
+                'target' => $e->isStepScoped() ? (int) $e->stepId : 'deal',
+                'scope'  => $e->scope,
+                'who'    => $e->authorName ?: 'System',
+                'when'   => Carbon::parse($e->occurredAt)->format('j M'),
+                'day'    => max(0, min($days, $idx(Carbon::parse($e->occurredAt)))),
+                'text'   => $e->body,
+                'type'   => $e->type,
+            ];
+        })->values()->all();
+
+        return [
+            'empty'      => false,
+            'day_width'  => 21,
+            'base_date'  => $base->toDateString(),
+            'today_day'  => $idx(Carbon::now()),
+            'days'       => $days,
+            'phases'     => $phases,
+            'miles'      => $ms->all(),
+            'tiles'      => $tiles,
+            'comments'   => $comments,
+        ];
+    }
+
     public function build(Deal $deal): array
     {
         $steps = DealStepInstance::where('dr1_deal_id', $deal->id)

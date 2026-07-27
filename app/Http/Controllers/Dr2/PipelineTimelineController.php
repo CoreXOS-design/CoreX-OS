@@ -39,9 +39,9 @@ class PipelineTimelineController extends Controller
             PipelineUserPreference::setViewForUser($uid, 'timeline');
         }
 
-        // The same deal-context data the board built (for the top tabs) + the timeline payload.
+        // The same deal-context data (for the collapsible top tabs) + the approved-mockup board payload.
         $ctx = $this->pipelineContext($deal);
-        $ctx['timeline'] = $this->timeline->build($deal);
+        $ctx['board'] = $this->timeline->buildBoard($deal);
 
         return view('dr2.pipeline-timeline', $ctx);
     }
