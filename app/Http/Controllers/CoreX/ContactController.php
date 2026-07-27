@@ -1238,9 +1238,15 @@ class ContactController extends Controller
     public function incrementChannel(Request $request, Contact $contact, \App\Services\Communications\OutboundProvisionalLogger $logger, \App\Services\Outreach\OutreachWindowService $window)
     {
         $data = $request->validate([
-            'channel' => 'required|in:whatsapp,email',
-            'subject' => 'nullable|string|max:1000',
-            'body'    => 'nullable|string|max:20000',
+            'channel'          => 'required|in:whatsapp,email',
+            'subject'          => 'nullable|string|max:1000',
+            'body'             => 'nullable|string|max:20000',
+            // Outreach number/email selector — the agent may target a NON-default
+            // number/email; resolved below (scoped to THIS contact) and passed as
+            // the logger's recipientValue so the archived row reflects what was
+            // actually used, not always the primary/WhatsApp designation.
+            'contact_phone_id' => 'nullable|integer',
+            'contact_email_id' => 'nullable|integer',
         ]);
 
         // AT-117 §4a — send-window lock (server-side; the UI also disables the
@@ -1257,12 +1263,21 @@ class ContactController extends Controller
             }
         }
 
+        $recipientValue = null;
+        if ($data['channel'] === 'whatsapp' && !empty($data['contact_phone_id'])) {
+            $recipientValue = $contact->phones()->find($data['contact_phone_id'])?->phone;
+        } elseif ($data['channel'] === 'email' && !empty($data['contact_email_id'])) {
+            $recipientValue = $contact->emails()->find($data['contact_email_id'])?->email;
+        }
+
         $communication = $logger->log(
             $contact,
             $data['channel'],
             $data['subject'] ?? null,
             $data['body'] ?? null,
-            auth()->id()
+            auth()->id(),
+            resentFromCommunicationId: null,
+            recipientValue: $recipientValue,
         );
 
         // Part 4 — make the comms-tile quick-send visible on the Outreach &
