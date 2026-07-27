@@ -94,7 +94,7 @@
           <div class="lbody">
             <div class="nm">{{ $s->name }} @if($s->is_milestone)<span class="star" title="Milestone">★</span>@endif</div>
             <div class="sub">
-              @if(!is_null($row['duration']))<span class="d">{{ $row['duration'] }}d</span> · @endif
+              @if(!is_null($s->duration_days))<span class="d">{{ $s->duration_days }}d</span> · @endif
               {{ $s->planned_start_date?->format('j M') }} → {{ $s->due_date?->format('j M Y') }}
               @if($row['blocked']) · <span style="color:#b45309;">{{ $row['blocked'] }}</span>@endif
               @if($s->comments->count()) · {{ $s->comments->count() }} comment{{ $s->comments->count()===1?'':'s' }}@endif
