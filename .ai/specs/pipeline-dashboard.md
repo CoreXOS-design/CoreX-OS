@@ -1,6 +1,6 @@
 # Pipeline Dashboard — spec
 
-> **Status:** Phase 1 (shared foundation) BUILDING on QA1. Phases 2–4 specced, not built.
+> **Status:** Phase 1 (foundation) + Phase 2 (timeline dashboard) BUILT on QA1. Phases 3–4 specced, not built.
 > **Scope guard:** QA1 only throughout. Approved by Johan 2026-07-27 (parked feature, un-parked).
 > Two views over ONE shared foundation; the agent picks a default and can switch.
 
@@ -122,9 +122,17 @@ Sources available to absorb (audit): `deal_step_comments` (step, live), `deal_ac
 - **Phase 1 — shared foundation (THIS):** `planned_start_date` (+manual) + projection/activate/backfill;
   the event normalizer (DTO + interface + `CommentEventSource` + `PipelineEventService`); per-agent
   view preference. **No user-facing UI.** Proven on deals 180 & 168.
-- **Phase 2 — Timeline dashboard:** JSON read/mutate endpoints (first for this board); tiles-as-bars;
-  auto-stack (interval packing); milestone diamonds; phase bands (between milestone gates); today line;
-  drag-to-reschedule with the cascade rule below; activity lane fed by the normalizer.
+- **Phase 2 — Timeline dashboard (BUILT):** `GET deals-dr2/{deal}/pipeline/timeline` +
+  `POST …/steps/{step}/reschedule` (JSON preview/commit — first JSON board endpoints).
+  `PipelineTimelineService` assembles the payload: bars stretched to duration, greedy interval
+  row-packing (overlaps auto-stack), milestone gate diamonds, phase bands derived between gates, a
+  today line, and the activity lane from `PipelineEventService`. `PipelineRescheduleService` is the
+  drag-cascade (§4.1) — dry-run preview → confirm dialog → commit. Tile actions reuse the existing
+  `deals-dr2.pipeline.step.*` routes with `?from=timeline` so they return to the timeline
+  (`PipelineController::pipelineRedirect`); "Open on board ↗" covers Edit-dates/N-A/sequence. View
+  toggle Timeline | Board. Blade `dr2/pipeline-timeline.blade.php` (self-contained Alpine, no external
+  gantt lib). Tests: `tests/Feature/Dr2/PipelineRescheduleTest.php` (cascade fan-in + sibling + held +
+  frozen + render). Proven on deals 180 (concurrent) & 168 (linear).
 - **Phase 3 — List view:** vertical list, grab-to-reorder (display `position` only — bulk position
   POST, adapting the template-editor drag pattern), inline edit, same action set via shared wrappers.
 - **Phase 4 — per-agent default wiring + email/WhatsApp event sources** (register the two new sources

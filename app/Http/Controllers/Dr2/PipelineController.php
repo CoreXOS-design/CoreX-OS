@@ -29,6 +29,17 @@ class PipelineController extends Controller
     ) {
     }
 
+    /**
+     * Pipeline Dashboard Phase 2 — after an action, return to whichever pipeline view the agent acted
+     * from. Board is the default; `?from=timeline` (posted by the timeline's tile actions) returns to
+     * the timeline so an action taken there doesn't bounce the agent to the board.
+     */
+    private function pipelineRedirect(Deal $deal): RedirectResponse
+    {
+        $route = request('from') === 'timeline' ? 'deals-dr2.pipeline.timeline' : 'deals-dr2.pipeline';
+        return redirect()->route($route, $deal);
+    }
+
     /** A deal's pipeline board — steps with LIVE RAG, or the attach form when none is set. */
     public function show(Deal $deal): View
     {
@@ -138,7 +149,7 @@ class PipelineController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', 'Deal structure saved — pipeline assembled.');
     }
 
@@ -171,7 +182,7 @@ class PipelineController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', "Pipeline \"{$template->name}\" attached.");
     }
 
@@ -229,7 +240,7 @@ class PipelineController extends Controller
             app(\App\Services\DealV2\DealDateCascade::class)->recompute($deal);
         }
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', "Step \"{$step->name}\" completed.");
     }
 
@@ -269,7 +280,7 @@ class PipelineController extends Controller
 
         $cascade->recompute($deal);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', "Step \"{$step->name}\" reopened.");
     }
 
@@ -282,7 +293,7 @@ class PipelineController extends Controller
         $reason = trim((string) $request->input('reason', ''));
         $this->pipelines->markNotApplicable($step, $request->user()?->id, $reason !== '' ? $reason : null);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" marked N/A.");
+        return $this->pipelineRedirect($deal)->with('info', "Step \"{$step->name}\" marked N/A.");
     }
 
     /** V1.1 — remove a step (soft-delete; audited). */
@@ -293,7 +304,7 @@ class PipelineController extends Controller
         }
         $this->pipelines->removeStep($step, $request->user()?->id);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" removed.");
+        return $this->pipelineRedirect($deal)->with('info', "Step \"{$step->name}\" removed.");
     }
 
     /** V1.1 — add a custom step: name + due date + position (relative to an existing step). */
@@ -311,7 +322,7 @@ class PipelineController extends Controller
 
         $this->pipelines->addCustomStep($deal, trim($data['name']), $data['due_date'] ?? null, $after, $request->user()?->id);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', 'Step added.');
+        return $this->pipelineRedirect($deal)->with('info', 'Step added.');
     }
 
     /** R2 — edit a step's due date inline (audited; RAG recalcs off the edited date). */
@@ -323,7 +334,7 @@ class PipelineController extends Controller
         $data = $request->validate(['due_date' => ['nullable', 'date']]);
         $this->pipelines->updateStepDueDate($step, $data['due_date'] ?? null, $request->user()?->id);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Due date updated for \"{$step->name}\".");
+        return $this->pipelineRedirect($deal)->with('info', "Due date updated for \"{$step->name}\".");
     }
 
     /**
@@ -343,7 +354,7 @@ class PipelineController extends Controller
             abort(404);
         }
         if (! $cascade->isNewModel($deal)) {
-            return redirect()->route('deals-dr2.pipeline', $deal)
+            return $this->pipelineRedirect($deal)
                 ->with('error', 'Sequence editing applies to composable deals only.');
         }
 
@@ -379,7 +390,7 @@ class PipelineController extends Controller
             $seen   = [];
             while ($cursor && ! isset($seen[$cursor])) {
                 if ((int) $cursor === (int) $step->id) {
-                    return redirect()->route('deals-dr2.pipeline', $deal)
+                    return $this->pipelineRedirect($deal)
                         ->with('error', 'That would make the step follow itself (a loop).');
                 }
                 $seen[$cursor] = true;
@@ -396,7 +407,7 @@ class PipelineController extends Controller
         $cascade->recompute($deal);          // dates
         $reorder->reorderByFollows($deal);   // visual order
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', "Sequence updated for \"{$step->name}\".");
     }
 
@@ -429,7 +440,7 @@ class PipelineController extends Controller
         }
 
         if ($this->wouldCycle($deal, (int) $step->id, $set)) {
-            return redirect()->route('deals-dr2.pipeline', $deal)
+            return $this->pipelineRedirect($deal)
                 ->with('error', 'That relink would create a loop.');
         }
 
@@ -461,7 +472,7 @@ class PipelineController extends Controller
         $cascade->recompute($deal);
         $reorder->reorderByFollows($deal);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with('info', "Re-linked \"{$step->name}\".");
     }
 
@@ -498,7 +509,7 @@ class PipelineController extends Controller
         $data = $request->validate(['step_id' => ['required', 'integer']]);
         $step = $this->pipelines->restoreRemovedStep($deal, (int) $data['step_id'], $request->user()?->id);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)
+        return $this->pipelineRedirect($deal)
             ->with($step ? 'info' : 'error', $step ? "Step \"{$step->name}\" restored." : 'That step could not be restored.');
     }
 
@@ -510,7 +521,7 @@ class PipelineController extends Controller
         }
         $this->pipelines->reinstateStep($step, $request->user()?->id);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', "Step \"{$step->name}\" reinstated.");
+        return $this->pipelineRedirect($deal)->with('info', "Step \"{$step->name}\" reinstated.");
     }
 
     /** V1.1 — add a comment to a step's thread. */
@@ -528,7 +539,7 @@ class PipelineController extends Controller
             'body'                  => trim($data['body']),
         ]);
 
-        return redirect()->route('deals-dr2.pipeline', $deal)->with('info', 'Comment added.');
+        return $this->pipelineRedirect($deal)->with('info', 'Comment added.');
     }
 
     /** This agency's active pipeline templates (is_default first). */
