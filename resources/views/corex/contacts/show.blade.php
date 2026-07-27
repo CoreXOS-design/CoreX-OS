@@ -536,57 +536,7 @@
                     </div>
                 </div>
 
-                {{-- Assigned Agents — the operational Primary/Co-Agent (agent_id /
-                     second_agent_id). created_by stays the immutable capture audit
-                     (shown as "Captured by"), never as the assigned agent. AT-118:
-                     changing the assignment requires contacts.reassign_agent. --}}
-                @php $canReassign = auth()->user()?->hasPermission('contacts.reassign_agent'); @endphp
-                <div class="pt-2 border-t" style="border-color:var(--border);">
-                    <h3 class="text-xs font-bold uppercase tracking-widest pt-4 mb-1" style="color:var(--text-muted);">Assigned Agents</h3>
-                    <p class="text-[11px] mb-3" style="color:var(--text-muted);">The agent(s) assigned to this contact. Captured by {{ $contact->createdBy?->name ?? 'Unknown' }}.</p>
-                    @if($canReassign)
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
-                            <select name="agent_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Unassigned —</option>
-                                @foreach($agencyAgents as $agent)
-                                    <option value="{{ $agent->id }}" @selected((int) old('agent_id', $contact->agent_id) === $agent->id)>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent <span class="font-normal normal-case">(optional)</span></label>
-                            <select name="second_agent_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($agencyAgents as $agent)
-                                    <option value="{{ $agent->id }}" @selected((int) old('second_agent_id', $contact->second_agent_id) === $agent->id)>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
-                    @error('second_agent_id')
-                        <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>
-                    @enderror
-                    @else
-                    {{-- No Silent Locks: show the current assignment read-only + why it's locked. --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Agent</label>
-                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->agent?->name ?? 'Unassigned' }}</p>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Co-Agent</label>
-                            <p class="text-sm" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? 'None' }}</p>
-                        </div>
-                    </div>
-                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">Only a manager can change the agent assigned to a contact. Ask an admin or branch manager to reassign it.</p>
-                    @endif
-                </div>
+                @include('corex.contacts._assigned-agents')
 
                 <div class="flex items-center gap-3 pt-2">
                     <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
@@ -602,79 +552,7 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 space-y-6">
 
-            {{-- Linked properties list --}}
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">
-                    Linked Properties ({{ $contact->properties->count() }})
-                </h3>
-                @forelse($contact->properties as $prop)
-                @php
-                $propThumb = $prop->thumbFor($prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null));
-                $propSc = [
-                    'active' => 'var(--ds-green)',
-                    'draft' => 'var(--text-muted)',
-                    'sold' => 'var(--brand-icon)',
-                    'withdrawn' => 'var(--ds-amber)',
-                ][$prop->status] ?? 'var(--text-muted)';
-                @endphp
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                    {{-- Thumb --}}
-                    <div class="w-12 h-12 rounded-md overflow-hidden flex-shrink-0" style="background:var(--surface);">
-                        @if($propThumb)
-                        <img src="{{ $propThumb }}" alt="" class="w-full h-full object-cover">
-                        @else
-                        <div class="w-full h-full flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-6 h-6" style="color:var(--text-muted);opacity:.4;"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        </div>
-                        @endif
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <a href="{{ route('corex.properties.show', $prop) }}"
-                           class="text-sm font-semibold no-underline hover:underline"
-                           style="color:var(--text-primary);">{{ $prop->title }}</a>
-                        {{-- AT-243 — same derived truth, read from the other side: this contact is the
-                             one who actually bought this property (buyer on its granted/registered deal). --}}
-                        @if(in_array((int) $contact->id, $prop->purchaserContactIds(), true))
-                            <span class="ds-badge ds-badge-success" style="margin-left:.4rem;"
-                                  title="This contact bought this property — they are the buyer on its granted deal.">Purchaser</span>
-                        @endif
-                        <div class="text-xs mt-0.5 flex flex-wrap gap-2" style="color:var(--text-muted);">
-                            <span style="color:{{ $propSc }};">{{ ucfirst($prop->status) }}</span>
-                            <span>{{ $prop->formattedPrice() }}</span>
-                            <span>{{ $prop->buildDisplayAddress() }}</span>
-                            @if($prop->pivot->role)<span class="font-semibold" style="color:var(--brand-icon, #0ea5e9);">{{ ucfirst($prop->pivot->role) }}</span>@endif
-                        </div>
-                    </div>
-                    <form method="POST" action="{{ route('corex.contacts.properties.unlink', [$contact, $prop]) }}"
-                          onsubmit="return confirm('Unlink this property from {{ addslashes($contact->full_name) }}?')">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300 flex-shrink-0"
-                                style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Unlink</button>
-                    </form>
-                </div>
-                @if(in_array($prop->pivot->role, ['owner', 'seller', 'landlord', 'lessor']))
-                    @php
-                        $sellerLink = \App\Models\PropertySellerLink::ensureExists($prop->id, $contact->id);
-                        $sellerLinkUrl = url('/property/live/' . $sellerLink->token);
-                    @endphp
-                    <div class="flex items-center gap-2 px-4 pb-2 -mt-1 text-[10px]" style="color:var(--text-muted);">
-                        <span style="color:var(--brand-icon);">Seller Live Link</span>
-                        <span class="truncate max-w-[200px]" title="{{ $sellerLinkUrl }}">{{ $sellerLinkUrl }}</span>
-                        <button type="button" onclick="navigator.clipboard.writeText('{{ $sellerLinkUrl }}'); this.textContent='Copied!';"
-                                class="font-medium px-1.5 py-0.5 rounded-md flex-shrink-0" style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">Copy</button>
-                    </div>
-                @endif
-                @empty
-                <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                    </div>
-                    <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No properties linked</h3>
-                    <p class="text-sm mb-4" style="color: var(--text-muted);">Use the search below to link an existing property to this contact.</p>
-                </div>
-                @endforelse
-            </div>
+            @include('corex.contacts._linked-properties')
 
             {{-- Link property by address search --}}
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -716,28 +594,7 @@
                 </div>
             </div>
 
-            {{-- AT-60 — Capture an address to START A NEW PROPERTY. This is a
-                 property-creation aid: it persists to the contact's structured
-                 property-address columns and transfers onto a new Property via
-                 "Use for property". It is INDEPENDENT of the contact's residential
-                 address (the free-text field on the Info tab) and never writes to it. --}}
-            @if(session('held_address_warning'))
-                @php $heldWarn = session('held_address_warning'); @endphp
-                <div class="rounded-md p-4 mb-4" role="alert"
-                     style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);">
-                    <div class="flex items-start gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                        <div class="text-sm" style="color:var(--text-primary);">
-                            <strong>HFC already has this property on its books</strong> — {{ $heldWarn['label'] ?? '' }}.
-                            @if(!empty($heldWarn['address'])) <span style="color:var(--text-secondary);">({{ $heldWarn['address'] }})</span>@endif
-                            <div class="mt-1 text-xs" style="color:var(--text-secondary);">
-                                Check the existing record before canvassing the owner —
-                                @if(!empty($heldWarn['property_url']))<a href="{{ $heldWarn['property_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open the property record</a>@elseif(!empty($heldWarn['tracked_url']))<a href="{{ $heldWarn['tracked_url'] }}" target="_blank" rel="noopener" class="font-semibold" style="color:var(--brand-icon, #2563eb);">open property intel</a>@endif.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            @endif
+            @include('corex.contacts._held-address-warning')
 
             <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
                  x-data="contactAddress({{ Js::from([
@@ -1128,83 +985,7 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'drive'" x-cloak class="p-6 space-y-5" id="tab-drive"
              x-data="{ dragging: false }">
-
-            {{-- Upload area --}}
-            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Upload File</div>
-                <form method="POST" action="{{ route('corex.contacts.documents.store', $contact) }}"
-                      enctype="multipart/form-data" class="space-y-3">
-                    @csrf
-                    <div @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
-                         @drop.prevent="dragging = false; $refs.fileInput.files = $event.dataTransfer.files"
-                         :style="dragging ? 'border-color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);' : ''"
-                         class="border-2 border-dashed rounded-md p-8 text-center transition-all duration-300 cursor-pointer"
-                         style="border-color:var(--border);"
-                         @click="$refs.fileInput.click()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                        <div class="text-sm" style="color:var(--text-secondary);">Drag & drop or click to upload</div>
-                        <div class="text-xs mt-1" style="color:var(--text-muted);">Max 20 MB — images, PDFs, documents</div>
-                        <input x-ref="fileInput" type="file" name="file" class="hidden"
-                               @change="$el.closest('form').querySelector('.file-name').textContent = $el.files[0]?.name ?? ''">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
-                            <option value="">Document Type (optional)</option>
-                            @foreach($documentTypes as $dt)
-                            <option value="{{ $dt->id }}">{{ $dt->label }}</option>
-                            @endforeach
-                        </select>
-                        <select name="property_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
-                            <option value="">Link to Property (optional)</option>
-                            @foreach($contact->properties as $prop)
-                            <option value="{{ $prop->id }}">{{ trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="file-name text-xs truncate" style="color:var(--text-muted);"></span>
-                        <button type="submit" class="corex-btn-primary text-sm flex-shrink-0">Upload</button>
-                    </div>
-                </form>
-            </div>
-
-            {{-- Grouped file list --}}
-            @if($contact->documents->isNotEmpty())
-                <div class="text-xs" style="color:var(--text-muted);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
-
-                @foreach($driveLinkedGroups as $propId => $docs)
-                @php $prop = $drivePropertyMap->get($propId); @endphp
-                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $prop ? (trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id) : 'Unknown Property' }}</span>
-                    </div>
-                    @foreach($docs as $doc)
-                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
-                    @endforeach
-                </div>
-                @endforeach
-
-                @if($driveUnlinkedDocs->isNotEmpty())
-                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <span class="text-xs font-semibold" style="color:var(--text-muted);">Not Property-Linked</span>
-                    </div>
-                    @foreach($driveUnlinkedDocs as $doc)
-                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
-                    @endforeach
-                </div>
-                @endif
-            @else
-            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
-                </div>
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No files uploaded</h3>
-                <p class="text-sm" style="color: var(--text-muted);">Drop a file in the upload area above to attach it to this contact.</p>
-            </div>
-            @endif
+            @include('corex.contacts._drive-tab-body')
         </div>
 
         {{-- ════════════════════════════
