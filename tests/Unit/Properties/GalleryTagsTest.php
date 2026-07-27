@@ -86,4 +86,46 @@ class GalleryTagsTest extends TestCase
         $tags = $p->getAvailableGalleryTags();
         $this->assertSame(1, count(array_filter($tags, fn ($t) => strcasecmp($t, 'Bedroom 1') === 0)));
     }
+
+    /**
+     * gallery_tag_order must win over the default "derived tags first, then
+     * custom tags" concatenation — including a reorder that moves a derived
+     * (room) tag, which gallery_custom_tags alone can never represent.
+     */
+    public function test_saved_tag_order_overrides_default_derived_then_custom_order(): void
+    {
+        $p = $this->property([
+            'spaces_json'         => ['spaces' => [['type' => 'Bedroom', 'count' => 2], ['type' => 'Garage', 'count' => 1]]],
+            'gallery_custom_tags' => ['Sunset'],
+            'gallery_tag_order'   => ['Sunset', 'Garage', 'Bedroom 1', 'Bedroom 2'],
+        ]);
+
+        $this->assertSame(['Sunset', 'Garage', 'Bedroom 1', 'Bedroom 2'], $p->getAvailableGalleryTags());
+    }
+
+    /**
+     * A tag that didn't exist yet when the order was last saved (a room
+     * added afterwards) must still appear — appended at the end — rather
+     * than being hidden because it's absent from gallery_tag_order.
+     */
+    public function test_tag_not_present_in_saved_order_is_appended_not_dropped(): void
+    {
+        $p = $this->property([
+            'spaces_json'       => ['spaces' => [['type' => 'Bedroom', 'count' => 1], ['type' => 'Garage', 'count' => 1]]],
+            'gallery_tag_order' => ['Garage'], // saved before the Bedroom space was added
+        ]);
+
+        $this->assertSame(['Garage', 'Bedroom'], $p->getAvailableGalleryTags());
+    }
+
+    public function test_no_saved_order_falls_back_to_default_derived_then_custom_order(): void
+    {
+        $p = $this->property([
+            'spaces_json'         => ['spaces' => [['type' => 'Bedroom', 'count' => 1]]],
+            'gallery_custom_tags' => ['Sunset'],
+            'gallery_tag_order'   => null,
+        ]);
+
+        $this->assertSame(['Bedroom', 'Sunset'], $p->getAvailableGalleryTags());
+    }
 }

@@ -345,6 +345,7 @@ class Property extends Model
         'gallery_images_json',
         'gallery_categories_json',
         'gallery_custom_tags',
+        'gallery_tag_order',
         'gallery_upload_keys',
         'rental_upload_keys',
         'agent_id',
@@ -448,6 +449,7 @@ class Property extends Model
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
         'gallery_custom_tags'     => 'array',
+        'gallery_tag_order'       => 'array',
         'gallery_upload_keys'     => 'array',
         'rental_upload_keys'      => 'array',
         'gallery_expected_count'  => 'integer',
@@ -1710,7 +1712,43 @@ class Property extends Model
             $appendIfNew($cat['name'] ?? null);
         }
 
-        return $tags;
+        return $this->applyGalleryTagOrder($tags);
+    }
+
+    /**
+     * Apply the user's saved drag-reorder (gallery_tag_order) on top of the
+     * freshly-merged tag list. gallery_tag_order is the FULL order — derived
+     * room tags and custom tags together — exactly as last arranged in the
+     * sort-order UI; it always wins over the default "derived tags, then
+     * custom tags" concatenation. A tag not present in the saved order (a
+     * room added, or a custom tag created, after the last sort) is appended
+     * at the end in its default position rather than dropped.
+     *
+     * @param string[] $tags
+     * @return string[]
+     */
+    private function applyGalleryTagOrder(array $tags): array
+    {
+        $order = $this->gallery_tag_order ?? [];
+        if (empty($order)) {
+            return $tags;
+        }
+
+        $remaining = $tags;
+        $ordered = [];
+
+        foreach ($order as $name) {
+            if (!is_string($name)) continue;
+            foreach ($remaining as $i => $t) {
+                if (strcasecmp($t, $name) === 0) {
+                    $ordered[] = $t;
+                    unset($remaining[$i]);
+                    break;
+                }
+            }
+        }
+
+        return array_merge($ordered, array_values($remaining));
     }
 
     /**

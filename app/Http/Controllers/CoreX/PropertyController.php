@@ -1853,15 +1853,28 @@ class PropertyController extends Controller
             // tags leaned entirely on filed photos to survive (property 6060).
             if ($request->has('gallery_available_tags')) {
                 $available = array_values(array_filter(
-                    (array) $request->input('gallery_available_tags', []),
-                    'is_string'
+                    array_map('trim', array_filter(
+                        (array) $request->input('gallery_available_tags', []),
+                        'is_string'
+                    )),
+                    fn ($t) => $t !== ''
                 ));
                 $derivedLower = array_map('strtolower', $property->derivedGalleryTags());
                 $custom = array_values(array_filter(
-                    array_map('trim', $available),
-                    fn ($t) => $t !== '' && !in_array(strtolower($t), $derivedLower, true)
+                    $available,
+                    fn ($t) => !in_array(strtolower($t), $derivedLower, true)
                 ));
                 $updates['gallery_custom_tags'] = $custom;
+
+                // Persist the FULL order too — derived tags and custom tags
+                // together, exactly as the user arranged them. gallery_custom_tags
+                // alone only records custom-tag membership and their order
+                // relative to each other; it can't represent a derived (room)
+                // tag being dragged, or a custom tag being interleaved among
+                // derived ones. Without this, any reorder that touched a
+                // derived tag or crossed the derived/custom boundary reverted
+                // to the default room order on the next page load.
+                $updates['gallery_tag_order'] = $available;
             }
 
             $property->update($updates);
