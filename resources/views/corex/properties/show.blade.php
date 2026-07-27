@@ -84,7 +84,10 @@
 
         {{-- LEFT: sticky property summary panel --}}
         @php
-        $thumb = $property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null);
+        // Sidebar identity strip + mobile header — both render this at 48-56px,
+        // so it was the single worst offender per display-pixel: a raw multi-MB
+        // original stretched into a 48px square on every property page.
+        $thumb = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
         $statusColors = [
             'active'    => 'var(--ds-green)',
             'draft'     => 'var(--text-muted)',
@@ -1064,7 +1067,13 @@
                     {{-- Cover image --}}
                     <div class="md:col-span-2 relative" style="min-height:240px; background:var(--surface);">
                         @if($coverImage)
-                            <img src="{{ $coverImage }}" alt="" class="w-full h-full object-cover absolute inset-0">
+                            {{-- Same bug as the gallery grid, missed on the first pass because
+                                 this is a plain <img>, not part of the reactive images array:
+                                 the hero renders in a ~480-640px slot but was shipping the
+                                 full-resolution original (up to 6.5MB on this property). This
+                                 tab is active by default, so it was the first thing downloaded
+                                 on every page load. --}}
+                            <img src="{{ $property->thumbFor($coverImage) }}" alt="" class="w-full h-full object-cover absolute inset-0">
                         @else
                             <div class="w-full h-full absolute inset-0 flex items-center justify-center" style="color:var(--text-muted);">
                                 <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z"/></svg>
@@ -3675,7 +3684,7 @@
                              @dragstart="(!tagMode && !selectMode) && dragStart(idx, $event)"
                              @dragover.prevent="(!tagMode && !selectMode) && dragOver(idx, $event)"
                              @drop.prevent="(!tagMode && !selectMode) && dragDrop(idx)">
-                            <img :src="thumbs[img] || img" loading="lazy" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+                            <img :src="thumbs[img] || img" loading="lazy" decoding="async" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
 
                             {{-- Cover badge --}}
                             <div x-show="idx === 0" class="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white" style="background:rgba(0,0,0,0.7);">COVER</div>
