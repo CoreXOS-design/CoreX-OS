@@ -6,10 +6,11 @@
      duration preserved) and cascades downstream dependents with a confirmation. Spec §3, §4.1. --}}
 
 @section('content')
+@include('dr2._pipeline-surface-styles')
 @php($tl = $timeline)
-<div class="max-w-full mx-auto px-3 py-4" x-data="pipelineTimeline(@js($tl))">
+<div class="max-w-full mx-auto px-3 py-4">
 
-    {{-- Header + view toggle --}}
+    {{-- Header + view toggle (Timeline | List — the board view is retired) --}}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:.6rem;">
         <div>
             <div style="font-size:1.05rem;font-weight:700;color:#111827;">Pipeline timeline</div>
@@ -20,9 +21,14 @@
         </div>
         <div style="display:inline-flex;border:1px solid #e5e7eb;border-radius:.5rem;overflow:hidden;font-size:.78rem;">
             <span style="padding:.35rem .75rem;background:#111827;color:#fff;font-weight:600;">Timeline</span>
-            <a href="{{ route('deals-dr2.pipeline', $deal) }}" style="padding:.35rem .75rem;color:#374151;text-decoration:none;">Board</a>
+            <a href="{{ route('deals-dr2.pipeline.list', $deal) }}" style="padding:.35rem .75rem;color:#374151;text-decoration:none;">List</a>
         </div>
     </div>
+
+    {{-- Deal-context tabs, on top of the timeline --}}
+    @include('dr2._pipeline-context-tabs')
+
+    <div x-data="pipelineTimeline(@js($tl))">
 
     @if($locked)
         <div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:.5rem;padding:.5rem .75rem;font-size:.8rem;margin-bottom:.6rem;">
@@ -35,32 +41,35 @@
 
     @if($tl['empty'])
         <div style="border:1px dashed #d1d5db;border-radius:.6rem;padding:2rem;text-align:center;color:#6b7280;font-size:.85rem;">
-            No pipeline steps with a schedule yet.
-            <a href="{{ route('deals-dr2.pipeline', $deal) }}" style="color:#0ea5e9;font-weight:600;">Open the board</a> to attach a pipeline.
+            No pipeline steps with a schedule yet — build the pipeline from the <strong>Deal Structure</strong> tab above.
         </div>
     @else
     <div class="tl-scroll" style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:.6rem;background:#fff;">
         <div class="tl-canvas" :style="`position:relative;width:${canvasWidth}px;min-width:100%;`">
 
-            {{-- Phase bands (derived between milestone gates) --}}
+            {{-- Phase bands (derived between milestone gates). Background only; the label is shown
+                 ONLY when the band is wide enough and is clipped to the band so labels never mash. --}}
             <template x-for="(b,i) in data.bands" :key="'band'+i">
-                <div :style="`position:absolute;top:0;bottom:0;left:${b.start_index*dw}px;width:${(b.end_index-b.start_index)*dw}px;background:${i%2? 'rgba(2,132,199,.035)':'rgba(2,132,199,.075)'};border-left:1px dashed #cbd5e1;`">
-                    <div style="position:sticky;top:0;font-size:.62rem;color:#64748b;padding:2px 4px;white-space:nowrap;font-weight:600;" x-text="b.label"></div>
+                <div :style="`position:absolute;top:0;bottom:0;left:${b.start_index*dw}px;width:${(b.end_index-b.start_index)*dw}px;background:${i%2? 'rgba(2,132,199,.035)':'rgba(2,132,199,.075)'};border-left:1px dashed #cbd5e1;overflow:hidden;`">
+                    <div x-show="(b.end_index-b.start_index)*dw > 52" style="position:sticky;top:0;font-size:.62rem;color:#64748b;padding:2px 5px;white-space:nowrap;font-weight:600;text-overflow:ellipsis;overflow:hidden;" x-text="b.label"></div>
                 </div>
             </template>
 
             {{-- Today line --}}
             <template x-if="data.today_index >= 0 && data.today_index <= data.total_days">
-                <div :style="`position:absolute;top:0;bottom:0;left:${data.today_index*dw}px;width:2px;background:#ef4444;z-index:5;`">
+                <div :style="`position:absolute;top:0;bottom:0;left:${data.today_index*dw}px;width:2px;background:#ef4444;z-index:6;`">
                     <div style="position:absolute;top:2px;left:3px;font-size:.6rem;color:#ef4444;font-weight:700;white-space:nowrap;">today</div>
                 </div>
             </template>
 
-            {{-- Gates lane (milestone diamonds) --}}
-            <div style="position:relative;height:34px;border-bottom:1px solid #f1f5f9;">
-                <template x-for="g in data.gates" :key="'gate'+g.id">
-                    <div :style="`position:absolute;left:${g.index*dw}px;top:8px;transform:translateX(-7px);z-index:4;`" :title="g.name">
-                        <div :style="`width:13px;height:13px;transform:rotate(45deg);background:${g.is_milestone?'#0f172a':'#94a3b8'};border:1px solid #fff;box-shadow:0 0 0 1px ${g.is_milestone?'#0f172a':'#94a3b8'};`"></div>
+            {{-- Gates lane (milestone diamonds) — each gets a readable angled label; adjacent labels are
+                 staggered on two levels so close milestones don't overlap ("Deal Signed"/"Proof of
+                 Funds"/"Bond Approved" are legible even when the diamonds are days apart). --}}
+            <div style="position:relative;height:74px;border-bottom:1px solid #f1f5f9;">
+                <template x-for="(g,gi) in data.gates" :key="'gate'+g.id">
+                    <div :style="`position:absolute;left:${g.index*dw}px;top:8px;z-index:4;`">
+                        <div :style="`width:13px;height:13px;transform:translateX(-7px) rotate(45deg);background:${g.is_milestone?'#0f172a':'#94a3b8'};border:1px solid #fff;box-shadow:0 0 0 1px ${g.is_milestone?'#0f172a':'#94a3b8'};`" :title="g.name"></div>
+                        <div :style="`position:absolute;left:2px;top:${gi%2? '34px':'18px'};font-size:.6rem;line-height:1;color:#334155;font-weight:600;white-space:nowrap;transform:rotate(28deg);transform-origin:left top;`" x-text="g.name"></div>
                     </div>
                 </template>
             </div>
@@ -139,7 +148,7 @@
                             <button type="submit" style="width:100%;background:#fff;color:#b91c1c;border:1px solid #fecaca;border-radius:.4rem;padding:.35rem;font-size:.76rem;font-weight:600;cursor:pointer;">Remove step</button>
                         </form>
                     </template>
-                    <a :href="'{{ route('deals-dr2.pipeline', $deal) }}'" style="text-align:center;font-size:.72rem;color:#6b7280;text-decoration:none;">Open on board ↗ (edit dates, N/A, sequence)</a>
+                    <a :href="'{{ route('deals-dr2.pipeline.list', $deal) }}'" style="text-align:center;font-size:.72rem;color:#6b7280;text-decoration:none;">Open in List ↗ (edit dates, N/A, sequence)</a>
                     <div style="font-size:.68rem;color:#9ca3af;text-align:center;">Tip: drag the bar to reschedule its start.</div>
                 </div>
                 @endunless
@@ -181,6 +190,7 @@
         </template>
     </div>
     @endif
+    </div>{{-- /x-data pipelineTimeline --}}
 </div>
 
 @push('scripts')

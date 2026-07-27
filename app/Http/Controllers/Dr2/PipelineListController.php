@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Dr2;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Dr2\Concerns\BuildsPipelineContext;
 use App\Models\Deal;
 use App\Models\DealV2\DealStepInstance;
 use App\Models\DealV2\PipelineUserPreference;
@@ -16,14 +17,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /**
- * Pipeline Dashboard Phase 3 — the LIST view (View 2): the same steps + activity as the timeline, as a
- * vertical list with grab-to-reorder (DISPLAY position ONLY — never rewires dependencies or dates,
- * decision 4), sequence-click, inline Edit-dates (start + end), and the full action set (Complete /
- * Edit dates / Sequence / N-A / Remove / Comment). Actions reuse the board routes with ?from=list.
+ * Pipeline Dashboard — the LIST view (View 2): the deal-context tabs ON TOP, then the SAME step CARDS
+ * as the board (dr2._pipeline-step-tile) stacked vertically, with grab-to-reorder (DISPLAY position
+ * ONLY — never rewires dependencies or dates) + sequence-click + inline edit + the full action set.
  * QA1 only; a pure overlay — nothing here changes DR1 deal state.
  */
 class PipelineListController extends Controller
 {
+    use BuildsPipelineContext;
+
     public function __construct(
         private readonly Dr1PipelineService $pipelines,
         private readonly DealPipelineLockService $lock,
@@ -33,52 +35,21 @@ class PipelineListController extends Controller
 
     public function show(Deal $deal): View
     {
-        $deal->load(['pipelineSteps.comments.user']);
-
         if ($uid = auth()->id()) {
             PipelineUserPreference::setViewForUser($uid, 'list');
         }
 
-        $rows = $deal->pipelineSteps
-            ->sortBy([['position', 'asc'], ['id', 'asc']])
-            ->values()
-            ->map(function (DealStepInstance $s) {
-                $terminal = in_array($s->status, ['completed', 'skipped'], true);
-                $rag = $terminal ? 'grey' : $this->pipelines->calculateRag($s);
-                return [
-                    'model'    => $s,
-                    'rag'      => $rag,
-                    'colour'   => Dr1PipelineService::ragColour($rag),
-                    'blocked'  => $s->blockedByLabel(),
-                    'na'       => $s->status === 'skipped' && ! empty($s->na_reason),
-                    'duration' => $s->duration_days,
-                ];
-            });
-
+        $ctx = $this->pipelineContext($deal);
         // Same normalized activity as the timeline (comments now; email/WhatsApp later), newest first.
-        $activity = $this->events->eventsForDeal($deal)->reverse()->values();
+        $ctx['activity'] = $this->events->eventsForDeal($deal)->reverse()->values();
 
-        $removedSteps = DealStepInstance::onlyTrashed()
-            ->where('dr1_deal_id', $deal->id)
-            ->orderBy('position')->orderBy('id')->get();
-
-        $locked = $this->lock->isLocked($deal);
-
-        return view('dr2.pipeline-list', [
-            'deal'         => $deal,
-            'rows'         => $rows,
-            'activity'     => $activity,
-            'removedSteps' => $removedSteps,
-            'locked'       => $locked,
-            'lockReason'   => $locked ? $this->lock->reason($deal) : null,
-            'unlockHint'   => $locked ? $this->lock->unlockHint() : null,
-        ]);
+        return view('dr2.pipeline-list', $ctx);
     }
 
     /**
      * Grab-to-reorder — persists DISPLAY position ONLY. It writes nothing but `position`, so
      * dependencies (trigger_step_instance_id, the deps table) and every date (planned_start_date,
-     * due_date) are untouched — the dependency graph stays the one scheduling truth (decision 4).
+     * due_date) are untouched — the dependency graph stays the one scheduling truth.
      */
     public function reorder(Request $request, Deal $deal): JsonResponse
     {
@@ -93,7 +64,6 @@ class PipelineListController extends Controller
             'order.*' => ['integer'],
         ]);
 
-        // Only ids that actually belong to this deal (guards against foreign/forged ids).
         $ownIds = DealStepInstance::where('dr1_deal_id', $deal->id)
             ->whereIn('id', $data['order'])->pluck('id')->all();
         $ordered = array_values(array_filter($data['order'], fn ($id) => in_array((int) $id, $ownIds, true)));
@@ -110,9 +80,9 @@ class PipelineListController extends Controller
     }
 
     /**
-     * Inline Edit-dates — set the step's planned START and END explicitly (decision 2: duration is
-     * editable via Edit-dates). Both are pinned (manual flags) so re-projection/activation won't
-     * clobber them. End must not precede start. Never touches dependencies.
+     * Inline Edit-dates — set the step's planned START and END explicitly. Both are pinned (manual
+     * flags) so re-projection/activation won't clobber them. End must not precede start. Never touches
+     * dependencies. (The board's "Edit due" only sets the due date; this list control sets both.)
      */
     public function editDates(Request $request, Deal $deal, DealStepInstance $step): RedirectResponse
     {

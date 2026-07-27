@@ -68,7 +68,7 @@
             @else<span class="dr2-bt dr2-bt--dis">Complete</span>@endpermission
         @elseif($isDone && !$locked)
             @permission('view_deals')
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <button type="submit" class="dr2-bt">Reopen</button>
             </form>
             @else<span class="dr2-bt dr2-bt--dis">Complete</span>@endpermission
@@ -95,7 +95,7 @@
             @else<span class="dr2-bt dr2-bt--dis">N/A</span>@endpermission
         @elseif($isNa && !$locked)
             @permission('view_deals')
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <button type="submit" class="dr2-bt">Reinstate</button>
             </form>
             @else<span class="dr2-bt dr2-bt--dis">N/A</span>@endpermission
@@ -104,7 +104,7 @@
         {{-- 5 · Remove --}}
         @if(!$locked)
             @permission('view_deals')
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <button type="submit" class="dr2-bt dr2-bt--danger">Remove</button>
             </form>
             @else<span class="dr2-bt dr2-bt--dis">Remove</span>@endpermission
@@ -125,7 +125,7 @@
         <div class="dr2-modal__bg" @click="done=false"></div>
         <div class="dr2-modal__card">
             <h4 class="dr2-modal__h">Complete “{{ $s->name }}”</h4>
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <label class="dr2-modal__lb">Actually done on
                     <input type="date" name="actual_date" value="{{ \Illuminate\Support\Carbon::today()->format('Y-m-d') }}" class="corex-input">
                 </label>
@@ -142,7 +142,7 @@
         <div class="dr2-modal__bg" @click="due=false"></div>
         <div class="dr2-modal__card">
             <h4 class="dr2-modal__h">Due date — “{{ $s->name }}”</h4>
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input">
                 <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="due=false">Cancel</button><button type="submit" class="corex-btn-primary">Save due date</button></div>
             </form>
@@ -156,7 +156,7 @@
         <div class="dr2-modal__bg" @click="seq=false"></div>
         <div class="dr2-modal__card">
             <h4 class="dr2-modal__h">Sequence — “{{ $s->name }}”</h4>
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <label class="dr2-modal__lb">Follows
                     <select name="follows" class="corex-input">
                         <option value="">— nothing (starts on the deal date) —</option>
@@ -184,7 +184,7 @@
         <div class="dr2-modal__bg" @click="na=false"></div>
         <div class="dr2-modal__card">
             <h4 class="dr2-modal__h">Mark N/A — “{{ $s->name }}”</h4>
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="width:100%;">
                 <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="na=false">Cancel</button><button type="submit" class="corex-btn-primary">Mark N/A</button></div>
             </form>
@@ -207,12 +207,12 @@
                     <div class="dr2-cmt__empty">No comments yet.</div>
                 @endforelse
             </div>
-            <form method="POST" action="{{ route('deals-dr2.pipeline.step.comment', [$deal, $s]) }}" class="dr2-modal__cmform">@csrf
+            <form method="POST" action="{{ route('deals-dr2.pipeline.step.comment', [$deal, $s]) }}" class="dr2-modal__cmform">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <input type="text" name="body" placeholder="Add a note for this step…" required class="corex-input" style="flex:1 1 220px;">
                 <button type="submit" class="corex-btn-secondary">Post</button>
             </form>
             @unless($locked)
-            <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" class="dr2-modal__cmform">@csrf
+            <form method="POST" action="{{ route('deals-dr2.documents.store', $deal) }}" enctype="multipart/form-data" class="dr2-modal__cmform">@csrf@if($from ?? false)<input type="hidden" name="from" value="{{ $from }}">@endif
                 <input type="hidden" name="pipeline_step_id" value="{{ $s->id }}">
                 <input type="file" name="file" required class="corex-input" style="flex:1 1 200px;">
                 <button type="submit" class="corex-btn-outline">Attach document to this step</button>

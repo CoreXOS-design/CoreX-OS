@@ -50,24 +50,26 @@ class PipelineController extends Controller
      */
     public function viewDefault(Deal $deal): RedirectResponse
     {
-        $view  = auth()->id() ? \App\Models\DealV2\PipelineUserPreference::viewForUser(auth()->id()) : 'board';
-        $route = match ($view) {
-            'timeline' => 'deals-dr2.pipeline.timeline',
-            'list'     => 'deals-dr2.pipeline.list',
-            default    => 'deals-dr2.pipeline',
-        };
+        // The pipeline surface is Timeline + List only (the board view is retired, Johan 2026-07-27).
+        $view  = auth()->id() ? \App\Models\DealV2\PipelineUserPreference::viewForUser(auth()->id()) : 'timeline';
+        $route = $view === 'list' ? 'deals-dr2.pipeline.list' : 'deals-dr2.pipeline.timeline';
         return redirect()->route($route, $deal);
     }
 
-    /** A deal's pipeline board — steps with LIVE RAG, or the attach form when none is set. */
-    public function show(Deal $deal): View
+    /**
+     * The classic board is RETIRED — the pipeline surface is Timeline + List only. Every old entry to
+     * `deals-dr2.pipeline` (register link, step-action redirects, other blades) now lands on the agent's
+     * pipeline view instead of the old board screen. Kept as a redirect so nothing 404s.
+     */
+    public function show(Deal $deal): RedirectResponse
+    {
+        return $this->viewDefault($deal);
+    }
+
+    /** @deprecated retired board render — kept only so historical references don't fatal. */
+    private function legacyBoard(Deal $deal): View
     {
         $deal->load(['pipelineSteps.comments.user']);
-
-        // Phase 4 — visiting the board makes it this agent's remembered default view.
-        if ($uid = auth()->id()) {
-            \App\Models\DealV2\PipelineUserPreference::setViewForUser($uid, 'board');
-        }
 
         $steps = $deal->pipelineSteps->map(function (DealStepInstance $s) {
             $terminal = in_array($s->status, ['completed', 'skipped'], true);

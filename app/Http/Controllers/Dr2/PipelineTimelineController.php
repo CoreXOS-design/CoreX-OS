@@ -22,6 +22,8 @@ use Illuminate\View\View;
  */
 class PipelineTimelineController extends Controller
 {
+    use \App\Http\Controllers\Dr2\Concerns\BuildsPipelineContext;
+
     public function __construct(
         private readonly PipelineTimelineService $timeline,
         private readonly PipelineRescheduleService $reschedule,
@@ -29,29 +31,19 @@ class PipelineTimelineController extends Controller
     ) {
     }
 
-    /** The timeline dashboard for a deal. */
+    /** The timeline dashboard for a deal — deal-context tabs on top + the Gantt timeline. */
     public function show(Deal $deal): View
     {
-        $deal->load(['pipelineSteps.comments.user']);
-
         // Remember the agent's choice so this becomes their landing view.
         if ($uid = auth()->id()) {
             PipelineUserPreference::setViewForUser($uid, 'timeline');
         }
 
-        $data       = $this->timeline->build($deal);
-        $locked     = $this->lock->isLocked($deal);
-        $lockReason = $locked ? $this->lock->reason($deal) : null;
-        $unlockHint = $locked ? $this->lock->unlockHint() : null;
+        // The same deal-context data the board built (for the top tabs) + the timeline payload.
+        $ctx = $this->pipelineContext($deal);
+        $ctx['timeline'] = $this->timeline->build($deal);
 
-        return view('dr2.pipeline-timeline', [
-            'deal'              => $deal,
-            'timeline'          => $data,
-            'locked'            => $locked,
-            'lockReason'        => $lockReason,
-            'unlockHint'        => $unlockHint,
-            'responsibleLabels' => \App\Services\DealV2\CocWorkOrderService::responsibleLabels(),
-        ]);
+        return view('dr2.pipeline-timeline', $ctx);
     }
 
     /**
