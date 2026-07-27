@@ -65,11 +65,12 @@
             {{-- Gates lane (milestone diamonds) — each gets a readable angled label; adjacent labels are
                  staggered on two levels so close milestones don't overlap ("Deal Signed"/"Proof of
                  Funds"/"Bond Approved" are legible even when the diamonds are days apart). --}}
-            <div style="position:relative;height:74px;border-bottom:1px solid #f1f5f9;">
-                <template x-for="(g,gi) in data.gates" :key="'gate'+g.id">
-                    <div :style="`position:absolute;left:${g.index*dw}px;top:8px;z-index:4;`">
-                        <div :style="`width:13px;height:13px;transform:translateX(-7px) rotate(45deg);background:${g.is_milestone?'#0f172a':'#94a3b8'};border:1px solid #fff;box-shadow:0 0 0 1px ${g.is_milestone?'#0f172a':'#94a3b8'};`" :title="g.name"></div>
-                        <div :style="`position:absolute;left:2px;top:${gi%2? '34px':'18px'};font-size:.6rem;line-height:1;color:#334155;font-weight:600;white-space:nowrap;transform:rotate(28deg);transform-origin:left top;`" x-text="g.name"></div>
+            <div :style="`position:relative;height:${18 + (data.gates_levels||1)*15 + 8}px;border-bottom:1px solid #f1f5f9;`">
+                <template x-for="g in data.gates" :key="'gate'+g.id">
+                    <div :style="`position:absolute;left:${g.index*dw}px;top:6px;z-index:4;`">
+                        <div :style="`width:12px;height:12px;transform:translateX(-6px) rotate(45deg);background:${g.is_milestone?'#0f172a':'#94a3b8'};border:1px solid #fff;box-shadow:0 0 0 1px ${g.is_milestone?'#0f172a':'#94a3b8'};`" :title="g.name"></div>
+                        <div :style="`position:absolute;left:0;top:12px;width:1px;height:${(g.label_level||0)*15 + 4}px;background:#cbd5e1;`"></div>
+                        <div :style="`position:absolute;left:4px;top:${16 + (g.label_level||0)*15}px;font-size:.62rem;line-height:1;color:#334155;font-weight:600;white-space:nowrap;background:rgba(255,255,255,.9);padding:0 3px;border-radius:2px;`" x-text="g.name"></div>
                     </div>
                 </template>
             </div>

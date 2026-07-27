@@ -106,6 +106,24 @@ class PipelineTimelineService
         }
         unset($bar);
 
+        // Anti-overlap: stagger each gate's LABEL onto the first vertical level whose previous label at
+        // that level has ended (≥ ~7rem before) — so milestones clustered near a date (Deal Signed /
+        // Proof of Funds / Bond Approved all around day 0) read on separate lines instead of mashing.
+        usort($gates, fn ($a, $b) => $a['index'] <=> $b['index']);
+        $labelGapDays = (int) ceil(112 / self::DAY_WIDTH); // ~112px of label room
+        $levelEndsAt  = []; // level => last index a label occupies
+        $maxLevel     = 0;
+        foreach ($gates as &$g) {
+            $level = 0;
+            while (isset($levelEndsAt[$level]) && $g['index'] < $levelEndsAt[$level]) {
+                $level++;
+            }
+            $g['label_level'] = $level;
+            $levelEndsAt[$level] = $g['index'] + $labelGapDays;
+            $maxLevel = max($maxLevel, $level);
+        }
+        unset($g);
+
         // Phase bands DERIVED between milestone gates (decision 3). Boundaries = milestone end dates,
         // sorted; each band leads to the gate that closes it. A leading band covers the run-up to the
         // first gate; a trailing band covers work after the last.
@@ -136,6 +154,7 @@ class PipelineTimelineService
             'day_width'   => self::DAY_WIDTH,
             'today_index' => $idx(Carbon::now()),
             'row_count'   => max(1, count($rowEnds)),
+            'gates_levels' => $maxLevel + 1,
             'bars'        => $bars,
             'gates'       => $gates,
             'bands'       => $bands,
