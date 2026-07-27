@@ -183,13 +183,22 @@ class ContactIdentifierService
             // whatever free-text `label` string was posted (back-compat for
             // callers that don't know about managed labels at all).
             [$labelId, $labelName] = $this->resolveIdentifierLabel($contact->agency_id, $item['label_id'] ?? null);
+            // Contact-details Phase 1 — country/dial-code, phone-only. Resolved
+            // HERE from the posted country_iso ALONE (a posted dial_code, if
+            // any, is never trusted/read) — same canonical-resolution
+            // discipline as the label above. This is what the US demo contact
+            // exposed: syncIdentifiers() called directly (bypassing the
+            // controller, which used to be the only place resolving this)
+            // persisted country_iso=US with dial_code left at the request's
+            // raw value — wrong/missing unless the caller happened to also
+            // pass a correct dial_code. Now every writer gets the right pair.
+            [$countryIso, $dialCode] = $this->resolveCountry($item['country_iso'] ?? null);
             $incoming[$key] = [
                 'value' => $raw,
                 'label' => $labelName ?? ($label !== '' ? $label : null),
                 'is_primary' => ! empty($item['is_primary']),
-                // Contact-details Phase 1 — phone-only; ignored for emails.
-                'country_iso' => $item['country_iso'] ?? null,
-                'dial_code' => $item['dial_code'] ?? null,
+                'country_iso' => $countryIso,
+                'dial_code' => $dialCode,
                 'label_id' => $labelId,
                 // Contact-details Phase 3 — phone-only; ignored for emails.
                 'is_whatsapp' => ! empty($item['is_whatsapp']),
@@ -219,8 +228,11 @@ class ContactIdentifierService
                 $row->label = $inc['label'];
                 $row->contact_identifier_label_id = $inc['label_id'];
                 if ($rawCol === 'phone') {
-                    $row->country_iso = $inc['country_iso'] ?: 'ZA';
-                    $row->dial_code = $inc['dial_code'] ?: '+27';
+                    // resolveCountry() above always returns a valid pair
+                    // (defaults ZA/+27 for anything unrecognised) — no ?:
+                    // fallback needed here anymore.
+                    $row->country_iso = $inc['country_iso'];
+                    $row->dial_code = $inc['dial_code'];
                     $row->is_whatsapp = $inc['is_whatsapp'];
                 }
                 $row->save();
@@ -233,8 +245,8 @@ class ContactIdentifierService
                     'contact_identifier_label_id' => $inc['label_id'],
                     'is_primary' => false,
                     ...($rawCol === 'phone' ? [
-                        'country_iso' => $inc['country_iso'] ?: 'ZA',
-                        'dial_code' => $inc['dial_code'] ?: '+27',
+                        'country_iso' => $inc['country_iso'],
+                        'dial_code' => $inc['dial_code'],
                         'is_whatsapp' => $inc['is_whatsapp'],
                     ] : []),
                 ]);
@@ -397,5 +409,27 @@ class ContactIdentifierService
             ->find($id);
 
         return $label ? [$label->id, $label->name] : [null, null];
+    }
+
+    /**
+     * Contact-details Phase 1 — resolve a posted ISO code to a known
+     * {iso, dial_code} pair, defaulting to ZA/+27 for anything unrecognised
+     * (including no selection at all). A posted dial_code is NEVER read —
+     * it's derived from the iso here, THE canonical resolution point, so
+     * every writer (form, API, importer, console) gets a consistent pair
+     * even if it only ever supplies country_iso.
+     *
+     * @return array{0:string,1:string}
+     */
+    private function resolveCountry(?string $iso): array
+    {
+        $iso = strtoupper(trim((string) $iso));
+        foreach (config('country-dial-codes.countries', []) as $c) {
+            if ($c['iso'] === $iso) {
+                return [$c['iso'], $c['dial_code']];
+            }
+        }
+
+        return ['ZA', '+27'];
     }
 }
