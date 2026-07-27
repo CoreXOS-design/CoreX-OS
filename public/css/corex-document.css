@@ -558,23 +558,27 @@
     text-align: right;
 }
 
-/* === DISCLOSURE CHECKLIST === */
+/* === DISCLOSURE CHECKLIST ===
+   Step 3 — government-form fidelity: a crisp ruled grid (dark, full borders)
+   that mirrors the prescribed Mandatory Disclosure form, with real ticks in
+   the chosen YES/NO/N-A cell. Our letterhead sits above via company-header. */
 .corex-disclosure-table {
     width: 100%;
     border-collapse: collapse;
     margin: 8px 0;
     font-size: 9pt;
+    border: 1px solid #334155;
 }
 
 .corex-disclosure-table thead th {
-    background: #f8fafc;
-    border: 0.5px solid #e2e8f0;
+    background: #eef2f6;
+    border: 1px solid #334155;
     padding: 6px 8px;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 8pt;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #475569;
+    color: #1e293b;
     text-align: center;
 }
 
@@ -589,7 +593,7 @@
 }
 
 .corex-disclosure-table td {
-    border: 0.5px solid #e2e8f0;
+    border: 1px solid #334155;
     padding: 6px 8px;
     vertical-align: top;
 }
@@ -600,10 +604,10 @@
 }
 
 .corex-disclosure-subheader td {
-    background: #f1f5f9;
-    font-weight: 600;
+    background: #e8edf2;
+    font-weight: 700;
     font-size: 8.5pt;
-    color: #334155;
+    color: #1e293b;
     padding: 8px;
 }
 
@@ -617,6 +621,15 @@
     color: #94a3b8;
     cursor: default;
     line-height: 1;
+}
+
+/* Step 3 — the chosen answer renders as a bold, near-black tick (gov-form ink).
+   Driven by data-selected, which both the live-signing logic and the review/PDF
+   restore set — so the tick is identical on screen and in the PDF. */
+.corex-radio-placeholder[data-selected="true"] {
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 13pt;
 }
 
 .corex-disclosure-date-field {

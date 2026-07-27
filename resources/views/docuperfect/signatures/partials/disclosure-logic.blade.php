@@ -88,7 +88,7 @@
                 row.querySelectorAll('.corex-radio-placeholder').forEach(ph => {
                     const sel = (ph.dataset.value || '').toLowerCase() === val;
                     ph.setAttribute('data-selected', sel ? 'true' : 'false');
-                    ph.textContent = sel ? '●' : '○';
+                    ph.textContent = sel ? '✓' : '○'; // Step 3 — tick the chosen answer
                 });
             });
             Object.keys(ans).forEach(k => {
@@ -130,7 +130,7 @@
                         const isSel = (self.webDisclosureAnswers[rowKey] || '')
                             .toString().toLowerCase() === rv;
                         radio.setAttribute('data-selected', isSel ? 'true' : 'false');
-                        radio.textContent = isSel ? '●' : '○';
+                        radio.textContent = isSel ? '✓' : '○'; // Step 3 — tick the chosen answer
                         radio.style.fontSize = '16pt';
 
                         if (editable) {
@@ -141,7 +141,7 @@
                                     r.textContent = '○';
                                 });
                                 radio.setAttribute('data-selected', 'true');
-                                radio.textContent = '●';
+                                radio.textContent = '✓'; // Step 3 — tick the chosen answer
                                 self.webDisclosureAnswers[rowKey] = radio.dataset.value || '';
                                 if (typeof self.updateIncompleteCount === 'function') self.updateIncompleteCount();
                                 if (typeof self._updateIncompleteCount === 'function') self._updateIncompleteCount();

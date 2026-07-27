@@ -710,7 +710,10 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                     phs.forEach(function (ph) {
                         var sel = ((ph.getAttribute('data-value') || '').trim().toLowerCase() === val);
                         ph.setAttribute('data-selected', sel ? 'true' : 'false');
-                        ph.textContent = sel ? '●' : '○';
+                        // Step 3 — government-form fidelity: the CHOSEN answer is a
+                        // real tick ✓; unchosen cells print BLANK (only ticks show,
+                        // exactly like the prescribed Mandatory Disclosure form).
+                        ph.textContent = sel ? '✓' : '';
                         ph.style.cursor = 'default';
                     });
                     return;
@@ -729,8 +732,9 @@ function restoreStoredDisclosure(container, disclosureAnswers) {
                 var tds = row.querySelectorAll('td');
                 var target = val === 'yes' ? col.yes : (val === 'no' ? col.no : col.na);
                 if (target === undefined || !tds[target]) return;
-                tds[target].textContent = '●';
+                tds[target].textContent = '✓';
                 tds[target].style.textAlign = 'center';
+                tds[target].style.fontWeight = '700';
                 row.querySelectorAll('input[type="radio"]').forEach(function (r) {
                     r.checked = ((r.value || '').trim().toLowerCase() === val);
                     r.disabled = true;
