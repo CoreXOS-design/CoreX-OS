@@ -114,8 +114,12 @@
     @endphp
     <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
         @foreach($tabs as $t)
-            @php $active = $tab === $t['key']; @endphp
-            <a href="{{ route('compliance.fica.index', ['tab' => $t['key']]) }}"
+            @php
+                $active = $tab === $t['key'];
+                $tabParams = ['tab' => $t['key']];
+                if ($canPickAgent ?? false) { $tabParams['agent_id'] = $filterAgentId; } // AT-346 keep My/All across tabs
+            @endphp
+            <a href="{{ route('compliance.fica.index', $tabParams) }}"
                class="px-4 py-2 transition-colors"
                style="{{ $active
                     ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
@@ -127,11 +131,44 @@
         @endforeach
     </div>
 
+    {{-- AT-346 — My / All scope pill (mirrors the Contacts & Properties list toggle).
+         Shown only when the role's fica.view ceiling is branch or company; an 'own'
+         user has no toggle and only ever sees their own submissions. --}}
+    @if($canPickAgent)
+    @php
+        $fcuId     = (string) auth()->id();
+        $fcIsMine  = (string) $filterAgentId === $fcuId;
+        $fcIsAll   = $filterAgentId === '';
+        $fcCarry   = request()->except(['agent_id', 'page']);
+        $fcMineUrl = route('compliance.fica.index', array_merge($fcCarry, ['agent_id' => $fcuId]));
+        $fcAllUrl  = route('compliance.fica.index', array_merge($fcCarry, ['agent_id' => '']));
+        $fcAllWord = ($scope ?? '') === 'branch' ? 'branch' : 'agency';
+    @endphp
+    <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs font-semibold" style="color: var(--text-muted);">Show:</span>
+        <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+            <a href="{{ $fcMineUrl }}"
+               class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+               style="{{ $fcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+               title="Show only FICA I requested">
+                My FICA
+            </a>
+            <a href="{{ $fcAllUrl }}"
+               class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+               style="border-left:1px solid var(--border); {{ $fcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+               title="Show all {{ $fcAllWord }} FICA">
+                All {{ $scope === 'branch' ? 'Branch' : 'Agency' }} FICA
+            </a>
+        </div>
+    </div>
+    @endif
+
     {{-- Filter bar --}}
     <form method="GET" action="{{ route('compliance.fica.index') }}"
           class="rounded-md p-3 flex flex-col sm:flex-row gap-2"
           style="background: var(--surface); border: 1px solid var(--border);">
         <input type="hidden" name="tab" value="{{ $tab }}">
+        @if($canPickAgent ?? false)<input type="hidden" name="agent_id" value="{{ $filterAgentId }}">@endif {{-- AT-346 keep My/All across search --}}
         <input type="text" name="search" value="{{ request('search') }}"
                placeholder="Search by contact name or email..."
                class="flex-1 rounded-md px-3 py-2 text-sm"

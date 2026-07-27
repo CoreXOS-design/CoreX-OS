@@ -35,14 +35,37 @@ class FicaController extends Controller
         $isCO = $user->isComplianceOfficer();                 // any FICA appointment (RO or CO)
         $isPrimaryCo = $user->isPrimaryComplianceOfficer((int) ($user->effectiveAgencyId() ?: 0)); // Elize
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
-        $canSeeAll = $isCO || $isAdmin;
+
+        // AT-346 — per-user FICA visibility scope (own / branch / company), driven by
+        // the Role Manager `fica.view` grant and mirroring Contacts/Properties. The CO
+        // review station, owners and admins resolve to 'all'; branch managers to their
+        // branch; ordinary agents to their own requests. See FicaSubmission::scopeVisibleTo().
+        $scope = FicaSubmission::ficaScopeFor($user);
+        $canSeeAll = $scope === 'all';
         $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
 
-        // Base query — AgencyScope on FicaSubmission handles tenancy:
-        // super_admin/owner with no switcher sees all, others see their agency.
-        $baseQuery = FicaSubmission::query();
-        if (! $canSeeAll) {
-            $baseQuery->where('requested_by', $user->id);
+        // AT-346 — "My / All" scope pill, mirroring the Contacts/Properties list toggle.
+        // The ceiling ($scope) is the security cap; the pill lets a user with a branch or
+        // company ceiling switch between their own requests ("My") and everything inside
+        // their ceiling ("All" = their branch, or the whole agency). It can only ever
+        // narrow: visibleTo() below clamps the base query to the granted tier, so a
+        // hand-edited ?agent_id can never escape the branch/agency bound. 'own'-ceiling
+        // users get no pill and are forced to their own rows. Default is "My" (like Contacts).
+        $canPickAgent = in_array($scope, ['branch', 'all'], true);
+        if ($request->has('agent_id')) {
+            $filterAgentId = (string) $request->query('agent_id', '');
+        } elseif ($canPickAgent) {
+            $filterAgentId = (string) $user->id;
+        } else {
+            $filterAgentId = '';
+        }
+
+        // Base query — AgencyScope handles tenancy; visibleTo() applies the own/branch/
+        // company CEILING so no user ever sees FICA records outside their granted scope.
+        $baseQuery = FicaSubmission::query()->visibleTo($user);
+        // Apply the pill choice on top of the ceiling ("My" = a specific requester).
+        if ($filterAgentId !== '' && $filterAgentId !== 'all') {
+            $baseQuery->where('requested_by', (int) $filterAgentId);
         }
 
         // Counts (per status)
@@ -62,10 +85,10 @@ class FicaController extends Controller
         //   RO Approvals      = agent_approved (any authorized reviewer / RO works it)
         //   CO Approvals Needed = referred_to_co (escalated — the primary CO only)
         $roQueueCount = $isCO
-            ? FicaSubmission::where('status', 'agent_approved')->count()
+            ? FicaSubmission::where('status', 'agent_approved')->visibleTo($user)->count()
             : 0;
         $coQueueCount = $isPrimaryCo
-            ? FicaSubmission::where('status', 'referred_to_co')->count()
+            ? FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->count()
             : 0;
 
         // Build filtered query
@@ -75,12 +98,16 @@ class FicaController extends Controller
 
         if ($tab === 'ro_queue') {
             // RO Approvals — the shared review pool, any authorized reviewer.
+            // AT-346: still scoped to the viewer's tier (CO = all; a branch manager
+            // reviewer would see only their branch's escalations).
             $query = FicaSubmission::where('status', 'agent_approved')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab === 'co_queue') {
             // CO Approvals Needed — escalated packs, the primary CO's station.
             $query = FicaSubmission::where('status', 'referred_to_co')
+                ->visibleTo($user)
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'referredBy'])
                 ->oldest('referred_at');
         } elseif ($tab !== 'all') {
@@ -99,14 +126,14 @@ class FicaController extends Controller
         // CO Approvals Needed stats (escalations awaiting the primary CO)
         $coQueueStats = null;
         if ($isPrimaryCo && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('status', 'referred_to_co')->min('referred_at');
+            $oldest = FicaSubmission::where('status', 'referred_to_co')->visibleTo($user)->min('referred_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
                 'oldest_days' => $oldest ? (int) now()->diffInDays($oldest) : 0,
             ];
         }
 
-        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isPrimaryCo', 'isAdmin', 'canSeeAll', 'tab', 'roQueueCount', 'coQueueCount', 'coQueueStats'));
+        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isPrimaryCo', 'isAdmin', 'canSeeAll', 'tab', 'roQueueCount', 'coQueueCount', 'coQueueStats', 'canPickAgent', 'filterAgentId', 'scope'));
     }
 
     /**
@@ -1117,8 +1144,16 @@ class FicaController extends Controller
     }
 
     /**
-     * Ensure submission belongs to the user's agency.
-     * Super-admin / owner-role users bypass (they can access any agency).
+     * Ensure submission belongs to the user's agency AND falls within the user's
+     * FICA visibility scope (own / branch / company).
+     *
+     * Super-admin / owner-role users bypass (they can access any agency). For
+     * everyone else this is the single per-record choke-point every read and
+     * action method already calls, so AT-346 enforces the own/branch/company tier
+     * here once — a user can neither view nor act on a FICA record outside their
+     * granted scope. The scope check only ever RESTRICTS on top of the existing
+     * role/status guards (Compliance Officers / admins resolve to 'all', so the
+     * CO review station is unaffected); it can never widen access.
      */
     private function authorizeAgency(FicaSubmission $submission): void
     {
@@ -1127,6 +1162,14 @@ class FicaController extends Controller
             return;
         }
         abort_unless($submission->agency_id === $user->effectiveAgencyId(), 403);
+
+        // AT-346 — per-user scope membership. visibleTo() re-applies the own/branch/
+        // company filter; if this record is not inside it, the user may not touch it.
+        abort_unless(
+            FicaSubmission::query()->visibleTo($user)->whereKey($submission->getKey())->exists(),
+            403,
+            'This FICA record is outside your access scope.'
+        );
     }
 
     /**
