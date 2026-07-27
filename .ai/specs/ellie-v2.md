@@ -201,6 +201,63 @@ rand-per-answer, rather than picking on per-token price alone.
 a plain-language message telling the user what to do next. Never a stack trace, never
 a raw 500 (BUILD_STANDARD §4).
 
+### 4.1 Failure taxonomy — "try again" only when trying again can work
+
+*Added 2026-07-27 after a ~17-hour outage.* The Anthropic account ran out of credit
+at 2026-07-26 15:23. Every failure rendered as the same message — *"I'm having
+trouble reaching my AI service at the moment. Please try again in a minute"* — so
+agents retried a wall that no amount of retrying could clear, and nobody was pointed
+at billing until an agent complained the next morning. The error was in `laravel.log`
+at ERROR level the whole time.
+
+Two things made it invisible, and both are now closed:
+
+1. **Status alone cannot classify it.** Anthropic reports an exhausted account as a
+   **400 `invalid_request_error`** whose *message* names the credit balance — the
+   same status as a genuinely malformed request. `classifyFailure()` therefore reads
+   the body, not just the code.
+2. **The copy lied.** A failure the user cannot clear must say so, and say who can.
+
+| Kind | Trigger | Retried? | What the user is told |
+|---|---|---|---|
+| `billing` | 402, or 400 naming the credit balance | **no** | Account is out of credit; an administrator must top it up |
+| `auth` | 401 / 403, or 400 naming the key | **no** | The key needs attention; tell an administrator |
+| `rate_limit` | 429 | yes | Busy this second — ask again shortly |
+| `request` | any other 4xx | **no** | Our bug; the same question will fail again, report it |
+| `transient` | 5xx, connection failure | yes | Try again in a minute |
+
+Retries apply **only** to `rate_limit` and `transient`. The previous blanket
+`retry(2, 400)` re-sent hard rejections three times, which cannot succeed and only
+tripled the user's wait before the identical message.
+
+`billing` and `auth` log at **CRITICAL** (marker `ELLIE_API_ERROR`, key `failure`) —
+they do not heal, and every user is down until a human acts. That is the field to
+alert on.
+
+A failure **mid-loop** appends the notice to whatever text the model had already
+produced rather than returning that text alone: a stranded *"Let me look that up for
+you."* with no answer and no explanation is worse than the error itself.
+
+### 4.2 Answer posture — never narrate the plumbing
+
+*Added 2026-07-27.* Replaying "how do I change the price of a property" showed Ellie
+calling `find_how_to` (no match) and `find_page` (**correct** — `/corex/properties`),
+then wrapping the right answer in *"No documented walkthrough exists for this one
+yet… Since I could not confirm the exact steps or buttons from the guides, I'd
+suggest checking with your principal or contact CoreX support."*
+
+She was holding the answer and apologising for the tool that missed. Tools, guides,
+the page atlas and the knowledge base are **internal plumbing** — the agent does not
+know they exist and does not care which one came back empty. Reporting a tool miss
+reads as "Ellie doesn't know", which is §1's original complaint arriving by a new
+route.
+
+The system prompt now requires: if **any** tool returned something useful, lead with
+it plainly and do not hedge about the ones that returned nothing, and never send
+someone to their principal or support while holding the answer. Only when **every**
+lookup came back empty does Ellie say what she could not find — in the user's terms,
+never in terms of her tools.
+
 ---
 
 ## 5. Retrieval repairs (independent of the loop)
@@ -317,6 +374,12 @@ that spans them all in one conversation.
 7. Anthropic unreachable → plain-language message, no 500.
 8. Tool throwing → the model recovers and answers, no 500.
 9. Every Ellie exchange appears in `ai_usage_events` under `ellie_chat`.
+10. An exhausted account or a bad key names an administrator, does **not** say
+    "try again in a minute", is **not** retried, and logs CRITICAL. A 5xx keeps
+    the retry advice and is retried. (§4.1)
+11. A question whose page lookup succeeds but whose how-to lookup misses returns
+    the page confidently — no "no documented walkthrough exists", no referral to
+    a principal or support. (§4.2)
 
 ## 10. Files
 

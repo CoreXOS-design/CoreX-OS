@@ -7,6 +7,7 @@ namespace App\Services\AI\Ellie;
 use App\Models\AI\AiUsageEvent;
 use App\Models\User;
 use App\Services\AI\AiUsageRecorder;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -38,6 +39,31 @@ class EllieAgentService
     private const MAX_ITERATIONS = 6;
 
     private const MAX_TOKENS = 2048;
+
+    /**
+     * Total attempts per API call (1 try + 2 retries).
+     *
+     * Retries apply ONLY to failures that a retry can actually clear. The
+     * previous blanket `retry(2, 400)` re-sent hard rejections — an exhausted
+     * account or a bad key — three times over, which cannot succeed and only
+     * tripled the user's wait before the same message.
+     */
+    private const MAX_ATTEMPTS = 3;
+
+    /** The account has no credit / no active billing. Only an admin clears this. */
+    private const FAIL_BILLING = 'billing';
+
+    /** The key is missing, wrong, revoked or lacks access. Only an admin clears this. */
+    private const FAIL_AUTH = 'auth';
+
+    /** Too many requests. Genuinely worth trying again shortly. */
+    private const FAIL_RATE = 'rate_limit';
+
+    /** We sent something the API rejected — our bug. The same question will fail again. */
+    private const FAIL_REQUEST = 'request';
+
+    /** Network trouble or an upstream 5xx. Usually clears itself. */
+    private const FAIL_TRANSIENT = 'transient';
 
     /**
      * Appended on the final pass, when tools have been withdrawn, so the model
@@ -96,7 +122,7 @@ class EllieAgentService
                 // model must synthesise from what it has already gathered.
                 $isFinalPass = ($i === self::MAX_ITERATIONS - 1);
 
-                $response = $this->callApi(
+                $call = $this->callApi(
                     $apiKey,
                     $model,
                     $isFinalPass ? $system . "\n\n" . self::FINAL_PASS_INSTRUCTION : $system,
@@ -104,15 +130,15 @@ class EllieAgentService
                     $isFinalPass ? [] : $tools,
                 );
 
-                if ($response === null) {
+                if ($call['json'] === null) {
                     return [
                         'ok'         => false,
-                        'reply'      => $lastText !== ''
-                            ? $lastText
-                            : "I'm having trouble reaching my AI service at the moment. Please try again in a minute — if it keeps happening, let your administrator know.",
+                        'reply'      => $this->failureReply((string) $call['failure'], $lastText),
                         'tools_used' => $toolsUsed,
                     ];
                 }
+
+                $response = $call['json'];
 
                 $this->recordUsage($response, $model, $user);
 
@@ -237,8 +263,12 @@ class EllieAgentService
 
     // ── Anthropic transport ─────────────────────────────────────────────────
 
-    /** @return array<string, mixed>|null */
-    private function callApi(string $apiKey, string $model, string $system, array $messages, array $tools): ?array
+    /**
+     * One Anthropic round-trip, with the failure classified.
+     *
+     * @return array{json: array<string, mixed>|null, failure: string|null}
+     */
+    private function callApi(string $apiKey, string $model, string $system, array $messages, array $tools): array
     {
         $base = rtrim((string) (config('services.anthropic.api_base') ?: 'https://api.anthropic.com'), '/');
 
@@ -255,27 +285,157 @@ class EllieAgentService
             $payload['tools'] = $tools;
         }
 
-        $response = Http::withHeaders([
-                'x-api-key'         => $apiKey,
-                'anthropic-version' => '2023-06-01',
-                'content-type'      => 'application/json',
-            ])
-            ->timeout(90)
-            ->retry(2, 400, throw: false)
-            ->post($base . '/v1/messages', $payload);
+        for ($attempt = 1; $attempt <= self::MAX_ATTEMPTS; $attempt++) {
+            try {
+                $response = Http::withHeaders([
+                        'x-api-key'         => $apiKey,
+                        'anthropic-version' => '2023-06-01',
+                        'content-type'      => 'application/json',
+                    ])
+                    ->timeout(90)
+                    ->post($base . '/v1/messages', $payload);
+            } catch (ConnectionException $e) {
+                $this->logFailure(self::FAIL_TRANSIENT, 0, $e->getMessage(), $attempt);
 
-        if (! $response->successful()) {
-            Log::error('ELLIE_API_ERROR', [
-                'status' => $response->status(),
-                'body'   => mb_substr($response->body(), 0, 500),
-            ]);
+                if ($attempt < self::MAX_ATTEMPTS) {
+                    usleep(400_000 * $attempt);
+                    continue;
+                }
 
-            return null;
+                return ['json' => null, 'failure' => self::FAIL_TRANSIENT];
+            }
+
+            if ($response->successful()) {
+                $json = $response->json();
+
+                if (is_array($json)) {
+                    return ['json' => $json, 'failure' => null];
+                }
+
+                // 200 with a body we cannot read is an upstream oddity, not a
+                // rejection — treat it as transient rather than blaming the user.
+                $this->logFailure(self::FAIL_TRANSIENT, $response->status(), 'non-array JSON body', $attempt);
+
+                return ['json' => null, 'failure' => self::FAIL_TRANSIENT];
+            }
+
+            $failure = $this->classifyFailure($response->status(), $response->body());
+            $this->logFailure($failure, $response->status(), $response->body(), $attempt);
+
+            $retryable = in_array($failure, [self::FAIL_TRANSIENT, self::FAIL_RATE], true);
+            if ($retryable && $attempt < self::MAX_ATTEMPTS) {
+                usleep(400_000 * $attempt);
+                continue;
+            }
+
+            return ['json' => null, 'failure' => $failure];
         }
 
-        $json = $response->json();
+        return ['json' => null, 'failure' => self::FAIL_TRANSIENT];
+    }
 
-        return is_array($json) ? $json : null;
+    /**
+     * Work out what kind of failure this is, because the honest reply differs.
+     *
+     * Anthropic reports an exhausted account as a **400 invalid_request_error**
+     * whose message names the credit balance — there is no dedicated status code
+     * for it, so status alone cannot tell "you are out of money" from "you sent
+     * bad JSON". On 2026-07-26/27 that gap cost ~17 hours of Ellie downtime:
+     * every failure rendered as "try again in a minute", so users retried, the
+     * balance obviously never refilled itself, and nobody was told to look at
+     * billing until an agent complained the next morning.
+     */
+    private function classifyFailure(int $status, string $body): string
+    {
+        $body = mb_strtolower($body);
+
+        if ($status === 401 || $status === 403) {
+            return self::FAIL_AUTH;
+        }
+
+        if ($status === 402) {
+            return self::FAIL_BILLING;
+        }
+
+        if ($status === 429) {
+            return self::FAIL_RATE;
+        }
+
+        if ($status >= 500) {
+            return self::FAIL_TRANSIENT;
+        }
+
+        if ($status >= 400) {
+            if (str_contains($body, 'credit balance') || str_contains($body, 'billing')) {
+                return self::FAIL_BILLING;
+            }
+
+            if (str_contains($body, 'authentication') || str_contains($body, 'api key')) {
+                return self::FAIL_AUTH;
+            }
+
+            return self::FAIL_REQUEST;
+        }
+
+        return self::FAIL_TRANSIENT;
+    }
+
+    /**
+     * Billing and auth failures are logged CRITICAL on purpose: they do not heal,
+     * every user is down until a human acts, and the previous ERROR-level line
+     * sat unnoticed in laravel.log for 17 hours. The `failure` key is the field
+     * to alert on.
+     */
+    private function logFailure(string $failure, int $status, string $body, int $attempt): void
+    {
+        $context = [
+            'failure' => $failure,
+            'status'  => $status,
+            'attempt' => $attempt,
+            'body'    => mb_substr($body, 0, 500),
+        ];
+
+        if (in_array($failure, [self::FAIL_BILLING, self::FAIL_AUTH], true)) {
+            Log::critical('ELLIE_API_ERROR', $context);
+
+            return;
+        }
+
+        Log::error('ELLIE_API_ERROR', $context);
+    }
+
+    /**
+     * What the user is told, per failure kind.
+     *
+     * The rule: never tell someone to "try again in a minute" when a minute
+     * cannot possibly fix it. A wall the user cannot clear must say so, and say
+     * who can — otherwise they retry forever and the admin never finds out.
+     */
+    private function failureReply(string $failure, string $partial): string
+    {
+        $notice = match ($failure) {
+            self::FAIL_BILLING => "I can't answer right now — the CoreX AI account is out of credit. "
+                . "Retrying won't clear this one: an administrator needs to top it up. Please let them know.",
+
+            self::FAIL_AUTH => "I can't answer right now — my connection to the AI service is being refused, "
+                . "which usually means the CoreX AI key needs attention. Retrying won't clear this one: "
+                . "please let an administrator know.",
+
+            self::FAIL_RATE => "I'm handling more questions than I can keep up with this moment. "
+                . "Give it a few seconds and ask me again.",
+
+            self::FAIL_REQUEST => "Something went wrong on my side putting that request together. "
+                . "Asking the same thing again will hit the same problem, so please report it "
+                . "so we can fix it.",
+
+            default => "I'm having trouble reaching my AI service at the moment. Please try again in a "
+                . "minute — if it keeps happening, let your administrator know.",
+        };
+
+        // Partial text from a broken-off loop is nearly always a preamble
+        // ("let me look that up") — useful alongside the notice, never instead
+        // of it. Returning it alone left the user with a promise and no answer.
+        return $partial !== '' ? $partial . "\n\n" . $notice : $notice;
     }
 
     private function recordUsage(array $response, string $model, User $user): void
@@ -383,9 +543,25 @@ class EllieAgentService
 
         NEVER say "I don't have access to that" or "I don't have that in my knowledge base"
         without having actually searched first. That was the single biggest complaint about
-        you. If a search genuinely returns nothing, say plainly what you could not find, and
-        still give the user the most useful next step you can — the right page, the right
-        person to ask, or the closest thing you did find.
+        you.
+
+        NEVER narrate your own lookups. Your tools, guides, walkthroughs, page atlas and
+        knowledge base are INTERNAL plumbing — the agent does not know they exist and does
+        not care which one came back empty. Never write "no documented walkthrough exists
+        for this", "I couldn't confirm the exact steps from the guides", "that isn't in my
+        knowledge base", or anything else that reports on a tool rather than answering the
+        question. Those sentences read as "Ellie doesn't know", even when you are about to
+        give the right answer.
+
+        So: if ANY tool gave you something useful — a page, a link, a clause, a number, a
+        step — LEAD WITH IT and state it plainly and confidently. Do not surround it with
+        apologies about the lookups that returned nothing, and do not send someone to their
+        principal, a colleague or support when you are holding the answer.
+
+        ONLY when EVERY lookup came back empty do you say what you could not find — in the
+        user's terms, not in terms of your tools — and then still give the most useful next
+        step you can: the right page, the right person to ask, or the closest thing you did
+        find.
 
         HONESTY
         You ADVISE — humans decide. You cannot create, edit, send, sign or delete anything;

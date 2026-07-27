@@ -242,6 +242,106 @@ final class EllieToolkitTest extends TestCase
         $this->assertSame([], $answer['tools_used']);
     }
 
+    // ── Failure taxonomy ────────────────────────────────────────────────────
+    //
+    // The rule these guard: never tell a user to "try again in a minute" when a
+    // minute cannot fix it. On 2026-07-26/27 the Anthropic account ran dry and
+    // every failure rendered as the generic retry message — so users retried for
+    // ~17 hours and nobody was pointed at billing until an agent complained.
+
+    public function test_an_exhausted_account_tells_the_user_to_get_an_admin_not_to_retry(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fake(['api.anthropic.com/*' => Http::response($this->creditBalanceError(), 400)]);
+
+        $answer = app(EllieAgentService::class)->answer('where do i load fica documents', $mine);
+
+        $this->assertFalse($answer['ok']);
+        $this->assertStringContainsStringIgnoringCase('administrator', $answer['reply']);
+        // The exact wall that was papered over: a billing stop is not transient.
+        $this->assertStringNotContainsStringIgnoringCase('try again in a minute', $answer['reply']);
+    }
+
+    public function test_a_hard_rejection_is_not_retried(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fake(['api.anthropic.com/*' => Http::response($this->creditBalanceError(), 400)]);
+
+        app(EllieAgentService::class)->answer('hello', $mine);
+
+        // Re-sending a request the account cannot pay for can never succeed; the
+        // old blanket retry(2) just tripled the wait before the same message.
+        Http::assertSentCount(1);
+    }
+
+    public function test_a_bad_key_is_reported_as_a_configuration_problem(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fake(['api.anthropic.com/*' => Http::response(
+            ['type' => 'error', 'error' => ['type' => 'authentication_error', 'message' => 'invalid x-api-key']],
+            401
+        )]);
+
+        $answer = app(EllieAgentService::class)->answer('hello', $mine);
+
+        $this->assertFalse($answer['ok']);
+        $this->assertStringContainsStringIgnoringCase('administrator', $answer['reply']);
+        $this->assertStringNotContainsStringIgnoringCase('try again in a minute', $answer['reply']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_an_upstream_outage_is_retried_and_stays_transient(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fake(['api.anthropic.com/*' => Http::response('upstream exploded', 500)]);
+
+        $answer = app(EllieAgentService::class)->answer('hello', $mine);
+
+        $this->assertFalse($answer['ok']);
+        // A 5xx genuinely can clear on its own, so this one keeps the retry advice.
+        $this->assertStringContainsStringIgnoringCase('try again in a minute', $answer['reply']);
+        Http::assertSentCount(3);
+    }
+
+    public function test_a_failure_mid_loop_still_explains_itself(): void
+    {
+        [$mine] = $this->twoAgents();
+        Auth::login($mine);
+
+        config(['services.anthropic.api_key' => 'test-key']);
+        Http::fakeSequence()
+            ->push([
+                'model'       => 'claude-test',
+                'stop_reason' => 'tool_use',
+                'content'     => [
+                    ['type' => 'text', 'text' => 'Let me look that up for you.'],
+                    ['type' => 'tool_use', 'id' => 'tu_1', 'name' => 'my_listings', 'input' => []],
+                ],
+                'usage'       => ['input_tokens' => 10, 'output_tokens' => 5],
+            ], 200)
+            ->push($this->creditBalanceError(), 400);
+
+        $answer = app(EllieAgentService::class)->answer('how many listings do I have', $mine);
+
+        $this->assertFalse($answer['ok']);
+        // The old code returned the preamble ALONE — a promise to look something
+        // up, no answer, and no hint that anything had broken.
+        $this->assertStringContainsString('Let me look that up', $answer['reply']);
+        $this->assertStringContainsStringIgnoringCase('administrator', $answer['reply']);
+    }
+
     // ── Model tier selection ────────────────────────────────────────────────
 
     public function test_ellie_model_env_override_wins(): void
@@ -351,6 +451,19 @@ final class EllieToolkitTest extends TestCase
             'stop_reason' => 'end_turn',
             'content'     => [['type' => 'text', 'text' => 'Hello.']],
             'usage'       => ['input_tokens' => 10, 'output_tokens' => 5],
+        ];
+    }
+
+    /** The real 400 Anthropic returns when the account has run dry. */
+    private function creditBalanceError(): array
+    {
+        return [
+            'type'  => 'error',
+            'error' => [
+                'type'    => 'invalid_request_error',
+                'message' => 'Your credit balance is too low to access the Anthropic API. '
+                    . 'Please go to Plans & Billing to upgrade or purchase credits.',
+            ],
         ];
     }
 
