@@ -160,4 +160,92 @@ final class ContactIdentifierSyncTest extends TestCase
         );
         $this->assertFalse($dupsSelf->contains('id', $contact->id));
     }
+
+    /**
+     * Contact-details Phase 1 — "agent could not load a USA number". A US
+     * number defaults to ZA/+27 when no country_iso is posted (pre-Phase-1
+     * behaviour: every existing caller that doesn't yet know about the field),
+     * proving new writers are never broken by the new columns.
+     */
+    public function test_sync_persists_default_za_dial_code_when_not_specified(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '0821234567', 'is_primary' => true],
+        ], []);
+
+        $phone = $contact->refresh()->phones()->first();
+        $this->assertSame('ZA', $phone->country_iso);
+        $this->assertSame('+27', $phone->dial_code);
+    }
+
+    /** A US number posted with country_iso=US persists its own dial code. */
+    public function test_sync_persists_a_non_za_country_and_dial_code(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '+1 415 555 2671', 'is_primary' => true, 'country_iso' => 'US', 'dial_code' => '+1'],
+        ], []);
+
+        $phone = $contact->refresh()->phones()->first();
+        $this->assertSame('US', $phone->country_iso);
+        $this->assertSame('+1', $phone->dial_code);
+        $this->assertSame('+1 415 555 2671', $contact->phone, 'mirror keeps the raw international value');
+    }
+
+    /**
+     * THE BUG: before Phase 1, normalizePhone() collapsed EVERY number to its
+     * last 9 digits. A US number and an unrelated ZA number sharing those last
+     * 9 digits would resolve to the SAME dedup key — a false "duplicate" that
+     * silently redirected the agent to the wrong contact (or, depending on the
+     * agency's duplicate_mode, blocked the save outright). This proves it no
+     * longer happens: two numbers that only match on their last 9 digits are
+     * no longer treated as the same identifier.
+     */
+    public function test_international_number_no_longer_collides_on_last_nine_digits(): void
+    {
+        $za = $this->contact();
+        $this->svc()->syncIdentifiers($za, [
+            ['value' => '0155552671', 'is_primary' => true], // ZA local number ending ...155552671
+        ], []);
+
+        $us = $this->contact();
+        $this->svc()->syncIdentifiers($us, [
+            // Same trailing 9 digits as the ZA number above, but a real US number.
+            ['value' => '+1 415 555 2671', 'is_primary' => true, 'country_iso' => 'US', 'dial_code' => '+1'],
+        ], []);
+
+        $zaKey = $za->refresh()->phones()->first()->phone_normalised;
+        $usKey = $us->refresh()->phones()->first()->phone_normalised;
+
+        $this->assertSame('155552671', $zaKey, 'ZA normalisation is UNCHANGED — last-9 core');
+        $this->assertSame('14155552671', $usKey, 'US number keeps its full digits, no collapse');
+        $this->assertNotSame($zaKey, $usKey, 'the two contacts no longer share a dedup key');
+
+        // findDuplicatesForIdentifiers must not treat the US contact as a dupe
+        // of the ZA one just because their last 9 digits used to match.
+        $dups = app(ContactDuplicateService::class)->findDuplicatesForIdentifiers(
+            ['+1 415 555 2671'], [], null, $this->agencyId
+        );
+        $this->assertFalse($dups->contains('id', $za->id), 'no false-positive collision with the ZA contact');
+    }
+
+    /** ZA behaviour is byte-identical after the Phase 1 normalizer change. */
+    public function test_za_normalisation_unchanged_after_international_fix(): void
+    {
+        $svc = app(ContactDuplicateService::class);
+        $this->assertSame('821234567', $svc->normalizePhone('082 123 4567'));
+        $this->assertSame('821234567', $svc->normalizePhone('+27 82 123 4567'));
+        $this->assertSame('821234567', $svc->normalizePhone('27821234567'));
+        $this->assertSame('821234567', $svc->normalizePhone('821234567'));
+    }
+
+    /** Non-ZA numbers keep their full digits — no last-9 collapse. */
+    public function test_non_za_normalisation_keeps_full_digits(): void
+    {
+        $svc = app(ContactDuplicateService::class);
+        $this->assertSame('14155552671', $svc->normalizePhone('+1 415 555 2671'));
+        $this->assertSame('14155552671', $svc->normalizePhone('1 (415) 555-2671'));
+        $this->assertSame('447911123456', $svc->normalizePhone('+44 7911 123456'));
+    }
 }

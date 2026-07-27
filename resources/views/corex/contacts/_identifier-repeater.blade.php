@@ -4,6 +4,11 @@
     kind[i][is_primary]; the controller (ContactIdentifierService) writes the
     child rows + keeps the contacts.phone/email mirror correct.
 
+    Contact-details Phase 1 — phone rows also post kind[i][country_iso] (a
+    dial-code select, default ZA). Defends against the "agent couldn't load a
+    USA number" bug: every number now carries an explicit country, so WhatsApp
+    deep-links and the dedup key stop assuming +27.
+
     Params:
       $kind        'phones' | 'emails'
       $type        'text'   | 'email'
@@ -14,21 +19,23 @@
 --}}
 @php
     $valueKey = $kind === 'phones' ? 'phone' : 'email';
+    $isPhones = $kind === 'phones';
+    $countries = $isPhones ? config('country-dial-codes.countries', []) : [];
     $old = old($kind);
     if (is_array($old)) {
         $items = collect($old)
-            ->map(fn ($r) => ['value' => $r['value'] ?? '', 'label' => $r['label'] ?? '', 'is_primary' => ! empty($r['is_primary'])])
+            ->map(fn ($r) => ['value' => $r['value'] ?? '', 'label' => $r['label'] ?? '', 'is_primary' => ! empty($r['is_primary']), 'country_iso' => $r['country_iso'] ?? 'ZA'])
             ->filter(fn ($r) => trim((string) $r['value']) !== '')
             ->values()->all();
     } elseif (! empty($existing) && $existing->count()) {
         $items = $existing
-            ->map(fn ($r) => ['value' => $r->{$valueKey}, 'label' => $r->label, 'is_primary' => (bool) $r->is_primary])
+            ->map(fn ($r) => ['value' => $r->{$valueKey}, 'label' => $r->label, 'is_primary' => (bool) $r->is_primary, 'country_iso' => $isPhones ? ($r->country_iso ?? 'ZA') : 'ZA'])
             ->values()->all();
     } else {
         $items = [];
     }
     if (empty($items)) {
-        $items = [['value' => '', 'label' => '', 'is_primary' => true]];
+        $items = [['value' => '', 'label' => '', 'is_primary' => true, 'country_iso' => 'ZA']];
     }
 @endphp
 
@@ -37,6 +44,17 @@
 
     <template x-for="(item, idx) in items" :key="idx">
         <div class="flex items-center gap-2">
+            @if($isPhones)
+            <select :name="`{{ $kind }}[${idx}][country_iso]`" x-model="item.country_iso"
+                    title="Country dialing code"
+                    class="rounded-md px-2 py-2 text-sm transition-all duration-300"
+                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none; max-width:6.5rem;">
+                @foreach($countries as $c)
+                <option value="{{ $c['iso'] }}">{{ $c['dial_code'] }} {{ $c['iso'] }}</option>
+                @endforeach
+            </select>
+            @endif
+
             <input :type="'{{ $type }}'" :name="`{{ $kind }}[${idx}][value]`" x-model="item.value"
                    data-identifier-value
                    @blur="$dispatch('contact-check-dup')"
@@ -71,9 +89,11 @@
     @push('scripts')
     <script>
         function corexIdentifierRepeater(initial) {
+            // country_iso is phone-only (contact-details Phase 1); harmlessly
+            // carried-but-unused on email rows, which render no country select.
             const seed = (Array.isArray(initial) && initial.length)
-                ? initial.map(i => ({ value: i.value || '', label: i.label || '' }))
-                : [{ value: '', label: '' }];
+                ? initial.map(i => ({ value: i.value || '', label: i.label || '', country_iso: i.country_iso || 'ZA' }))
+                : [{ value: '', label: '', country_iso: 'ZA' }];
             let primary = 0;
             if (Array.isArray(initial) && initial.length) {
                 const p = initial.findIndex(i => i.is_primary);
@@ -82,10 +102,10 @@
             return {
                 items: seed,
                 primary: primary,
-                add() { this.items.push({ value: '', label: '' }); },
+                add() { this.items.push({ value: '', label: '', country_iso: 'ZA' }); },
                 remove(i) {
                     this.items.splice(i, 1);
-                    if (this.items.length === 0) { this.items.push({ value: '', label: '' }); }
+                    if (this.items.length === 0) { this.items.push({ value: '', label: '', country_iso: 'ZA' }); }
                     if (this.primary >= this.items.length) { this.primary = this.items.length - 1; }
                     else if (this.primary === i && i !== 0) { this.primary = 0; }
                 },

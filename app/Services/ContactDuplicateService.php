@@ -191,9 +191,21 @@ class ContactDuplicateService
     }
 
     /**
-     * Normalize a South African phone number to digits-only (no prefix).
-     * Handles: +27821234567, 0821234567, 082 123 4567, 27821234567
-     * Returns last 9 digits (SA mobile without leading 0 or country code).
+     * Normalize a phone number to its dedup match key.
+     * Handles: +27821234567, 0821234567, 082 123 4567, 27821234567, and any
+     * international number (e.g. +1 415 555 2671).
+     *
+     * ZA forms (+27/27 prefix, leading-0 local, or a bare 9-digit SA mobile
+     * core) collapse to the last 9 digits — BYTE-IDENTICAL to the original
+     * behaviour, so every existing ZA dedup key is unchanged.
+     *
+     * Contact-details Phase 1 fix: everything else (any number that isn't in
+     * one of those ZA shapes) is no longer collapsed to its last 9 digits.
+     * That collapse was destroying identity for international numbers — e.g.
+     * a US number "+1 415 555 2671" and an unrelated SA number both reducing
+     * to "155552671" would be treated as the SAME contact. Non-ZA numbers now
+     * keep their full digit string as the match key: still deterministic and
+     * idempotent, but no longer collision-prone across countries.
      */
     public function normalizePhone(string $phone): ?string
     {
@@ -204,16 +216,23 @@ class ContactDuplicateService
             return null; // Too short to be valid
         }
 
-        // Strip +27 or 27 prefix, or leading 0
+        // ZA international form: +27/27 prefix -> strip it, then last-9 (unchanged).
         if (str_starts_with($digits, '27') && strlen($digits) >= 11) {
-            $digits = substr($digits, 2); // Remove '27'
+            return substr(substr($digits, 2), -9);
         }
+        // ZA local form: leading 0 -> strip it, then last-9 (unchanged).
         if (str_starts_with($digits, '0') && strlen($digits) >= 10) {
-            $digits = substr($digits, 1); // Remove leading '0'
+            return substr(substr($digits, 1), -9);
+        }
+        // Bare 9-digit SA mobile core, already in its collapsed form (unchanged).
+        if (strlen($digits) === 9) {
+            return $digits;
         }
 
-        // Return last 9 digits (SA mobile core)
-        return substr($digits, -9);
+        // Not a recognised ZA shape (e.g. an international number with its own
+        // country code, or a bare non-ZA local number) — keep the full digits,
+        // no destructive last-9 collapse.
+        return $digits;
     }
 
     /**

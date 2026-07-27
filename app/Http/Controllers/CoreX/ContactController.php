@@ -846,7 +846,7 @@ class ContactController extends Controller
         return [$phones, $emails];
     }
 
-    /** @return array<int,array{value:string,label:?string,is_primary:bool}> */
+    /** @return array<int,array{value:string,label:?string,is_primary:bool,country_iso:?string,dial_code:?string}> */
     private function normaliseIdentifierInput($input): array
     {
         if (!is_array($input)) {
@@ -859,16 +859,42 @@ class ContactController extends Controller
                 continue;
             }
             $label = is_array($row) ? trim((string) ($row['label'] ?? '')) : '';
+            // Contact-details Phase 1 — country dial prefix, phone rows only (the
+            // repeater doesn't post these for emails, so both are null there and
+            // ContactIdentifierService ignores them for that kind). A tampered/
+            // unrecognised ISO falls back to ZA rather than trusting the client.
+            [$countryIso, $dialCode] = $this->resolveDialCode(is_array($row) ? ($row['country_iso'] ?? null) : null);
             $out[] = [
                 'value'      => $value,
                 'label'      => $label !== '' ? $label : null,
                 'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'country_iso' => $countryIso,
+                'dial_code'   => $dialCode,
             ];
         }
         if ($out !== [] && !collect($out)->contains(fn ($r) => $r['is_primary'])) {
             $out[0]['is_primary'] = true;
         }
         return $out;
+    }
+
+    /**
+     * Contact-details Phase 1 — resolve a posted ISO code to a known
+     * {iso, dial_code} pair, defaulting to ZA/+27 for anything unrecognised
+     * (including no selection at all, e.g. the email repeater or old form state).
+     *
+     * @return array{0:string,1:string}
+     */
+    private function resolveDialCode(?string $iso): array
+    {
+        $iso = strtoupper(trim((string) $iso));
+        $countries = config('country-dial-codes.countries', []);
+        foreach ($countries as $c) {
+            if ($c['iso'] === $iso) {
+                return [$c['iso'], $c['dial_code']];
+            }
+        }
+        return ['ZA', '+27'];
     }
 
     private function primaryValue(array $items): ?string
@@ -894,6 +920,9 @@ class ContactController extends Controller
             'phones.*.value'      => 'nullable|string|max:30',
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
+            // Contact-details Phase 1 — country dial prefix; unrecognised/absent
+            // resolves to ZA in resolveDialCode(), never trusted as-is.
+            'phones.*.country_iso' => 'nullable|string|max:2',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
@@ -1126,6 +1155,9 @@ class ContactController extends Controller
             'phones.*.value'      => 'nullable|string|max:30',
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
+            // Contact-details Phase 1 — country dial prefix; unrecognised/absent
+            // resolves to ZA in resolveDialCode(), never trusted as-is.
+            'phones.*.country_iso' => 'nullable|string|max:2',
             'emails'              => 'nullable|array',
             'emails.*.value'      => 'nullable|email|max:150',
             'emails.*.label'      => 'nullable|string|max:60',
