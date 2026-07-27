@@ -224,6 +224,43 @@ final class OtherConditionsFramesTest extends TestCase
         $this->assertSame(2, $after, 'refresh folded the late second-party ink into the raw-marker canonical');
     }
 
+    public function test_pack_other_conditions_are_scoped_per_document(): void
+    {
+        // In a pack each segment's OTHER_CONDITIONS marker is scoped to its wrapper
+        // docKey (~~~~OTHER_CONDITIONS__<key>~~~~) → an independent block_id per
+        // document. A condition on doc A must never render in doc B.
+        [$sigTpl] = $this->makeTemplate();
+        $mk = fn (string $blockId, string $content, int $n) => DocumentCondition::create([
+            'signature_template_id' => $sigTpl->id,
+            'block_id' => $blockId, 'block_purpose' => 'other_conditions',
+            'condition_number' => $n, 'content' => $content,
+            'added_via' => 'agent_preparation', 'source' => 'custom',
+        ]);
+        $mk('other_conditions__doca', 'ALPHA condition on document A', 1);
+        $mk('other_conditions__docb', 'BETA condition on document B', 1);
+
+        $html = '<div data-disclosure-doc="doca" class="corex-document-wrapper"><p>A ~~~~OTHER_CONDITIONS__doca~~~~</p></div>'
+              . '<div data-disclosure-doc="docb" class="corex-document-wrapper"><p>B ~~~~OTHER_CONDITIONS__docb~~~~</p></div>';
+        $rendered = app(InsertableBlockRenderer::class)->renderInDocument(
+            $html, $sigTpl, [], InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING, 'tok', 'seller',
+        );
+
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="utf-8"?><div id="r">' . $rendered . '</div>', LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xp = new \DOMXPath($dom);
+        $byId = [];
+        foreach ($xp->query('//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]') as $b) {
+            $byId[$b->getAttribute('data-block-id')] = $b->textContent;
+        }
+        $this->assertArrayHasKey('other_conditions__doca', $byId);
+        $this->assertArrayHasKey('other_conditions__docb', $byId);
+        // Each document's block carries ONLY its own condition — no cross-doc bleed.
+        $this->assertStringContainsString('ALPHA', $byId['other_conditions__doca']);
+        $this->assertStringNotContainsString('BETA', $byId['other_conditions__doca']);
+        $this->assertStringContainsString('BETA', $byId['other_conditions__docb']);
+        $this->assertStringNotContainsString('ALPHA', $byId['other_conditions__docb']);
+    }
+
     /**
      * Minimal template + document + signing template with a 2-party set
      * (seller + agent) so the renderer paints per-party initial slots.
