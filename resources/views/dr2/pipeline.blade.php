@@ -131,7 +131,16 @@
                 @if($deal->property_address) — {{ $deal->property_address }} @endif
             </p>
         </div>
-        <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary">← DR2 Register</a>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+            {{-- Pipeline Dashboard — view toggle. The board is the classic view; Timeline (Gantt) and
+                 List are the two new views over the same steps. Shown so every entry can reach them. --}}
+            <div style="display:inline-flex;border:1px solid var(--corex-border,#e5e7eb);border-radius:.5rem;overflow:hidden;font-size:.8rem;">
+                <span style="padding:.4rem .8rem;background:#111827;color:#fff;font-weight:600;">Board</span>
+                <a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">Timeline</a>
+                <a href="{{ route('deals-dr2.pipeline.list', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">List</a>
+            </div>
+            <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary">← DR2 Register</a>
+        </div>
     </div>
 
     @if(session('info'))

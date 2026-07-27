@@ -36,14 +36,16 @@ class PipelineTimelineService
             return ['empty' => true, 'day_width' => self::DAY_WIDTH];
         }
 
-        // Date range across all step spans, padded a couple of days each side.
-        $minStart = $steps->min(fn ($s) => $s->planned_start_date->timestamp);
-        $maxEnd   = $steps->max(fn ($s) => $s->due_date->timestamp);
-        $rangeStart = Carbon::createFromTimestamp($minStart)->startOfDay()->subDays(2);
-        $rangeEnd   = Carbon::createFromTimestamp($maxEnd)->startOfDay()->addDays(2);
-        $totalDays  = max(1, $rangeStart->diffInDays($rangeEnd));
+        // Date range across all step spans, padded a couple of days each side. Work in the app
+        // timezone off the Carbon dates directly (NOT createFromTimestamp, which drifts by the tz
+        // offset and yields fractional day indices); every index is a whole day.
+        $minStart = $steps->reduce(fn ($c, $s) => ($c === null || $s->planned_start_date->lt($c)) ? $s->planned_start_date->copy() : $c);
+        $maxEnd   = $steps->reduce(fn ($c, $s) => ($c === null || $s->due_date->gt($c)) ? $s->due_date->copy() : $c);
+        $rangeStart = $minStart->copy()->startOfDay()->subDays(2);
+        $rangeEnd   = $maxEnd->copy()->startOfDay()->addDays(2);
+        $totalDays  = max(1, (int) $rangeStart->diffInDays($rangeEnd));
 
-        $idx = fn (Carbon $d) => $rangeStart->diffInDays($d->copy()->startOfDay(), false);
+        $idx = fn (Carbon $d) => (int) $rangeStart->diffInDays($d->copy()->startOfDay(), false);
 
         // Split into bars (duration > 0) and point-steps (duration 0 → diamonds).
         $bars = [];
