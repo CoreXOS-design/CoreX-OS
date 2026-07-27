@@ -212,4 +212,105 @@ class CanonicalDocumentRenderer
             ]);
         }
     }
+
+    /**
+     * GAP 1 (A) — refresh the insertable-block regions of the ALREADY-BAKED
+     * stored canonical in place, so conditions inserted (and per-condition
+     * initials captured) DURING signing become part of the print-from-approved
+     * artifact. `addCondition`/`initialCondition` previously updated only the
+     * live DOM + DB — never the stored canonical — so the PDF (which renders
+     * `forDisplay` → the stored canonical) never saw them.
+     *
+     * Surgical by design: each `<div class="insertable-block" data-block-id="X">`
+     * is re-rendered from the current conditions and swapped by id. Everything
+     * else — baked signature/page-initial ink — is left untouched, so the
+     * accumulated version is preserved. Static context (no add-condition button,
+     * no click chrome): the interactive signing surface re-renders itself
+     * separately (CONTEXT_RECIPIENT_SIGNING). Non-fatal on any error.
+     */
+    public function refreshInsertableBlocks(SignatureTemplate $template): void
+    {
+        try {
+            $document = $template->document;
+            if (! $document) {
+                return;
+            }
+            $webData   = $document->web_template_data ?? [];
+            $canonical = (string) ($webData['canonical_html'] ?? '');
+            if (trim($canonical) === '') {
+                return; // nothing baked yet (pre-send); compose() will include conditions
+            }
+            $blocksMeta = $document->template?->insertable_blocks ?? [];
+            if (! is_array($blocksMeta) || $blocksMeta === []) {
+                return;
+            }
+
+            $renderer = app(InsertableBlockRenderer::class);
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $canonical,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath   = new \DOMXPath($dom);
+            $changed = false;
+
+            foreach ($blocksMeta as $block) {
+                $blockId = (string) ($block['id'] ?? '');
+                if ($blockId === '') {
+                    continue;
+                }
+                $nodes = $xpath->query(
+                    '//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")]'
+                    . '[@data-block-id="' . $blockId . '"]'
+                );
+                if ($nodes->length === 0) {
+                    continue;
+                }
+
+                // Render the fresh static block, parse it, import + replace.
+                $freshHtml = $renderer->renderBlockContainer(
+                    $block,
+                    $template,
+                    InsertableBlockRenderer::CONTEXT_PDF_RENDER, // static: no add button, filled ink only
+                );
+                if (trim($freshHtml) === '') {
+                    continue;
+                }
+                $frag = new \DOMDocument();
+                @$frag->loadHTML(
+                    '<?xml encoding="utf-8"?><div id="__wrap">' . $freshHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+                );
+                $newBlock = null;
+                foreach ($frag->getElementsByTagName('div') as $d) {
+                    if ($d->getAttribute('data-block-id') === $blockId) {
+                        $newBlock = $d;
+                        break;
+                    }
+                }
+                if ($newBlock === null) {
+                    continue;
+                }
+                $imported = $dom->importNode($newBlock, true);
+                $old      = $nodes->item(0);
+                $old->parentNode?->replaceChild($imported, $old);
+                $changed  = true;
+            }
+
+            if (! $changed) {
+                return;
+            }
+
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            $webData['canonical_html'] = trim((string) $out);
+            $document->update(['web_template_data' => $webData]); // version unchanged — ink preserved
+        } catch (\Throwable $e) {
+            Log::warning('CanonicalDocumentRenderer::refreshInsertableBlocks failed (non-fatal)', [
+                'template_id' => $template->id,
+                'error'       => $e->getMessage(),
+                'line'        => $e->getLine(),
+            ]);
+        }
+    }
 }

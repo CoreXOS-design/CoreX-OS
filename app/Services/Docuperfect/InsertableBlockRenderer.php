@@ -306,6 +306,29 @@ final class InsertableBlockRenderer
         return $this->renderConditionRow($c, $context, $doc, $signingToken, $currentPartyKey);
     }
 
+    /**
+     * Render ONE insertable block's full container HTML
+     * (`<div class="insertable-block" data-block-id="…">…</div>`) with its
+     * CURRENT conditions + captured per-condition initials. Public so
+     * CanonicalDocumentRenderer::refreshInsertableBlocks can surgically swap the
+     * block region in an already-baked canonical (preserving signature/initial
+     * ink elsewhere) when a condition is added/initialed during signing.
+     */
+    public function renderBlockContainer(array $block, SignatureTemplate $doc, string $context): string
+    {
+        $blockId = (string) ($block['id'] ?? '');
+        $conditions = DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('block_id', $blockId)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->with('initials')
+            ->orderBy('condition_number')
+            ->get();
+
+        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, null, null);
+    }
+
     private function renderConditionRow(
         DocumentCondition $c,
         string $context,
@@ -389,51 +412,63 @@ final class InsertableBlockRenderer
         ?string $signingToken,
         ?string $currentPartyKey
     ): string {
-        // Skip slot rendering for PDF flatten (no interactive UI).
-        if ($context === self::CONTEXT_PDF_RENDER) {
-            return '';
-        }
-
         $parties = $doc->parties_json ?? [];
         if (! is_array($parties) || empty($parties)) {
             return '';
         }
 
-        // Index the already-captured initials by party_key for O(1) lookup.
+        // The interactive add-initial affordance belongs ONLY to the live
+        // recipient-signing surface. Every other surface — agent prep/review,
+        // the stored canonical, and the flattened PDF (print-from-approved) — is
+        // STATIC: it renders each party's CAPTURED initial as their real adopted
+        // ink and nothing else. No "click to initial" / "pending" signing chrome
+        // ever bakes into the printed legal document. (Previously this returned
+        // '' for CONTEXT_PDF_RENDER, so per-condition initials never printed.)
+        $interactive = $context === self::CONTEXT_RECIPIENT_SIGNING;
+
+        // Captured initials for THIS condition, keyed by party_key (stable —
+        // condition_id + party_key; no positional collapse).
         $byParty = [];
         foreach ($c->initials as $initial) {
             $byParty[$initial->party_key] = $initial;
         }
 
-        $slots = '<div class="condition-initials" '
-            . 'style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.4rem; padding-top:0.4rem; '
-            . 'border-top:1px dashed #d1d5db;">';
-
+        $slots = '';
         foreach ($parties as $party) {
             $partyKey   = (string) ($party['role'] ?? '');
             $partyLabel = (string) ($party['name'] ?? $party['role_label'] ?? ucfirst(str_replace('_', ' ', $partyKey)));
             if ($partyKey === '') continue;
 
             $existing = $byParty[$partyKey] ?? null;
-            $initials = $this->makeInitialsToken($partyLabel);
 
             if ($existing) {
-                $slots .= '<div class="initial-slot initial-filled" '
-                    . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
-                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
-                    . 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;">'
-                    . '<strong style="color:#047857; letter-spacing:0.05em;">' . e($initials) . '</strong>'
-                    . '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">'
-                    . e($partyLabel) . ' &middot; ' . e($existing->initialed_at?->format('d M H:i') ?? '')
-                    . '</small></div>';
+                // FILLED — render the party's REAL adopted initial ink (the same
+                // drawn initial they use for page initials), resolved from
+                // signed_initials. Falls back to a typed token only when the
+                // party has no adopted initial on file.
+                $ink   = $this->resolveAdoptedInitial($doc, $partyKey);
+                $inner = $ink !== null
+                    ? '<img src="' . $ink . '" class="corex-ink corex-ink--initial condition-initial-ink" alt="Initial" '
+                        . 'style="height:26px; max-height:26px; width:auto; object-fit:contain; vertical-align:middle;">'
+                    : '<strong style="letter-spacing:0.05em;">' . e($this->makeInitialsToken($partyLabel)) . '</strong>';
+                $slots .= '<span class="condition-initial initial-filled" '
+                    . 'data-condition-id="' . $c->id . '" data-party-key="' . e($partyKey) . '" data-signed="true" '
+                    . 'style="display:inline-flex; align-items:center; gap:0.3rem; margin-right:0.7rem;">'
+                    . $inner
+                    . '<small style="color:#6b7280; font-size:0.6rem;">' . e($partyLabel) . '</small>'
+                    . '</span>';
                 continue;
             }
 
-            // Determine whether THIS party is the current signer + the
-            // context permits a click (recipient signing only).
+            if (! $interactive) {
+                // Static surfaces: an un-initialed party contributes nothing to
+                // the printed document for this condition (no pending chrome).
+                continue;
+            }
+
+            $token  = $this->makeInitialsToken($partyLabel);
             $isMine = $currentPartyKey !== null
                 && strcasecmp($currentPartyKey, $partyKey) === 0
-                && $context === self::CONTEXT_RECIPIENT_SIGNING
                 && $signingToken !== null;
 
             if ($isMine) {
@@ -442,7 +477,7 @@ final class InsertableBlockRenderer
                     . 'data-signing-token="' . e($signingToken) . '" '
                     . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
                     . 'background:#fff; border:1px dashed #0ea5e9; border-radius:4px; cursor:pointer; font-size:0.75rem;">'
-                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($token) . '</strong>'
                     . '<small style="color:#0369a1; font-size:0.65rem; margin-top:1px;">Click to initial</small>'
                     . '</button>';
             } else {
@@ -450,14 +485,58 @@ final class InsertableBlockRenderer
                     . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
                     . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
                     . 'background:#f9fafb; border:1px solid #e5e7eb; border-radius:4px; font-size:0.75rem; opacity:0.85;">'
-                    . '<strong style="color:#9ca3af; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<strong style="color:#9ca3af; letter-spacing:0.05em;">' . e($token) . '</strong>'
                     . '<small style="color:#6b7280; font-size:0.65rem; margin-top:1px;">' . e($partyLabel) . ' &middot; pending</small>'
                     . '</div>';
             }
         }
 
-        $slots .= '</div>';
-        return $slots;
+        if ($slots === '') {
+            return '';
+        }
+
+        return '<div class="condition-initials" '
+            . 'style="display:flex; flex-wrap:wrap; align-items:center; gap:0.4rem; margin-top:0.35rem; '
+            . 'padding-top:0.35rem; border-top:1px dashed #d1d5db;">' . $slots . '</div>';
+    }
+
+    /**
+     * The party's REAL adopted initial ink (data-URI), resolved from the
+     * document's captured `signed_initials` — the SAME drawn initial the party
+     * uses for page initials. This is how a per-condition initial prints as ink:
+     * the ConditionInitial record proves party X initialed condition Y; the
+     * render shows X's adopted initial against Y. Returns null when the party
+     * has no captured initial (caller falls back to a typed token).
+     */
+    private function resolveAdoptedInitial(SignatureTemplate $doc, string $partyKey): ?string
+    {
+        $wtd    = $doc->document?->web_template_data ?? [];
+        $signed = $wtd['signed_initials'] ?? [];
+        if (! is_array($signed)) {
+            return null;
+        }
+        $wanted = strtolower($partyKey);
+
+        // Group may be keyed by party ("seller" / "seller_2" / "agent"); match
+        // case-insensitively.
+        $group = null;
+        foreach ($signed as $k => $v) {
+            if (is_array($v) && strtolower((string) $k) === $wanted) {
+                $group = $v;
+                break;
+            }
+        }
+        if (! is_array($group)) {
+            return null;
+        }
+        // A party's initial is one mark used everywhere — take their first
+        // captured image (init-0), the representative adopted initial.
+        foreach ($group as $img) {
+            if (is_string($img) && str_starts_with(trim($img), 'data:image')) {
+                return $img;
+            }
+        }
+        return null;
     }
 
     /**

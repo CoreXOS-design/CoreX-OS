@@ -3547,6 +3547,12 @@ CSS;
                 $signingRequest->party_role
             );
 
+        // GAP 1 (A) — fold the new condition into the stored canonical so the
+        // print-from-approved artifact (agent review + PDF) contains it, not
+        // just the live DOM. Non-fatal.
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->refreshInsertableBlocks($signingRequest->template);
+
         return response()->json([
             'ok'               => true,
             'condition'        => $newCondition,
@@ -4025,6 +4031,12 @@ CSS;
                 'amendment_id'   => $condition->amendment_id,
             ],
         );
+
+        // GAP 1 (A) — bake this per-condition initial into the stored canonical
+        // (as the party's adopted ink) so it prints on the PDF and shows on
+        // agent review, not only in the live signing DOM. Non-fatal.
+        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->refreshInsertableBlocks($signingRequest->template);
 
         return response()->json([
             'ok'      => true,
