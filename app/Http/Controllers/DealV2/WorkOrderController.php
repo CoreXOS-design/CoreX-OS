@@ -346,6 +346,7 @@ class WorkOrderController extends Controller
         $triggerDone = $triggerStep && $triggerStep->status === 'completed';
         $coc         = app(\App\Services\DealV2\CocWorkOrderService::class);
         $actor       = $request->user();
+        $unanchored  = []; // ticked COCs we could not anchor (no matching step + no granting trigger)
 
         foreach ($data['items'] as $item) {
             $type = $types->get($item['code']);
@@ -356,8 +357,20 @@ class WorkOrderController extends Controller
                         ->where('service_type', $item['code'])->first();
 
             if ($item['applies']) {
+                // A work order MUST anchor to a pipeline step (deal_step_instance_id is NOT NULL, FK to
+                // deal_step_instances): its own COC step if the pipeline has one, else the granting
+                // trigger step. When the deal's pipeline has NEITHER — e.g. a COC ticked on a pipeline
+                // with no matching step and no status_trigger='granted'/'accepted' step — there is no
+                // home for it. Skip (never insert a null → SQLSTATE 1048) and report it so the agent
+                // adds the step or sets a granting trigger in pipeline setup, rather than the whole
+                // save crashing. (Root cause of the demo-seed "deal_step_instance_id cannot be null".)
+                $homeStepId = $step?->id ?? $triggerId;
+                if (! $homeStepId && ! ($wo && $wo->deal_step_instance_id)) {
+                    $unanchored[] = $type->label ?? $item['code'];
+                    continue;
+                }
                 $attrs = [
-                    'deal_step_instance_id'    => $step?->id ?? $triggerId,
+                    'deal_step_instance_id'    => $homeStepId ?? $wo?->deal_step_instance_id,
                     'trigger_step_instance_id' => $triggerId,
                     'agency_id'                => $deal->agency_id,
                     'responsible_party'        => $item['responsible_party'],
@@ -408,7 +421,12 @@ class WorkOrderController extends Controller
             }
         }
 
-        return response()->json(['ok' => true]);
+        return response()->json([
+            'ok' => true,
+            // COCs that couldn't be created because the pipeline has no step to anchor them to — the
+            // UI warns the agent to add the step / set a granting trigger in pipeline setup.
+            'unanchored' => array_values(array_unique($unanchored)),
+        ]);
     }
 
     // ── shared helpers ───────────────────────────────────────────────────────
