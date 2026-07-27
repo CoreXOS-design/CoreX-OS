@@ -16,7 +16,12 @@
         .mdf-clause p { margin: 0 0 4pt; text-align: justify; }
         .mdf-sub { margin-left: 18pt; }
         .mdf-blank { display: inline-block; min-width: 220pt; border-bottom: 1px solid #333; line-height: 1.4; }
-        .mdf-addinfo { border: 1px solid #334155; min-height: 90pt; padding: 6pt 8pt; white-space: pre-wrap; margin-top: 4pt; }
+        /* ADDITIONAL INFORMATION is powered by the reusable frames engine (each
+           entry = a frame carrying its own all-party initials). Strip the generic
+           block chrome so the prescribed "ADDITIONAL INFORMATION" heading stands
+           alone and the section reads like the form. */
+        .corex-page .insertable-block { border-left: none !important; background: transparent !important; padding: 0 !important; margin: 4pt 0 0 !important; }
+        .corex-page .insertable-block .block-header { display: none !important; }
         .mdf-sig { margin: 10pt 0 0; }
         .mdf-sig-title { font-weight: 700; margin-bottom: 3pt; }
         .mdf-field { display: inline-block; min-width: 120pt; border-bottom: 1px solid #333; }
@@ -88,8 +93,12 @@
 
 <div class="mdf-clause" style="margin-top:8pt;">
     <div class="mdf-h">ADDITIONAL INFORMATION</div>
-    <p style="font-size:8.5pt;color:#475569;">Full explanation for every statement answered &ldquo;yes&rdquo; above.</p>
-    <div class="mdf-addinfo corex-field-value" data-field="additional_information">{{ $additional_information ?? '' }}</div>
+    <p style="font-size:8.5pt;color:#475569;">A full explanation for every statement answered &ldquo;yes&rdquo; above. Each entry is initialled by every party.</p>
+    {{-- Powered by the reusable other-conditions FRAMES engine: each additional-
+         information entry is its own frame carrying per-frame all-party initials
+         (adopted ink), the same add-entry mechanism, and the recipient-add →
+         agent-review → re-engagement kicker. --}}
+    ~~~~OTHER_CONDITIONS~~~~
 </div>
 
 {{-- 6. Owner's certification --}}
