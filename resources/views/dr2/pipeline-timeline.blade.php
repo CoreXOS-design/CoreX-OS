@@ -59,7 +59,7 @@
   /* milestone vertical gate */
   #dr2tl .mile{position:absolute;z-index:2;width:2px;background:#eab308;top:32px;bottom:0}
   #dr2tl .mile .cap{position:absolute;top:2px;left:-8px;width:16px;height:16px;background:#eab308;transform:rotate(45deg);border:2px solid #fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap}
+  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
   #dr2tl .mile.done{background:#16a34a}#dr2tl .mile.done .cap{background:#16a34a}#dr2tl .mile.done .txt{color:#16a34a}
   #dr2tl .mile.up{background:#cbd5e1}#dr2tl .mile.up .cap{background:#cbd5e1}#dr2tl .mile.up .txt{color:#64748b}
 
@@ -214,8 +214,9 @@
 
         {{-- phase bands --}}
         @foreach($board['phases'] as $i => $p)
-          <div class="band {{ $i % 2 ? 'alt' : '' }}" style="left:{{ $PADX + $p['from'] * $DAYW }}px;width:{{ max(0, ($p['to'] - $p['from']) * $DAYW) }}px;">
-            <span class="bname" style="top:{{ $bandLabelTop }}px;">{{ $p['name'] }}</span>
+          @php($bandW = max(0, ($p['to'] - $p['from']) * $DAYW))
+          <div class="band {{ $i % 2 ? 'alt' : '' }}" style="left:{{ $PADX + $p['from'] * $DAYW }}px;width:{{ $bandW }}px;">
+            @if($bandW >= 118)<span class="bname" style="top:{{ $bandLabelTop }}px;max-width:{{ $bandW - 14 }}px;overflow:hidden;text-overflow:ellipsis;">{{ $p['name'] }}</span>@endif
           </div>
         @endforeach
 
