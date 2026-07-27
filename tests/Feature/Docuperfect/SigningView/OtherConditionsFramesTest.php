@@ -261,6 +261,70 @@ final class OtherConditionsFramesTest extends TestCase
         $this->assertStringNotContainsString('ALPHA', $byId['other_conditions__docb']);
     }
 
+    public function test_pack_frames_route_to_target_document_scoped_block(): void
+    {
+        // Fill-and-review tags each frame with target_doc_index (0-based, in
+        // document order). The bridge reads the pack's merged_html docKeys and
+        // routes each frame's row to that document's scoped block — so a
+        // condition tagged "document 2" persists ONLY on document 2's block.
+        [$sigTpl] = $this->makeTemplate();
+        $sigTpl->document->update(['web_template_data' => ['merged_html' =>
+            '<div data-disclosure-doc="kmandate" class="corex-document-wrapper">M ~~~~OTHER_CONDITIONS__kmandate~~~~</div>'
+          . '<div data-disclosure-doc="kdisc" class="corex-document-wrapper">D ~~~~OTHER_CONDITIONS__kdisc~~~~</div>'
+          . '<div data-disclosure-doc="kadd" class="corex-document-wrapper">A ~~~~OTHER_CONDITIONS__kadd~~~~</div>',
+        ]]);
+        $sigTpl->load('document');
+
+        $written = app(LegacyOtherConditionsBridge::class)->syncFramesToStructuredRows($sigTpl, [
+            ['content' => 'MANDATE cond',   'source' => 'custom', 'target_doc_index' => 0],
+            ['content' => 'DISCLOSURE cond','source' => 'custom', 'target_doc_index' => 1],
+            ['content' => 'ADDENDUM cond',  'source' => 'custom', 'target_doc_index' => 2],
+        ]);
+        $this->assertSame(3, $written);
+
+        $byBlock = DocumentCondition::where('signature_template_id', $sigTpl->id)
+            ->where('added_via', 'agent_preparation')->get()->keyBy('block_id');
+
+        $this->assertSame('MANDATE cond',    $byBlock['other_conditions__kmandate']->content);
+        $this->assertSame('DISCLOSURE cond', $byBlock['other_conditions__kdisc']->content);
+        $this->assertSame('ADDENDUM cond',   $byBlock['other_conditions__kadd']->content);
+        // No frame leaked onto the bare (un-rendered) block.
+        $this->assertArrayNotHasKey('other_conditions', $byBlock->toArray());
+    }
+
+    public function test_pack_untagged_frame_defaults_to_first_document(): void
+    {
+        // A pack frame with no target_doc_index must never land on the bare
+        // block (which no pack marker renders) — it defaults to document 1.
+        [$sigTpl] = $this->makeTemplate();
+        $sigTpl->document->update(['web_template_data' => ['merged_html' =>
+            '<div data-disclosure-doc="kone" class="corex-document-wrapper">~~~~OTHER_CONDITIONS__kone~~~~</div>'
+          . '<div data-disclosure-doc="ktwo" class="corex-document-wrapper">~~~~OTHER_CONDITIONS__ktwo~~~~</div>',
+        ]]);
+        $sigTpl->load('document');
+
+        app(LegacyOtherConditionsBridge::class)->syncFramesToStructuredRows($sigTpl, [
+            ['content' => 'No target here', 'source' => 'custom'],
+        ]);
+
+        $row = DocumentCondition::where('signature_template_id', $sigTpl->id)
+            ->where('added_via', 'agent_preparation')->firstOrFail();
+        $this->assertSame('other_conditions__kone', $row->block_id);
+    }
+
+    public function test_single_doc_frames_stay_on_bare_block(): void
+    {
+        // No pack (single document → no data-disclosure-doc) keeps the bare
+        // `other_conditions` block_id — backward-compatible.
+        [$sigTpl] = $this->makeTemplate(); // merged_html '' → no docKeys
+        app(LegacyOtherConditionsBridge::class)->syncFramesToStructuredRows($sigTpl, [
+            ['content' => 'Only condition', 'source' => 'custom', 'target_doc_index' => 0],
+        ]);
+        $row = DocumentCondition::where('signature_template_id', $sigTpl->id)
+            ->where('added_via', 'agent_preparation')->firstOrFail();
+        $this->assertSame('other_conditions', $row->block_id);
+    }
+
     /**
      * Minimal template + document + signing template with a 2-party set
      * (seller + agent) so the renderer paints per-party initial slots.

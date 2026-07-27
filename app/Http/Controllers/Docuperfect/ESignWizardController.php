@@ -2029,7 +2029,7 @@ class ESignWizardController extends Controller
             $resolvedPropertyId = $stepData['property']['property_id'];
         }
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
@@ -4629,7 +4629,7 @@ class ESignWizardController extends Controller
             'spouse' => 'spouse', 'other' => 'other',
         ];
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases, $stepData) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,

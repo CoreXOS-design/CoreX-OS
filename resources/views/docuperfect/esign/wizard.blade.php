@@ -865,6 +865,22 @@
                                             class="text-base leading-none px-1" style="color: var(--ds-red, #be123c);"
                                             title="Remove this condition">&times;</button>
                                 </div>
+                                {{-- PER-DOCUMENT selector (PACK only). A pack has one
+                                     other-conditions section per document; the agent tags
+                                     each condition with the document it belongs to, and it
+                                     renders on THAT document only during signing. --}}
+                                <template x-if="isPackDoc">
+                                    <div class="mb-2">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Applies to which document</label>
+                                        <select x-model.number="frame.target_doc_index" @change="syncFramesToText()"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <template x-for="opt in packDocumentOptions" :key="opt.index">
+                                                <option :value="opt.index" x-text="(opt.index + 1) + '. ' + opt.label"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </template>
                                 <textarea x-model="frame.content" @input="syncFramesToText()" rows="3"
                                           class="w-full rounded-md px-3 py-2 text-sm"
                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;"
@@ -1846,11 +1862,15 @@ function esignWizard() {
                     source: f.source === 'library' ? 'library' : 'custom',
                     library_clause_id: f.library_clause_id ?? null,
                     clause_name: f.clause_name ?? null,
+                    target_doc_index: (f.target_doc_index !== undefined && f.target_doc_index !== null)
+                        ? Number(f.target_doc_index)
+                        : (serverStepData?.is_pack_flow || (serverStepData?.template_ids || []).length > 1 ? 0 : null),
                 }));
             } else if (savedOtherConditions) {
+                const packDefault = (serverStepData?.is_pack_flow || (serverStepData?.template_ids || []).length > 1) ? 0 : null;
                 this.otherConditionFrames = savedOtherConditions
                     .split(/\n\s*\n/).map(t => t.trim()).filter(t => t !== '')
-                    .map(t => ({ content: t, source: 'custom', library_clause_id: null, clause_name: null }));
+                    .map(t => ({ content: t, source: 'custom', library_clause_id: null, clause_name: null, target_doc_index: packDefault }));
             }
 
             // Load web template preview on steps 2+ (PDF preview loads via serverPageImages)
@@ -1898,6 +1918,31 @@ function esignWizard() {
             }
         },
 
+        // PACK per-document other-conditions — is this flow a multi-document
+        // pack (each document has its own other-conditions section)?
+        get isPackDoc() {
+            if (serverStepData?.is_pack_flow) return true;
+            const ids = serverStepData?.template_ids || [];
+            return Array.isArray(ids) && ids.length > 1;
+        },
+
+        // PACK per-document other-conditions — the selectable target documents,
+        // in document order (same order the merge stamps + renders them). Label
+        // is the template name so the agent recognises which document.
+        get packDocumentOptions() {
+            const ids = serverStepData?.template_ids || this.resolvedPackTemplateIds || [];
+            return (ids || []).map((tid, i) => {
+                const t = (this.allTemplates || []).find(t => String(t.id) === String(tid));
+                return { index: i, label: (t && t.name) ? t.name : ('Document ' + (i + 1)) };
+            });
+        },
+
+        // Default target for a new condition frame: doc 1 in a pack (so it is
+        // always routed to a rendered per-document block), null single-doc.
+        defaultFrameTarget() {
+            return this.isPackDoc ? 0 : null;
+        },
+
         insertClause(clause) {
             // Step 2 (Johan) — agent-only: each inserted clause becomes its OWN
             // condition frame (a discrete document_conditions row with library
@@ -1907,6 +1952,7 @@ function esignWizard() {
                 source: 'library',
                 library_clause_id: clause.id ?? null,
                 clause_name: clause.name ?? null,
+                target_doc_index: this.defaultFrameTarget(),
             });
             // Track insertion in selectedClauses for reference/back-compat.
             this.selectedClauses.push({...clause});
@@ -1916,7 +1962,7 @@ function esignWizard() {
 
         // Step 2 (Johan) — add one blank free-text condition frame.
         addConditionFrame() {
-            this.otherConditionFrames.push({ content: '', source: 'custom', library_clause_id: null, clause_name: null });
+            this.otherConditionFrames.push({ content: '', source: 'custom', library_clause_id: null, clause_name: null, target_doc_index: this.defaultFrameTarget() });
         },
 
         // Step 2 (Johan) — remove a condition frame.
@@ -1941,16 +1987,80 @@ function esignWizard() {
             this.updateClausesPreview();
         },
 
+        escapeHtml(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+
+        // Build the styled preview block for a document's other-conditions —
+        // numbered, mirrors the on-document insertable block. Empty = subtle hint.
+        buildConditionBlockHtml(frames) {
+            if (!frames || !frames.length) {
+                return '<span class="corex-oc-preview-empty" style="color:#94a3b8;font-style:italic;">No conditions added for this document yet.</span>';
+            }
+            let html = '<span class="corex-oc-preview-rendered" style="display:block;">';
+            frames.forEach((c, i) => {
+                html += '<span style="display:block;margin:3pt 0;color:#0d9488;font-weight:600;white-space:pre-line;">'
+                     + (i + 1) + '. ' + this.escapeHtml(c) + '</span>';
+            });
+            html += '</span>';
+            return html;
+        },
+
+        // PACK per-document other-conditions — replace each per-document
+        // ~~~~OTHER_CONDITIONS~~~~ marker in the live preview with that document's
+        // targeted condition frames, so the agent sees the TYPED TEXT (never the
+        // raw marker) and per-document routing renders where they expect. Returns
+        // true when at least one marker slot was present (so the legacy inject
+        // fallback below stands down).
+        renderConditionFramesInPreview(doc) {
+            const MARKER = /~{2,}\s*OTHER_CONDITIONS(?:__[A-Za-z0-9_]+)?\s*~{2,}/i;
+            const wrappers = Array.from(doc.querySelectorAll('.corex-document-wrapper'));
+            const scopes = wrappers.length ? wrappers : [doc];
+            // Convert any still-raw markers into per-document slot placeholders.
+            scopes.forEach((scope, idx) => {
+                const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+                const hits = [];
+                let n;
+                while (n = walker.nextNode()) { if (MARKER.test(n.nodeValue)) hits.push(n); }
+                hits.forEach(node => {
+                    const span = document.createElement('span');
+                    span.innerHTML = node.nodeValue.replace(
+                        new RegExp(MARKER.source, 'ig'),
+                        '<span class="corex-oc-preview-slot" data-doc-index="' + idx + '"></span>'
+                    );
+                    node.parentNode.replaceChild(span, node);
+                });
+            });
+            const slots = Array.from(doc.querySelectorAll('.corex-oc-preview-slot'));
+            if (!slots.length) return false;
+            const packMode = this.isPackDoc;
+            slots.forEach(slot => {
+                const di = parseInt(slot.getAttribute('data-doc-index') || '0', 10);
+                const frames = (this.otherConditionFrames || []).filter(f => {
+                    const t = (f.target_doc_index === undefined || f.target_doc_index === null) ? 0 : Number(f.target_doc_index);
+                    return packMode ? (t === di) : true;
+                }).map(f => String(f.content || '').trim()).filter(t => t !== '');
+                slot.innerHTML = this.buildConditionBlockHtml(frames);
+            });
+            return true;
+        },
+
         updateClausesPreview() {
             if (this.previewRenderType !== 'web') return;
             const doc = document.querySelector('.web-template-preview');
             if (!doc) return;
 
+            // PACK/marker-aware: resolve ~~~~OTHER_CONDITIONS~~~~ markers into the
+            // typed frames, per document. When this handles the preview we skip
+            // the legacy data-field / inject fallbacks (they would duplicate it).
+            const handledByMarkers = this.renderConditionFramesInPreview(doc);
+
             // Use the unified textarea content directly
             const clauseText = this.otherConditionsText.trim();
 
             // Update the other_conditions data-field in the preview
-            const otherField = doc.querySelector('[data-field="other_conditions"]');
+            const otherField = handledByMarkers ? null : doc.querySelector('[data-field="other_conditions"]');
             if (otherField) {
                 otherField.textContent = clauseText || '';
                 if (clauseText) {
@@ -1964,7 +2074,7 @@ function esignWizard() {
             }
 
             // Fallback: if no data-field element, inject a clause block before the signature section
-            if (!otherField) {
+            if (!otherField && !handledByMarkers) {
                 // Remove any previously injected clause block
                 const existing = doc.querySelector('.corex-additional-clauses-preview');
                 if (existing) existing.remove();
