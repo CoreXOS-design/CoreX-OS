@@ -62,9 +62,12 @@
                 </div>
             </template>
 
-            {{-- Gates lane (milestone diamonds) — each gets a readable angled label; adjacent labels are
-                 staggered on two levels so close milestones don't overlap ("Deal Signed"/"Proof of
-                 Funds"/"Bond Approved" are legible even when the diamonds are days apart). --}}
+            {{-- Top padding so the top-most milestone label never clips the canvas edge. --}}
+            <div style="height:16px;"></div>
+
+            {{-- Gates lane (milestone diamonds) — each gets a readable label staggered onto its own
+                 anti-overlap level with a connector line, so milestones clustered around one date read
+                 on separate lines instead of mashing together. --}}
             <div :style="`position:relative;height:${18 + (data.gates_levels||1)*15 + 8}px;border-bottom:1px solid #f1f5f9;`">
                 <template x-for="g in data.gates" :key="'gate'+g.id">
                     <div :style="`position:absolute;left:${g.index*dw}px;top:6px;z-index:4;`">
