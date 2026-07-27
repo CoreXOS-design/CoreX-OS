@@ -39,9 +39,10 @@ class PipelineTimelineController extends Controller
             PipelineUserPreference::setViewForUser($uid, 'timeline');
         }
 
-        // The same deal-context data (for the collapsible top tabs) + the approved-mockup board payload.
+        // The same deal-context data (for the collapsible top tabs) + the APPROVED phased board payload
+        // (anchor → Stage 1 condition groups → Granted gate → Stage 2 sequence).
         $ctx = $this->pipelineContext($deal);
-        $ctx['board'] = $this->timeline->buildBoard($deal);
+        $ctx['board'] = $this->timeline->buildPhased($deal);
 
         return view('dr2.pipeline-timeline', $ctx);
     }

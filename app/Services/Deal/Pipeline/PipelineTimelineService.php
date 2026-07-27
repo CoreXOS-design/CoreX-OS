@@ -134,6 +134,140 @@ class PipelineTimelineService
         ];
     }
 
+    /**
+     * The PHASED read-model (Johan's APPROVED vertical/sectioned layout — /tmp/dr2_phased_agreed.html):
+     *
+     *   Anchor (Deal Signed ★)
+     *   Stage 1 · Suspensive Conditions   — one GROUP per condition (Bond / Cash / Sale / …), each a
+     *                                        parallel track that must be met to grant the deal
+     *   GRANTED gate                      — the convergence: deal becomes unconditional once every
+     *                                        condition above is met
+     *   Stage 2 · Transfer & Registration — the post-grant sequence (LaneComposer segments: full-width
+     *                                        sequence points + concurrent bands), LOCKED until granted
+     *
+     * Membership is honest and data-driven: DealLaneComposer splits anchor / gate / stage2 off the real
+     * predecessor graph (primary follows ∪ AND-gate fan-in); Stage 1 is whatever remains, grouped by
+     * condition_key. Pure read — returns step IDs (the view maps them through the shared step-tile) plus
+     * the LaneComposer stage-2 segment objects and the normalized comment feed the footer renders.
+     */
+    public function buildPhased(Deal $deal): array
+    {
+        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->orderBy('position')->orderBy('id')->get();
+
+        $comments = $this->commentFeed($deal);
+
+        if ($steps->isEmpty()) {
+            return ['empty' => true, 'comments' => $comments];
+        }
+
+        $composed = app(\App\Services\DealV2\DealLaneComposer::class)->board($steps);
+        $anchor   = $composed['anchor'];
+        $gate     = $composed['gate'];
+
+        // Every step the composer placed in Stage 2 (flatten sequence + band lanes).
+        $stage2Ids = [];
+        foreach ($composed['stage2'] as $seg) {
+            if (($seg['type'] ?? null) === 'sequence') {
+                $stage2Ids[(int) $seg['step']->id] = true;
+            } else {
+                foreach ($seg['lanes'] ?? [] as $lane) {
+                    foreach ($lane as $m) {
+                        $stage2Ids[(int) $m->id] = true;
+                    }
+                }
+            }
+        }
+
+        $exclude = $stage2Ids;
+        if ($anchor) $exclude[(int) $anchor->id] = true;
+        if ($gate)   $exclude[(int) $gate->id]   = true;
+
+        // Stage 1 = the remainder (the suspensive-condition tracks), grouped by condition.
+        $stage1Steps = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
+
+        $catalog   = app(\App\Services\DealV2\Dr2ConditionCatalog::class)->conditions();
+        $groupMeta = [
+            'bond'            => ['icon' => '🏦', 'order' => 1],
+            'cash'            => ['icon' => '💰', 'order' => 2],
+            'sale_of_another' => ['icon' => '🏠', 'order' => 3],
+            '_general'        => ['icon' => '📋', 'order' => 8],
+        ];
+        $labelOverride = ['sale_of_another' => 'Sale of another property', '_general' => 'Other conditions'];
+
+        // Count of cash payment steps across the WHOLE deal (they live in Stage 2), for the "· N payments" tag.
+        $cashPayments = $steps->filter(fn ($s) => $s->condition_key === 'cash'
+            && str_contains(strtolower((string) $s->name), 'payment'))->count();
+
+        $stage1Groups = $stage1Steps
+            ->groupBy(fn (DealStepInstance $s) => $s->condition_key ?: '_general')
+            ->map(function ($group, $key) use ($catalog, $groupMeta, $labelOverride, $cashPayments) {
+                $label = $labelOverride[$key] ?? ($catalog[$key]['label'] ?? ucfirst(str_replace('_', ' ', (string) $key)));
+                $sub   = ($key === 'cash' && $cashPayments > 1) ? $cashPayments . ' payments' : null;
+                $active = $group->contains(fn ($s) => ! in_array($s->status, ['completed', 'skipped'], true));
+                return [
+                    'key'      => $key,
+                    'label'    => $label,
+                    'sub'      => $sub,
+                    'icon'     => $groupMeta[$key]['icon'] ?? '📋',
+                    'order'    => $groupMeta[$key]['order'] ?? 7,
+                    'active'   => $active,
+                    'step_ids' => $group->sortBy('position')->pluck('id')->map(fn ($id) => (int) $id)->all(),
+                ];
+            })
+            ->sortBy('order')->values()->all();
+
+        // GRANTED — the deal is unconditional once every suspensive condition is met. Honour the deal's
+        // own status and the gate step, and fall back to "all suspensive steps completed".
+        $suspensive = $steps->where('is_suspensive', true);
+        $granted = in_array($deal->status, ['granted', 'completed'], true)
+            || ($gate && $gate->status === 'completed')
+            || ($suspensive->isNotEmpty() && $suspensive->every(fn ($s) => $s->status === 'completed'));
+
+        // Projected grant date = the latest due date across the suspensive conditions (the gate step's
+        // own date isn't cascaded), else the gate's due date.
+        $projected = $suspensive->filter(fn ($s) => $s->due_date)->max('due_date')
+            ?? ($gate?->due_date);
+
+        return [
+            'empty'     => false,
+            'flat'      => $gate === null && empty($stage1Groups), // old-model / non-composable fallback
+            'anchor_id' => $anchor ? (int) $anchor->id : null,
+            'gate'      => [
+                'id'        => $gate ? (int) $gate->id : null,
+                'granted'   => (bool) $granted,
+                'projected' => $projected ? Carbon::parse($projected)->format('j M Y') : null,
+            ],
+            'stage1'    => ['groups' => $stage1Groups],
+            'stage2'    => [
+                'active'   => (bool) $granted,
+                'segments' => $composed['stage2'],
+                'has'      => ! empty($composed['stage2']),
+            ],
+            'all_ids'   => $steps->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            'comments'  => $comments,
+        ];
+    }
+
+    /**
+     * The normalized comment feed (footer): who/when/text/scope/step, newest last. Shared by the phased
+     * timeline + list footers. Deal-scope = a comment on the anchor/gate; step-scope = on a real step.
+     */
+    private function commentFeed(Deal $deal): array
+    {
+        return $this->events->eventsForDeal($deal)->map(function ($e) {
+            return [
+                'id'    => $e->sourceType . ':' . $e->sourceId,
+                'step'  => $e->isStepScoped() ? (int) $e->stepId : null,
+                'scope' => $e->scope,
+                'who'   => $e->authorName ?: 'System',
+                'when'  => Carbon::parse($e->occurredAt)->format('j M H:i'),
+                'text'  => $e->body,
+                'type'  => $e->type,
+            ];
+        })->values()->all();
+    }
+
     public function build(Deal $deal): array
     {
         $steps = DealStepInstance::where('dr1_deal_id', $deal->id)

@@ -73,4 +73,48 @@
 .dr2-listwrap .dr2-lrow { position:relative; }
 .dr2-listwrap .dr2-lrow.dr2-drag-over { outline:2px dashed #2563eb; outline-offset:2px; border-radius:10px; }
 .dr2-listwrap .dr2-lrow.dr2-dragging { opacity:.45; }
+
+/* ── Stage-2 concurrent segments (LaneComposer): full-width sequence points + dashed concurrent bands ── */
+.dr2-band { margin:.4rem 0; border:1px dashed #cbd5e1; border-radius:10px; padding:.6rem .5rem .5rem; position:relative; }
+.dr2-band__tag { position:absolute; top:-.6rem; left:.7rem; background:var(--surface,#fff); padding:0 .35rem; font-size:.66rem; color:#94a3b8; letter-spacing:.03em; }
+.dr2-band__lanes { display:flex; gap:.5rem; overflow-x:auto; padding-bottom:.15rem; align-items:flex-start; }
+.dr2-lane { display:flex; flex-direction:column; align-items:stretch; gap:.15rem; flex:0 0 auto; }
+.dr2-lane__link { text-align:center; color:#cbd5e1; font-size:.7rem; line-height:.7; }
+.dr2-band__drop { font-size:.68rem; color:#94a3b8; border:1px dashed #d1d5db; border-radius:7px; padding:.25rem .5rem; margin-bottom:.4rem; text-align:center; }
+.dr2-band__drop.dr2-drop-ok { border-color:#2563eb; color:#2563eb; background:#eff6ff; }
+.dr2-seq { position:relative; padding-left:.55rem; margin:.4rem 0; }
+.dr2-seq__rail { position:absolute; left:0; top:.15rem; bottom:.15rem; width:4px; border-radius:3px; background:#2563eb; }
+
+/* ── Phased vertical layout (Johan's APPROVED sectioned mockup) ── */
+.dr2-ph { display:flex; flex-direction:column; gap:.2rem; }
+.dr2-ph-anchor { background:#eef2ff; border:1px solid #dbe4ff; border-radius:12px; padding:.15rem .35rem; margin-bottom:.4rem; }
+.dr2-ph-anchor .dr2-tile--wide { border:0; background:transparent; }
+.dr2-ph-arrow { text-align:center; color:#94a3b8; font-size:1.1rem; line-height:1; margin:.15rem 0; }
+.dr2-ph-stage { background:var(--surface,#fff); border:1px solid var(--corex-border,#e5e7eb); border-radius:14px; padding:.85rem .95rem 1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); margin:.15rem 0; }
+.dr2-ph-stage.is-locked { opacity:.72; }
+.dr2-ph-stage__h { display:flex; align-items:center; gap:.55rem; }
+.dr2-ph-stage__n { width:1.5rem; height:1.5rem; flex:0 0 1.5rem; border-radius:7px; background:#2563eb; color:#fff; font-weight:700; font-size:.85rem; display:flex; align-items:center; justify-content:center; }
+.dr2-ph-stage__t { font-size:.98rem; font-weight:700; color:#0f172a; }
+.dr2-ph-stage__s { color:#64748b; font-size:.76rem; margin:.2rem 0 .8rem 2.05rem; }
+.dr2-ph-lock { font-size:.72rem; color:#64748b; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:8px; padding:.35rem .6rem; margin:.1rem 0 .7rem 2.05rem; display:inline-flex; align-items:center; gap:.35rem; }
+.dr2-ph-grp { border:1px solid var(--corex-border,#e5e7eb); border-radius:11px; padding:.6rem .7rem .7rem; margin-bottom:.7rem; background:#f7f9fc; }
+.dr2-ph-grp:last-child { margin-bottom:0; }
+.dr2-ph-grp__h { display:flex; align-items:center; gap:.4rem; font-size:.8rem; font-weight:700; color:#1e293b; margin-bottom:.55rem; }
+.dr2-ph-grp__ic { font-size:.95rem; }
+.dr2-ph-grp__sub { color:#64748b; font-weight:500; }
+.dr2-ph-pill { margin-left:auto; font-size:.6rem; font-weight:800; letter-spacing:.04em; border-radius:5px; padding:.12rem .4rem; }
+.dr2-ph-pill--active { color:#065f46; background:#d1fae5; }
+.dr2-ph-pill--done { color:#475569; background:#e2e8f0; }
+.dr2-ph-note { font-size:.72rem; color:#94a3b8; font-style:italic; margin-top:.5rem; line-height:1.45; }
+/* the GRANTED gate bar */
+.dr2-ph-gate { margin:.55rem 0; display:flex; }
+.dr2-ph-gate__inner { flex:1; display:flex; align-items:center; gap:.75rem; border-radius:12px; padding:.7rem 1.15rem;
+    background:linear-gradient(90deg,#1e3a8a,#2563eb); color:#fff; box-shadow:0 3px 10px rgba(37,99,235,.28); }
+.dr2-ph-gate--pending .dr2-ph-gate__inner { background:linear-gradient(90deg,#334155,#475569); box-shadow:0 3px 10px rgba(71,85,105,.24); }
+.dr2-ph-gate__star { font-size:1.15rem; color:#fde68a; }
+.dr2-ph-gate--pending .dr2-ph-gate__star { color:#cbd5e1; }
+.dr2-ph-gate__t { font-weight:800; font-size:.95rem; letter-spacing:.02em; }
+.dr2-ph-gate__s { font-size:.74rem; opacity:.92; }
+.dr2-ph-addbtn { margin-top:.9rem; font-size:.78rem; color:#2563eb; background:#fff; border:1px dashed #bfdbfe; border-radius:8px; padding:.5rem .9rem; cursor:pointer; font-family:inherit; font-weight:600; }
+.dr2-ph-addbtn:hover { background:#eff6ff; }
 </style>
