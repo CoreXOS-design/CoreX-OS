@@ -1,18 +1,11 @@
 {{-- Linked properties list.
 
      Extracted as its own partial (pre-existing bug fix, found while verifying
-     Phase 4 in a real browser — NOT a Phase 4 change): show.blade.php is a
-     ~2300-line view, and past a certain total size Blade's compiler starts
-     silently leaving some @if/@foreach/@forelse pairs uncompiled (reproduced
-     directly via Blade::compileString() + php -l on the exact file as it
-     stood before Phase 4 touched anything — confirmed NOT a PCRE
-     backtrack/recursion/JIT limit, since raising those ini values made no
-     difference; root cause not fully isolated beyond "the file is too big").
-     This forelse was the one losing its opening tag on QA1 right now,
-     500ing every contact page. Splitting it out (same technique as
-     _recent-sends.blade.php / _assigned-agents.blade.php) reduces the host
-     file's own compiled size and resolves it. Reported to Johan; no logic
-     changed here. --}}
+     Phase 4 in a real browser — NOT a Phase 4 change): the forelse-loop
+     opening tag here was losing its opening compile in the surrounding
+     ~2300-line show.blade.php, 500ing every contact page. Splitting it out
+     (same technique as _recent-sends.blade.php / _assigned-agents.blade.php)
+     resolves it. Reported to Johan; no logic changed here. --}}
 <div>
     <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">
         Linked Properties ({{ $contact->properties->count() }})

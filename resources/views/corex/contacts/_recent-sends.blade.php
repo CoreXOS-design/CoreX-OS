@@ -5,10 +5,10 @@
 
      Kept as its OWN partial (not inlined into show.blade.php) — that host view
      is already huge, and stacking this much directive nesting into it tripped
-     Blade's compiler (PHP's PCRE backtrack limit silently left some @if/@foreach
-     pairs uncompiled — a real, reproduced failure, not a hypothetical one). A
-     separate include compiles independently and keeps the host file's own
-     compile budget untouched. --}}
+     Blade's compiler (some if/foreach pairs were left silently uncompiled — a
+     real, reproduced failure, not a hypothetical one). A separate include
+     compiles independently and keeps the host file's own compile budget
+     untouched. --}}
 @if($recentSends->isNotEmpty())
 <div x-data="{ openHistory: null, openResend: null }" class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
     <div class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Recent Sends</div>

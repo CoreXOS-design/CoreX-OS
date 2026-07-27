@@ -1,7 +1,7 @@
 {{-- Drive tab body — extracted as its own partial (pre-existing bug fix,
      found while verifying Phase 4 in a real browser — NOT a Phase 4 change):
      same class of Blade-compiler defect as the other _*.blade.php partials
-     split out of show.blade.php today. This @foreach($driveLinkedGroups...)
+     split out of show.blade.php today. The driveLinkedGroups foreach loop
      was the one losing its opening tag next. No logic changed here. --}}
 
 {{-- Upload area --}}
