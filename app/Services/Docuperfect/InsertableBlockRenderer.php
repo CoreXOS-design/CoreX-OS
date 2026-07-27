@@ -352,8 +352,13 @@ final class InsertableBlockRenderer
      * block region in an already-baked canonical (preserving signature/initial
      * ink elsewhere) when a condition is added/initialed during signing.
      */
-    public function renderBlockContainer(array $block, SignatureTemplate $doc, string $context): string
-    {
+    public function renderBlockContainer(
+        array $block,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
         $blockId = (string) ($block['id'] ?? '');
         $conditions = DocumentCondition::query()
             ->where('signature_template_id', $doc->id)
@@ -364,7 +369,90 @@ final class InsertableBlockRenderer
             ->orderBy('condition_number')
             ->get();
 
-        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, null, null);
+        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, $signingToken, $currentPartyKey);
+    }
+
+    /**
+     * DISPLAY-TIME re-render of every already-rendered insertable-block region so
+     * the SIGNING surface shows the INTERACTIVE block (the "+ Add condition"
+     * button + the current party's clickable initial slots), regardless of what
+     * the STORED canonical holds.
+     *
+     * The stored canonical is baked STATIC (CONTEXT_PDF_RENDER via
+     * refreshInsertableBlocks — no chrome, so the PDF prints clean). That static
+     * form is served to every surface, including signing — which is why the add
+     * button + initial affordances vanished on the recipient/agent signing view.
+     * This swaps each `<div class="insertable-block" data-block-id>` in the SERVED
+     * html for a fresh render in the viewer's context (block_id + purpose +
+     * auto_number read off the div), leaving the stored canonical untouched.
+     * Filled initials still render as adopted ink; the print path stays static.
+     */
+    public function reRenderBlocksForViewer(
+        string $html,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
+        if ($html === '' || ! str_contains($html, 'insertable-block')) {
+            return $html;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath   = new \DOMXPath($dom);
+            $nodes   = iterator_to_array($xpath->query(
+                '//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]'
+            ));
+            $changed = false;
+            foreach ($nodes as $old) {
+                if (! $old instanceof \DOMElement) {
+                    continue;
+                }
+                $blockId = $old->getAttribute('data-block-id');
+                if ($blockId === '') {
+                    continue;
+                }
+                $block = [
+                    'id'          => $blockId,
+                    'purpose'     => $old->getAttribute('data-purpose') ?: 'other_conditions',
+                    'auto_number' => $old->getAttribute('data-auto-number') === '1',
+                ];
+                $freshHtml = $this->renderBlockContainer($block, $doc, $context, $signingToken, $currentPartyKey);
+                if (trim($freshHtml) === '') {
+                    continue;
+                }
+                $frag = new \DOMDocument();
+                @$frag->loadHTML(
+                    '<?xml encoding="utf-8"?><div id="__w">' . $freshHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+                );
+                $new = null;
+                foreach ($frag->getElementsByTagName('div') as $d) {
+                    if ($d->getAttribute('data-block-id') === $blockId) {
+                        $new = $d;
+                        break;
+                    }
+                }
+                if ($new === null) {
+                    continue;
+                }
+                $imported = $dom->importNode($new, true);
+                $old->parentNode?->replaceChild($imported, $old);
+                $changed = true;
+            }
+            if (! $changed) {
+                return $html;
+            }
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            return trim((string) $out);
+        } catch (\Throwable $e) {
+            return $html;
+        }
     }
 
     private function renderConditionRow(
@@ -693,6 +781,16 @@ final class InsertableBlockRenderer
             return $candidate;
         }
 
+        // Per-document scope suffix (PACKS): `OTHER_CONDITIONS__<docKey>` keeps each
+        // pack SEGMENT's other-conditions block independent (its own block_id, its
+        // own frames + per-frame initials — a condition on doc A never bleeds to
+        // doc B). Preserve the scoped token verbatim so synthBlockFromToken derives
+        // a per-segment block_id. Must run BEFORE the fuzzy pass, which would
+        // otherwise collapse a short-docKey token back onto the bare canonical.
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__[A-Z0-9_]+$/', $candidate)) {
+            return $candidate;
+        }
+
         // Fuzzy match — catch common misspellings (typo'd one char,
         // dropped underscore, etc.) without inviting unrelated tokens
         // to collapse onto canonical ones.
@@ -734,6 +832,25 @@ final class InsertableBlockRenderer
             'INCLUDED_ITEMS'   => 'included_items',
             'EXCLUDED_ITEMS'   => 'excluded_items',
         ];
+
+        // Per-segment scoped token (packs): `OTHER_CONDITIONS__<docKey>` → a
+        // block_id scoped to that pack document, so each segment's conditions +
+        // per-frame initials are independent. Bare (single-doc) tokens keep
+        // block_id `other_conditions` unchanged (backward-compatible).
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__(.+)$/', $token, $sm)) {
+            $canonical = $sm[1];
+            $purpose   = $purposeMap[$canonical];
+            $scope     = \Illuminate\Support\Str::slug($sm[2], '_');
+            return [
+                'id'              => strtolower($canonical) . '__' . $scope,
+                'purpose'         => $purpose,
+                'label'           => $this->defaultLabelFor($purpose),
+                'position_marker' => "~~~~{$token}~~~~",
+                'auto_number'     => $purpose === 'other_conditions',
+                'locked'          => false,
+            ];
+        }
+
         $purpose = $purposeMap[$token] ?? 'custom_named';
         return [
             'id'              => strtolower($token),

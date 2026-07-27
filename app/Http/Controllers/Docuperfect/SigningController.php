@@ -285,6 +285,21 @@ class SigningController extends Controller
                 // button carries no signing token, so stamp the current token on so
                 // the recipient (or agent) can post a new condition. Display overlay
                 // only — the document body stays byte-identical across surfaces.
+                // The stored canonical bakes each insertable block STATIC (PDF
+                // render — no chrome) so the printed PDF is clean. But THIS is the
+                // interactive signing surface: re-render every block in the viewer's
+                // context so the "+ Add condition" button + the current party's
+                // clickable initial slots are present (they are absent in the static
+                // canonical). Display-only; the stored canonical + PDF are untouched.
+                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                    ->reRenderBlocksForViewer(
+                        $webTemplateHtml,
+                        $template,
+                        \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
+                        (string) $token,
+                        $signingRequest->party_role,
+                    );
+
                 $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
                     ->stampConditionSigningToken($webTemplateHtml, (string) $token);
 
