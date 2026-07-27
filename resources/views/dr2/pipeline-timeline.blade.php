@@ -54,6 +54,10 @@
   /* the timeline is action-button driven — no drag here; the grip is for the List view */
   #dr2tl .dr2-tile__grip{display:none}
   #dr2tl .dr2-band__drop{display:none}
+  /* full-width rows hug their content (the 172px min is for the 200px board tiles) */
+  #dr2tl .dr2-tile--wide{min-height:0}
+  #dr2tl .dr2-ph-grp .dr2-tile--wide{margin-bottom:8px}
+  #dr2tl .dr2-ph-grp .dr2-tile--wide:last-child{margin-bottom:0}
   #dr2tl-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:9px 15px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:160}
   #dr2tl-toast.on{opacity:1}
 </style>
