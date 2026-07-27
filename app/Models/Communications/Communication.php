@@ -23,6 +23,14 @@ class Communication extends Model
     const DIRECTION_INBOUND  = 'inbound';
     const DIRECTION_OUTBOUND = 'outbound';
 
+    // Contact-details Phase 4 — the outreach "could not send" flow. Default
+    // 'sent' (every existing row is retroactively correct — none has ever
+    // been anything else). 'not_delivered' rows are excluded from
+    // Contact::outboundCommCount()/last_contacted_at (see Contact.php) but
+    // stay on record — nothing here is ever deleted or overwritten.
+    const SEND_STATUS_SENT          = 'sent';
+    const SEND_STATUS_NOT_DELIVERED = 'not_delivered';
+
     protected $fillable = [
         'agency_id', 'channel', 'direction', 'external_id', 'thread_key', 'wa_chat_id', 'counterpart_lid',
         'from_identifier', 'participant_identifiers', 'occurred_at', 'captured_at',
@@ -32,6 +40,8 @@ class Communication extends Model
         // AT-163 — voice-note transcript (rides the message row, 1:1).
         'transcript_text', 'transcript_preview', 'transcript_status', 'transcript_retry_count',
         'transcript_lang', 'transcript_model', 'transcript_error', 'transcript_at',
+        // Contact-details Phase 4.
+        'send_status', 'send_status_set_by_user_id', 'send_status_set_at', 'resent_from_communication_id',
     ];
 
     protected $casts = [
@@ -42,6 +52,7 @@ class Communication extends Model
         'purged_at'              => 'datetime',
         'has_attachments'        => 'boolean',
         'transcript_at'          => 'datetime',
+        'send_status_set_at'     => 'datetime',
     ];
 
     /** AT-163 — a completed, non-empty voice-note transcript is present. */
@@ -87,6 +98,24 @@ class Communication extends Model
     public function links(): HasMany
     {
         return $this->hasMany(CommunicationLink::class);
+    }
+
+    /** Contact-details Phase 4 — the original send this row is a resend OF (if any). */
+    public function resentFrom(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(self::class, 'resent_from_communication_id');
+    }
+
+    /** Contact-details Phase 4 — resend(s) created FROM this row (if it was flagged and resent). */
+    public function resends(): HasMany
+    {
+        return $this->hasMany(self::class, 'resent_from_communication_id');
+    }
+
+    /** Contact-details Phase 4 — who last set send_status, for the audit strip. */
+    public function sendStatusSetBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'send_status_set_by_user_id');
     }
 
     /**
@@ -166,6 +195,22 @@ class Communication extends Model
     public function scopeNotPurged($query)
     {
         return $query->whereNull('purged_at');
+    }
+
+    /**
+     * Contact-details Phase 4 — rows that count as "the contact was reached".
+     * The ONE gate Contact::outboundCommCount()/recomputeLastContacted() both
+     * filter through — a not_delivered row is kept as an audit record but
+     * never contributes to either.
+     */
+    public function scopeCountsAsSent($query)
+    {
+        return $query->where('send_status', self::SEND_STATUS_SENT);
+    }
+
+    public function isNotDelivered(): bool
+    {
+        return $this->send_status === self::SEND_STATUS_NOT_DELIVERED;
     }
 
     /** Provisional rows: created on click, not yet reconciled to a real send. */

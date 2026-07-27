@@ -32,14 +32,31 @@ class OutboundProvisionalLogger
      * @param string|null $subject email subject (null for WhatsApp)
      * @param string|null $body    composed message text
      * @param int|null    $userId  the sending agent (audit trail)
+     * @param int|null    $resentFromCommunicationId Contact-details Phase 4 — set
+     *   when this row IS a resend (a different number/email picked after the
+     *   original was flagged not_delivered). Links back to the original row,
+     *   which stays on record unmodified. Null for every normal send.
+     * @param string|null $recipientValue Contact-details Phase 4 — the RESELECTED
+     *   phone/email to record as the recipient, when it differs from the
+     *   contact's current primary (a resend to a different number). Falls back
+     *   to the contact's primary value for the channel when null (unchanged
+     *   behaviour for every existing caller).
      */
-    public function log(Contact $contact, string $channel, ?string $subject, ?string $body, ?int $userId = null): Communication
-    {
+    public function log(
+        Contact $contact,
+        string $channel,
+        ?string $subject,
+        ?string $body,
+        ?int $userId = null,
+        ?int $resentFromCommunicationId = null,
+        ?string $recipientValue = null
+    ): Communication {
         $agencyId = (int) $contact->agency_id;
         $now      = now();
         $textHash = MessageTextHasher::hash($channel, $subject, $body);
+        $recipient = $recipientValue ?? ($channel === Communication::CHANNEL_EMAIL ? $contact->email : $contact->phone);
 
-        return DB::transaction(function () use ($contact, $agencyId, $channel, $subject, $body, $userId, $now, $textHash) {
+        return DB::transaction(function () use ($contact, $agencyId, $channel, $subject, $body, $userId, $now, $textHash, $resentFromCommunicationId, $recipient) {
             $communication = Communication::create([
                 'agency_id'               => $agencyId,
                 'channel'                 => $channel,
@@ -47,9 +64,7 @@ class OutboundProvisionalLogger
                 'external_id'             => 'provisional:' . Str::uuid()->toString(),
                 'thread_key'              => null,
                 'from_identifier'         => null,
-                'participant_identifiers' => array_values(array_filter([
-                    $channel === Communication::CHANNEL_EMAIL ? $contact->email : $contact->phone,
-                ])),
+                'participant_identifiers' => array_values(array_filter([$recipient])),
                 'occurred_at'             => $now,
                 'captured_at'             => $now,
                 'provisional_at'          => $now,
@@ -70,6 +85,7 @@ class OutboundProvisionalLogger
                 // $userId (no sending agent) legitimately stays null — an ownerless
                 // provisional row, same graceful-null contract as mailbox ingest.
                 'owner_user_id'           => $userId,
+                'resent_from_communication_id' => $resentFromCommunicationId,
             ]);
 
             CommunicationLink::create([
