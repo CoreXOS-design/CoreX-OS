@@ -6,10 +6,11 @@
     $defaultWaMsg = \App\Models\PerformanceSetting::get('matches_wa_message',
         "Hi {name}! \xf0\x9f\x91\x8b\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
     );
-    $waPhone = preg_replace('/\D/', '', $contact->phone ?? '');
-    if ($waPhone && str_starts_with($waPhone, '0')) {
-        $waPhone = '27' . substr($waPhone, 1);
-    }
+    // Contact-details Phase 1 fix — this used to strip digits and blindly
+    // replace a leading '0' with South Africa's '27' regardless of the
+    // number's real country (same defect as show.blade.php's sendWa()).
+    // WhatsAppNumberFormatter uses the number's OWN dial code instead.
+    $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($contact->phone, $contact->primaryPhone?->dial_code);
     $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
     $totalViews = array_sum($match->property_view_counts ?? []);
     $hiddenCount = count($match->hidden_property_ids ?? []);

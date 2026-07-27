@@ -159,6 +159,9 @@ class ContactIdentifierService
                 'value' => $raw,
                 'label' => $label !== '' ? $label : null,
                 'is_primary' => ! empty($item['is_primary']),
+                // Contact-details Phase 1 — phone-only; ignored for emails.
+                'country_iso' => $item['country_iso'] ?? null,
+                'dial_code' => $item['dial_code'] ?? null,
             ];
         }
 
@@ -182,6 +185,10 @@ class ContactIdentifierService
             if ($row) {
                 $row->{$rawCol} = $inc['value']; // re-set raw → mutator recomputes the normalised key
                 $row->label = $inc['label'];
+                if ($rawCol === 'phone') {
+                    $row->country_iso = $inc['country_iso'] ?: 'ZA';
+                    $row->dial_code = $inc['dial_code'] ?: '+27';
+                }
                 $row->save();
             } else {
                 $row = $modelClass::create([
@@ -190,6 +197,10 @@ class ContactIdentifierService
                     $rawCol => $inc['value'],
                     'label' => $inc['label'],
                     'is_primary' => false,
+                    ...($rawCol === 'phone' ? [
+                        'country_iso' => $inc['country_iso'] ?: 'ZA',
+                        'dial_code' => $inc['dial_code'] ?: '+27',
+                    ] : []),
                 ]);
             }
             $rows[] = ['row' => $row, 'is_primary' => $inc['is_primary']];

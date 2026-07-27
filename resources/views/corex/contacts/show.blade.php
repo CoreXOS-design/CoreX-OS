@@ -341,8 +341,16 @@
                         }
                     },
                     sendWa() {
-                        let phone = '{{ preg_replace('/[^0-9]/', '', $contact->phone ?? '') }}';
-                        if (phone.startsWith('0')) phone = '27' + phone.substring(1);
+                        // Contact-details Phase 1 fix — this used to strip digits and
+                        // blindly replace a leading '0' with South Africa's '27', so a
+                        // USA (or any non-ZA) number could never resolve on WhatsApp: a
+                        // number typed with a local-style leading 0 got a ZA country code
+                        // prepended to non-ZA digits (agents literally could not reach a
+                        // USA contact — "can't load a USA number"). The digits below are
+                        // now built server-side by WhatsAppNumberFormatter using THIS
+                        // number's own dial code (contact_phones.dial_code), never a
+                        // hardcoded '27'.
+                        let phone = '{{ \App\Support\WhatsAppNumberFormatter::forDeepLink($contact->phone, $contact->primaryPhone?->dial_code) }}';
                         window.location.href = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(this.waMessage);
                         this.increment('whatsapp', { body: this.waMessage });
                         this.showWa = false;

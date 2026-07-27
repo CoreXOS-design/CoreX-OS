@@ -15,15 +15,22 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  *
  * `phone_normalised` is the match key — kept in sync via the `phone` mutator
  * using the SAME normalisation as ContactDuplicateService::normalizePhone
- * (last-9 SA mobile core) so the AT-122 ingestion resolver + dedup can match an
- * incoming number against ALL of a contact's identifiers (wired in a later step).
+ * (last-9 SA mobile core for ZA shapes; full digits, uncollapsed, for anything
+ * else) so the AT-122 ingestion resolver + dedup can match an incoming number
+ * against ALL of a contact's identifiers.
+ *
+ * `country_iso`/`dial_code` (contact-details Phase 1) — the number's country,
+ * defaulting to ZA/+27. Existing rows predate this feature and were captured
+ * as SA numbers, so the default backfill is accurate, not a placeholder. Used
+ * by WhatsAppNumberFormatter to build a correct click-to-chat deep link — never
+ * assume +27 for a number that carries its own dial code.
  */
 class ContactPhone extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'contact_id', 'phone', 'label', 'is_primary',
+        'agency_id', 'contact_id', 'phone', 'country_iso', 'dial_code', 'label', 'is_primary',
     ];
 
     protected $casts = [

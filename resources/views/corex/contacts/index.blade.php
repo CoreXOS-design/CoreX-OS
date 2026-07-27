@@ -576,17 +576,17 @@
                                    class="w-full rounded-md px-3 py-1.5 text-sm transition-all duration-300"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                         </div>
-                        <div>
-                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Phone</label>
-                            <input type="text" name="phone" value="{{ $contact->phone }}" required
-                                   class="w-full rounded-md px-3 py-1.5 text-sm transition-all duration-300"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            {{-- Contact-details Phase 1 — the quick-edit row used to post a
+                                 single plain-text `phone` field with no country context at
+                                 all, so a US number typed here had no way to carry a dial
+                                 code (part of "agent couldn't load a USA number"). Same
+                                 multi-identifier repeater as the full edit form now, so
+                                 quick-edit can never reintroduce a country-blind number. --}}
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'phones', 'type' => 'text', 'title' => 'Phone Numbers', 'addLabel' => 'phone', 'placeholder' => 'e.g. 082 123 4567', 'existing' => $contact->phones()->orderByDesc('is_primary')->orderBy('id')->get()])
                         </div>
-                        <div>
-                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Email (optional)</label>
-                            <input type="email" name="email" value="{{ $contact->email }}"
-                                   class="w-full rounded-md px-3 py-1.5 text-sm transition-all duration-300"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                        <div class="sm:col-span-2 lg:col-span-3">
+                            @include('corex.contacts._identifier-repeater', ['kind' => 'emails', 'type' => 'email', 'title' => 'Emails (optional)', 'addLabel' => 'email', 'placeholder' => 'e.g. john@example.com', 'existing' => $contact->emails()->orderByDesc('is_primary')->orderBy('id')->get()])
                         </div>
                         <div class="sm:col-span-2 lg:col-span-3">
                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Contact Type <span class="text-red-500">*</span></label>
