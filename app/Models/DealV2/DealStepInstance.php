@@ -62,6 +62,12 @@ class DealStepInstance extends Model
         'actual_date',
         'waived_reason',
         'addendum_ref',
+        // Pipeline Dashboard Phase 1 — the planned START of the step's time-span (due_date is the
+        // planned END). Duration = due_date − planned_start_date (derived). planned_start_manual
+        // mirrors due_date_manual: true once an agent sets/drag-moves the start so re-projection
+        // never clobbers it.
+        'planned_start_date',
+        'planned_start_manual',
     ];
 
     protected $casts = [
@@ -83,7 +89,33 @@ class DealStepInstance extends Model
         // AT-334
         'is_grant_marker' => 'boolean',
         'actual_date' => 'date',
+        // Pipeline Dashboard Phase 1
+        'planned_start_date' => 'date',
+        'planned_start_manual' => 'boolean',
     ];
+
+    // ── Pipeline Dashboard Phase 1 — derived time-span helpers ──
+
+    /**
+     * The planned END of the step's time-span. `due_date` IS the planned end (Johan decision 2);
+     * this accessor names it for timeline code so a later decoupling stays a one-line change.
+     */
+    public function getPlannedEndDateAttribute()
+    {
+        return $this->due_date;
+    }
+
+    /**
+     * Duration of the step in whole days = planned_end − planned_start. Null when either bound is
+     * missing. 0 for a milestone / zero-offset step (start == end → a diamond, not a bar).
+     */
+    public function getDurationDaysAttribute(): ?int
+    {
+        if (! $this->planned_start_date || ! $this->due_date) {
+            return null;
+        }
+        return (int) $this->planned_start_date->startOfDay()->diffInDays($this->due_date->startOfDay(), false);
+    }
 
     // ── Relationships ──
 

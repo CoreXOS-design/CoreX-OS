@@ -109,6 +109,17 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachLandingService::class);
         $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachOptOutService::class);
 
+        // Pipeline Dashboard Phase 1 — the event normalizer. PipelineEventService aggregates the
+        // registered PipelineEventSource list into one chronological stream. Comments are the live
+        // source today; email + WhatsApp sources plug in HERE later (add to the array) without any
+        // change to the DTO or the aggregator. Spec: .ai/specs/pipeline-dashboard.md §3.3
+        $this->app->singleton(\App\Services\Deal\Pipeline\PipelineEventService::class, function ($app) {
+            return new \App\Services\Deal\Pipeline\PipelineEventService([
+                $app->make(\App\Services\Deal\Pipeline\CommentEventSource::class),
+                // Phase 4: EmailEventSource, WhatsAppEventSource (communications via communication_links).
+            ]);
+        });
+
         // MIC Phase B1 — Anthropic gateway + cost aggregator. Singletons so
         // the cache lookup, retry config, and pricing table resolve once per
         // request. The gateway is stateless; the cost aggregator is read-only.

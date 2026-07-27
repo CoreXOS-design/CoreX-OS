@@ -176,7 +176,16 @@ class Dr1PipelineService
             };
             foreach ($deal->pipelineSteps as $instance) {
                 $due = $anchor->copy()->addDays($chainDays($instance->id));
-                $instance->update(['due_date' => $due, 'current_rag' => $this->calculateRag($instance, $due)]);
+                // Pipeline Dashboard Phase 1 — the timeline bar needs a START, not just a deadline.
+                // planned_start = due − the step's own offset = its primary predecessor's projected
+                // end, so bars cascade left→right along the chain; duration = days_offset. Clamped so
+                // a start never lands after its end (milestone/zero-offset ⇒ start == end, a diamond).
+                $plannedStart = $due->copy()->subDays(max(0, (int) $instance->days_offset));
+                $instance->update([
+                    'due_date'           => $due,
+                    'planned_start_date' => $plannedStart,
+                    'current_rag'        => $this->calculateRag($instance, $due),
+                ]);
             }
 
             // Activate the on-creation steps (their projected due_date is preserved by activateStep).
@@ -232,11 +241,20 @@ class Dr1PipelineService
             ? $step->due_date
             : $baseDate->copy()->addDays((int) $step->days_offset);
 
+        // Pipeline Dashboard Phase 1 — the planned START re-anchors to the REAL anchor at activation
+        // ($baseDate = the latest predecessor completion via dependencyReadiness, so it is
+        // fan-in-accurate the moment predecessors clear), unless an agent fixed it (planned_start_manual).
+        // due_date remains the planned END; duration = due_date − planned_start_date.
+        $plannedStart = ($step->planned_start_manual && $step->planned_start_date)
+            ? $step->planned_start_date
+            : $baseDate->copy();
+
         $step->update([
-            'status'       => 'active',
-            'activated_at' => now(),
-            'due_date'     => $dueDate,
-            'current_rag'  => $this->calculateRag($step, $dueDate),
+            'status'             => 'active',
+            'activated_at'       => now(),
+            'due_date'           => $dueDate,
+            'planned_start_date' => $plannedStart,
+            'current_rag'        => $this->calculateRag($step, $dueDate),
         ]);
 
         $this->logActivity($step->dr1Deal, $step, null, 'step_activated',
