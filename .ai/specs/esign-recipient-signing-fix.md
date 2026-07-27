@@ -119,6 +119,58 @@ the same commit to `esign-input-followup`. Keep docs persistent, nothing rolled
 back. Hand Johan BOTH the recipient signing link AND the agent link for Addendum B
 (doc 481) plus the 3-doc pack (doc 485).
 
+## RESOLUTION (2026-07-27 — QA1 `4339980e`, esign-input-followup `2fb9df88`)
+
+Root causes + fixes (2 files: `resources/views/docuperfect/signatures/external/sign.blade.php`
++ `resources/views/docuperfect/signatures/_partials/add-condition-modal.blade.php`).
+Full root-cause map: `.ai/audits/recipient-signing-investigation.md`.
+
+**Failures 1 & 2 (recipient +Add dead; recipient can't initial agent-added
+conditions) — FIXED.** Root cause: the `.btn-add-condition` / `.btn-add-initial`
+click handlers were a one-shot `querySelectorAll` IIFE bound at
+`DOMContentLoaded`/`alpine:initialized`, but the document body arrives via Alpine
+`x-html` and is relocated by `paginateDocument()` in a deferred
+`$nextTick`+`setTimeout(150)` — AFTER those events — so the handlers bound to zero
+buttons and never re-ran. Replaced with DELEGATED click handlers on `document`
+that survive x-html inject + pagination + in-place row append. Proven on serving
+QA1: recipient (Addendum B, MDF) can +Add a condition (modal opens) and initial
+each agent-added condition (slot fills "SS", N-remaining drops).
+
+**Failure 3 (agent never asked to initial the conditions section) — FIXED.** Root
+cause: the submit gate (`_computeIncompleteItems()` + `_computeWebCounts()`) only
+counted page-break initials (`[data-marker-type="initial"]`), never the
+per-condition `.btn-add-initial[data-condition-id]` slots — so the agent was never
+required to initial conditions they added and recipients could skip them. Both
+methods now count the current signer's condition-initial slots; filling one (or
+adding a condition) dispatches `corex-refresh-signing-count` to refresh the gate.
+Proven on serving QA1 pack doc 485: the agent's 3 added conditions are now in
+`totalRequired` (was 50, now 51); initialing one drops incomplete 26→25.
+
+**Failure 4 (Addendum B radios not selectable by recipient) — INVESTIGATED, NOT a
+code defect for the disclosing party; FLAGGED to Johan (policy call).** Empirically
+proven on serving QA1: the SELLER (owner_party) CAN tick Addendum B radios — they
+toggle ○→✓ and persist. The structural asymmetry: MDF's disclosure
+(`_processDisclosureTable`, bare `.corex-table`) injects radios with NO party gate,
+so ANY signer (agent, buyer) can tick; Addendum B's disclosure
+(`processWebDisclosureChecklists`, `.corex-disclosure-checklist`) is gated to the
+disclosing owner/seller party via `_disclosureEditable()` (PPA-s70, "the seller is
+the sole discloser" — a Johan-approved legal rule, `disclosure-logic.blade.php:15-38`).
+So a non-owner recipient (buyer/agent) correctly sees Addendum B read-only while
+MDF is (arguably wrongly) editable by anyone. "MDF works, Addendum B doesn't" is
+exactly that asymmetry when testing as a non-seller. NOT changed — the gate is
+legally grounded and I could not reproduce a failure for the seller. Johan to
+confirm which party he tested as; the real inconsistency to resolve (his call) is
+that MDF's bare-table path is ungated while the checklist path honours PPA-s70 —
+they should match (gate MDF too, or intentionally ungate Addendum B). SECONDARY
+gap (subagent): Addendum B seeds `field_mappings => []`, so its `coc_*_when`
+"date issued" fields are never made editable even for the seller — separate ticket.
+
+**Handoff docs (serving QA1, recipient-active + agent):**
+- Agent-initial gate (pack): agent link doc 485 → required to initial all 3 conditions.
+- Addendum B RECIPIENT (seller, ready now): doc 490 `/sign/xSNEjtvborExul3bmZpuCJdX2spVtpzZJvBg9Q247sKG9uRv3YrJk2a3kdoUdNtX` (ID 8001015009087).
+- MDF RECIPIENT (seller, ready now): doc 491 `/sign/PXdxnGHV3TPneWTsUaU1mrmJpZpDDb2CkLiEs8tm4UwdPmwU6ZF28JuohGzA3nEn`.
+- Pristine sequential test (agent→recipient): Addendum B 481 + pack 485 agent links, then the seller link activates.
+
 ## Do NOT re-fix (already done, committed, live)
 
 Per-document other-conditions: persist (closure `$stepData` scope), Step-5
