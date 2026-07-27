@@ -866,23 +866,19 @@ class ContactController extends Controller
                 continue;
             }
             $label = is_array($row) ? trim((string) ($row['label'] ?? '')) : '';
-            // Contact-details Phase 1 — country dial prefix, phone rows only (the
-            // repeater doesn't post these for emails, so both are null there and
-            // ContactIdentifierService ignores them for that kind). A tampered/
-            // unrecognised ISO falls back to ZA rather than trusting the client.
-            [$countryIso, $dialCode] = $this->resolveDialCode(is_array($row) ? ($row['country_iso'] ?? null) : null);
-            // Contact-details Phase 2 — managed label, both kinds. The RAW id is
-            // passed through unresolved — ContactIdentifierService::syncKind() is
-            // THE canonical resolution point (agency-scoped to the contact, not
-            // the ambient auth-user scope), so every writer (form, API, importer,
-            // console) gets the same agency-ownership check, not just this one.
+            // Contact-details Phase 1/2 — country_iso and label_id are passed
+            // through RAW/unresolved here. ContactIdentifierService::syncKind()
+            // is THE canonical resolution point for both (derives dial_code from
+            // country_iso; verifies label_id ownership against the contact's own
+            // agency) — every writer (form, API, importer, console) gets the
+            // same resolution, not just this one. A posted dial_code, if any,
+            // is never read/trusted anywhere.
             $out[] = [
                 'value'      => $value,
                 'label'      => $label !== '' ? $label : null,
                 'label_id'   => is_array($row) ? ($row['label_id'] ?? null) : null,
                 'is_primary' => is_array($row) && filter_var($row['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                'country_iso' => $countryIso,
-                'dial_code'   => $dialCode,
+                'country_iso' => is_array($row) ? ($row['country_iso'] ?? null) : null,
                 // Contact-details Phase 3 — WhatsApp designation, phone rows only.
                 'is_whatsapp'         => is_array($row) && filter_var($row['is_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'is_primary_whatsapp' => is_array($row) && filter_var($row['is_primary_whatsapp'] ?? false, FILTER_VALIDATE_BOOLEAN),
@@ -892,25 +888,6 @@ class ContactController extends Controller
             $out[0]['is_primary'] = true;
         }
         return $out;
-    }
-
-    /**
-     * Contact-details Phase 1 — resolve a posted ISO code to a known
-     * {iso, dial_code} pair, defaulting to ZA/+27 for anything unrecognised
-     * (including no selection at all, e.g. the email repeater or old form state).
-     *
-     * @return array{0:string,1:string}
-     */
-    private function resolveDialCode(?string $iso): array
-    {
-        $iso = strtoupper(trim((string) $iso));
-        $countries = config('country-dial-codes.countries', []);
-        foreach ($countries as $c) {
-            if ($c['iso'] === $iso) {
-                return [$c['iso'], $c['dial_code']];
-            }
-        }
-        return ['ZA', '+27'];
     }
 
     private function primaryValue(array $items): ?string
@@ -937,7 +914,7 @@ class ContactController extends Controller
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
             // Contact-details Phase 1 — country dial prefix; unrecognised/absent
-            // resolves to ZA in resolveDialCode(), never trusted as-is.
+            // resolves to ZA in ContactIdentifierService::resolveCountry(), never trusted as-is.
             'phones.*.country_iso' => 'nullable|string|max:2',
             // Contact-details Phase 2 — managed label; ContactIdentifierService
             // re-verifies agency ownership, never trusts the exists() check alone.
@@ -1179,7 +1156,7 @@ class ContactController extends Controller
             'phones.*.label'      => 'nullable|string|max:60',
             'phones.*.is_primary' => 'nullable|boolean',
             // Contact-details Phase 1 — country dial prefix; unrecognised/absent
-            // resolves to ZA in resolveDialCode(), never trusted as-is.
+            // resolves to ZA in ContactIdentifierService::resolveCountry(), never trusted as-is.
             'phones.*.country_iso' => 'nullable|string|max:2',
             // Contact-details Phase 2 — managed label; ContactIdentifierService
             // re-verifies agency ownership, never trusts the exists() check alone.

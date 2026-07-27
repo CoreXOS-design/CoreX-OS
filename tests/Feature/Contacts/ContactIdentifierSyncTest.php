@@ -372,4 +372,25 @@ final class ContactIdentifierSyncTest extends TestCase
 
         $this->assertNull($contact->refresh()->primaryWhatsAppPhone);
     }
+
+    /**
+     * REGRESSION — caught by the QA1 demo contact: a direct syncIdentifiers()
+     * caller (API/importer/console — anything bypassing ContactController)
+     * that supplies country_iso='US' WITHOUT also supplying dial_code used to
+     * persist dial_code='+27' (the DEFAULT, never resolved from the ISO) —
+     * country_iso and dial_code silently disagreed. dial_code is now ALWAYS
+     * derived from country_iso inside the service (resolveCountry()), so a
+     * caller that only knows the ISO still gets the correct pair.
+     */
+    public function test_dial_code_is_derived_from_country_iso_even_without_being_posted(): void
+    {
+        $contact = $this->contact();
+        $this->svc()->syncIdentifiers($contact, [
+            ['value' => '+1 415 555 2671', 'is_primary' => true, 'country_iso' => 'US'], // no dial_code key at all
+        ], []);
+
+        $phone = $contact->refresh()->phones()->first();
+        $this->assertSame('US', $phone->country_iso);
+        $this->assertSame('+1', $phone->dial_code, 'derived from country_iso, not left at a stale/default value');
+    }
 }
