@@ -120,5 +120,52 @@ download route renders live from the baked canonical (no pre-generated PDF neede
   PDF `…/documents/468/signatures/download`
 - Mandatory Disclosure — review `…/documents/469/signatures/review`, PDF `…/documents/469/signatures/download`
 
-## Pending
-- Step 3 (separate): real tick ✓ marks + government-form fidelity.
+# STEP 3 — real tick marks + government-form fidelity + PACK (2026-07-27)
+
+## Changes
+- **Ticks:** the disclosure answer now renders a real TICK ✓ in the chosen
+  YES/NO/N-A cell (was a filled circle ●). Swapped at every emit site —
+  `disclosure-logic.blade.php` (live signing) and `restoreStoredDisclosure`
+  in `a4-page-styles.blade.php` (agent-review + PDF). The review screen and the
+  PDF embed the SAME restore JS, so the tick is identical on both (screen == PDF
+  by construction). On the review/PDF artifact unchosen cells print BLANK (only
+  ticks show, like the prescribed form); live signing keeps empty ○ targets.
+- **Gov-form layout:** `corex-document.css` — crisp ruled grid (1px dark full
+  borders) + bold near-black tick on `[data-selected="true"]`. The CSS is inlined
+  into the PDF (`SigningController::wrapHtmlForPdf`) and linked on the review
+  screen, so the grid + tick match on both. Letterhead stays ours (company-header).
+- **Template cleanup:** `template-123` had a duplicated checklist caption →
+  collapsed to one, and the agent-only "completed by recipient at signing" note is
+  now `no-print` so the printed form is clean.
+
+## PACK (mandate + disclosure)
+- Disclosure registered (`SalesMandatoryDisclosureEsignSeeder` → QA1 template #71).
+- `esign:compose-sales-mandate-pack --agency=1 --apply` → **"Sales Mandate Pack
+  (CANDIDATE)"** wired with the Exclusive mandate (#67) + Mandatory Disclosure (#71)
+  (+ letting mandates as selectable mandate variants). FICA slot legitimately empty
+  (FICA is the Compliance module, not a DocuPerfect template — Johan's call).
+
+## QA1 proof — 16/16 assertions (scratchpad/qa1_proof_step3.php)
+- Ticks: review/PDF restore emits ✓ (no ● left), live logic ticks ✓, gov-form
+  grid + bold tick styling present. Doc 469 given real disclosure answers
+  (`disclosure_doc_0..`) → PDF pipeline embeds the tick JS + the answers, and a
+  real PDF was generated (Chromium ran the tick JS end-to-end).
+- Pack: composed with mandate + disclosure; the merged canonical (doc 470) carries
+  BOTH `.corex-document-wrapper` segments (distinctly `data-disclosure-doc`-keyed),
+  the mandate heading + the disclosure condition-report table, both
+  `~~~~OTHER_CONDITIONS~~~~` markers expanded to insertable blocks, and
+  `splitMergedHtml` splits it back into 2 per-template documents (mandate, disclosure).
+
+**Johan can open (QA1, logged in):**
+- Disclosure ticks + gov-form — review `…/documents/469/signatures/review`, PDF `…/documents/469/signatures/download`
+- PACK merged doc — review `…/documents/470/signatures/review`
+- Web Pack config — Documents → Web Packs → "Sales Mandate Pack (CANDIDATE)"
+
+Regression: `DisclosureTickRenderTest` (glyph + gov-form styling) + the Step-2
+`OtherConditionsFramesTest` 8/8.
+
+## Still open (future)
+- FICA e-sign template / pack slot — Johan's decision.
+- Pack conditions share one `block_id` ('other_conditions') across segments — if
+  per-segment other-conditions are ever wanted, that's a follow-up (out of scope now).
+- Jira ticket for the whole e-sign pack — HELD per Johan (ticket once complete).
