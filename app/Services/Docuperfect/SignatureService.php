@@ -3652,6 +3652,16 @@ class SignatureService
                 // view we render server-side from the same surface.
                 try {
                     $url = route('signatures.external.amendment-review', $initialingToken);
+                    // Step 2 (Johan) — "new condition" email variant. When the
+                    // approved amendment is an ADDED CONDITION (the KICKER: a
+                    // party added a condition mid-signing, the agent approved
+                    // it), tell the re-engaged party plainly that a NEW CONDITION
+                    // needs their initial — not a generic "a change was made".
+                    // Their captured signature is untouched; this is initial-only.
+                    $isNewCondition = ($amendment->amendment_type ?? null) === DocumentAmendment::TYPE_ADDITION;
+                    $personalMessage = $isNewCondition
+                        ? 'A new condition was added to this document and approved by the agent. Please initial the new condition to confirm — your original signature stays in place.'
+                        : 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.';
                     // AT-291 ITEMS 1+2 — stamp the acting agent (From +
                     // Reply-To) on the initialing re-send, matching every
                     // other send site; without it both headers fall back to
@@ -3661,7 +3671,7 @@ class SignatureService
                             signerName:      $previousRequest->signer_name,
                             documentName:    $template->document->name ?? 'Document',
                             signingUrl:      $url,
-                            personalMessage: 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.',
+                            personalMessage: $personalMessage,
                             expiresAt:       $previousRequest->token_expires_at,
                         ))->fromAgent($template->creator)
                     );

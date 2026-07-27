@@ -71,6 +71,44 @@ final class InsertableBlockRenderer
     }
 
     /**
+     * Step 2 (Johan) — inject the NON-PRINTABLE "one condition at a time"
+     * guidance next to each "+ Add condition" control. This is SCREEN-ONLY
+     * chrome (a soft discipline hint, not hard validation) and MUST NEVER
+     * appear in the print-from-approved canonical / PDF.
+     *
+     * It is applied as a per-viewer DISPLAY OVERLAY at show()-time (exactly like
+     * stampConditionSigningToken) — deliberately NOT baked into the canonical, so
+     * the frozen legal artifact stays clean of UI chrome. As belt-and-braces the
+     * element carries `no-print` (the corex-document.css `@media print` convention)
+     * and `data-screen-only="1"` (which SignaturePdfService strips from the PDF DOM
+     * before rendering), so it cannot survive to print by any path.
+     *
+     * Idempotent: any previously-injected guidance is stripped first, then one is
+     * re-inserted immediately BEFORE every add-condition button.
+     */
+    public function injectAddConditionGuidance(string $html): string
+    {
+        if ($html === '' || ! str_contains($html, 'btn-add-condition')) {
+            return $html;
+        }
+        // Idempotent — remove any prior guidance before re-inserting.
+        $html = (string) preg_replace(
+            '/<div class="condition-add-guidance[^"]*"[^>]*>.*?<\/div>/s',
+            '',
+            $html,
+        );
+        $guidance = '<div class="condition-add-guidance no-print" data-screen-only="1" '
+            . 'style="margin-top:0.5rem; font-size:0.72rem; color:#92400e; font-style:italic;">'
+            . 'Please add only one condition at a time.</div>';
+
+        return (string) preg_replace(
+            '/(<button\b[^>]*\bbtn-add-condition\b[^>]*>)/i',
+            $guidance . '$1',
+            $html,
+        );
+    }
+
+    /**
      * Replace every `~~~~MARKER~~~~` in $documentHtml with a styled block
      * rendered for the requested context.
      *

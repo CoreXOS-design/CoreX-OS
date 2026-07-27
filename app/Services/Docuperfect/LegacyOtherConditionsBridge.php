@@ -121,6 +121,98 @@ final class LegacyOtherConditionsBridge
     }
 
     /**
+     * Step 2 (Johan) — sync DISCRETE agent-preparation condition FRAMES into
+     * structured rows: exactly ONE document_conditions row per frame (never a
+     * blank-line re-split), preserving clause-library provenance (source +
+     * library_clause_id). Used INSTEAD of syncToStructuredRows() when the wizard
+     * submits an explicit frames array, so each "+ Add condition" / inserted
+     * clause is one row that carries its own per-party initials.
+     *
+     * Bridge-owned + idempotent exactly like syncToStructuredRows(): replaces
+     * only prior agent_preparation _bridge rows; recipient-added rows (added_via
+     * recipient_signing/agent_signing) are NEVER touched.
+     *
+     * @param array<int, array<string, mixed>> $frames
+     */
+    public function syncFramesToStructuredRows(SignatureTemplate $doc, array $frames): int
+    {
+        // Normalise → [content, source, library_clause_id], dropping blanks.
+        $clean = [];
+        foreach ($frames as $f) {
+            if (! is_array($f)) {
+                continue;
+            }
+            $content = trim((string) ($f['content'] ?? $f['text'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $isLibrary = ($f['source'] ?? null) === 'library';
+            $clean[] = [
+                'content'           => $content,
+                'source'            => $isLibrary ? 'library' : 'custom',
+                'library_clause_id' => $isLibrary ? ($f['library_clause_id'] ?? null) : null,
+            ];
+        }
+
+        $blockId  = $this->resolveOtherConditionsBlockId($doc);
+        $agencyId = $this->resolveAgencyId($doc);
+
+        if ($clean === []) {
+            $this->clearBridgeOwnedRows($doc, $blockId);
+            return 0;
+        }
+
+        // Idempotency over the full frame set (content + provenance + order).
+        $signature = sha1((string) json_encode($clean));
+        $existing = DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('block_id', $blockId)
+            ->where('added_via', 'agent_preparation')
+            ->where('custom_label', '_bridge:' . $signature)
+            ->exists();
+        if ($existing) {
+            return 0;
+        }
+
+        // Replace previous bridge-owned rows for this doc + block.
+        $this->clearBridgeOwnedRows($doc, $blockId);
+
+        $start = (int) DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('block_id', $blockId)
+            ->max('condition_number');
+
+        foreach ($clean as $i => $frame) {
+            DocumentCondition::create([
+                'signature_template_id' => $doc->id,
+                'agency_id'             => $agencyId,
+                'block_id'              => $blockId,
+                'block_purpose'         => 'other_conditions',
+                'condition_number'      => $start + $i + 1,
+                'content'               => $frame['content'],
+                'is_locked'             => false,
+                'is_override'           => false,
+                'added_by_user_id'      => $doc->created_by,
+                'added_via'             => 'agent_preparation',
+                'source'                => $frame['source'],
+                'library_clause_id'     => $frame['library_clause_id'],
+                'amendment_id'          => null,
+            ]);
+        }
+
+        // Stamp the idempotency sentinel onto the rows just written, WITHOUT
+        // disturbing their per-row source/library_clause_id provenance.
+        DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('block_id', $blockId)
+            ->where('added_via', 'agent_preparation')
+            ->whereNull('custom_label')
+            ->update(['custom_label' => '_bridge:' . $signature]);
+
+        return count($clean);
+    }
+
+    /**
      * Delete bridge-owned rows for this document. Bridge-owned = added_via
      * 'agent_preparation' + custom_label starting with '_bridge:'.
      *

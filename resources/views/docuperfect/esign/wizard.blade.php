@@ -842,29 +842,53 @@
                     </template>
                 </div>
 
-                {{-- Additional Clauses --}}
+                {{-- Other Conditions — discrete FRAME editor (Step 2, Johan).
+                     One "+ Add condition" = one frame = one document_conditions row,
+                     each initialled separately by every party. Agent-only clause-
+                     library insert (each inserted clause becomes its own frame). --}}
                 <div class="mt-6 mb-4 p-3 rounded-md"
                      style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px dashed color-mix(in srgb, var(--brand-icon, #0ea5e9) 40%, transparent);">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <span class="text-sm font-semibold" style="color: var(--text-primary);">Other Conditions / Additional Clauses</span>
-                            <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
-                                Type conditions manually or insert from the clause library. Separate each clause with a blank line.
-                            </p>
-                        </div>
-                        <button type="button" @click="showClauseLibrary = true"
-                                class="corex-btn-primary">
-                            + Insert Clause
-                        </button>
+                    <div>
+                        <span class="text-sm font-semibold" style="color: var(--text-primary);">Other Conditions / Additional Clauses</span>
+                        <p class="text-xs mt-0.5" style="color: var(--text-secondary);">
+                            Each condition is its own frame — every party initials each one separately.
+                        </p>
                     </div>
 
-                    {{-- Unified editable textarea for all clauses (manual + library) --}}
-                    <textarea x-model="otherConditionsText"
-                              @input="updateClausesPreview()"
-                              rows="6"
-                              class="mt-3 w-full rounded-md px-3 py-2 text-sm"
-                              :style="(otherConditionsText.trim() ? 'background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid var(--ds-green); color: var(--text-primary);' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);') + 'min-height:120px; resize:vertical;'"
-                              placeholder="Type additional conditions here, or use 'Insert Clause' to add from the library. Separate each clause with a blank line for per-clause initials tracking."></textarea>
+                    <div class="mt-3 space-y-2">
+                        <template x-for="(frame, fi) in otherConditionFrames" :key="fi">
+                            <div class="rounded-md p-2" style="background: var(--surface); border: 1px solid var(--border);">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs font-semibold" style="color: var(--text-secondary);"
+                                          x-text="'Condition ' + (fi + 1) + (frame.source === 'library' ? (frame.clause_name ? ' · from clause library (' + frame.clause_name + ')' : ' · from clause library') : '')"></span>
+                                    <button type="button" @click="removeConditionFrame(fi)"
+                                            class="text-base leading-none px-1" style="color: var(--ds-red, #be123c);"
+                                            title="Remove this condition">&times;</button>
+                                </div>
+                                <textarea x-model="frame.content" @input="syncFramesToText()" rows="3"
+                                          class="w-full rounded-md px-3 py-2 text-sm"
+                                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical;"
+                                          placeholder="Type this condition…"></textarea>
+                            </div>
+                        </template>
+                        <template x-if="otherConditionFrames.length === 0">
+                            <p class="text-xs" style="color: var(--text-muted);">No conditions added yet.</p>
+                        </template>
+                    </div>
+
+                    <div class="flex items-center gap-2 mt-3">
+                        <button type="button" @click="addConditionFrame()"
+                                class="text-sm rounded-md px-3 py-1.5"
+                                style="border: 1px dashed var(--brand-icon, #0ea5e9); background: transparent; color: var(--brand-icon, #0ea5e9); cursor: pointer;">
+                            + Add condition
+                        </button>
+                        <button type="button" @click="showClauseLibrary = true" class="corex-btn-primary text-sm">
+                            + Insert from clause library
+                        </button>
+                    </div>
+                    <p class="text-xs mt-2" style="color: var(--text-muted); font-style: italic;">
+                        Please add only one condition at a time — each “Add condition” is its own frame.
+                    </p>
                 </div>
             </div>
 
@@ -1706,6 +1730,10 @@ function esignWizard() {
         allClauses: [],
         selectedClauses: [],
         otherConditionsText: '',
+        // Step 2 (Johan) — discrete condition FRAMES (one frame = one row =
+        // one condition, initialled per-party). otherConditionsText is kept as
+        // the derived \n\n-joined transport for backward-compat + preview.
+        otherConditionFrames: [],
 
         // Step 6: Signing setup
         signingActions: [],
@@ -1809,6 +1837,21 @@ function esignWizard() {
             if (savedClauses.length > 0) this.selectedClauses = savedClauses;
             const savedOtherConditions = serverStepData?.fill_review?.other_conditions_text || '';
             if (savedOtherConditions) this.otherConditionsText = savedOtherConditions;
+            // Step 2 (Johan) — restore discrete frames; migrate a legacy
+            // \n\n-joined text blob into one frame per block if no frames saved.
+            const savedFrames = serverStepData?.fill_review?.other_condition_frames;
+            if (Array.isArray(savedFrames) && savedFrames.length > 0) {
+                this.otherConditionFrames = savedFrames.map(f => ({
+                    content: f.content ?? f.text ?? '',
+                    source: f.source === 'library' ? 'library' : 'custom',
+                    library_clause_id: f.library_clause_id ?? null,
+                    clause_name: f.clause_name ?? null,
+                }));
+            } else if (savedOtherConditions) {
+                this.otherConditionFrames = savedOtherConditions
+                    .split(/\n\s*\n/).map(t => t.trim()).filter(t => t !== '')
+                    .map(t => ({ content: t, source: 'custom', library_clause_id: null, clause_name: null }));
+            }
 
             // Load web template preview on steps 2+ (PDF preview loads via serverPageImages)
             if (serverIsWebTemplate && this.currentStep > 1 && this.flowId && serverTemplateId) {
@@ -1856,17 +1899,40 @@ function esignWizard() {
         },
 
         insertClause(clause) {
-            // Append clause text to the unified textarea (don't block duplicates — user may want same clause twice)
-            const existing = this.otherConditionsText.trim();
-            const clauseContent = clause.text || '';
-            if (existing) {
-                this.otherConditionsText = existing + '\n\n' + clauseContent;
-            } else {
-                this.otherConditionsText = clauseContent;
-            }
-            // Track insertion in selectedClauses for reference
+            // Step 2 (Johan) — agent-only: each inserted clause becomes its OWN
+            // condition frame (a discrete document_conditions row with library
+            // provenance). Recipients never reach this path.
+            this.otherConditionFrames.push({
+                content: clause.text || '',
+                source: 'library',
+                library_clause_id: clause.id ?? null,
+                clause_name: clause.name ?? null,
+            });
+            // Track insertion in selectedClauses for reference/back-compat.
             this.selectedClauses.push({...clause});
             this.showClauseLibrary = false;
+            this.syncFramesToText();
+        },
+
+        // Step 2 (Johan) — add one blank free-text condition frame.
+        addConditionFrame() {
+            this.otherConditionFrames.push({ content: '', source: 'custom', library_clause_id: null, clause_name: null });
+        },
+
+        // Step 2 (Johan) — remove a condition frame.
+        removeConditionFrame(idx) {
+            this.otherConditionFrames.splice(idx, 1);
+            this.syncFramesToText();
+        },
+
+        // Step 2 (Johan) — derive the \n\n-joined other_conditions_text transport
+        // from the frames (drops internal blank lines so one frame stays one
+        // block), keep the preview in sync.
+        syncFramesToText() {
+            this.otherConditionsText = this.otherConditionFrames
+                .map(f => String(f.content || '').replace(/\n\s*\n+/g, '\n').trim())
+                .filter(t => t !== '')
+                .join('\n\n');
             this.updateClausesPreview();
         },
 
@@ -2655,7 +2721,7 @@ function esignWizard() {
                     });
                     return detailsData;
                 }
-                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText };
+                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
                 case 6: return {
                     delivery_mode: this.deliveryMode,
                     parties: this.signingActions.map((action, i) => ({
