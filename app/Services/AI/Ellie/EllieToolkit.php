@@ -658,8 +658,12 @@ class EllieToolkit
         if (empty($rate)) {
             return [
                 'result' => 'no results',
-                'hint'   => 'The prime rate has not been configured in Performance Settings. Tell the user '
-                          . 'it is not set in CoreX rather than quoting a rate from memory.',
+                'hint'   => 'The prime rate has not been manually configured in Performance Settings — this '
+                          . 'does NOT mean the answer is unavailable. Before telling the user it is not set, '
+                          . 'call search_reference_sites — an admin may have approved an external rate page '
+                          . '(e.g. a central bank or market-data site) that answers this directly. Only if '
+                          . 'that also returns nothing should you tell the user neither source has it '
+                          . 'configured, never quoting a rate from memory either way.',
             ];
         }
 
