@@ -352,8 +352,13 @@ final class InsertableBlockRenderer
      * block region in an already-baked canonical (preserving signature/initial
      * ink elsewhere) when a condition is added/initialed during signing.
      */
-    public function renderBlockContainer(array $block, SignatureTemplate $doc, string $context): string
-    {
+    public function renderBlockContainer(
+        array $block,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
         $blockId = (string) ($block['id'] ?? '');
         $conditions = DocumentCondition::query()
             ->where('signature_template_id', $doc->id)
@@ -364,7 +369,90 @@ final class InsertableBlockRenderer
             ->orderBy('condition_number')
             ->get();
 
-        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, null, null);
+        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, $signingToken, $currentPartyKey);
+    }
+
+    /**
+     * DISPLAY-TIME re-render of every already-rendered insertable-block region so
+     * the SIGNING surface shows the INTERACTIVE block (the "+ Add condition"
+     * button + the current party's clickable initial slots), regardless of what
+     * the STORED canonical holds.
+     *
+     * The stored canonical is baked STATIC (CONTEXT_PDF_RENDER via
+     * refreshInsertableBlocks — no chrome, so the PDF prints clean). That static
+     * form is served to every surface, including signing — which is why the add
+     * button + initial affordances vanished on the recipient/agent signing view.
+     * This swaps each `<div class="insertable-block" data-block-id>` in the SERVED
+     * html for a fresh render in the viewer's context (block_id + purpose +
+     * auto_number read off the div), leaving the stored canonical untouched.
+     * Filled initials still render as adopted ink; the print path stays static.
+     */
+    public function reRenderBlocksForViewer(
+        string $html,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
+        if ($html === '' || ! str_contains($html, 'insertable-block')) {
+            return $html;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath   = new \DOMXPath($dom);
+            $nodes   = iterator_to_array($xpath->query(
+                '//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]'
+            ));
+            $changed = false;
+            foreach ($nodes as $old) {
+                if (! $old instanceof \DOMElement) {
+                    continue;
+                }
+                $blockId = $old->getAttribute('data-block-id');
+                if ($blockId === '') {
+                    continue;
+                }
+                $block = [
+                    'id'          => $blockId,
+                    'purpose'     => $old->getAttribute('data-purpose') ?: 'other_conditions',
+                    'auto_number' => $old->getAttribute('data-auto-number') === '1',
+                ];
+                $freshHtml = $this->renderBlockContainer($block, $doc, $context, $signingToken, $currentPartyKey);
+                if (trim($freshHtml) === '') {
+                    continue;
+                }
+                $frag = new \DOMDocument();
+                @$frag->loadHTML(
+                    '<?xml encoding="utf-8"?><div id="__w">' . $freshHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+                );
+                $new = null;
+                foreach ($frag->getElementsByTagName('div') as $d) {
+                    if ($d->getAttribute('data-block-id') === $blockId) {
+                        $new = $d;
+                        break;
+                    }
+                }
+                if ($new === null) {
+                    continue;
+                }
+                $imported = $dom->importNode($new, true);
+                $old->parentNode?->replaceChild($imported, $old);
+                $changed = true;
+            }
+            if (! $changed) {
+                return $html;
+            }
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            return trim((string) $out);
+        } catch (\Throwable $e) {
+            return $html;
+        }
     }
 
     private function renderConditionRow(
