@@ -10,14 +10,17 @@ Two views only: TIMELINE and LIST. They MUST be visually distinct. The failure t
 
 ## 0. SCOPE / CURRENT STATE (read this first)
 
-The **LIST view is CORRECT and DONE** — vertical phased cards per `.ai/mockups/dr2_list_phased.html`
-(Deal Signed anchor → Stage 1 condition groups → GRANTED gate → Stage 2). **Do NOT touch the List**
-(its blade, controller, or its read-model wiring) unless it is proven broken.
+The **LIST view is NOT done.** Its current vertical phased-cards render (per
+`.ai/mockups/dr2_list_phased.html`: Deal Signed anchor → Stage 1 condition groups → GRANTED gate →
+Stage 2) is only a partial first cut of the LEFT panel. **Its enhancement is DEFERRED until the
+Timeline is built and working as specced** — see §6 "LIST VIEW — corrected target & sequencing" for
+the real end-state and the sequencing rule. Do NOT work on the List now.
 
-The **TIMELINE view is WRONG**. It currently renders the *same* vertical `buildPhased()` phased layout
-as the List, so the two views look identical — exactly the "both look like lists" failure Johan
-rejected. **The job is to rebuild ONLY the Timeline** into the **horizontal date-Gantt** described by
-`.ai/mockups/dr2_timeline_horizontal.html`. Nothing else in the pipeline changes.
+The **TIMELINE view is WRONG and is the PRIORITY.** It currently renders the *same* vertical
+`buildPhased()` phased layout as the List, so the two views look identical — exactly the "both look
+like lists" failure Johan rejected. **The job right now is to rebuild ONLY the Timeline** into the
+**horizontal date-Gantt** described by `.ai/mockups/dr2_timeline_horizontal.html`. The Timeline must be
+built and signed off FIRST; the List work comes after (§6).
 
 The horizontal data layer already exists (dormant) — see §DATA MODEL. This is a view-layer rebuild plus
 a one-line controller switch, not a from-scratch build.
@@ -31,7 +34,7 @@ a one-line controller switch, not a from-scratch build.
 - Each tile keeps the full action set (Complete/Reopen, Edit dates, Sequence, N/A, Remove, Comments).
 - Reference mockup: .ai/mockups/dr2_timeline_horizontal.html — FIX the overlap; do NOT replace it with a vertical list.
 
-## LIST view = vertical sectioned cards grouped by stage (the phased layout — correct FOR THE LIST)
+## LIST view = vertical sectioned cards grouped by stage (the phased SHAPE is right for the List — but the List is NOT done; see §6)
 - Top-to-bottom: Deal Signed anchor -> Stage 1 "Suspensive Conditions" (grouped tracks: Bond/Cash/Sale/FICA) -> GRANTED gate -> Stage 2 "Transfer & Registration".
 - Each step = full-width card: dot, name, star, dates, status, "Waiting on..." note, full action grid; grab-to-reorder (display only).
 - Stage 2 dimmed/locked until the deal is granted.
@@ -161,10 +164,11 @@ The mockup is the visual source of truth. Rebuild the Timeline blade to it:
 - `resources/views/dr2/_pipeline-surface-styles.blade.php` — shared CSS. You may ADD Timeline classes; do NOT remove classes the List uses (`.dr2-ph-*`, `.dr2-tile*`, `.dr2-band*`, `.dr2-lane*`, `.dr2-seq*`).
 - `resources/views/dr2/_pipeline-step-tile.blade.php` — the uniform step tile (full 6-action set); reuse for tile actions if convenient.
 
-**LEAVE ALONE (the List — it is correct):**
+**LEAVE ALONE FOR NOW (the List is NOT done, but its work is DEFERRED until the Timeline ships — §6):**
 - `resources/views/dr2/pipeline-list.blade.php`
 - `app/Http/Controllers/Dr2/PipelineListController.php`
-- Do NOT change `buildPhased()` behaviour.
+- Do NOT change `buildPhased()` behaviour while building the Timeline (the List still renders through it).
+- The List is unfinished — do NOT enhance it in the Timeline work. Its corrected target is recorded in §6.
 
 **Route (context, no change needed):** `GET /deals-dr2/{deal}/pipeline/timeline` → name `deals-dr2.pipeline.timeline` → `PipelineTimelineController@show` (routes/web.php ~L728). Middleware `permission:view_deals`.
 
@@ -187,7 +191,46 @@ Use a real browser on serving QA1, compare to `.ai/mockups/dr2_timeline_horizont
   `https://qatesting1.corexos.co.za/deals-dr2/168/pipeline/timeline`
 - **Deal 180** — different shape: 19 steps, all dated, **no grant marker, no condition_key steps** (exercises the no-gate / plain-timeline path).
   `https://qatesting1.corexos.co.za/deals-dr2/180/pipeline/timeline`
-- **List (leave unchanged — the "must differ" comparison):**
+- **List (do NOT change it — it is unfinished and DEFERRED; use only as the "must differ" comparison):**
   `https://qatesting1.corexos.co.za/deals-dr2/168/pipeline/list`
 
 Deploy to the serving `/corex-qa1` checkout (git pull → `php artisan view:clear route:clear config:clear` → reload php8.2-fpm). QA1 ONLY — never Staging/live without Johan's explicit go.
+
+---
+
+## 6. LIST VIEW — corrected target & sequencing (Johan 2026-07-27)
+
+**The earlier "List is correct and done" was WRONG.** Johan: the List is **not close to done.** What
+exists today (the vertical phased cards) is only a partial first cut of the LEFT panel. This section
+records the agreed end-state and the sequencing so it survives a memory wipe. **Do NOT build any of
+this now** — it is DEFERRED (see SEQUENCING below).
+
+### Target end-state = a TWO-PANEL layout
+Reference: the **staging deal 143 pipeline screenshot** Johan provided (the "like we had on QA1"
+side-panel). The finished List view is two panels side by side:
+
+**LEFT panel = the phased step list** (per `.ai/mockups/dr2_list_phased.html`: Deal Signed anchor →
+Stage 1 condition groups → GRANTED gate → Stage 2). This is to be **enhanced FURTHER later** — the
+current render is NOT final.
+
+**RIGHT panel = a documents / parties / proforma side panel** ("like we had on QA1"), containing:
+
+1. **DOCUMENTS** — filed document links, e.g. an `OTP.pdf` row shown as
+   *"OTP (Offer to Purchase) · filed to deal"*. Plus an upload control: **Choose File** +
+   **"Document type…"** selector + **"Upload & file"** button that uploads the document and files it
+   to the **deal, its property, AND the linked contacts** (all three).
+2. **SEND DOCUMENTS TO A PARTY** — a row per party: **Seller / Buyer / Transferring Attorney /
+   Bond Originator**, each with a link/state to send documents to that party.
+3. **SENT — WHAT WENT TO WHOM** — a log of what was sent, e.g.
+   *"OTP.pdf → Transfer Attorney · email/attach · sent 13 Jul"* (one row per send: document → recipient
+   · channel · date).
+4. **PROFORMA INVOICES** — a **"Generate Proforma Invoice"** button.
+
+### SEQUENCING (authoritative — do not reorder)
+- **TIMELINE is the priority.** It must be built and working **as specced (§0–§5) FIRST**, and signed
+  off by Johan.
+- **The List RIGHT panel and any further LEFT-panel enhancement are DEFERRED** until AFTER the Timeline
+  is signed off.
+- **Do NOT build the List right panel now.** This section only records the agreed target so it is not
+  lost. When the Timeline is done and Johan gives the go, a fresh prompt will spec/build the List
+  two-panel layout against the staging deal 143 reference.
