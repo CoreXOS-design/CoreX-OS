@@ -140,7 +140,26 @@ class DealStructureAssembler
             }
         });
 
-        // 4. Cascade the Due dates off the anchor + follows chain.
+        // 4. Kick the chain off. The anchor ("Deal Signed") is inserted ALREADY-completed (from the Deal
+        //    Register date) rather than through Dr1PipelineService::completeStep(), so
+        //    activateDownstreamSteps() never fired for it — the first step of every condition track would
+        //    otherwise sit stuck at 'not_started' and the pipeline would never start. Fire it now, through
+        //    the SAME activation choke point real completions use, so the anchor's ready successors go
+        //    Active immediately. Composable path only (this assembler never runs for template-model
+        //    deals); it activates only not_started steps whose predecessors are all resolved, so it is
+        //    safe on restructure too. Spec "LIST + PROGRESSION build 2026-07-28" §B.
+        $deal->refresh();
+        $anchor = DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->whereNull('deleted_at')
+            ->where('status', 'completed')
+            ->whereNull('trigger_step_instance_id')
+            ->orderBy('position')->orderBy('id')
+            ->first();
+        if ($anchor) {
+            app(\App\Services\Deal\Dr1PipelineService::class)->activateDownstreamSteps($anchor);
+        }
+
+        // 5. Cascade the Due dates off the anchor + follows chain.
         $deal->refresh();
         $this->cascade->recompute($deal);
     }

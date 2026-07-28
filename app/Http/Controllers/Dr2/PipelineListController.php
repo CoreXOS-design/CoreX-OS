@@ -41,8 +41,10 @@ class PipelineListController extends Controller
         }
 
         $ctx = $this->pipelineContext($deal);
-        // The mockup board payload gives the same comments feed the timeline uses.
-        $ctx['board'] = $this->timeline->buildBoard($deal);
+        // The PHASED read-model — anchor → Stage 1 condition groups → GRANTED gate → Stage 2, plus the
+        // step-scoped comment feed (each comment carries its step id). The List renders the phased
+        // two-panel layout off this (spec "LIST + PROGRESSION build 2026-07-28").
+        $ctx['board'] = $this->timeline->buildPhased($deal);
 
         return view('dr2.pipeline-list', $ctx);
     }
