@@ -1,3 +1,85 @@
+# LIST + PROGRESSION build 2026-07-28
+
+> **AUTHORITATIVE — latest. This section governs the LIST view and the completion→progression engine,
+> and OVERRIDES everything below it for those two topics.** It was written with Johan present
+> (2026-07-28) and re-verified against the QA1 code at `origin/QA1`. It **supersedes** the CORRECTION
+> section's "LIST = flat original" decision (§1 below) and the §6 "List DEFERRED" sequencing — Johan gave
+> the go to build the phased two-panel List now. The CORRECTION's **Timeline** decisions (horizontal
+> Gantt off `buildBoard()`, persistent Unscheduled tray, drag-to-reschedule) remain in force and are NOT
+> touched by this slice. Re-verify every path below against the code before you build.
+
+## A. LIST VIEW = phased two-panel (match `.ai/mockups/dr2_list_phased.html`)
+
+`PipelineListController::show()` feeds the **`buildPhased()`** read-model (NOT `buildBoard()`), and
+`resources/views/dr2/pipeline-list.blade.php` renders a **two-column** layout:
+
+**LEFT column — the phased pipeline (scrolls independently):**
+- **Anchor** (Deal Signed ★, `buildPhased()['anchor_id']`) → **Stage 1 · Suspensive Conditions** (one group
+  per `condition_key`: Bond / Cash / Sale of another / FICA-`_general`, from `buildPhased()['stage1']['groups']`,
+  each with its ACTIVE/DONE pill) → **GRANTED gate** (`buildPhased()['gate']`, granted vs pending +
+  projected date) → **Stage 2 · Transfer & Registration** (`buildPhased()['stage2']['segments']`, flattened
+  to step ids in date order; dimmed/locked until granted).
+- Every step is the shared uniform tile **`dr2._pipeline-step-tile`** (`variant => 'wide'`), which already
+  carries the full per-step action set: **Complete/Reopen · Edit due · Sequence · N/A/Reinstate · Remove ·
+  Comments**, plus grab-to-reorder (position only) via `.dr2-tile__grip`.
+- **LINK-TO-STEP** is the tile's **Sequence** control = `PipelineController::editFollows` on route
+  **`deals-dr2.pipeline.step.follows`** (`follows` + `offset`), already built for the board/timeline rows
+  (9d0950c2) — it ships with the shared tile (the Sequence modal + the `data-follows-url` / `data-drop-follows`
+  drag-relink attributes). Rebuilding the List on `_pipeline-step-tile` WIRES it into the list rows; it is
+  NOT reinvented.
+
+**RIGHT column — noticeably WIDER (~460px), two stacked areas:**
+- **TOP = the deal panels** — `dr2._pipeline-context-tabs` (Deal Structure / Supplier Work Orders /
+  Documents / Email Parties / Proforma Invoice). These MOVE OFF the top of the page into this right panel.
+  Bounded height, scrolls internally.
+- **BELOW = the per-step Comments section** — comments are step-scoped (`DealStepComment belongsTo
+  DealStepInstance`). `buildPhased()['comments']` carries each comment's `step` id; render each comment
+  **against its step name** (deal-scope/anchor → "Deal"), NOT an anonymous bottom feed. Includes the
+  add-comment box (target select + input) posting to `deals-dr2.pipeline.step.comment`.
+- The left list scrolls independently of the right panel.
+
+## B. PROGRESSION FIX (assembler-only — Johan's call 2026-07-28)
+
+**Root cause:** `DealStructureAssembler::assemble()` inserts the anchor "Deal Signed" with
+`status='completed'` directly (line ~81) and NEVER calls `Dr1PipelineService::activateDownstreamSteps()`,
+so a composable deal's first steps never leave `not_started` — the chain never starts. (Proven on deal
+183: Proof of Funds sits `not_started` though its only predecessor, Deal Signed, is completed.)
+`PipelineController::completeStep()` → `Dr1PipelineService::completeStep()` **already** fires
+`activateDownstreamSteps()`/`activateStep()`, so ongoing progression works (completing a step flips its
+ready successor to Active).
+
+**Fix (narrow, composable-only):** after `assemble()` wires the trigger/dep edges, resolve the anchor and
+call `Dr1PipelineService::activateDownstreamSteps($anchor)` so its direct successors go Active immediately.
+- Reuses the existing tested activation choke point — no new logic.
+- `assemble()` is the **composable** builder only; template-model deals use `createPipeline()` and are
+  untouched, as is the other engine (`App\Services\DealV2\DealPipelineService`).
+- **`completeStep()` is deliberately NOT changed** — composable deals intentionally allow completing a
+  `not_started` step out of order (documented at `PipelineController` ~L225-228: "real deals rarely
+  complete in order"); it already advances the next step. Changing it was rejected.
+- **Deal 183** is already assembled (pre-fix), so the code fix cannot retroactively run on it. It is
+  corrected by a **one-off** `activateDownstreamSteps($anchor)` on 183 (Johan-authorized), a targeted data
+  change via the exact fix logic — reported explicitly. New composable deals need no such step.
+
+## C. FILES (this slice)
+- `app/Http/Controllers/Dr2/PipelineListController.php` — `show()` feeds `buildPhased()`.
+- `resources/views/dr2/pipeline-list.blade.php` — phased two-panel rebuild (left phased list + right
+  deal-panels-over-comments).
+- `app/Services/DealV2/DealStructureAssembler.php` — activate anchor downstream after assembly.
+- (reused, unchanged) `dr2._pipeline-step-tile`, `dr2._pipeline-context-tabs`, `_pipeline-surface-styles`,
+  `Dr1PipelineService::activateDownstreamSteps`, route `deals-dr2.pipeline.step.follows`.
+- **Not touched:** the Timeline view/service, `completeStep`, `DealV2\DealPipelineService`, the template
+  engine.
+
+## D. ACCEPTANCE (screenshot-prove on the REAL deal 183; Johan verifies)
+1. Phased **Stage 1 → GRANTED → Stage 2** renders on the List.
+2. **Link-to-step** (Sequence/follows) control present on rows and works.
+3. **Per-step comments** show against their step (with the step name), in the right panel — not an
+   anonymous feed.
+4. **Right panel** = deal-panels on top + comments below, noticeably wider; left list scrolls independently.
+5. **Progression:** completing a step flips the next dependent step Not started → Active (no 500s).
+
+---
+
 # CORRECTION 2026-07-28 — restore function; visual-only + drag
 
 > **AUTHORITATIVE. This section OVERRIDES everything below it.** Where anything later in this file
