@@ -28,6 +28,14 @@
   /* LEFT — phased pipeline, scrolls on its own */
   #dr2ls .left{min-height:0;overflow-y:auto;overscroll-behavior:contain;background:#f4f6fa;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px 22px}
   #dr2ls .lhint{font-size:11.5px;color:#64748b;margin-bottom:10px}#dr2ls .lhint b{font-weight:800}
+  /* Sort toggle bar (#3) */
+  #dr2ls .dr2ls-sortbar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:6px;padding:6px 2px 8px;margin:0 0 4px;background:#f4f6fa;flex-wrap:wrap}
+  #dr2ls .dr2ls-sortbar .sl{font-size:11.5px;font-weight:700;color:#64748b}
+  #dr2ls .dr2ls-sortbar .sopt{font-size:11.5px;font-weight:600;color:#475569;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:4px 11px;cursor:pointer;font-family:inherit}
+  #dr2ls .dr2ls-sortbar .sopt:hover{background:#f1f5f9}
+  #dr2ls .dr2ls-sortbar .sopt.is-on{background:#2563eb;border-color:#2563eb;color:#fff}
+  /* In due-date mode, drag-reorder is disabled (the order is date-driven, not manual). */
+  #dr2ls.sort-due .dr2-tile__grip{opacity:.3;cursor:not-allowed}
 
   /* Compact per-step action buttons on the LEFT list — small inline coloured pills like the mockup
      (.ai/mockups/dr2_list_phased.html), overriding the shared tile's bulky full-width 3×2 grid so each
@@ -108,6 +116,14 @@
       if ((int) $id === (int) ($board['anchor_id'] ?? 0)) return 'Deal';
       return $rowById->has((int) $id) ? $rowById[(int) $id]['model']->name : 'Deal';
     })
+{{-- Per-row sort keys for the left-list sort toggle (#3) + drag-reorder (#2): position (the reorder
+     key) and due date. The JS re-sorts .dr2-lrow WITHIN each phase group by the chosen key. --}}
+@php($lrowAttrs = function ($id) use ($rowById) {
+      $m   = $rowById[(int) $id]['model'] ?? null;
+      $pos = $m ? (int) $m->position : 999999;
+      $due = ($m && $m->due_date) ? $m->due_date->format('Ymd') : '99999999';
+      return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-due="'.$due.'"';
+    })
 
 <div id="dr2ls" data-reorder="{{ route('deals-dr2.pipeline.reorder', $deal) }}" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
 
@@ -132,12 +148,21 @@
       @if($board['empty'])
         <div style="padding:1.5rem;text-align:center;color:#64748b;font-size:13px;">No pipeline steps yet — build from the <strong>Deal Structure</strong> panel on the right.</div>
       @else
-        @unless($locked)<div class="lhint">Grab a card's <b>⠿</b> to reorder (display only — never changes dependencies or dates). Use <b>Sequence</b> to change which step a step follows.</div>@endunless
+        {{-- Sort toggle (#3) — re-sorts steps WITHIN each phase group (Stage 1 groups / Stage 2), keeping
+             the Stage1→GRANTED→Stage2 grouping intact. "by step / sequence" = the drag-reorder order
+             (position); "by due date" = ascending due. Sequence is the default so drag-reorder (#2) takes
+             effect; the choice is remembered per browser. --}}
+        <div class="dr2ls-sortbar" id="dr2ls-sortbar">
+          <span class="sl">Sort:</span>
+          <button type="button" class="sopt" data-sort="seq">by step / sequence</button>
+          <button type="button" class="sopt" data-sort="due">by due date</button>
+        </div>
+        @unless($locked)<div class="lhint" id="dr2ls-drag-hint">Grab a card's <b>⠿</b> to reorder (display only — never changes dependencies or dates). Use <b>Sequence</b> to change which step a step follows.</div>@endunless
 
         <div class="dr2-ph">
           {{-- ANCHOR --}}
           @if($board['anchor_id'] && $rowById->has($board['anchor_id']))
-            <div class="dr2-ph-anchor"><div class="dr2-lrow" data-id="{{ $board['anchor_id'] }}">@include('dr2._pipeline-step-tile', ['row' => $rowById[$board['anchor_id']], 'variant' => 'wide'])</div></div>
+            <div class="dr2-ph-anchor"><div class="dr2-lrow" {!! $lrowAttrs($board['anchor_id']) !!}>@include('dr2._pipeline-step-tile', ['row' => $rowById[$board['anchor_id']], 'variant' => 'wide'])</div></div>
           @endif
 
           @if($board['flat'])
@@ -145,7 +170,7 @@
               <div class="dr2-ph-stage__h"><span class="dr2-ph-stage__t">Pipeline</span></div>
               <div style="margin-top:.6rem">
                 @foreach($board['all_ids'] as $sid)
-                  @if($rowById->has($sid))<div class="dr2-lrow" data-id="{{ $sid }}">@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
+                  @if($rowById->has($sid))<div class="dr2-lrow" {!! $lrowAttrs($sid) !!}>@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
                 @endforeach
               </div>
             </div>
@@ -164,7 +189,7 @@
                     <span class="dr2-ph-pill {{ $grp['active'] ? 'dr2-ph-pill--active' : 'dr2-ph-pill--done' }}">{{ $grp['active'] ? 'ACTIVE' : 'DONE' }}</span>
                   </div>
                   @foreach($grp['step_ids'] as $sid)
-                    @if($rowById->has($sid))<div class="dr2-lrow" data-id="{{ $sid }}">@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
+                    @if($rowById->has($sid))<div class="dr2-lrow" {!! $lrowAttrs($sid) !!}>@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
                   @endforeach
                 </div>
               @endforeach
@@ -194,7 +219,7 @@
               <div class="dr2-ph-stage__s">Runs once the deal is granted — a single sequence, in date order.</div>
               @unless($board['stage2']['active'])<div class="dr2-ph-lock">🔒 Activates once the deal is granted. Shown here as what comes next.</div>@endunless
               @foreach($seq as $sid)
-                @if($rowById->has($sid))<div class="dr2-lrow" data-id="{{ $sid }}">@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
+                @if($rowById->has($sid))<div class="dr2-lrow" {!! $lrowAttrs($sid) !!}>@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
               @endforeach
             </div>
             @endif
@@ -318,20 +343,50 @@
   };
   const t=document.getElementById('dr2ls-text'); if(t) t.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();window.dr2lsAddComment();}});
 
-  // Grab-to-reorder (position ONLY) — the grip lives inside each tile.
+  // ── Sort toggle (#3) + drag-reorder (#2) ────────────────────────────────────────────────────────
+  // Re-sort .dr2-lrow WITHIN each phase container (Stage-1 groups, Stage-2), keeping the phase grouping
+  // intact. "seq" = position (the reorder key) — this is what makes drag-reorder actually take effect on
+  // the list (buildPhased renders Stage-2 in due order, ignoring position, which is why dragging never
+  // stuck). "due" = ascending due date. Sequence is the default; the choice is remembered per browser.
+  const SORT_KEY='dr2_list_sort';
+  let sortMode=(function(){ try{ return localStorage.getItem(SORT_KEY)||'seq'; }catch(e){ return 'seq'; } })();
+  function applySort(mode){
+    sortMode=mode;
+    const groups=new Map();
+    list.querySelectorAll('.dr2-lrow').forEach(r=>{ const p=r.parentElement; if(!groups.has(p)) groups.set(p,[]); groups.get(p).push(r); });
+    groups.forEach((rowsIn,parent)=>{
+      if(rowsIn.length<2) return;
+      rowsIn.sort((a,b)=> mode==='due'
+        ? ((a.dataset.due||'').localeCompare(b.dataset.due||'') || ((+a.dataset.pos||0)-(+b.dataset.pos||0)))
+        : ((+a.dataset.pos||0)-(+b.dataset.pos||0)) );
+      rowsIn.forEach(r=>parent.appendChild(r));
+    });
+    root.classList.toggle('sort-due', mode==='due');
+    list.querySelectorAll('.dr2-tile__grip').forEach(g=>g.setAttribute('draggable', mode==='seq' ? 'true' : 'false'));
+    const bar=document.getElementById('dr2ls-sortbar');
+    if(bar) bar.querySelectorAll('.sopt').forEach(b=>b.classList.toggle('is-on', b.dataset.sort===mode));
+    const hint=document.getElementById('dr2ls-drag-hint'); if(hint) hint.style.display = mode==='seq' ? '' : 'none';
+    try{ localStorage.setItem(SORT_KEY,mode); }catch(e){}
+  }
+  const sortbar=document.getElementById('dr2ls-sortbar');
+  if(sortbar) sortbar.querySelectorAll('.sopt').forEach(b=>b.addEventListener('click',()=>applySort(b.dataset.sort)));
+
+  // Grab-to-reorder (position ONLY) — the grip lives inside each tile; active in "seq" mode only.
   function persist(){const order=rows().map(r=>parseInt(r.dataset.id)).filter(n=>!isNaN(n));
     fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':token},credentials:'same-origin',body:JSON.stringify({order})})
       .then(r=>r.json()).then(j=>{if(!j.ok)alert(j.error||'Could not save order.');window.location.reload();}).catch(()=>window.location.reload());}
   list.querySelectorAll('.dr2-lrow').forEach(row=>{
     const grip=row.querySelector('.dr2-tile__grip'); if(!grip) return;
-    grip.style.display='inline'; grip.setAttribute('draggable','true');
-    grip.addEventListener('dragstart',e=>{dragEl=row;row.classList.add('dr2-dragging');e.dataTransfer.effectAllowed='move';});
+    grip.style.display='inline';
+    grip.addEventListener('dragstart',e=>{ if(sortMode!=='seq'){ e.preventDefault(); return; } dragEl=row;row.classList.add('dr2-dragging');e.dataTransfer.effectAllowed='move';});
     grip.addEventListener('dragend',()=>{if(!dragEl)return;dragEl.classList.remove('dr2-dragging');rows().forEach(r=>r.classList.remove('dr2-drag-over'));dragEl=null;persist();});
   });
   list.addEventListener('dragover',e=>{if(!dragEl)return;e.preventDefault();const over=e.target.closest('.dr2-lrow');if(!over||over===dragEl)return;
     rows().forEach(r=>r.classList.remove('dr2-drag-over'));over.classList.add('dr2-drag-over');
     const rc=over.getBoundingClientRect();const after=(e.clientY-rc.top)>rc.height/2;over.parentNode.insertBefore(dragEl,after?over.nextSibling:over);});
   list.addEventListener('drop',e=>e.preventDefault());
+
+  applySort(sortMode); // initial sort — makes the drag-reorder order (position) the list order by default
 })();
 </script>
 @endpush
