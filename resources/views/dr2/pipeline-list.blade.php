@@ -29,6 +29,14 @@
   #dr2ls .left{min-height:0;overflow-y:auto;overscroll-behavior:contain;background:#f4f6fa;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px 22px}
   #dr2ls .lhint{font-size:11.5px;color:#64748b;margin-bottom:10px}#dr2ls .lhint b{font-weight:800}
 
+  /* Compact per-step action buttons on the LEFT list — small inline coloured pills like the mockup
+     (.ai/mockups/dr2_list_phased.html), overriding the shared tile's bulky full-width 3×2 grid so each
+     step row is far more condensed. Scoped to #dr2ls .left ONLY — the Timeline/board tile treatment is
+     untouched. Keeps every action + its colour (Complete green, Remove red). */
+  #dr2ls .left .dr2-tile__btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:.4rem;padding-top:.4rem;border-top:1px solid #eef2f7}
+  #dr2ls .left .dr2-tile__btns form{display:inline;width:auto}
+  #dr2ls .left .dr2-bt{display:inline-block;width:auto;padding:2px 9px;font-size:11px;line-height:1.55;border-radius:6px;white-space:nowrap;overflow:visible;text-overflow:clip}
+
   /* RIGHT — wider rail: deal panels on TOP, comments BELOW */
   #dr2ls .right{min-height:0;display:flex;flex-direction:column;gap:14px}
   #dr2ls .panels{flex:0 1 auto;max-height:56%;overflow-y:auto;overscroll-behavior:contain;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
