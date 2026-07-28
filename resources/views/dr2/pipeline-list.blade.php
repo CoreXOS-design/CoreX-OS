@@ -49,7 +49,7 @@
      line 1 = grip · dot · name · offset(+Nd) · ★ · date … status badge (far right), and line 2 = the
      action pills. Scoped to #dr2ls .left ONLY — the shared partial markup and the Timeline tiles are
      untouched. Grip, status dot, and every action/behaviour are kept; button STYLING is not changed. */
-  #dr2ls .left .dr2-tile{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:2px}
+  #dr2ls .left .dr2-tile{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:2px;height:auto;min-height:0}
   #dr2ls .left .dr2-tile__head{flex:0 1 auto;min-width:0;align-items:center}
   #dr2ls .left .dr2-tile__rag{margin-top:0}
   #dr2ls .left .dr2-tile__name{line-height:1.2}
