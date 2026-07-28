@@ -336,6 +336,14 @@ class WorkOrderController extends Controller
         // the deal panel — derive it here, ignore any client-posted trigger (Johan 2026-07-20).
         $triggerId = optional($steps->firstWhere('status_trigger', 'granted'))->id
                      ?? optional($steps->firstWhere('status_trigger', 'accepted'))->id;
+        // BUGFIX (Johan) — the COMPOSABLE (assemble) model marks its grant gate with is_grant_marker=1
+        // but does NOT set status_trigger='granted', so $triggerId is NULL on composable deals. A ticked
+        // COC with no matching pipeline step (e.g. Gas / Electric Fence, not in this deal's structure)
+        // then had NO step to anchor its work order to, so it was silently skipped ("unanchored") and
+        // ADDING a COC never persisted pre-grant (un-ticking worked because it just soft-deletes an
+        // existing row). Recognise the grant-marker gate as a valid anchor of last resort so ticking a
+        // new COC persists, exactly as un-ticking persists removal.
+        $grantMarkerId = optional($steps->first(fn ($s) => $s->is_grant_marker && ! $s->trashed()))->id;
         $naReason  = 'Not required — supplier work orders';
         $userId    = $request->user()?->id;
 
@@ -364,7 +372,7 @@ class WorkOrderController extends Controller
                 // home for it. Skip (never insert a null → SQLSTATE 1048) and report it so the agent
                 // adds the step or sets a granting trigger in pipeline setup, rather than the whole
                 // save crashing. (Root cause of the demo-seed "deal_step_instance_id cannot be null".)
-                $homeStepId = $step?->id ?? $triggerId;
+                $homeStepId = $step?->id ?? $triggerId ?? $grantMarkerId;
                 if (! $homeStepId && ! ($wo && $wo->deal_step_instance_id)) {
                     $unanchored[] = $type->label ?? $item['code'];
                     continue;
