@@ -291,18 +291,11 @@ class DealRegisterController extends Controller
         $deal->accepted_status   = 'P';
         $deal->commission_status = 'Not Paid';
 
-        // AT-216 V1.1 — pipeline auto-attach at capture: offer the agency's active templates,
-        // defaulted per deal_type (agency-configurable is_default), changeable, attached on save.
+        // AT-216 V1.1 — pipeline auto-attach at capture: offer the agency's active templates.
+        // (Deal Type radio removed — no per-type default pre-selection; the Deal Structure tab
+        // now drives composition, so the Pipeline select simply defaults to "None".)
         $templates     = \App\Models\DealV2\DealPipelineTemplate::where('is_active', true)
             ->orderByDesc('is_default')->orderBy('name')->get();
-        $defaultByType = [];
-        foreach (['bond', 'cash', 'sale_of_2nd'] as $t) {
-            $tpl = $templates->first(fn ($x) => $x->deal_type === $t && $x->is_default)
-                ?? $templates->first(fn ($x) => $x->deal_type === $t)
-                ?? $templates->first(fn ($x) => (bool) $x->is_default)
-                ?? $templates->first();
-            $defaultByType[$t] = optional($tpl)->id;
-        }
 
         return view('dr2.create', [
             'mode'               => 'create',
@@ -310,7 +303,6 @@ class DealRegisterController extends Controller
             'agents'             => $agents,
             'branches'           => $branches,
             'availableTemplates' => $templates,
-            'defaultByType'      => $defaultByType,
             // AT-334 — no saved parties on a new deal; the picker seeds empty (create-path
             // auto-tokenizes the property's seller client-side once a property is picked).
             'sellerParties'      => [],

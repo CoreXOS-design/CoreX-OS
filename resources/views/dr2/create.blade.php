@@ -146,28 +146,14 @@
                 <input type="date" name="deal_date" value="{{ old('deal_date', optional($deal->deal_date)->format('Y-m-d')) }}" required>
             </div>
 
-            {{-- AT-334 P2 — Deal Type is now OPTIONAL. The Deal Structure tab composes the
-                 pipeline from suspensive conditions after capture, so a type/pipeline pick is
-                 no longer required. Leave it blank and compose later, or set it here if known. --}}
-            <div class="field-full">
-                <label class="ds-label block mb-1">Deal Type <span style="color:var(--text-muted,#9ca3af);font-weight:400;">(optional)</span></label>
-                @php $dt = old('deal_type', $deal->deal_type); @endphp
-                <div class="flex flex-wrap gap-4 pt-1">
-                    @foreach(['bond' => 'Bond Sale', 'cash' => 'Cash Sale', 'sale_of_2nd' => 'Sale of 2nd Property'] as $val => $lbl)
-                    <label class="inline-flex items-center gap-2">
-                        <input type="radio" name="deal_type" value="{{ $val }}" {{ $dt === $val ? 'checked' : '' }}>
-                        <span>{{ $lbl }}</span>
-                    </label>
-                    @endforeach
-                </div>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">Optional — the Deal Structure tab builds the pipeline from the deal's conditions after capture.</p>
-            </div>
+            {{-- Deal Type radio removed — structure (and therefore the effective deal type) is
+                 now captured entirely on the Deal Structure tab after capture. deal_type is left
+                 null at creation and derived from the composed conditions. --}}
 
             {{-- AT-334 — Pipeline. Composition (Deal Structure) is now the DEFAULT: a new deal
                  starts with NO template, so it lands with zero steps and the Deal Structure tab
                  drives the build (pick conditions → Build). A standard template is an advanced/
-                 legacy choice — pick one here to attach it instead. NO auto-select on deal_type
-                 (the old JS that forced the deal_type's default template is removed). --}}
+                 legacy choice — pick one here to attach it instead. --}}
             @if(($mode ?? 'create') === 'create' && isset($availableTemplates) && $availableTemplates->isNotEmpty())
             <div class="field-full">
                 <label class="ds-label block mb-1">Pipeline</label>
