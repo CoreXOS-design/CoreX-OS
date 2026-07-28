@@ -355,6 +355,7 @@ class WorkOrderController extends Controller
         $coc         = app(\App\Services\DealV2\CocWorkOrderService::class);
         $actor       = $request->user();
         $unanchored  = []; // ticked COCs we could not anchor (no matching step + no granting trigger)
+        $createdStep = false; // a ticked COC with no step had its step created → re-cascade dates once
 
         foreach ($data['items'] as $item) {
             $type = $types->get($item['code']);
@@ -365,13 +366,21 @@ class WorkOrderController extends Controller
                         ->where('service_type', $item['code'])->first();
 
             if ($item['applies']) {
+                // Symmetric with un-tick REMOVING a COC's step: a ticked COC with NO pipeline step at all
+                // (matchStep null even against trashed rows — e.g. Gas / Electric Fence, not in this
+                // composable deal's structure) gets its step CREATED now, so the COC shows as a step in
+                // the list/timeline. Built from the catalog's Electrical/Beetle COC shape and wired as a
+                // Deeds-Office-Lodgement dependency (Johan 2026-07). The work order then anchors to its OWN
+                // step. addCocStep returns null on a deal with no Attorneys-Instructed anchor.
+                if (! $step) {
+                    $step = $pipelines->addCocStep($deal, $type->label, $steps, $userId);
+                    if ($step) { $steps->push($step); $createdStep = true; }
+                }
                 // A work order MUST anchor to a pipeline step (deal_step_instance_id is NOT NULL, FK to
-                // deal_step_instances): its own COC step if the pipeline has one, else the granting
-                // trigger step. When the deal's pipeline has NEITHER — e.g. a COC ticked on a pipeline
-                // with no matching step and no status_trigger='granted'/'accepted' step — there is no
-                // home for it. Skip (never insert a null → SQLSTATE 1048) and report it so the agent
-                // adds the step or sets a granting trigger in pipeline setup, rather than the whole
-                // save crashing. (Root cause of the demo-seed "deal_step_instance_id cannot be null".)
+                // deal_step_instances): its own COC step (created above if it was missing), else the
+                // granting trigger / grant-marker gate. Only when the deal has NONE of these (no transfer
+                // pipeline at all) is there no home — skip (never insert a null → SQLSTATE 1048) and report
+                // it, rather than crashing the whole save.
                 $homeStepId = $step?->id ?? $triggerId ?? $grantMarkerId;
                 if (! $homeStepId && ! ($wo && $wo->deal_step_instance_id)) {
                     $unanchored[] = $type->label ?? $item['code'];
@@ -427,6 +436,12 @@ class WorkOrderController extends Controller
                     $pipelines->removeStep($step, $userId);
                 }
             }
+        }
+
+        // A newly-created COC step needs its projected dates (follows Attorneys Instructed + 14d), so it
+        // renders on the timeline. Composable-model, idempotent, deal-wide — run once after the loop.
+        if ($createdStep) {
+            app(\App\Services\DealV2\DealDateCascade::class)->recompute($deal);
         }
 
         return response()->json([

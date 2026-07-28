@@ -618,6 +618,78 @@ class Dr1PipelineService
     }
 
     /**
+     * BUGFIX (Johan) — create a COC pipeline step on the COMPOSABLE (assemble) model for a ticked
+     * Supplier Work Order COC that has no step yet (e.g. Gas / Electric Fence / an agency-custom COC not
+     * in this deal's structure), so the COC appears as a step in the list/timeline — symmetric with
+     * un-ticking removing the step. Built from the SAME shape the catalog gives Electrical/Beetle COC
+     * steps (Dr2ConditionCatalog::baseSteps): follows "Attorneys Instructed" (+14d, document-upload
+     * completion), and wired as an AND-gate DEPENDENCY of "Deeds Office Lodgement" so the deal cannot
+     * lodge until the COC is in (Johan's call). Name = the COC's label. Returns the created step, or null
+     * when the deal has no "Attorneys Instructed" anchor (not a composable transfer pipeline) — the caller
+     * then falls back to anchoring the work order to the grant gate.
+     *
+     * @param  iterable  $steps  the deal's step instances (withTrashed), for anchor/lodgement lookup
+     */
+    public function addCocStep(Deal $deal, string $name, iterable $steps, ?int $userId): ?DealStepInstance
+    {
+        $this->lock->assertUnlocked($deal, "Add COC step \"{$name}\"");
+        $steps = collect($steps);
+
+        // Follow the SAME predecessor the deal's existing COC steps follow (Attorneys Instructed); fall
+        // back to the named base-spine step. No anchor → not a composable transfer pipeline → bail.
+        $siblingCoc = $steps->first(fn ($s) => ! $s->trashed() && in_array($s->name, ['Electrical COC', 'Beetle Certificate'], true));
+        $attorneys  = $steps->first(fn ($s) => ! $s->trashed() && $s->name === 'Attorneys Instructed');
+        $followsId  = $siblingCoc?->trigger_step_instance_id ?? $attorneys?->id;
+        if (! $followsId) {
+            return null;
+        }
+        $lodgement = $steps->first(fn ($s) => ! $s->trashed() && $s->name === 'Deeds Office Lodgement');
+
+        return DB::transaction(function () use ($deal, $name, $followsId, $lodgement, $userId) {
+            $position = (int) DealStepInstance::where('dr1_deal_id', $deal->id)->max('position') + 1;
+
+            $step = DealStepInstance::create([
+                'agency_id'                => $deal->agency_id,
+                'deal_id'                  => null,
+                'dr1_deal_id'              => $deal->id,
+                'name'                     => $name,
+                'position'                 => $position,
+                'is_custom'                => true,       // provenance: agent-added via the WO panel
+                'is_locked'                => false,
+                'is_milestone'             => false,
+                'is_suspensive'            => false,
+                'condition_key'            => null,
+                'completion_type'          => 'document_upload',
+                'status'                   => 'not_started',
+                'trigger_type'             => 'after_step',
+                'trigger_step_instance_id' => $followsId, // follows Attorneys Instructed
+                'days_offset'              => 14,
+                'rag_green_days'           => 14,
+                'rag_amber_days'           => 7,
+                'rag_red_days'             => 3,
+                'current_rag'              => 'grey',
+                'notify_agent'             => true,
+                'notify_bm'                => true,
+                'notify_admin'             => false,
+                'approval_status'          => 'not_required',
+            ]);
+
+            // AND-gate: Deeds Office Lodgement waits for this COC, exactly like Electrical/Beetle.
+            if ($lodgement) {
+                DB::table('deal_step_instance_dependencies')->updateOrInsert(
+                    ['deal_step_instance_id' => $lodgement->id, 'depends_on_step_instance_id' => $step->id],
+                    ['agency_id' => $deal->agency_id, 'created_at' => now(), 'updated_at' => now()],
+                );
+            }
+
+            $this->logActivity($deal, $step, $userId, 'step_added',
+                "COC step \"{$name}\" added (supplier work order)");
+
+            return $step;
+        });
+    }
+
+    /**
      * R2 — agent edits a step's due date inline. RAG recomputes off the edited date (accuracy
      * here drives the warnings). Audited.
      */
