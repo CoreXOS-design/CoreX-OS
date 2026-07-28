@@ -121,7 +121,14 @@
 @php($lrowAttrs = function ($id) use ($rowById) {
       $m   = $rowById[(int) $id]['model'] ?? null;
       $pos = $m ? (int) $m->position : 999999;
-      $due = ($m && $m->due_date) ? $m->due_date->format('Ymd') : '99999999';
+      // Date sort key = the date the tile actually SHOWS: a completed step shows its actual/completion
+      // date, everything else its due date. Keeps the "by due date" order matching the visible dates.
+      $dt  = null;
+      if ($m) {
+          $dt = $m->status === 'completed' ? ($m->actual_date ?? $m->completed_at) : null;
+          $dt = $dt ?? $m->due_date;
+      }
+      $due = $dt ? \Illuminate\Support\Carbon::parse($dt)->format('Ymd') : '99999999';
       return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-due="'.$due.'"';
     })
 
