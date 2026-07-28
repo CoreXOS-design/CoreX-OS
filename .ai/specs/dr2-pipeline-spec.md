@@ -1,3 +1,125 @@
+# CORRECTION 2026-07-28 — restore function; visual-only + drag
+
+> **AUTHORITATIVE. This section OVERRIDES everything below it.** Where anything later in this file
+> conflicts with this correction, THIS wins. It was written after a read-only forensic audit of the
+> QA1 code + DB on 2026-07-28. Every file / route / method / line-number below was re-verified against
+> the code at `origin/QA1` (`6a7a3eda`) as it was written — re-verify before you build.
+
+## CORE PRINCIPLE
+
+The DR2 pipeline's **FUNCTION must be IDENTICAL to before the redesign**. The redesign was mandated as
+**visual-only**. The only two sanctioned changes are:
+
+- **(a)** the tile view becomes a **horizontal timeline** *visually*, and
+- **(b)** **drag-to-reschedule**, exactly as `.ai/mockups/dr2_timeline_horizontal.html` demonstrates.
+
+**No read-model may drop, hide, gate, lock, or reorder any step the original view showed.** If a step
+appeared before, it appears after. Function first; visuals second; nothing subtracted.
+
+### What actually regressed (evidence, so it is not repeated)
+
+- **Timeline** was switched from the all-steps `buildPhased()` read-model to the date-gated
+  `buildBoard()` at commit **`5228d94a`**. `buildBoard()`
+  (`app/Services/Deal/Pipeline/PipelineTimelineService.php`, ~line 40) keeps **only** steps with BOTH
+  `planned_start_date` AND `due_date`, and when none qualify it **early-returns `['empty' => true, …]`
+  (~lines 42–43)** — so on a deal whose steps have due dates but no start dates, *every* step vanishes
+  and the view reads "No dated pipeline steps yet." (Proven on QA1 deal **183** / deal_no 1815: 17
+  steps, all with `due_date`, all `planned_start_date = NULL` → timeline empty.) The old
+  `buildPhased()` applies **no date filter** and shows all steps.
+- **List** was rebuilt from the original flat `@foreach($steps)` render into a phased / condition-
+  grouped / GRANTED-gated / Stage-2-locked layout at commit **`387b5108`**. That is a function change
+  (grouping, gating, locking, dimming) under a visual-only mandate.
+
+## 1) LIST VIEW — REVERT to the original working behaviour
+
+The List was wrongly rebuilt into the phased/grouped/gated layout at **`387b5108`**. **Restore the
+ORIGINAL flat list**: render **ALL** steps in `position` order via `@foreach` with the original
+per-step action row, i.e. the **`387b5108^` version of
+`resources/views/dr2/pipeline-list.blade.php`** (flat `.ltile` cards: dot · name · ★ · `Xd · date →
+date` sub-line · grip-to-reorder · Complete / Edit dates / N/A / Comments / Remove, with Reinstate on
+terminal steps). No Stage-1/Stage-2 sections, no GRANTED gate, no Stage-2 lock, no condition groups,
+no dimming.
+
+- **Re-apply any UNRELATED legitimate fixes on top.** Check `git log 387b5108..origin/QA1 --
+  resources/views/dr2/pipeline-list.blade.php app/Http/Controllers/Dr2/PipelineListController.php`.
+  As of `6a7a3eda` the only two commits there are **`fd61fd11`** and **`e92cfe01`** — both are patches
+  to the *phased* layout being reverted, so there is **nothing unrelated to carry forward**. Re-verify
+  this range yourself before reverting; if a genuinely unrelated fix has since landed, re-apply it on
+  top of the flat list.
+- `PipelineListController::show()` currently feeds the view `buildPhased()` — the original controller
+  did not; restore it to the original data shape the flat blade consumes (the `$steps` collection the
+  `387b5108^` blade iterates). The routes are unchanged:
+  `deals-dr2.pipeline.list` (GET), `deals-dr2.pipeline.reorder` (POST, position-only),
+  `deals-dr2.pipeline.step.dates` (POST).
+- **Left/right two-panel enhancements stay DEFERRED** (see §6 below) — but the List must **WORK exactly
+  as it originally did** in the meantime: every step visible, every original action functional.
+
+## 2) TIMELINE VIEW — fix so it preserves function, then wire drag
+
+**File:** `app/Services/Deal/Pipeline/PipelineTimelineService.php`, method `buildBoard()`.
+
+Today (~lines 40–43) it keeps only steps with BOTH `planned_start_date` AND `due_date` and
+early-returns `['empty' => true, 'day_width' => 21]` when none qualify — **that hides steps and is the
+regression.** Change it so **EVERY step appears**:
+
+- **Dated steps** (both dates present) position on the date axis — start × duration — exactly as the
+  mockup renders.
+- **Steps WITHOUT a start date** go into a **persistent "Unscheduled" tray that is ALWAYS populated**.
+  **Remove the early-return** that drops them: even when zero steps are dated, the tray still lists all
+  undated steps (deal 183 must show all 17). The tray is never an empty-state that discards steps.
+  (Note: the blade already has an `unscheduled` strip + `$board['unscheduled']` payload, but the
+  `empty` early-return currently bypasses it — that is the exact hole to close.)
+
+**Drag-to-reschedule** — wire it exactly as `.ai/mockups/dr2_timeline_horizontal.html` demonstrates
+(`cursor:grab` / `cursor:grabbing`, `pointerdown`/`pointermove`/`pointerup`, `attachDrag()` at mockup
+lines ~265–292): grabbing a tile and sliding it horizontally **sets/updates `planned_start_date`,
+shifting `due_date` to preserve the tile's duration**, persisted through the **EXISTING endpoint — do
+NOT invent a new one:**
+
+- **Route:** `deals-dr2.pipeline.step.reschedule` → `POST /{deal}/pipeline/steps/{step}/reschedule`
+- **Controller:** `App\Http\Controllers\Dr2\PipelineTimelineController::reschedule()`
+- **Service:** `App\Services\Deal\Pipeline\PipelineRescheduleService::reschedule($step, $newStart, $commit, $userId)`
+- **POST params:** `new_start` (required, date) + `commit` (bool: `false` = dry-run PREVIEW returning
+  the moved/held lists for a confirm dialog; `true` = apply). The service already slides start+end
+  preserving duration and cascades downstream successors (concurrent/manual anchors held).
+
+- **⚠ FLAG — Unscheduled → axis is NOT yet supported by the existing service.**
+  `PipelineRescheduleService::reschedule()` (~line 45) **throws**
+  `DomainException('This step has no planned span to move.')` when the step has no
+  `planned_start_date`/`due_date`. So "drag an Unscheduled step onto the axis to schedule it" **cannot**
+  ride the current endpoint as-is — it needs the service **extended** to accept first-time scheduling
+  (set `planned_start_date` from the drop position, derive `due_date` from the step's duration /
+  `days_offset`). **This is a flagged extension of the existing service — get Johan's sign-off on the
+  behaviour; do NOT silently add a separate endpoint.** Until then, moving already-dated tiles works;
+  scheduling an undated one is the extension.
+
+## 3) NEW ACCEPTANCE STANDARD (mandatory — nothing is "done" or "tested" without ALL of it)
+
+Every item must be **screenshot-proven on REAL, REPRESENTATIVE deals** — **NOT** hand-picked deals that
+happen to have ideal data. The proof pack **must name which deals were used and why they are
+representative** (e.g. "183 = the undated real deal that exposed the bug; 180 = a fully-dated real
+deal"). Use **existing real deals only** (see §4).
+
+- **Deal 183** (17 steps, all undated) — after the fix **ALL 17 steps are visible** (in the Unscheduled
+  tray) and draggable onto the axis. Screenshot showing all 17.
+- **A dated deal (e.g. 180)** — axis still renders correctly. Screenshot.
+- **Drag persists** — drag a tile, **RELOAD**, the new date stuck. Before/after screenshot.
+- **List** renders as the **ORIGINAL flat list** again (all steps, original actions). Screenshot.
+- **Function intact** — mark-complete / N/A / edit-due / remove / comments **all still work** on a real
+  deal.
+- **No 500s** on **183 and 180** for **both** views.
+
+## 4) HARD RULE — NO SEEDING / NO DEMO DATA ON QA1, EVER
+
+QA1 is a **live-copy**. Builders must **NEVER** create / insert / `forceDelete` / seed branches,
+agencies, deals, or step instances on QA1 — no factories, no `db:seed`, no ad-hoc `::create()` fixtures.
+Use **existing real deals only**. This rule **overrides any convenience** (including "I need a deal with
+the right data to screenshot" — find a real one, or report that none exists). This correction was
+prompted in part by a scratchpad seeder that bulk-created undated step instances on QA1 via
+`forceDelete()` + `withoutEvents()` — precisely the kind of action now forbidden.
+
+---
+
 # DR2 Pipeline — authoritative view spec
 
 Two views only: TIMELINE and LIST. They MUST be visually distinct. The failure to avoid: making both look like vertical lists (that happened and Johan rejected it).
