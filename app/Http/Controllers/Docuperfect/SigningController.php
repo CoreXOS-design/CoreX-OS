@@ -1494,6 +1494,44 @@ class SigningController extends Controller
             ], 422);
         }
 
+        // ── OTHER-CONDITIONS AGENT-INITIAL GATE (Johan 2026-07-28) ──────────
+        // Universal rule: an "other condition" added to ANY document must be
+        // initialled by every party, and the document MUST NOT advance to any
+        // recipient until the AGENT has initialled every added condition. The
+        // agent's completion is the step that RELEASES the document to the
+        // recipients, so this is where the "cannot advance" block belongs.
+        //
+        // The client (canSubmitWeb / webIncompleteCount) already counts each
+        // `.btn-add-initial[data-condition-id]` slot, but that count is
+        // DOM-derived and bypassable (a crafted POST, or the completion JS
+        // failing after consent). This is the authoritative server-side ceiling
+        // the client contract sits above. It reads DocumentCondition +
+        // ConditionInitial rows directly, so it holds regardless of which serve
+        // path (canonical / stored snapshot / compiled) rendered the slots — the
+        // render-path independence the diagnosis called for
+        // (.ai/specs/esign-recipient-signing-fix.md, 2026-07-28 section).
+        if ($signingRequest->party_role === 'agent') {
+            $liveConditionIds = DocumentCondition::query()
+                ->where('signature_template_id', $template->id)
+                ->whereNull('superseded_at')
+                ->whereNull('deleted_at')
+                ->pluck('id');
+            if ($liveConditionIds->isNotEmpty()) {
+                $agentInitialedIds = ConditionInitial::query()
+                    ->where('initialable_type', DocumentCondition::class)
+                    ->whereIn('initialable_id', $liveConditionIds)
+                    ->where('party_key', 'agent')
+                    ->pluck('initialable_id');
+                $missing = $liveConditionIds->diff($agentInitialedIds);
+                if ($missing->isNotEmpty()) {
+                    return response()->json([
+                        'ok'    => false,
+                        'error' => 'Please initial every condition before submitting — the document cannot be sent to the other parties until you have initialled each added condition.',
+                    ], 422);
+                }
+            }
+        }
+
         // Log consent to audit log
         SignatureAuditLog::create([
             'signature_template_id' => $template->id,
