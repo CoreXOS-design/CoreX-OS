@@ -32,10 +32,17 @@
   /* Compact per-step action buttons on the LEFT list — small inline coloured pills like the mockup
      (.ai/mockups/dr2_list_phased.html), overriding the shared tile's bulky full-width 3×2 grid so each
      step row is far more condensed. Scoped to #dr2ls .left ONLY — the Timeline/board tile treatment is
-     untouched. Keeps every action + its colour (Complete green, Remove red). */
+     untouched. Keeps every action + its colour (Complete green, Remove red). !important is required to
+     beat the global .hfc-card button[type=submit] rule (also !important) so the SUBMIT actions
+     (Reopen/Remove/Reinstate) stay compact pills too, not big filled buttons; the id-scoped selector
+     is more specific so it wins. */
   #dr2ls .left .dr2-tile__btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:.4rem;padding-top:.4rem;border-top:1px solid #eef2f7}
-  #dr2ls .left .dr2-tile__btns form{display:inline;width:auto}
-  #dr2ls .left .dr2-bt{display:inline-block;width:auto;padding:2px 9px;font-size:11px;line-height:1.55;border-radius:6px;white-space:nowrap;overflow:visible;text-overflow:clip}
+  #dr2ls .left .dr2-tile__btns form{display:inline;width:auto;margin:0}
+  #dr2ls .left .dr2-bt{display:inline-block!important;width:auto!important;height:auto!important;min-height:0!important;padding:2px 9px!important;font-size:11px!important;line-height:1.55!important;border-radius:6px!important;border:1px solid #e5e7eb!important;background:#fff!important;color:#374151!important;box-shadow:none!important;white-space:nowrap;overflow:visible;text-overflow:clip}
+  #dr2ls .left .dr2-bt:hover{background:#f1f5f9!important}
+  #dr2ls .left .dr2-bt--go{color:#047857!important;border-color:#6ee7b7!important;background:#ecfdf5!important}
+  #dr2ls .left .dr2-bt--danger{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
+  #dr2ls .left .dr2-bt--dis{color:#c7cdd6!important;border-color:#eef2f7!important;background:#fafbfc!important;cursor:not-allowed}
 
   /* RIGHT — wider rail: deal panels on TOP, comments BELOW */
   #dr2ls .right{min-height:0;display:flex;flex-direction:column;gap:14px}
