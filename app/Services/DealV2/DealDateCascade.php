@@ -47,45 +47,85 @@ class DealDateCascade
         // The predecessor SET per step (primary follows ∪ AND-gate fan-in), resolved once.
         $preds = $this->resolver->predecessorMap($steps);
 
-        $due = [];   // id => Carbon (resolved Due)
+        // Every ACTIVE suspensive step. The Granted marker's date = the LATEST of these (Johan
+        // rule): the deal grants only once every suspensive condition is due/met, so Stage-2
+        // steps (which all chain through the marker) compute forward from grant and never predate
+        // it. Derived from the suspensive SET directly — independent of the marker's follows/deps
+        // wiring, which on a multi-suspensive deal (e.g. bond + cash) could under-project to the
+        // earliest suspensive instead of the latest.
+        $suspensiveIds = $steps->filter(fn ($s) => $s->is_suspensive)->keys()->map(fn ($i) => (int) $i)->all();
+
         $actual = fn (DealStepInstance $s) => $s->actual_date
             ? Carbon::parse($s->actual_date)->startOfDay()
             : ($s->completed_at ? Carbon::parse($s->completed_at)->startOfDay() : null);
+
+        // Two maps: $computed = the Due we would WRITE (non-manual steps only); $out = the date a
+        // step CONTRIBUTES to its successors = Actual (if captured) ELSE a manually-set Due (now
+        // honoured) ELSE the computed Due. Propagating manual Dues — previously only Actuals
+        // propagated — is what lets an editable condition date (e.g. a 14-day bond due) drive
+        // every downstream step. A step with neither Actual nor manual Due outputs its computed
+        // Due exactly as before, so the common case is unchanged.
+        $computed = [];  // id => Carbon (the recomputed Due)
+        $out      = [];  // id => Carbon (what this step contributes downstream)
+
+        $manualDue = fn (DealStepInstance $s) => ($s->due_date_manual && $s->due_date)
+            ? Carbon::parse($s->due_date)->startOfDay() : null;
 
         // Iterative resolve — handles any follows ordering (fwd/back references) and fan-in.
         $guard = 0;
         do {
             $progress = false;
             foreach ($steps as $id => $s) {
-                if (isset($due[$id])) {
+                if (isset($out[$id])) {
                     continue;
                 }
+
+                if ($s->is_grant_marker) {
+                    // Wait until every suspensive step is resolved, then base off the LATEST.
+                    if (! empty($suspensiveIds) && array_diff($suspensiveIds, array_keys($out))) {
+                        continue;
+                    }
+                    $base = null;
+                    foreach ($suspensiveIds as $sid) {
+                        if ($base === null || $out[$sid]->greaterThan($base)) {
+                            $base = $out[$sid];
+                        }
+                    }
+                    $base = $base ?? (clone $anchor); // no suspensive condition → grants on signing
+                    $computed[$id] = (clone $base)->addDays((int) $s->days_offset);
+                    $out[$id] = $actual($s) ?? $computed[$id];
+                    $progress = true;
+                    continue;
+                }
+
                 $predIds = array_values(array_filter($preds[$id] ?? [], fn ($p) => isset($steps[$p])));
                 if (empty($predIds)) {
                     // No predecessor → baseline off the deal anchor.
-                    $due[$id] = (clone $anchor)->addDays((int) $s->days_offset);
-                    $progress = true;
-                } elseif (! array_diff($predIds, array_keys($due))) {
-                    // Every predecessor is resolved → base off the LATEST of them.
+                    $computed[$id] = (clone $anchor)->addDays((int) $s->days_offset);
+                } elseif (! array_diff($predIds, array_keys($out))) {
+                    // Every predecessor is resolved → base off the LATEST of their contributions.
                     $base = null;
                     foreach ($predIds as $pid) {
-                        $candidate = $actual($steps[$pid]) ?? $due[$pid];
-                        if ($base === null || $candidate->greaterThan($base)) {
-                            $base = $candidate;
+                        if ($base === null || $out[$pid]->greaterThan($base)) {
+                            $base = $out[$pid];
                         }
                     }
-                    $due[$id] = (clone $base)->addDays((int) $s->days_offset);
-                    $progress = true;
+                    $computed[$id] = (clone $base)->addDays((int) $s->days_offset);
+                } else {
+                    continue; // predecessors not all resolved yet
                 }
+
+                $out[$id] = $actual($s) ?? $manualDue($s) ?? $computed[$id];
+                $progress = true;
             }
             $guard++;
         } while ($progress && $guard < 50);
 
         foreach ($steps as $id => $s) {
-            if ($s->due_date_manual || ! isset($due[$id])) {
+            if ($s->due_date_manual || ! isset($computed[$id])) {
                 continue; // never clobber a manual Due; skip unresolved (cyclic) safely
             }
-            $newDue = $due[$id]->toDateString();
+            $newDue = $computed[$id]->toDateString();
             if ((string) $s->due_date !== $newDue) {
                 $s->forceFill(['due_date' => $newDue])->saveQuietly();
             }

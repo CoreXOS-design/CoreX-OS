@@ -1,11 +1,11 @@
 # DR2 Deal Structure — Per-Condition Due Dates & Restructure
 
-> **Status: DRAFT — planning only. NOT approved for build.** Awaiting Johan's decisions
-> (esp. the exact cash timing rules — see §7). No code for Phases A–D has been written.
-> Companion to `.ai/specs/dr2-pipeline-suspensive-conditions.md` (the governing model &
-> locked decisions). This spec adds two capabilities on top of that model:
-> (A→B) per-condition **due-date capture** that drives step dates, and
-> (C→D) the **Restructure** flow (change conditions after creation, e.g. bond→cash).
+> **Status: Phase A + B APPROVED & BUILDING (Johan's decisions in, 2026-07-28). Restructure
+> (C/D) HELD.** Companion to `.ai/specs/dr2-pipeline-suspensive-conditions.md` (the governing
+> model & locked decisions). This spec adds two capabilities on top of that model:
+> (A→B) per-condition **due-date capture** that drives step dates — **now building**, and
+> (C→D) the **Restructure** flow (change conditions after creation) — **held for later**.
+> A→B also carries the **Stage-2 grant-anchoring cascade fix** (§10).
 >
 > Last updated by: lane-6 (Deal Structure), 2026-07-28.
 
@@ -100,26 +100,41 @@ Supporting gaps (infra present but inert):
 
 ---
 
-## 4. Phase A→B — Per-condition due dates
+## 4. Phase A→B — Per-condition due dates (JOHAN'S FINAL RULES)
+
+### Johan's rules (2026-07-28)
+- **Editable deal-signed (anchor) date.** The Deal Structure form lets the agent set/correct the
+  real signed date (e.g. signed Friday, captured Tuesday). It persists to `deals.deal_date` and is
+  the anchor the 30-day bond default and the whole cascade run from — the **signed** date, never the
+  capture date.
+- **BOND** → `bond_due` defaults to **deal-signed + 30 days**, EDITABLE (a seller may allow only 14).
+- **DEPOSIT** (bond sub-option) → capture `deposit_due` ("deposit due by"). No default (blank ⇒ offset).
+- **SUBJECT-TO-SALE** → capture `property_sold_due` ("property sold by"). No default (blank ⇒ offset).
+- **CASH** (custom per deal, no fixed rules — working model):
+  - A **toggle** `funds_mode`: **`available`** ("funds available now") **vs** **`proof_later`**
+    ("proof of funds now, payment later").
+  - `available` → **just a cash-payment step** (no proof step; not suspensive).
+  - `proof_later` → a **Proof of Funds** step (suspensive, grants the deal) **PLUS** a later
+    **Payment Received** step.
+  - `proof_due` = when proof is given (proof_later only). `payments` = # payments (1–6).
+    `payment_dues[i]` = when EACH payment is paid (one date per payment; a single date if payments=1).
 
 ### Phase A — capture (data + UI)
-- Extend `Dr2ConditionCatalog::conditions()` option schema with date fields:
-  - `bond` → `bond_due_by` (**default = deal_date + 30 days**, editable)
-  - `deposit` (bond sub-option) → `deposit_due_by`
-  - `sale_of_another` → `property_sold_by`
-  - `cash` → timing fields **per §7 open decision** (proof-of-funds-by / straight-payment-by / per-payment dates)
-- Render date inputs in `_deal-structure.blade.php` (empty-state build form and, later, the Restructure form).
-- Parse + validate in `PipelineController::saveStructure`.
-- **Store the captured intent in `deal_conditions.options`** (audit-friendly source of truth;
-  survives a later restructure recompose).
+- Extend `Dr2ConditionCatalog::conditions()` option schema (metadata for the fields above).
+- Render the inputs conditionally per ticked condition in `_deal-structure.blade.php` (editable
+  signed date at top; bond due defaulting to signed+30 live via Alpine; deposit/proof/payment/
+  property-sold dates shown only for their condition). Empty-state build form only (restructure held).
+- Parse + validate in `PipelineController::saveStructure`; persist the signed date to `deals.deal_date`.
+- **Store the captured intent in `deal_conditions.options`** (audit-friendly; survives a later restructure).
 
 ### Phase B — dates drive step dates
-- In `DealStructureAssembler::assemble`, project each condition's captured `*_due_by` onto its
-  target **suspensive** step: set that step's `due_date` and flag `due_date_manual = true`.
-- Because `DealDateCascade` refuses to overwrite a manual due (`:85`), the captured date sticks
-  while all downstream steps still re-cascade off it.
-- Bond's 30-day default thus **replaces** the current offset-derived day-24 Due (see §7 Q2).
-- Re-run `recompute` — existing cascade handles the rest. Low risk; no new date engine.
+- The catalog tags each date-bearing step def with `manual_due` (bond_approved←bond_due,
+  deposit←deposit_due, proof_funds←proof_due, payment_i←payment_dues[i], linked_sold←property_sold_due)
+  and builds the cash steps per `funds_mode`.
+- In `DealStructureAssembler::assemble`, when a step def carries `manual_due`, create it with
+  `due_date` = that date and `due_date_manual = true`.
+- `DealDateCascade` never overwrites a manual Due, and (per §10) now **propagates** manual Dues to
+  successors, so an editable condition date drives every downstream step.
 
 **A→B ships independently of restructure.**
 
@@ -153,15 +168,12 @@ Rewrite the `force=true` path in `DealStructureAssembler` as a **diff/merge**, n
 - Reuse `create_deals` (already gates `deals-dr2.pipeline.structure`). Restructure is a
   structure change → same `create_deals` gate. No new permission key anticipated; confirm at build.
 
-## 7. Open decisions — REQUIRED before build (do not assume)
-1. **Cash timing rules (blocking).** Exact branching: "proof-of-funds required to grant (by when)"
-   **vs** "no proof = straight payment by when", **plus** per-payment due dates for multi-pay.
-   This defines the cash option schema and its steps. Johan's precise rule set needed before Phase A.
-2. **Bond default.** Confirm "30 days from deal-signed" should **override** the current
-   offset-derived bond-approval date (day 24), captured as an editable manual due. (Plan assumes yes.)
-3. **Effective `deal_type` after radio removal.** The creation-screen Deal Type radio was removed
-   (commit `0ceeef5c`); `deal_type` is now null at creation. Confirm whether any downstream
-   report/filter needs it derived from the composed conditions (small follow-up if so).
+## 7. Decisions — RESOLVED (Johan, 2026-07-28)
+1. **Cash timing rules** → RESOLVED: the `funds_mode` toggle model in §4 (available vs proof_later),
+   with `proof_due`, `payments`, and per-payment `payment_dues[i]`.
+2. **Bond default** → RESOLVED: yes, **deal-signed + 30 days**, captured as an editable manual due
+   that overrides the offset-derived date. Deal-signed date itself is editable.
+3. **Effective `deal_type`** → not in scope for A/B; leave null. (Revisit only if a report needs it.)
 
 ## 8. Acceptance criteria (when A–D are eventually built)
 - **A/B:** Ticking bond shows a "bond due by" date defaulting to signed+30d; editing it and
@@ -172,14 +184,40 @@ Rewrite the `force=true` path in `DealStructureAssembler` as a **diff/merge**, n
 - **D:** Restructure button opens the pre-filled form, enforces reason+addendum, records the audit
   trail, and flips a bond deal to cash (and back) correctly.
 
-## 9. Files (anticipated — for the eventual build, NOT touched now)
-- `app/Services/DealV2/Dr2ConditionCatalog.php` — option schema + date defaults.
-- `app/Services/DealV2/DealStructureAssembler.php` — project dates onto steps (B); diff/merge recompose (C).
-- `app/Services/DealV2/DealDateCascade.php` — unchanged (already honours `due_date_manual`).
-- `app/Http/Controllers/Dr2/PipelineController.php` — parse dates (A); restructure action (D).
-- `resources/views/dr2/_deal-structure.blade.php` — date inputs (A); enable Restructure form (D).
-- `app/Models/DealV2/DealCondition.php` — `waive()` / `fail()` (D).
-- Route: a restructure `POST` (D) — reuse or extend `deals-dr2.pipeline.structure`.
+## 9. Files (A/B build; C/D held)
+- `app/Services/DealV2/Dr2ConditionCatalog.php` — option-schema metadata; `manual_due` tags; cash `funds_mode` steps. **[A/B]**
+- `app/Services/DealV2/DealStructureAssembler.php` — write `due_date` + `due_date_manual` from `manual_due`. **[B]**
+- `app/Services/DealV2/DealDateCascade.php` — grant-anchoring + manual-Due propagation (§10). **[B + Stage-2 fix]**
+- `app/Http/Controllers/Dr2/PipelineController.php` — `saveStructure`: parse dates, persist signed date. **[A]**
+- `resources/views/dr2/_deal-structure.blade.php` — editable signed date + conditional date inputs. **[A]**
+- `app/Models/DealV2/DealCondition.php` — `waive()`/`fail()`. **[D — held]**
+- Restructure route/UI. **[D — held]**
+
+## 10. Stage-2 grant-anchoring cascade fix (part of B)
+**Symptom (deal 183):** Grant projected 26 Aug, but Documents Signed showed 8 Aug and Attorneys
+Instructed 3 Aug — Stage-2 (Transfer & Registration) steps predated the grant.
+
+**Root cause (in `DealDateCascade::recompute`):** two defects.
+1. The grant marker's Due was derived from its *wired* predecessors and from *computed* offset dates.
+   On a multi-suspensive deal (bond **and** cash), the marker under-projected to the earliest
+   suspensive (Proof of Funds, 31 Jul) instead of the latest (Bond Approved, 26 Aug).
+2. A manually-set Due did not **propagate** — only Actuals did — so an editable/manual bond due
+   (26 Aug) never reached the grant marker or Stage 2.
+
+**Fix (Johan's rule).**
+- **Grant = the LATEST Due across ALL active suspensive steps** (`is_suspensive`), computed directly
+  from the suspensive set — independent of the marker's follows/deps wiring. No suspensive
+  condition ⇒ grants on signing (anchor).
+- Each step **contributes downstream** its *output* = `actual` (if captured) ELSE a **manual Due**
+  (now honoured) ELSE its computed Due. So editable condition dates drive successors.
+- Because every Stage-2 step's predecessor chain routes through the grant marker, once the marker is
+  correct, all Stage-2 steps compute forward from grant and **never predate it**.
+- Backward compatible: a step with no manual Due and no Actual outputs its computed Due exactly as
+  before; a correctly-wired single-suspensive deal is unchanged. Guarded to new-model deals only.
+
+**Blast radius:** confined to `DealDateCascade::recompute`; affects only composable (new-model)
+deals. Behavioural delta to flag: manual Dues now propagate to successors (previously islands) —
+this is intended and required for editable condition dates.
 
 ---
 

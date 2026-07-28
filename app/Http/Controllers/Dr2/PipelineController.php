@@ -150,6 +150,28 @@ class PipelineController extends Controller
 
         $catalog    = app(\App\Services\DealV2\Dr2ConditionCatalog::class);
         $in         = (array) $request->input('conditions', []);
+
+        // A captured date → 'Y-m-d' or null (blank/invalid falls back to the offset chain downstream).
+        $cleanDate = function ($v): ?string {
+            if (! is_string($v) || trim($v) === '') {
+                return null;
+            }
+            try {
+                return \Carbon\Carbon::parse($v)->toDateString();
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+
+        // Editable deal-signed (anchor) date — e.g. signed Friday but captured Tuesday. It drives
+        // the 30-day bond default AND the whole cascade, so persist it to the deal first (the
+        // anchor is deals.deal_date). Blank/invalid leaves the existing date untouched.
+        if ($signed = $cleanDate($request->input('deal_signed_date'))) {
+            $deal->deal_date = $signed;
+            $deal->save();
+        }
+        $anchor = $deal->deal_date ? \Carbon\Carbon::parse($deal->deal_date) : \Carbon\Carbon::now();
+
         $selections = [];
         foreach (array_keys($catalog->conditions()) as $key) {
             if (empty($in[$key]['on'])) {
@@ -158,9 +180,27 @@ class PipelineController extends Controller
             $opts = [];
             if ($key === 'bond') {
                 $opts['deposit'] = ! empty($in[$key]['deposit']);
+                // Bond due defaults to signed + 30 days (Johan), editable (a seller may allow only 14).
+                $opts['bond_due'] = $cleanDate($in[$key]['bond_due'] ?? null) ?? $anchor->copy()->addDays(30)->toDateString();
+                if ($opts['deposit']) {
+                    $opts['deposit_due'] = $cleanDate($in[$key]['deposit_due'] ?? null);
+                }
             }
             if ($key === 'cash') {
-                $opts['payments'] = max(1, min(6, (int) ($in[$key]['payments'] ?? 1)));
+                $opts['funds_mode'] = (($in[$key]['funds_mode'] ?? 'available') === 'proof_later') ? 'proof_later' : 'available';
+                $opts['payments']   = max(1, min(6, (int) ($in[$key]['payments'] ?? 1)));
+                if ($opts['funds_mode'] === 'proof_later') {
+                    $opts['proof_due'] = $cleanDate($in[$key]['proof_due'] ?? null);
+                }
+                // One by-when date per payment (1-based), matching the payment_i steps.
+                $rawDues = (array) ($in[$key]['payment_dues'] ?? []);
+                $opts['payment_dues'] = [];
+                for ($i = 1; $i <= $opts['payments']; $i++) {
+                    $opts['payment_dues'][$i] = $cleanDate($rawDues[$i] ?? null);
+                }
+            }
+            if ($key === 'sale_of_another') {
+                $opts['property_sold_due'] = $cleanDate($in[$key]['property_sold_due'] ?? null);
             }
             $selections[$key] = $opts;
         }

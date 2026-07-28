@@ -64,6 +64,10 @@ class DealStructureAssembler
             $pos = 0;
             foreach ($defs as $d) {
                 $isAnchor = ! empty($d['anchor']);
+                // A captured per-condition by-when date seeds the step's Due as a MANUAL due, so
+                // the cascade honours it (never overwrites) and propagates it downstream. Absent
+                // date → null, and the cascade computes the Due from the follows/offset chain.
+                $manualDue = ! empty($d['manual_due']) ? $d['manual_due'] : null;
                 $inst = DealStepInstance::create([
                     'deal_id'          => null,          // DR1-anchored (legacy deals_v2 pointer stays null)
                     'dr1_deal_id'      => $deal->id,
@@ -95,6 +99,9 @@ class DealStructureAssembler
                     'completed_at'     => $isAnchor ? now() : null,
                     'actual_date'      => $isAnchor ? $deal->deal_date : null,
                     'completed_by_id'  => $isAnchor ? $userId : null,
+                    // Captured condition date → manual Due (cascade honours + propagates it).
+                    'due_date'         => $manualDue,
+                    'due_date_manual'  => $manualDue !== null,
                 ]);
                 $keyToId[$d['key']] = $inst->id;
             }

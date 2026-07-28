@@ -86,6 +86,55 @@ final class Dr2CascadeConvergenceTest extends TestCase
         $this->assertSame('2026-05-06', $this->due($ids['C']), 'C = LATEST predecessor (B actual 05-01) + 5');
     }
 
+    /**
+     * AT-334 dates build — the Stage-2 grant-anchoring fix. Grant = the LATEST Due across ALL
+     * active suspensive conditions, independent of the marker's follows wiring. Reproduces the
+     * deal-183 bug: the marker is deliberately wired to follow the EARLIER suspensive (Proof of
+     * Funds), yet must anchor to the LATER one (Bond Approved) so Stage-2 never predates grant.
+     */
+    public function test_grant_anchors_to_latest_suspensive_regardless_of_wiring(): void
+    {
+        Carbon::setTestNow('2026-03-01 09:00:00');
+        [$deal, $agencyId, $agent] = $this->makeDeal();
+        $this->actingAs($agent);
+
+        $otp   = $this->makeStep($deal, $agencyId, 'Deal Signed', null, 0, ['status' => 'completed', 'actual_date' => '2026-03-01']);
+        $proof = $this->makeStep($deal, $agencyId, 'Proof of Funds', $otp->id, 3, ['condition_key' => 'cash', 'is_suspensive' => true]);   // 03-04 (earlier)
+        $bond  = $this->makeStep($deal, $agencyId, 'Bond Approved', $otp->id, 24, ['condition_key' => 'bond', 'is_suspensive' => true]);    // 03-25 (later)
+        // Marker follows the EARLIER suspensive on purpose — the fix must ignore that and take the LATEST.
+        $grant = $this->makeStep($deal, $agencyId, 'Granted', $proof->id, 0, ['is_grant_marker' => true]);
+        $att   = $this->makeStep($deal, $agencyId, 'Attorneys Instructed', $grant->id, 3, []);
+
+        app(DealDateCascade::class)->recompute($deal->fresh());
+
+        $this->assertSame('2026-03-25', $this->due($grant->id), 'grant = LATEST suspensive (Bond Approved 03-25), not the wired Proof of Funds 03-04');
+        $this->assertSame('2026-03-28', $this->due($att->id), 'Stage-2 step computes forward from grant (+3)');
+        $this->assertTrue($this->due($att->id) >= $this->due($grant->id), 'no Stage-2 step predates grant');
+    }
+
+    /**
+     * AT-334 dates build — an editable/manual condition Due propagates to successors (previously
+     * only Actuals did). A bond due manually set later than its offset drives grant + Stage-2.
+     */
+    public function test_manual_condition_due_propagates_to_grant_and_stage2(): void
+    {
+        Carbon::setTestNow('2026-03-01 09:00:00');
+        [$deal, $agencyId, $agent] = $this->makeDeal();
+        $this->actingAs($agent);
+
+        $otp  = $this->makeStep($deal, $agencyId, 'Deal Signed', null, 0, ['status' => 'completed', 'actual_date' => '2026-03-01']);
+        // Offset 24 would give 03-25; the agent captured a manual bond due of 04-15 (a longer allowance).
+        $bond = $this->makeStep($deal, $agencyId, 'Bond Approved', $otp->id, 24, ['condition_key' => 'bond', 'is_suspensive' => true, 'due_date' => '2026-04-15', 'due_date_manual' => true]);
+        $grant = $this->makeStep($deal, $agencyId, 'Granted', $bond->id, 0, ['is_grant_marker' => true]);
+        $att  = $this->makeStep($deal, $agencyId, 'Attorneys Instructed', $grant->id, 3, []);
+
+        app(DealDateCascade::class)->recompute($deal->fresh());
+
+        $this->assertSame('2026-04-15', $this->due($bond->id), 'manual Due is never overwritten');
+        $this->assertSame('2026-04-15', $this->due($grant->id), 'grant reflects the MANUAL bond due, not the 03-25 offset');
+        $this->assertSame('2026-04-18', $this->due($att->id), 'Stage-2 forward from the manual-driven grant (+3)');
+    }
+
     public function test_old_model_deal_is_untouched(): void
     {
         [$deal, $agencyId, $agent] = $this->makeDeal();

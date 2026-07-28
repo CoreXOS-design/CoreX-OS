@@ -15,21 +15,35 @@ namespace App\Services\DealV2;
  */
 class Dr2ConditionCatalog
 {
-    /** Conditions a deal can carry, with their option schema (for the Structure tab). */
+    /**
+     * Conditions a deal can carry, with their option schema (for the Structure tab).
+     * Date options (AT-334 dates build): each condition captures the by-when date(s) that
+     * seed its step's Due (see conditionSteps' `manual_due`). Bond defaults to signed+30
+     * (applied in saveStructure, which holds the editable signed date); the rest default blank.
+     */
     public function conditions(): array
     {
         return [
             'bond' => [
                 'label'   => 'Bond',
-                'options' => ['deposit' => ['type' => 'bool', 'label' => 'Include a deposit', 'default' => false]],
+                'options' => [
+                    'deposit'      => ['type' => 'bool', 'label' => 'Include a deposit', 'default' => false],
+                    'bond_due'     => ['type' => 'date', 'label' => 'Bond due by', 'default_offset' => 30],
+                    'deposit_due'  => ['type' => 'date', 'label' => 'Deposit due by'],
+                ],
             ],
             'cash' => [
                 'label'   => 'Cash',
-                'options' => ['payments' => ['type' => 'int', 'label' => 'How many payments?', 'default' => 1, 'min' => 1, 'max' => 6]],
+                'options' => [
+                    'funds_mode'   => ['type' => 'enum', 'label' => 'Funds', 'values' => ['available', 'proof_later'], 'default' => 'available'],
+                    'proof_due'    => ['type' => 'date', 'label' => 'Proof of funds by'],
+                    'payments'     => ['type' => 'int', 'label' => 'How many payments?', 'default' => 1, 'min' => 1, 'max' => 6],
+                    'payment_dues' => ['type' => 'date_list', 'label' => 'Payment due by'],
+                ],
             ],
             'sale_of_another' => [
                 'label'   => 'Subject to sale of another property',
-                'options' => [],
+                'options' => ['property_sold_due' => ['type' => 'date', 'label' => 'Property sold by']],
             ],
         ];
     }
@@ -60,32 +74,42 @@ class Dr2ConditionCatalog
     /** The step pack for one condition, expanded for its options. */
     private function conditionSteps(string $key, array $opts): array
     {
+        // A non-empty captured date on an option seeds the step's Due as a MANUAL due (the
+        // assembler writes due_date + due_date_manual; the cascade then honours + propagates it).
+        $date = fn ($v) => (is_string($v) && $v !== '') ? $v : null;
+
         switch ($key) {
             case 'bond':
                 $steps = [
                     ['key' => 'bond_app',      'name' => 'Bond Application Submitted', 'follows' => 'otp',      'offset' => 3,  'completion' => 'date_input', 'condition' => 'bond', 'pos' => 20],
-                    ['key' => 'bond_approved', 'name' => 'Bond Approved',              'follows' => 'bond_app', 'offset' => 21, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'bond', 'pos' => 21],
+                    ['key' => 'bond_approved', 'name' => 'Bond Approved',              'follows' => 'bond_app', 'offset' => 21, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'bond', 'manual_due' => $date($opts['bond_due'] ?? null), 'pos' => 21],
                     ['key' => 'guarantees',    'name' => 'Guarantees Issued',          'follows' => 'bond_approved', 'offset' => 10, 'completion' => 'text_input', 'condition' => 'bond', 'pos' => 48],
                 ];
                 if (! empty($opts['deposit'])) {
-                    $steps[] = ['key' => 'deposit', 'name' => 'Deposit Paid', 'follows' => 'otp', 'offset' => 3, 'completion' => 'amount_input', 'condition' => 'bond', 'pos' => 19];
+                    $steps[] = ['key' => 'deposit', 'name' => 'Deposit Paid', 'follows' => 'otp', 'offset' => 3, 'completion' => 'amount_input', 'condition' => 'bond', 'manual_due' => $date($opts['deposit_due'] ?? null), 'pos' => 19];
                 }
                 return $steps;
 
             case 'cash':
-                $n = max(1, (int) ($opts['payments'] ?? 1));
-                $steps = [
-                    ['key' => 'proof_funds', 'name' => 'Proof of Funds', 'follows' => 'otp', 'offset' => 3, 'milestone' => true, 'suspensive' => true, 'completion' => 'amount_input', 'condition' => 'cash', 'pos' => 22],
-                ];
+                // Johan's cash model: a per-deal toggle. `available` = funds in hand now → just a
+                // cash-payment step (not suspensive). `proof_later` = proof of funds now (suspensive,
+                // grants the deal) PLUS a later payment. Each payment carries its own by-when date.
+                $mode  = (($opts['funds_mode'] ?? 'available') === 'proof_later') ? 'proof_later' : 'available';
+                $n     = max(1, (int) ($opts['payments'] ?? 1));
+                $dues  = is_array($opts['payment_dues'] ?? null) ? $opts['payment_dues'] : [];
+                $steps = [];
+                if ($mode === 'proof_later') {
+                    $steps[] = ['key' => 'proof_funds', 'name' => 'Proof of Funds', 'follows' => 'otp', 'offset' => 3, 'milestone' => true, 'suspensive' => true, 'completion' => 'amount_input', 'condition' => 'cash', 'manual_due' => $date($opts['proof_due'] ?? null), 'pos' => 22];
+                }
                 for ($i = 1; $i <= $n; $i++) {
                     // Payments can sit LATE (default follows Deeds Office Lodgement); repointable per deal.
-                    $steps[] = ['key' => "payment_{$i}", 'name' => $n > 1 ? "Payment Received ({$i} of {$n})" : 'Payment Received', 'follows' => 'lodgement', 'offset' => 0, 'completion' => 'amount_input', 'condition' => 'cash', 'pos' => 90 + $i];
+                    $steps[] = ['key' => "payment_{$i}", 'name' => $n > 1 ? "Payment Received ({$i} of {$n})" : 'Payment Received', 'follows' => 'lodgement', 'offset' => 0, 'completion' => 'amount_input', 'condition' => 'cash', 'manual_due' => $date($dues[$i] ?? null), 'pos' => 90 + $i];
                 }
                 return $steps;
 
             case 'sale_of_another':
                 return [
-                    ['key' => 'linked_sold', 'name' => 'Linked Property Sold', 'follows' => 'otp', 'offset' => 0, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'sale_of_another', 'pos' => 23],
+                    ['key' => 'linked_sold', 'name' => 'Linked Property Sold', 'follows' => 'otp', 'offset' => 0, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'sale_of_another', 'manual_due' => $date($opts['property_sold_due'] ?? null), 'pos' => 23],
                 ];
         }
         return [];
