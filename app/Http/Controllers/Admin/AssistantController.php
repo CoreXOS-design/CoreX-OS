@@ -53,13 +53,21 @@ class AssistantController extends Controller
         abort_unless($request->user()->hasPermission('assistants.create'), 403);
 
         return view('admin.assistants.create', [
-            'agents' => $this->assignableAgents(),
+            'agents'            => $this->assignableAgents(),
+            'assistantsEnabled' => $request->user()->assistantsEnabledForEffectiveAgency(),
         ]);
     }
 
     public function store(Request $request)
     {
         abort_unless($request->user()->hasPermission('assistants.create'), 403);
+
+        // Defense in depth for the disabled "Create & send invite" button in the view —
+        // a direct POST must be rejected the same way, not just visually blocked.
+        if (!$request->user()->assistantsEnabledForEffectiveAgency()) {
+            return back()->withInput()->with('error',
+                'Assistants are switched off for this agency. Turn them on in Company Settings before adding one.');
+        }
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],

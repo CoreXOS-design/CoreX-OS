@@ -16,7 +16,12 @@
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @permission('assistants.create')
-                <a href="{{ route('admin.assistants.create') }}" class="corex-btn-primary text-xs">Add Assistant</a>
+                @if($assistantsEnabled)
+                    <a href="{{ route('admin.assistants.create') }}" class="corex-btn-primary text-xs">Add Assistant</a>
+                @else
+                    <span class="corex-btn-primary text-xs opacity-50 cursor-not-allowed pointer-events-none"
+                          title="Assistants are switched off for this agency. Turn them on in Company Settings first.">Add Assistant</span>
+                @endif
                 @endpermission
             </div>
         </div>
@@ -34,8 +39,8 @@
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--ds-amber, #d97706);">
             <strong>Assistants are switched off for this agency.</strong>
-            You can create assistants here, but they will not be able to do anything until Assistants is
-            enabled in Company Settings. Until then every assistant has no access at all.
+            Turn Assistants on in Company Settings before adding one — existing assistants have no access
+            at all until then.
         </div>
     @endunless
 
@@ -96,8 +101,14 @@
                     <td colspan="5" class="px-4 py-10 text-center text-sm" style="color:var(--text-muted);">
                         No assistants yet.
                         @permission('assistants.create')
-                            <a href="{{ route('admin.assistants.create') }}"
-                               style="color:var(--brand-icon, #0ea5e9);" class="font-semibold">Add the first one</a>.
+                            @if($assistantsEnabled)
+                                <a href="{{ route('admin.assistants.create') }}"
+                                   style="color:var(--brand-icon, #0ea5e9);" class="font-semibold">Add the first one</a>.
+                            @else
+                                <span class="font-semibold opacity-50 cursor-not-allowed"
+                                      style="color:var(--text-muted);"
+                                      title="Assistants are switched off for this agency. Turn them on in Company Settings first.">Add the first one</span>.
+                            @endif
                         @endpermission
                     </td>
                 </tr>

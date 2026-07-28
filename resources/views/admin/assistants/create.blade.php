@@ -28,6 +28,15 @@
         </div>
     </div>
 
+    @unless($assistantsEnabled)
+        {{-- No silent locks: say why nothing works, and say who can fix it. --}}
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--ds-amber, #d97706);">
+            <strong>Assistants are switched off for this agency.</strong>
+            Turn Assistants on in Company Settings before adding one.
+        </div>
+    @endunless
+
     {{-- Validation errors (§3.9 danger alert) --}}
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
@@ -154,7 +163,10 @@
                 {{-- Action row --}}
                 <div class="flex items-center justify-end gap-3">
                     <a href="{{ route('admin.assistants.index') }}" class="corex-btn-outline">Cancel</a>
-                    <button type="submit" data-tour="assist-create-submit" class="corex-btn-primary">Create &amp; send invite</button>
+                    <button type="submit" data-tour="assist-create-submit" class="corex-btn-primary"
+                            @unless($assistantsEnabled) disabled
+                            title="Assistants are switched off for this agency. Turn them on in Company Settings first."
+                            style="opacity:.5; cursor:not-allowed;" @endunless>Create &amp; send invite</button>
                 </div>
             </form>
         </div>
