@@ -6,6 +6,10 @@
      in PIPELINE SETUP (the granting step), NOT selected here — Johan 2026-07-20. --}}
 @php($canWoDeal = ! ($locked ?? false) && auth()->user()?->hasPermission('deals_v2.distribute_documents'))
 @if($canWoDeal && ! $steps->isEmpty())
+<style>
+    /* AT-331 — two-column Responsible | Supplier per ticked COC (class, not inline; see note below). */
+    .dr2-wo-cols{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.35rem .6rem;}
+</style>
 <div class="corex-card" style="padding:.75rem;"
      x-data="{
         loading:true, busy:false, err:'', msg:'',
@@ -102,8 +106,11 @@
                 </label>
 
                 {{-- AT-331 tweak — Responsible/recipient (left) + Supplier picker (right) sit in TWO
-                     COLUMNS side by side so each COC row is shorter; the status line spans full width below. --}}
-                <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-wrap:wrap;align-items:flex-start;gap:.35rem .6rem;">
+                     COLUMNS side by side so each COC row is shorter; the status line spans full width below.
+                     NB: the flex lives in a CLASS (.dr2-wo-cols), NOT inline — this element also has x-show,
+                     and Alpine's x-show OWNS the inline `display` property (it wipes an inline display:flex
+                     back to block when it shows the row). A class survives that. --}}
+                <div x-show="it.applies" x-cloak class="dr2-wo-cols" style="margin-top:.4rem;padding-left:1.45rem;">
                     <div style="flex:1 1 46%;min-width:150px;">
                         <label style="font-size:.66rem;color:#6b7280;display:block;">Responsible / recipient</label>
                         {{-- Responsible-party options are a CONSTANT enum (CocWorkOrderService::responsibleLabels),
