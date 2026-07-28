@@ -84,6 +84,11 @@
   #dr2ls .cadd select,#dr2ls .cadd input{font-family:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;color:#1e293b}
   #dr2ls .cadd select{max-width:150px}#dr2ls .cadd input{flex:1;min-width:120px}
   #dr2ls .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
+  /* Comments tab — sort control + header-line (step badge · date · who) */
+  #dr2ls .csort{margin-left:auto;font-size:11px;color:#64748b;display:inline-flex;align-items:center;gap:5px}
+  #dr2ls .csort select{font-family:inherit;font-size:11px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px;color:#1e293b}
+  #dr2ls .rp--comments .ctag{margin-left:0}
+  #dr2ls .rp--comments .cmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 
   @media(max-width:1100px){#dr2ls{height:auto}#dr2ls .two{grid-template-columns:1fr}#dr2ls .left{max-height:none}#dr2ls .rpane{min-height:480px}}
 </style>
@@ -218,22 +223,56 @@
           <div class="rp" x-show="tab==='email'" x-cloak role="tabpanel">@include('dr2._email-parties', ['deal' => $deal])</div>
           <div class="rp" x-show="tab==='pi'" x-cloak role="tabpanel">@include('proforma._deal-section', ['deal' => $deal])</div>
 
-          {{-- Comments tab — the SAME per-step comments UI that used to sit stacked below the panels. --}}
-          <div class="rp rp--comments" x-show="tab==='comments'" x-cloak role="tabpanel">
-            <div class="cbar"><span class="t">Comments</span><span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span></div>
+          {{-- Comments tab — per-step comments. Each comment is a HEADER line (step badge · date · who)
+               with the text on the line below, and a Sort control above the feed. The source feed is
+               chronological ascending (PipelineEventService::eventsForDeal), so `idx` is a reliable date
+               key: newest-first = idx desc. Per-step tagging + the add-comment box are kept. --}}
+          @php($commentsJs = collect($board['comments'] ?? [])->values()->map(function ($c, $i) use ($stepLabel, $board) {
+                $isDeal = ($c['scope'] ?? '') === 'deal' || ($c['step'] ?? null) === ($board['anchor_id'] ?? null);
+                return [
+                    'idx'    => $i,
+                    'step'   => $isDeal ? 'Deal' : $stepLabel($c['step'] ?? null),
+                    'isDeal' => $isDeal,
+                    'who'    => (string) ($c['who'] ?? ''),
+                    'when'   => (string) ($c['when'] ?? ''),
+                    'text'   => (string) ($c['text'] ?? ''),
+                    'type'   => (string) ($c['type'] ?? ''),
+                ];
+              })->all())
+          @php($hasTypes = collect($commentsJs)->pluck('type')->filter()->unique()->count() > 1)
+          <div class="rp rp--comments" x-show="tab==='comments'" x-cloak role="tabpanel"
+               x-data="{ sort:'date', comments: {{ \Illuminate\Support\Js::from($commentsJs) }},
+                         sorted(){ const a=[...this.comments], s=this.sort, d=(x,y)=>y.idx-x.idx;
+                           if(s==='step') a.sort((x,y)=> (x.step||'').localeCompare(y.step||'') || d(x,y));
+                           else if(s==='user') a.sort((x,y)=> (x.who||'').localeCompare(y.who||'') || d(x,y));
+                           else if(s==='type') a.sort((x,y)=> (x.type||'').localeCompare(y.type||'') || d(x,y));
+                           else a.sort(d);
+                           return a; } }">
+            <div class="cbar">
+              <span class="t">Comments</span>
+              <span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span>
+              <label class="csort">Sort
+                <select x-model="sort">
+                  <option value="date">Date (newest)</option>
+                  <option value="step">Step</option>
+                  <option value="user">User</option>
+                  @if($hasTypes)<option value="type">Type</option>@endif
+                </select>
+              </label>
+            </div>
             <div class="feed">
-              @forelse(array_reverse($board['comments'] ?? []) as $c)
-                @php($isDeal = ($c['scope'] ?? '') === 'deal' || ($c['step'] ?? null) === ($board['anchor_id'] ?? null))
+              <template x-if="comments.length===0">
+                <div style="color:#94a3b8;font-size:12px;padding:10px 0;">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
+              </template>
+              <template x-for="c in sorted()" :key="c.idx">
                 <div class="cm">
-                  <div class="av">{{ strtoupper(substr($c['who'] ?? '?', 0, 1)) }}</div>
+                  <div class="av" x-text="(c.who||'?').charAt(0).toUpperCase()"></div>
                   <div class="cm__b">
-                    <div class="cmeta"><b>{{ $c['who'] }}</b> · {{ $c['when'] }}<span class="ctag {{ $isDeal ? 'deal' : '' }}">{{ $isDeal ? 'Deal' : $stepLabel($c['step'] ?? null) }}</span></div>
-                    <div class="ctxt">{{ $c['text'] }}</div>
+                    <div class="cmeta"><span class="ctag" :class="c.isDeal ? 'deal' : ''" x-text="c.step"></span> · <span x-text="c.when"></span> · <b x-text="c.who"></b></div>
+                    <div class="ctxt" x-text="c.text"></div>
                   </div>
                 </div>
-              @empty
-                <div style="color:#94a3b8;font-size:12px;padding:10px 0;">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
-              @endforelse
+              </template>
             </div>
             @unless($locked || $board['empty'])
             <div class="cadd">

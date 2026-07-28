@@ -56,7 +56,16 @@
                 </div>
             @endif
 
-            <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;">
+            {{-- AT-331 tweak — the Send-to-party controls as a UNIFORM equal-width grid (2 per row),
+                 so they read as a neat block instead of ragged different-width buttons. Each party is
+                 one cell; the cell stretches, the label centres. --}}
+            <style>
+                .dr2-ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;align-items:stretch;}
+                .dr2-ep-grid>*{width:100%;box-sizing:border-box;margin:0;justify-content:center;text-align:center;}
+                .dr2-ep-grid>a.corex-btn-outline{display:inline-flex;align-items:center;justify-content:center;}
+                @media(max-width:520px){.dr2-ep-grid{grid-template-columns:1fr;}}
+            </style>
+            <div class="dr2-ep-grid">
                 @foreach($distParties as $p)
                     @if($p['sendable'])
                         <a href="{{ route('deals-dr2.distribute.compose', ['deal'=>$deal,'party'=>$p['role']]) }}" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">

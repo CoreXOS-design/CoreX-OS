@@ -101,8 +101,10 @@
                     <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">⚠ awaiting supplier — set one &amp; save to send</span>
                 </label>
 
-                <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-direction:column;gap:.3rem;">
-                    <div>
+                {{-- AT-331 tweak — Responsible/recipient (left) + Supplier picker (right) sit in TWO
+                     COLUMNS side by side so each COC row is shorter; the status line spans full width below. --}}
+                <div x-show="it.applies" x-cloak style="margin-top:.4rem;padding-left:1.45rem;display:flex;flex-wrap:wrap;align-items:flex-start;gap:.35rem .6rem;">
+                    <div style="flex:1 1 46%;min-width:150px;">
                         <label style="font-size:.66rem;color:#6b7280;display:block;">Responsible / recipient</label>
                         {{-- Responsible-party options are a CONSTANT enum (CocWorkOrderService::responsibleLabels),
                              identical for every COC type incl. agency-custom ones — server-rendered as real
@@ -116,7 +118,7 @@
                             @endforeach
                         </select>
                     </div>
-                    <div x-show="it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney'" x-cloak>
+                    <div x-show="it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney'" x-cloak style="flex:1 1 46%;min-width:150px;">
                         <label style="font-size:.66rem;color:#6b7280;display:block;">Supplier</label>
                         <select x-model="it.service_provider_id" :disabled="it.status==='sent'" class="corex-input" style="width:100%;font-size:.78rem;">
                             <option value="">— pick supplier —</option>
@@ -157,7 +159,7 @@
                         </div>
                         <span x-show="isSupplierFallback(it)" x-cloak style="font-size:.66rem;color:#b45309;display:block;margin-top:.15rem;">No supplier of this type — showing all, or add one above.</span>
                     </div>
-                    <div style="font-size:.66rem;color:#6b7280;">
+                    <div style="flex:1 1 100%;font-size:.66rem;color:#6b7280;">
                         <span x-show="it.status==='sent'" x-cloak>→ <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-cloak x-text="' (cc ' + it.cc_emails + ')'"></span></span>
                         {{-- AT-329 — surface WHY a trigger send failed (e.g. no email); fix + it re-sends on the next trigger fire. --}}
                         <span x-show="it.status==='failed'" x-cloak style="color:#b45309;font-weight:600;" x-text="'not sent — ' + (it.send_error || 'send failed')"></span>
