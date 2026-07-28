@@ -297,7 +297,12 @@ class SigningController extends Controller
                         $template,
                         \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                         (string) $token,
-                        $signingRequest->party_role,
+                        // AT-300 — resolve seller_2's distinct key (not seller_1).
+                        \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                            $template->parties_json,
+                            (string) $signingRequest->party_role,
+                            (int) ($signingRequest->role_index ?? 1),
+                        ),
                     );
 
                 $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
@@ -414,7 +419,12 @@ class SigningController extends Controller
                     is_array($blocksMeta) ? $blocksMeta : [],
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                     $token,
-                    $signingRequest->party_role
+                    // AT-300 — resolve seller_2's distinct key (not seller_1).
+                    \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                        $template->parties_json,
+                        (string) $signingRequest->party_role,
+                        (int) ($signingRequest->role_index ?? 1),
+                    )
                 );
 
             // Recipient Loop Engine — B2.5/B3 expansion pass. Detects role
@@ -1494,41 +1504,38 @@ class SigningController extends Controller
             ], 422);
         }
 
-        // ── OTHER-CONDITIONS AGENT-INITIAL GATE (Johan 2026-07-28) ──────────
-        // Universal rule: an "other condition" added to ANY document must be
-        // initialled by every party, and the document MUST NOT advance to any
-        // recipient until the AGENT has initialled every added condition. The
-        // agent's completion is the step that RELEASES the document to the
-        // recipients, so this is where the "cannot advance" block belongs.
-        //
-        // The client (canSubmitWeb / webIncompleteCount) already counts each
-        // `.btn-add-initial[data-condition-id]` slot, but that count is
-        // DOM-derived and bypassable (a crafted POST, or the completion JS
-        // failing after consent). This is the authoritative server-side ceiling
-        // the client contract sits above. It reads DocumentCondition +
-        // ConditionInitial rows directly, so it holds regardless of which serve
-        // path (canonical / stored snapshot / compiled) rendered the slots — the
-        // render-path independence the diagnosis called for
-        // (.ai/specs/esign-recipient-signing-fix.md, 2026-07-28 section).
-        if ($signingRequest->party_role === 'agent') {
-            $liveConditionIds = DocumentCondition::query()
-                ->where('signature_template_id', $template->id)
-                ->whereNull('superseded_at')
-                ->whereNull('deleted_at')
-                ->pluck('id');
-            if ($liveConditionIds->isNotEmpty()) {
-                $agentInitialedIds = ConditionInitial::query()
-                    ->where('initialable_type', DocumentCondition::class)
-                    ->whereIn('initialable_id', $liveConditionIds)
-                    ->where('party_key', 'agent')
-                    ->pluck('initialable_id');
-                $missing = $liveConditionIds->diff($agentInitialedIds);
-                if ($missing->isNotEmpty()) {
-                    return response()->json([
-                        'ok'    => false,
-                        'error' => 'Please initial every condition before submitting — the document cannot be sent to the other parties until you have initialled each added condition.',
-                    ], 422);
-                }
+        // ── OTHER-CONDITIONS INITIAL GATE (Johan 2026-07-28) — UNIVERSAL ────
+        // Every party (agent AND each recipient) must have initialled every added
+        // condition before THEIR signing completes: the agent's completion
+        // releases the document to the recipients, and each recipient's
+        // completion is their own consent — neither may proceed on un-initialled
+        // conditions. The client (canSubmitWeb / webIncompleteCount) already
+        // counts the slots, but that is DOM-derived and bypassable; this is the
+        // authoritative server-side ceiling, reading DocumentCondition +
+        // ConditionInitial directly (serve-path independent). Keyed by the
+        // signer's RESOLVED party_key so seller_2 is gated on seller_2's own
+        // initials, never seller_1's (.ai/specs/esign-recipient-signing-fix.md).
+        $viewerPartyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+            $template->parties_json,
+            (string) $signingRequest->party_role,
+            (int) ($signingRequest->role_index ?? 1),
+        );
+        $liveConditionIds = DocumentCondition::query()
+            ->where('signature_template_id', $template->id)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->pluck('id');
+        if ($liveConditionIds->isNotEmpty()) {
+            $mineInitialedIds = ConditionInitial::query()
+                ->where('initialable_type', DocumentCondition::class)
+                ->whereIn('initialable_id', $liveConditionIds)
+                ->where('party_key', $viewerPartyKey)
+                ->pluck('initialable_id');
+            if ($liveConditionIds->diff($mineInitialedIds)->isNotEmpty()) {
+                return response()->json([
+                    'ok'    => false,
+                    'error' => 'Please initial every condition before submitting — you must initial each added condition before your signing can be completed.',
+                ], 422);
             }
         }
 
@@ -3603,7 +3610,12 @@ CSS;
                 \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                 $signingRequest->template,
                 $token,
-                $signingRequest->party_role
+                // AT-300 — resolve seller_2's distinct key (not seller_1).
+                \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+                    $signingRequest->template?->parties_json,
+                    (string) $signingRequest->party_role,
+                    (int) ($signingRequest->role_index ?? 1),
+                )
             );
 
         // GAP 1 (A) — fold the new condition into the stored canonical so the
@@ -4047,7 +4059,16 @@ CSS;
             return response()->json(['error' => 'Condition not found on this document.'], 404);
         }
 
-        $partyKey = (string) $signingRequest->party_role;
+        // ESIGN AT-300 — attribute the initial to the signer's OWN party_key.
+        // For a 2nd+ same-role party (seller_2) party_role alone collapses onto
+        // seller_1; resolve the distinct parties_json instance from role_index so
+        // each recipient's initial is recorded against THEM. Single-instance
+        // roles (agent, lone seller) resolve back to party_role unchanged.
+        $partyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
+            $signingRequest->template?->parties_json,
+            (string) $signingRequest->party_role,
+            (int) ($signingRequest->role_index ?? 1),
+        );
         if ($partyKey === '') {
             return response()->json(['error' => 'No party_role on this signing request.'], 400);
         }

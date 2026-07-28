@@ -116,6 +116,40 @@ final class InsertableBlockRenderer
      *   The template's insertable_blocks metadata (id, purpose, label,
      *   position_marker, max_conditions, auto_number, locked, ...).
      */
+    /**
+     * ESIGN AT-300 — resolve the party_key a signer OWNS for per-condition
+     * initials. parties_json keys same-role instances distinctly (instance 1 as
+     * the base role "seller", instance N>1 as "{role}_{N}"), but a SignatureRequest
+     * only carries party_role + role_index. For SINGLE-instance roles (agent, a
+     * lone seller) this returns exactly party_role — NO behaviour change. For a
+     * 2nd+ same-role party (seller_2) it returns that instance's distinct key so
+     * their initial attributes to THEM, not to seller_1 (the multi-seller quirk).
+     * Falls back to party_role when parties_json is absent or has no index match.
+     */
+    public static function partyKeyForViewer(?array $partiesJson, string $partyRole, int $roleIndex = 1): string
+    {
+        if (! is_array($partiesJson) || $partiesJson === []) {
+            return $partyRole;
+        }
+        foreach ($partiesJson as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $role = (string) ($p['role'] ?? '');
+            if ($role === '') {
+                continue;
+            }
+            $base = preg_replace('/_\d+$/', '', $role); // "seller_2" -> "seller"
+            if (strcasecmp((string) $base, $partyRole) !== 0) {
+                continue;
+            }
+            if ((int) ($p['role_index'] ?? 1) === $roleIndex) {
+                return $role;
+            }
+        }
+        return $partyRole;
+    }
+
     public function renderInDocument(
         string $documentHtml,
         SignatureTemplate $doc,

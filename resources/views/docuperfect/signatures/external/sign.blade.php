@@ -1569,6 +1569,30 @@ function externalSign() {
                 if (this.isWebTemplate) this.updateIncompleteCount();
             });
 
+            // ESIGN AT-300 — a recipient clicked a condition-initial slot. Open
+            // the SAME draw/type modal every other initial uses (one unified
+            // signing process — no one-click on the ceremony either). Claim the
+            // event so the shared partial does NOT one-click; applySignature()
+            // applies the captured ink to the condition.
+            document.addEventListener('corex-open-condition-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                if (!d.el || d.el.classList.contains('initial-filled')) return;
+                this.activeMarker = {
+                    type: 'initial',
+                    assigned_party: d.partyKey || 'signer',
+                    label: 'Condition initial',
+                    page_number: '',
+                    _isConditionInitial: true,
+                    _conditionEl: d.el,
+                    _conditionId: d.conditionId,
+                    _conditionToken: d.token,
+                };
+                this.captureMode = 'draw';
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
             // For web templates: split into A4 pages, convert editable field spans to inputs, make sig elements interactive
             // Only init if the document container is already visible (signingMethod already set)
             if (this.isWebTemplate && this.signingMethod === 'electronic') {
@@ -2673,6 +2697,22 @@ function externalSign() {
                 const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
                 signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
+            }
+
+            // ESIGN AT-300 — condition-initial capture on the ceremony. Same modal,
+            // same ink; the drawn/typed initial is applied to THIS condition and
+            // adopted into signed_initials for this recipient (via initialCondition).
+            if (this.activeMarker._isConditionInitial) {
+                const ok = await window.__corexApplyConditionInitial(
+                    this.activeMarker._conditionEl,
+                    this.activeMarker._conditionToken,
+                    this.activeMarker._conditionId,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) this.updateIncompleteCount();
+                return;
             }
 
             const success = await this.submitSignature(this.activeMarker, signatureData, signatureType);

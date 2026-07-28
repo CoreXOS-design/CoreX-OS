@@ -147,17 +147,86 @@ final class AgentConditionInitialGateTest extends TestCase
     }
 
     /**
-     * The server block is agent-scoped: it is the agent→recipients advance that
-     * must be blocked. A recipient's OWN completion is not rejected by this gate
-     * (their per-recipient initialing stays client-gated).
+     * Multi-seller party_key quirk fixed: a 2nd seller's initial attributes to
+     * 'seller_2' (not 'seller'), and each recipient's completion gate is keyed to
+     * THEIR own initial — seller_2's initial must NOT falsely satisfy seller_1's
+     * gate, and each recipient is blocked until they personally initial.
      */
-    public function test_recipient_completion_not_blocked_by_agent_condition_gate(): void
+    public function test_second_seller_gate_and_attribution_are_distinct_from_first_seller(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2, includeAgent: true);
+        $tpl     = $session['signatureTemplate'];
+        // The resolver reads parties_json (instance 1 = "seller", instance 2 = "seller_2").
+        $tpl->update(['parties_json' => [
+            ['role' => 'agent', 'role_label' => 'agent'],
+            ['role' => 'seller', 'role_index' => 1, 'role_label' => 'seller'],
+            ['role' => 'seller_2', 'role_index' => 2, 'role_label' => 'seller'],
+        ]]);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+        $seller2 = $this->recipient($session['recipients'], 'seller', 2);
+        $cond    = $this->addOtherCondition($tpl->id);
+
+        $ink = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        // seller_2 initials → attributed to 'seller_2', NOT 'seller'.
+        $this->postJson('/sign/' . $seller2->token . '/conditions/' . $cond->id . '/initial', ['initial_image' => $ink])
+            ->assertStatus(201);
+        $this->assertDatabaseHas('condition_initials', ['initialable_id' => $cond->id, 'party_key' => 'seller_2']);
+        $this->assertDatabaseMissing('condition_initials', ['initialable_id' => $cond->id, 'party_key' => 'seller']);
+
+        $body = [
+            'consented'    => true,
+            'signatures'   => ['owner_party-sig-0' => 'data:image/png;base64,iVBORw0KGgo='],
+            'field_values' => ['seller_id_number' => '8801015800088'],
+        ];
+
+        // seller_1 is STILL blocked — seller_2's initial does not satisfy seller_1.
+        $r1 = $this->postJson('/sign/' . $seller1->token . '/complete-web', $body);
+        $this->assertStringContainsString('initial every condition', (string) $r1->json('error'));
+
+        // seller_2's own completion passes the condition gate (they initialled).
+        $r2 = $this->postJson('/sign/' . $seller2->token . '/complete-web', $body);
+        $this->assertStringNotContainsString('initial every condition', (string) ($r2->json('error') ?? ''));
+    }
+
+    /**
+     * The condition gate blocks a recipient's OWN completion until they have
+     * initialled every added condition (server-enforced, mirroring the agent).
+     */
+    public function test_recipient_completion_blocked_until_they_initial_every_condition(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: true);
+        $seller  = $this->recipient($session['recipients'], 'seller', 1);
+        $cond    = $this->addOtherCondition($session['signatureTemplate']->id);
+
+        $body = [
+            'consented'    => true,
+            'signatures'   => ['owner_party-sig-0' => 'data:image/png;base64,iVBORw0KGgo='],
+            'field_values' => ['seller_id_number' => '8801015800088'],
+        ];
+
+        $blocked = $this->postJson('/sign/' . $seller->token . '/complete-web', $body);
+        $blocked->assertStatus(422);
+        $this->assertStringContainsString('initial every condition', (string) $blocked->json('error'));
+
+        $this->postJson('/sign/' . $seller->token . '/conditions/' . $cond->id . '/initial', [
+            'initial_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        ])->assertStatus(201);
+
+        $after = $this->postJson('/sign/' . $seller->token . '/complete-web', $body);
+        $this->assertStringNotContainsString('initial every condition', (string) ($after->json('error') ?? ''));
+    }
+
+    /**
+     * A doc with NO added conditions is never blocked by this gate — the recipient
+     * (and agent) complete normally.
+     */
+    public function test_recipient_completion_not_blocked_when_no_conditions(): void
     {
         $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: true);
         $seller  = $this->recipient($session['recipients'], 'seller', 1);
 
-        $this->addOtherCondition($session['signatureTemplate']->id);
-
+        // No conditions added — the gate must not fire for anyone.
         $response = $this->postJson('/sign/' . $seller->token . '/complete-web', [
             'consented'    => true,
             'signatures'   => ['owner_party-sig-0' => 'data:image/png;base64,iVBORw0KGgo='],
