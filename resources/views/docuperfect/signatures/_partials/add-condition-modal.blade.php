@@ -86,56 +86,89 @@
         const initBtn = e.target.closest('.btn-add-initial');
         if (initBtn && !initBtn.disabled && !initBtn.classList.contains('initial-filled')) {
             e.preventDefault();
-            postInitial(initBtn);
+            // ESIGN AT-300 — UNIFIED initial capture. A condition-initial must use
+            // the SAME draw/type modal every other initial on the document uses
+            // (Johan: one signing process, not a bare click-flag). Ask the host to
+            // open its initial modal; if a host claims it (preventDefault), it will
+            // call window.__corexApplyConditionInitial() with the drawn/typed ink.
+            // If nothing claims it (a surface with no modal host), fall back to the
+            // legacy one-click capture so that surface still works.
+            const ev = new CustomEvent('corex-open-condition-initial', {
+                cancelable: true,
+                detail: {
+                    el: initBtn,
+                    conditionId: initBtn.dataset.conditionId,
+                    token: initBtn.dataset.signingToken,
+                    partyKey: initBtn.dataset.partyKey,
+                },
+            });
+            const claimed = !document.dispatchEvent(ev);
+            if (!claimed) postConditionInitial(initBtn, null);
             return;
         }
     });
 
-    // Phase 1B.7 (FIX C) — wire per-condition initial buttons to POST the
-    // initialCondition endpoint. On 201 the slot transitions to filled by
-    // mutating classes in place (avoids a full reload on every initial).
-    async function postInitial(btn) {
+    // Phase 1B.7 (FIX C) / AT-300 — POST the initialCondition endpoint, carrying
+    // the ACTUAL drawn/typed ink (data-URL) when the modal supplied it. On 201/409
+    // the slot transitions to filled in place (avoids a full reload). Returns a
+    // boolean so the modal host can react.
+    async function postConditionInitial(btn, imageData) {
         const token       = btn.dataset.signingToken;
         const conditionId = btn.dataset.conditionId;
-        const partyKey    = btn.dataset.partyKey;
-        if (!token || !conditionId) return;
+        if (!token || !conditionId) return false;
         const csrf = document.querySelector('meta[name=csrf-token]')?.content;
         const url  = `/sign/${token}/conditions/${conditionId}/initial`;
         try {
             const r = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
-                body: JSON.stringify({}),
+                body: JSON.stringify(imageData ? { initial_image: imageData } : {}),
             });
             if (r.ok || r.status === 409) {
-                // Either success OR an already-initialed conflict — repaint
-                // either way. The /409 case happens when a double-click
-                // races; the slot WAS persisted on first click, the second
-                // simply reflects that state.
-                const slot = btn;
-                slot.classList.remove('initial-active');
-                slot.classList.add('initial-filled');
-                slot.disabled = true;
-                slot.setAttribute(
-                    'style',
-                    'display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
-                    + 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;'
-                );
-                const letters = slot.querySelector('strong')?.textContent || '';
-                slot.innerHTML = '<strong style="color:#047857; letter-spacing:0.05em;">' + letters + '</strong>'
-                    + '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">just now</small>';
-                // Recipient-signing fix — the condition-initial slots are now
-                // first-class required items; refresh the submit gate so this
-                // freshly-filled slot drops out of the "N remaining" count.
+                // Either success OR an already-initialed conflict — repaint either
+                // way (a double-click race persisted on the first click).
+                repaintFilledSlot(btn, imageData);
+                // The condition-initial slots are first-class required items;
+                // refresh the submit gate so this filled slot drops out of the count.
                 document.dispatchEvent(new CustomEvent('corex-refresh-signing-count'));
-            } else {
-                const j = await r.json().catch(() => ({}));
-                alert(j.error || ('Could not initial (' + r.status + ')'));
+                return true;
             }
+            const j = await r.json().catch(() => ({}));
+            alert(j.error || ('Could not initial (' + r.status + ')'));
+            return false;
         } catch (e) {
             alert('Network error: ' + e.message);
+            return false;
         }
     }
+
+    // Repaint a slot to its filled state — showing the ACTUAL ink image when the
+    // modal captured one, else the typed-token letters (legacy one-click path).
+    function repaintFilledSlot(slot, imageData) {
+        slot.classList.remove('initial-active');
+        slot.classList.add('initial-filled');
+        slot.disabled = true;
+        slot.setAttribute(
+            'style',
+            'display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+            + 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;'
+        );
+        if (imageData && /^data:image/.test(imageData)) {
+            slot.innerHTML = '<img src="' + imageData + '" alt="Initial" '
+                + 'style="height:26px; max-height:26px; width:auto; object-fit:contain;">'
+                + '<small style="color:#065f46; font-size:0.6rem; margin-top:1px;">just now</small>';
+        } else {
+            const letters = slot.querySelector('strong')?.textContent || '';
+            slot.innerHTML = '<strong style="color:#047857; letter-spacing:0.05em;">' + letters + '</strong>'
+                + '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">just now</small>';
+        }
+    }
+
+    // Host bridge — a modal host (in-app agent sign / external ceremony) calls this
+    // after the signer draws/types their initial in the standard modal.
+    window.__corexApplyConditionInitial = function (el, token, conditionId, imageData) {
+        return postConditionInitial(el, imageData);
+    };
     // Handlers are DELEGATED on document (top of this IIFE) so they survive
     // x-html inject + pagination + in-place row append. No per-element
     // attachment / lifecycle re-binding is needed. The legacy

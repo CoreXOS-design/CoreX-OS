@@ -117,6 +117,36 @@ final class AgentConditionInitialGateTest extends TestCase
     }
 
     /**
+     * Unified initial capture: the condition-initial endpoint carries the ACTUAL
+     * drawn/typed ink (data-URL) and adopts it into web_template_data
+     * ['signed_initials'] — the SAME store every other initial uses — so the
+     * condition renders the real ink (not a bare click-flag).
+     */
+    public function test_condition_initial_adopts_the_drawn_ink_into_signed_initials(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: true);
+        $agent   = $this->recipient($session['recipients'], 'agent', 1);
+        $cond    = $this->addOtherCondition($session['signatureTemplate']->id);
+
+        $ink = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        $response = $this->postJson('/sign/' . $agent->token . '/conditions/' . $cond->id . '/initial', [
+            'initial_image' => $ink,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('condition_initials', [
+            'initialable_id' => $cond->id,
+            'party_key'      => 'agent',
+        ]);
+
+        $session['document']->refresh();
+        $adopted = $session['document']->web_template_data['signed_initials']['agent'] ?? [];
+        $this->assertNotEmpty($adopted, 'The drawn/typed ink must be adopted into signed_initials.');
+        $this->assertStringStartsWith('data:image', (string) reset($adopted));
+    }
+
+    /**
      * The server block is agent-scoped: it is the agent→recipients advance that
      * must be blocked. A recipient's OWN completion is not rejected by this gate
      * (their per-recipient initialing stays client-gated).

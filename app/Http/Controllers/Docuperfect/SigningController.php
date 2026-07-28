@@ -4077,6 +4077,29 @@ CSS;
             'user_agent'           => substr((string) $request->userAgent(), 0, 500),
         ]);
 
+        // ESIGN AT-300 — unified initial capture. The condition-initial modal
+        // (the SAME draw/type modal every other initial uses) sends the ACTUAL
+        // drawn/typed ink as a data-URL. Adopt it as this party's initial in
+        // web_template_data['signed_initials'] — the identical store page-break
+        // initials use — so the condition renders the real ink via
+        // resolveAdoptedInitial (initial_image_path is varchar(255) and cannot
+        // hold a data-URL; the ink lives with every other initial, and the
+        // ConditionInitial row is the per-condition proof-of-consent). Keyed by
+        // condition so multiple conditions coexist without clobbering.
+        $initialImage = (string) $request->input('initial_image', '');
+        if (str_starts_with($initialImage, 'data:image') && strlen($initialImage) <= 2_000_000) {
+            $document = $signingRequest->template?->document;
+            if ($document) {
+                $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
+                $signed = is_array($wtd['signed_initials'] ?? null) ? $wtd['signed_initials'] : [];
+                $group  = is_array($signed[$partyKey] ?? null) ? $signed[$partyKey] : [];
+                $group['condition_' . $condition->id] = $initialImage;
+                $signed[$partyKey] = $group;
+                $wtd['signed_initials'] = $signed;
+                $document->update(['web_template_data' => $wtd]);
+            }
+        }
+
         SignatureAuditLog::log(
             $signingRequest->template,
             'condition_initialed',

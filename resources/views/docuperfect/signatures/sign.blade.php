@@ -705,6 +705,30 @@ function signDocument() {
                 if (this.isWebTemplate) this._updateIncompleteCount();
             });
 
+            // ESIGN AT-300 — a condition-initial slot was clicked. Open the SAME
+            // draw/type initial modal every other initial uses (unified signing
+            // process). Claim the event so the shared partial does NOT one-click.
+            // applySignature() detects _isConditionInitial and applies the ink.
+            document.addEventListener('corex-open-condition-initial', (e) => {
+                e.preventDefault();
+                const d = e.detail || {};
+                if (!d.el || d.el.classList.contains('initial-filled')) return;
+                this.activeMarker = {
+                    type: 'initial',
+                    assigned_party: 'agent',
+                    label: 'Condition initial',
+                    page_number: '',
+                    _isConditionInitial: true,
+                    _conditionEl: d.el,
+                    _conditionId: d.conditionId,
+                    _conditionToken: d.token,
+                };
+                this.captureMode = 'draw';
+                this.typedName = @json($userInitials ?? '');
+                this.showSignModal = true;
+                this.$nextTick(() => this.initCanvas());
+            });
+
             // For web templates: split into A4 pages, then make elements interactive
             // Uses $nextTick + setTimeout to ensure server-rendered HTML is fully in the DOM
             if (this.isWebTemplate) {
@@ -1613,6 +1637,23 @@ function signDocument() {
                 const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
                 signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
+            }
+
+            // ESIGN AT-300 — condition-initial capture. Unified with every other
+            // initial: the drawn/typed ink is applied to THIS condition and
+            // recorded (ConditionInitial row + adopted ink in signed_initials via
+            // the initialCondition endpoint). Same capture, same modal, same ink.
+            if (this.activeMarker._isConditionInitial) {
+                const ok = await window.__corexApplyConditionInitial(
+                    this.activeMarker._conditionEl,
+                    this.activeMarker._conditionToken,
+                    this.activeMarker._conditionId,
+                    signatureData,
+                );
+                this.showSignModal = false;
+                this.applying = false;
+                if (ok) this._updateIncompleteCount();
+                return;
             }
 
             // Web template initials: apply to the initial element directly
