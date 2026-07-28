@@ -44,6 +44,22 @@
   #dr2ls .left .dr2-bt--danger{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
   #dr2ls .left .dr2-bt--dis{color:#c7cdd6!important;border-color:#eef2f7!important;background:#fafbfc!important;cursor:not-allowed}
 
+  /* Compact each LEFT-list step ROW to ~2 lines. The shared tile stacks head / tags / meta / sub as
+     separate BLOCKS (≈6 lines of wasted vertical space); flatten them onto ONE flex row here so
+     line 1 = grip · dot · name · offset(+Nd) · ★ · date … status badge (far right), and line 2 = the
+     action pills. Scoped to #dr2ls .left ONLY — the shared partial markup and the Timeline tiles are
+     untouched. Grip, status dot, and every action/behaviour are kept; button STYLING is not changed. */
+  #dr2ls .left .dr2-tile{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:2px}
+  #dr2ls .left .dr2-tile__head{flex:0 1 auto;min-width:0;align-items:center}
+  #dr2ls .left .dr2-tile__rag{margin-top:0}
+  #dr2ls .left .dr2-tile__name{line-height:1.2}
+  #dr2ls .left .dr2-tile__tags{flex:0 0 auto;margin:0;min-height:0;align-items:center}
+  #dr2ls .left .dr2-tile__meta{flex:1 1 120px;min-width:100px;margin:0}
+  /* "Waiting on X" / warn / gate notes: keep them, but as one small muted line tucked under the name —
+     never a whole tall line. */
+  #dr2ls .left .dr2-tile__sub,#dr2ls .left .dr2-tile__warnnote,#dr2ls .left .dr2-tile__gatenote{flex:1 0 100%;order:9;margin:0 0 0 20px;line-height:1.2}
+  #dr2ls .left .dr2-tile__btns{flex:1 0 100%;order:10;margin-top:3px}
+
   /* RIGHT — wider rail: deal panels on TOP, comments BELOW */
   /* RIGHT — a SINGLE tabbed pane (deal panels + a Comments tab). One tab at a time, full-height,
      nothing stacked. */
