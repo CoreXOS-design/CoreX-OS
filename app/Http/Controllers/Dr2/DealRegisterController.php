@@ -58,7 +58,11 @@ class DealRegisterController extends Controller
 
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'deals');
-        $query = Deal::query()->visibleTo($user)->with('agents');
+        // withCount('pipelineSteps') powers the register's pipeline label: a deal has a "Pipeline"
+        // once it has step instances — whether attached from a template OR composed from the Deal
+        // Structure tab (composable deals carry no deal_pipeline_template_id, so template alone is
+        // not a reliable signal). pipelineSteps is anchored via dr1_deal_id and excludes trashed.
+        $query = Deal::query()->visibleTo($user)->with('agents')->withCount('pipelineSteps');
 
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
