@@ -1661,7 +1661,25 @@
                 <div class="corex-nav-panel-title">Company</div>
 
                 @permission('manage_performance_settings')
-                <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">Company Settings</a>
+                @php
+                    // Sidebar badge: count of testimonials captured but not yet
+                    // published to the website. Only shown to users who can act
+                    // on it. Bust via ContactTestimonialObserver. Spec §14.
+                    $pendingTestimonialCount = 0;
+                    if (auth()->user()->hasPermission('testimonials.publish')) {
+                        $pendingTestimonialCount = cache()->remember(
+                            'testimonials.pending_count.' . (auth()->user()->agency_id ?? 'all'),
+                            60,
+                            fn () => \App\Models\ContactTestimonial::where('published', false)->count()
+                        );
+                    }
+                @endphp
+                <a href="{{ route('admin.company-settings') }}" class="corex-nav-subitem {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">
+                    Company Settings
+                    @if($pendingTestimonialCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($pendingTestimonialCount) }}</span>
+                    @endif
+                </a>
                 @endpermission
 
                 {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}

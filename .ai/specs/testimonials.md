@@ -332,4 +332,49 @@ After editing .env: `php artisan config:clear` (and re-`config:cache` if cached)
 **Modify:** `app/Http/Controllers/Api/V1/ClientPortalController.php`
 (`testimonials`, `testimonialCreate` + `shapeTestimonial`/`resolveTestimonialDisplayName`),
 `routes/api.php` (client group).
+
+---
+
+## 14. Sidebar pending-count badge on "Company Settings" (added 2026-07-28)
+
+Every testimonial arrives on the agency's radar the moment an agent captures
+one (§1) or a client submits one (§13) — but until now the only signal that
+something is waiting to be curated was opening Company Settings → Website and
+looking. A principal had no way to tell, from the sidebar, that a testimonial
+was sitting unpublished. This closes that gap with the same badge pattern
+already used for Verification Queue and Compliance Reporting.
+
+### 14.1 What it does
+The **Company Settings** sidebar link (`resources/views/layouts/corex-sidebar.blade.php`)
+shows a small amber pill with the count of the agency's unpublished testimonials
+(`published = false`, not soft-deleted) whenever that count is greater than
+zero. It disappears the moment the count reaches zero — i.e. once every
+outstanding testimonial has been published or deleted from Company Settings →
+Website → Testimonials (§6.2).
+
+No new column, no new state machine — this reads the same `published` boolean
+that already gates the public website (§3.1), it does not introduce a
+separate "seen/unseen" concept. "Pending" = "captured but not yet published."
+
+### 14.2 Visibility
+Gated by `testimonials.publish` (§8) — the same permission that lets a user
+act on the toggle in Company Settings. A user who cannot publish testimonials
+is never shown a count they cannot do anything about.
+
+### 14.3 Implementation
+- **Count:** `App\Models\ContactTestimonial::where('agency_id', $agencyId)->where('published', false)->count()`, cached 60s per agency (`testimonials.pending_count.{agencyId}`) — identical shape to the existing `pending-verification-count-{agencyId}` and `wb-pending-{agencyId}` sidebar caches.
+- **Cache busting:** `App\Observers\ContactTestimonialObserver` (already the single place that reacts to created/updated/deleted for the webhook fan-out, §5) forgets the agency's `testimonials.pending_count.{agencyId}` key on every `created`, `updated`, and `deleted` hook, so the badge reflects reality immediately (publish/unpublish/delete/new-submission) rather than waiting out the 60s TTL. This mirrors the existing rule that the observer is the single reaction point for this model — no second cache-busting call is added elsewhere (controllers stay unaware of the cache).
+- **Markup:** same pill classes as `pendingVerificationCount` (`corex-sidebar.blade.php` — Verification Queue), placed inside the Company Settings `<a>` tag, right after the label text.
+
+### 14.4 Acceptance criteria
+- [ ] A user with `testimonials.publish` sees an amber pill with the correct unpublished count next to "Company Settings" whenever it is > 0.
+- [ ] A user without `testimonials.publish` never sees the badge.
+- [ ] Capturing a new testimonial (agent or client) increments the badge on next page load.
+- [ ] Publishing, unpublishing, or deleting a testimonial in Company Settings → Website updates the badge on next page load — no stale count, no manual cache clear needed.
+- [ ] The badge is agency-scoped — Agency A's count never includes Agency B's testimonials.
+- [ ] Count reaching zero removes the pill entirely (no "0" badge ever shown).
+
+### 14.5 Files
+**Modify:** `resources/views/layouts/corex-sidebar.blade.php` (badge markup),
+`app/Observers/ContactTestimonialObserver.php` (cache-forget on created/updated/deleted).
 </content>
