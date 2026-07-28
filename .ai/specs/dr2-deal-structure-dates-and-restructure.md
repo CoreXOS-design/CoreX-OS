@@ -219,6 +219,13 @@ Instructed 3 Aug — Stage-2 (Transfer & Registration) steps predated the grant.
 deals. Behavioural delta to flag: manual Dues now propagate to successors (previously islands) —
 this is intended and required for editable condition dates.
 
+**Grant-anchor semantics — CONFIRMED actual-aware (Johan, 2026-07-28).** When a suspensive
+condition is COMPLETED EARLY, the grant anchors to its ACTUAL date, not its planned due — so a
+met condition no longer holds the deal back to its original due. For every not-yet-granted deal
+(all suspensive still pending) this is identical to "grant = latest suspensive due". Worked
+example (deal 183): Bond Approved completed 27 Jul (due 26 Aug), Proof of Funds still pending
+(due 31 Jul) → grant = 31 Jul (the binding pending condition), Stage-2 follows from there.
+
 ---
 
 ### Already done (context — the two quick fixes that preceded this spec)
