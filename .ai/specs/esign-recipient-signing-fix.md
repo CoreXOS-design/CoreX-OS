@@ -204,3 +204,46 @@ per-document selector (`target_doc_index`), live preview marker render, bridge
 scoped routing to `other_conditions__<docKey>`. QA1 `7e4f1885`,
 `esign-input-followup` `4a2ebf5c`. See `esign-otherconditions-closure-stepdata-scope`
 memory. Pack proof doc 485; MDF 472; Addendum B 481; seeded 2-doc pack 477.
+
+---
+
+## OTHER-CONDITIONS INITIAL RULE + render/enforcement diagnosis (Johan 2026-07-28)
+
+> **AUTHORITATIVE. Overrides anything above it that conflicts. Read before building the e-sign other-conditions fix.**
+> Status at capture: the agent-initial-per-condition requirement is **NOT enforced** in practice (see diagnosis). This section is the durable brief for the later build — no app code / no DB writes were made when it was written.
+
+### 1) AUTHORITATIVE RULE (Johan) — universal, not document-specific
+
+Whenever an **"other condition" clause is added to ANY document** (any e-sign doc — MDF, Addendum B, mandate pack, rental, anything — not just the doc where the defect was seen), **ALL parties must AGREE to it and INITIAL it**: the **agent AND every recipient/signer**. The document **MUST be blocked from advancing to any recipient** until **every party has initialled every added condition**. This is a hard gate, not a UI nicety.
+
+- The rule is UNIVERSAL. Do not scope the fix to Addendum B or to the doc in the repro. Any document that gains an other-condition clause is subject to it.
+- Every added condition needs a per-party initial slot for **each** party; none may be skipped.
+- Advancing to recipients is forbidden until the agent (and, in turn, each recipient) has initialled **every** added condition.
+
+**Acceptance flow to prove (must pass before the fix is "done"):**
+1. Pick **Addendum B**.
+2. Fill-and-sign as the agent.
+3. Add a clause under **OTHER CONDITIONS** (`+ Add condition`).
+4. An **agent-initial control appears next to that clause**.
+5. The **agent must initial it** — the document cannot be submitted/advanced while it is un-initialled.
+6. **Only then** may it advance to recipients.
+7. Each **recipient must likewise initial** that clause on their signing view before they can complete.
+
+### 2) DIAGNOSIS (from the 2026-07-28 read-only forensic)
+
+- The requirement is currently enforced **only by a bypassable CLIENT-side DOM count** of `.btn-add-initial[data-condition-id]` slots in `resources/views/docuperfect/signatures/external/sign.blade.php` (`_computeIncompleteItems()` / `_computeWebCounts()`, commit `4339980e`).
+- The **SERVER floor does NOT check condition-initials.** `SigningController::completeWeb()` (`app/Http/Controllers/Docuperfect/SigningController.php:1439-1453`, AT-293) enforces only: consent + at least one signature/initial + (if editable fields) fill one. Condition-initialing is explicitly outside that floor. A crafted or JS-failed POST advances the doc regardless.
+- On the repro doc (**spec's "doc 481"** = `signature_templates.document_id=481` / template **112**; the *current* "Test condition on the addendum B" is on **template id=123 / document_id=492**) the **DATA is correct**:
+  - `parties_json` **contains a `role='agent'` party** (Johan Reichel) alongside `seller` / `seller_2`.
+  - A **structured `document_conditions` row exists**: `id=34`, `signature_template_id=123`, `block_purpose='other_conditions'`, live (not soft-deleted), `content="Test condition on the addendum B"`. It is present as a structured row **and** in `other_conditions_text` — so it is NOT the legacy-text-only fallback path.
+- Therefore this is a **RENDER-PATH bug, not a data bug.** Both preconditions the fix needs are satisfied, yet the agent's signing HTML does not contain the condition-initial slots, so the client count reads zero and nothing is required.
+  - Ruled out: the **compiled-serving** path — `compiled_templates` table is **empty**, so `show()` never takes the `renderForSigning` branch.
+  - The slots emit **only on a fresh `InsertableBlockRenderer` render under `CONTEXT_RECIPIENT_SIGNING`** (`InsertableBlockRenderer::renderInitialSlotsForCondition`, the `$isMine` gate at ~L434-437 requires `CONTEXT_RECIPIENT_SIGNING`).
+  - **Leading suspect:** the **stored `merged_html` snapshot branch at `SigningController.php:338-339` short-circuits ahead of the fix's fresh render at ~L389.** A snapshot baked at agent-prep time (`CONTEXT_AGENT_PREPARATION`) carries condition rows with **no active agent slot** (because `$isMine` demands the recipient-signing context), so the served HTML lacks `.btn-add-initial[data-condition-id]` for the agent. (Not fully confirmed from data alone — `merged_html` is not a column on `signature_templates`; confirm the exact source in code during the build.)
+- Fix `4339980e` **is deployed** on serving QA1 (HEAD `845e914b`; markers present in the served blade). It works on the pack/MDF (doc 485, where it was proven) but not on the snapshot-served Addendum B agent path — the fix's proof never exercised Addendum B's agent-signing flow, and there is **no automated test** covering the gate.
+
+### 3) FIX DIRECTION (for the later build — DO NOT build now)
+
+- **(a) Render:** ensure condition-initial slots render for **every party incl. the agent** on **ANY** document that has an added other-condition, **regardless of the serve/snapshot path** (fresh render, stored `merged_html`, or any future path). The slot's presence must not depend on which serving branch `show()` happens to take.
+- **(b) Server enforcement:** add a **server-side gate** that **blocks advancing to recipients until every party has initialled every added condition** — do not rely on the client DOM count. This closes the AT-293 floor gap for conditions specifically.
+- **(c) Test:** include an **automated test** asserting **"add condition → agent forced to initial before advance"** (and, ideally, the recipient leg too). Lands in `tests/Feature/Docuperfect/SigningView/` per the pipeline gate. There is currently **zero** test coverage of this gate.
