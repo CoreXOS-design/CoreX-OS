@@ -119,6 +119,22 @@
   #dr2tl .ttile.draggable{cursor:grab}
   #dr2tl .ttile.dragging{cursor:grabbing;z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28);opacity:.95}
 
+  /* projected tiles — start inferred (due − offset), not yet committed: dashed border + a small tag */
+  #dr2tl .ttile.projected{border-style:dashed;border-color:#c7d2fe;background:#fcfdff}
+  #dr2tl .ttile.projected::before{opacity:.5}
+  #dr2tl .projtag{font-size:8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6366f1;background:#eef2ff;border:1px solid #e0e7ff;border-radius:5px;padding:1px 4px;flex:0 0 auto}
+  /* 📅 set-dates control (header, right-aligned) */
+  #dr2tl .th .setdates{margin-left:auto;flex:0 0 auto;border:1px solid #e2e8f0;background:#fff;border-radius:5px;font-size:10px;line-height:1;padding:2px 5px;cursor:pointer}
+  #dr2tl .th .setdates:hover{background:#eff6ff;border-color:#bfdbfe}
+  /* edge-drag resize handles (dated, non-terminal tiles only) */
+  #dr2tl .rhandle{position:absolute;top:0;bottom:0;width:9px;z-index:6;cursor:ew-resize;touch-action:none;background:transparent}
+  #dr2tl .rhandle.rleft{left:0;border-radius:10px 0 0 10px}
+  #dr2tl .rhandle.rright{right:0;border-radius:0 10px 10px 0}
+  #dr2tl .ttile:hover .rhandle{background:rgba(37,99,235,.14)}
+  #dr2tl .rhandle:hover{background:rgba(37,99,235,.32)!important}
+  #dr2tl .ttile.resizing{z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28)}
+  #dr2tl .ed-note{font-size:11px;color:#4f46e5;background:#eef2ff;border-radius:7px;padding:6px 9px;margin-top:2px;line-height:1.35}
+
   /* footer comments */
   #dr2tl .foot{flex:0 0 200px;background:#fff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 14px 14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
   #dr2tl .cbar{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
@@ -185,6 +201,7 @@
   @else
   @php($base = \Illuminate\Support\Carbon::parse($board['base_date']))
   @php($dstr = fn ($d) => $base->copy()->addDays((int) $d)->format('j M'))
+  @php($dstrIso = fn ($d) => $base->copy()->addDays((int) $d)->format('Y-m-d'))
   @php($days = (int) $board['days'])
   @php($W = $PADX + $days * $DAYW + 40)
   @php($tiles = collect($board['tiles']))
@@ -203,7 +220,7 @@
   <div class="mid">
     <div class="midbar">
       <span class="t">Timeline</span>
-      <span class="hint">tiles stretch to their duration · overlapping tiles stack underneath · 💬 marks comments on the date made</span>
+      <span class="hint">tiles stretch to their duration · overlapping tiles stack underneath · <b>drag a tile to reschedule</b> · <b>drag an edge to resize</b> · 📅 sets exact dates · dashed = projected · 💬 marks comments on the date made</span>
       <div class="legend">
         <span class="lg"><span class="sw done"></span>Done</span>
         <span class="lg"><span class="sw active"></span>Active</span>
@@ -289,23 +306,58 @@
           @php($isDone = $s && $s->status === 'completed')
           @php($isNa = $s && $s->status === 'skipped' && ! empty($s->na_reason))
           @php($cc = $commentCount[(int) $tile['id']] ?? 0)
-          @php($canDrag = $s && !$locked && !$terminal)
-          <div class="ttile {{ $tile['status'] }}{{ $canDrag ? ' draggable' : '' }}" style="left:{{ $left }}px;width:{{ $width }}px;top:{{ $top }}px;"
+          @php($projected = $s && !empty($tile['projected']))
+          @php($canDrag = $s && !$locked && !$terminal && !$projected)
+          @php($canResize = $s && !$locked && !$terminal && !$projected)
+          @php($startIso = $s && $s->planned_start_date ? $s->planned_start_date->format('Y-m-d') : $dstrIso($tile['start']))
+          @php($dueIso = $s && $s->due_date ? $s->due_date->format('Y-m-d') : $dstrIso((int) $tile['start'] + (int) $tile['dur']))
+          <div class="ttile {{ $tile['status'] }}{{ $projected ? ' projected' : '' }}{{ $canDrag ? ' draggable' : '' }}" style="left:{{ $left }}px;width:{{ $width }}px;top:{{ $top }}px;"
                data-step-id="{{ $tile['id'] }}" data-start="{{ (int) $tile['start'] }}" data-dur="{{ (int) $tile['dur'] }}"
+               data-startdate="{{ $startIso }}" data-due="{{ $dueIso }}"
                @if($canDrag) data-draggable="1" @endif
-               @if($s && !$locked) x-data="{done:false,due:false,seq:false,na:false,cm:false}" @endif>
+               @if($canResize) data-resizable="1" @endif
+               @if($s && !$locked) x-data="{done:false,due:false,seq:false,na:false,cm:false,ed:false}" @endif>
             <div class="th">
               <span class="dot {{ $tile['status'] }}"></span>
               <span class="nm" title="{{ $tile['name'] }}">{{ $tile['name'] }}</span>
               @if(!empty($tile['star']))<span class="star" title="Suspensive condition">★</span>@endif
+              @if($projected)<span class="projtag" title="Projected start (due date − offset) — no start date is set. Use 📅 to confirm the real dates.">proj</span>@endif
+              @unless($locked)<button type="button" class="setdates" @click="ed=true" title="Set exact start &amp; end dates">📅</button>@endunless
             </div>
-            <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}</div>
+            <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}{{ $projected ? ' · projected' : '' }}</div>
 
             @if($s)
             @include('dr2._pipeline-timeline-actions', ['s' => $s, 'cc' => $cc])
             @endif
 
+            @if($canResize)
+              <span class="rhandle rleft" title="Drag to change the start date"></span>
+              <span class="rhandle rright" title="Drag to change the end date"></span>
+            @endif
+
             @if($cc)<span class="pin" title="{{ $cc }} comment(s)">{{ $cc }}</span>@endif
+
+            {{-- Edit-dates control: set BOTH start & end directly (posts to the existing editDates route via
+                 AJAX, then reloads the timeline). Works for projected tiles too — this is how an undated
+                 step commits real dates from the timeline. --}}
+            @if($s && !$locked)
+            <template x-teleport="body"><div class="dr2-modal" x-show="ed" x-cloak @keydown.escape.window="ed=false">
+              <div class="dr2-modal__bg" @click="ed=false"></div>
+              <div class="dr2-modal__card">
+                <h4 class="dr2-modal__h">Set dates — “{{ $s->name }}”</h4>
+                <form onsubmit="return dr2tlSaveDates(event, {{ (int) $tile['id'] }})">
+                  <label class="dr2-modal__lb">Start
+                    <input type="date" name="planned_start_date" value="{{ $startIso }}" class="corex-input" required>
+                  </label>
+                  <label class="dr2-modal__lb">End (due)
+                    <input type="date" name="due_date" value="{{ $dueIso }}" class="corex-input" required>
+                  </label>
+                  @if($projected)<div class="ed-note">These dates are currently <b>projected</b> from the due date and offset. Saving commits them as this step's real start &amp; end.</div>@endif
+                  <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="ed=false">Cancel</button><button type="submit" class="corex-btn-primary">Save dates</button></div>
+                </form>
+              </div>
+            </div></template>
+            @endif
           </div>
         @endforeach
 
@@ -408,7 +460,7 @@
     root.querySelectorAll('.ttile[data-draggable="1"]').forEach(el=>{
       el.addEventListener('pointerdown', e=>{
         if(e.button!==0) return;
-        if(e.target.closest('button,form,a,input,select,label,.tacts,template')) return;
+        if(e.target.closest('button,form,a,input,select,label,.tacts,template,.rhandle')) return;
         const stepId=el.dataset.stepId, origStart=parseInt(el.dataset.start)||0, dur=parseInt(el.dataset.dur)||1;
         const name=((el.querySelector('.nm')||{}).textContent||'step').trim();
         const sub=el.querySelector('.sub'), subHtml=sub?sub.innerHTML:'';
@@ -442,6 +494,72 @@
       });
     });
   })();
+
+  // ---- edge-drag RESIZE (dated, non-terminal tiles only): grab a tile's left/right edge to change its
+  //      start / end. Persisted through the EXISTING editDates route (POST .../dates) then a reload — no
+  //      new endpoint, no shared file touched. Projected/undated tiles are NOT edge-resizable; they use
+  //      the 📅 Set-dates modal to commit real dates. ----
+  (function(){
+    const BASE = root.dataset.base ? new Date(root.dataset.base+'T00:00:00') : null;
+    const DAYW = parseInt(root.dataset.dayw)||21, PADX = parseInt(root.dataset.padx)||14;
+    if(!BASE) return;
+    const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const addDays=n=>{const d=new Date(BASE.getTime());d.setDate(d.getDate()+n);return d;};
+    const isoDay=n=>{const d=addDays(n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+    const fmtShort=n=>{const d=addDays(n);return d.getDate()+' '+MON[d.getMonth()];};
+    const xForDay=n=>PADX+n*DAYW;
+    const postDates=(stepId,startIso,dueIso)=>fetch(CBASE+'/'+stepId+'/dates',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify({planned_start_date:startIso,due_date:dueIso})});
+
+    root.querySelectorAll('.ttile[data-resizable="1"]').forEach(el=>{
+      const stepId=el.dataset.stepId;
+      const origStart=parseInt(el.dataset.start)||0, origDur=parseInt(el.dataset.dur)||1;
+      const sub=el.querySelector('.sub'); const subHtml=sub?sub.innerHTML:'';
+      const baseLeft=parseInt(el.style.left)||xForDay(origStart), baseW=parseInt(el.style.width)||(origDur*DAYW-4);
+      el.querySelectorAll('.rhandle').forEach(h=>{
+        const isRight=h.classList.contains('rright');
+        h.addEventListener('pointerdown', e=>{
+          if(e.button!==0) return; e.stopPropagation(); e.preventDefault();
+          let ns=origStart, ne=origStart+origDur, moved=false; const sx=e.clientX;
+          el.classList.add('resizing');
+          try{h.setPointerCapture(e.pointerId);}catch(_){}
+          const revert=()=>{el.style.left=baseLeft+'px';el.style.width=baseW+'px';if(sub)sub.innerHTML=subHtml;};
+          const move=ev=>{
+            const dd=Math.round((ev.clientX-sx)/DAYW); if(dd!==0)moved=true;
+            if(isRight){ ne=Math.max(origStart+1, origStart+origDur+dd); }
+            else { ns=Math.max(0, Math.min(origStart+origDur-1, origStart+dd)); }
+            el.style.left=xForDay(ns)+'px'; el.style.width=Math.max(46,(ne-ns)*DAYW-4)+'px';
+            if(sub)sub.innerHTML='<span class="d">'+(ne-ns)+'d</span> · '+fmtShort(ns)+' → '+fmtShort(ne);
+          };
+          const up=()=>{
+            el.classList.remove('resizing');
+            try{h.releasePointerCapture(e.pointerId);}catch(_){}
+            h.removeEventListener('pointermove',move);h.removeEventListener('pointerup',up);h.removeEventListener('pointercancel',up);
+            if(!moved || (ns===origStart && ne===origStart+origDur)){ revert(); return; }
+            postDates(stepId, isoDay(ns), isoDay(ne)).then(r=>{
+              if(r && r.status===422){ r.json().then(j=>toast((j&&j.message)||'Could not save the new dates.')).catch(()=>toast('Could not save the new dates.')); revert(); return; }
+              window.location.reload();
+            }).catch(()=>{ toast('Network error saving dates.'); revert(); });
+          };
+          h.addEventListener('pointermove',move);h.addEventListener('pointerup',up);h.addEventListener('pointercancel',up);
+        });
+      });
+    });
+  })();
+
+  // Direct SET-DATES from the 📅 modal (dated OR projected tiles). Posts both dates to the existing
+  // editDates route, then reloads the timeline. The 302→list redirect is not followed (redirect:manual).
+  window.dr2tlSaveDates=function(ev, stepId){
+    ev.preventDefault();
+    const form=ev.target;
+    const start=form.querySelector('input[name=planned_start_date]').value;
+    const due=form.querySelector('input[name=due_date]').value;
+    if(!start||!due){ toast('Set both a start and an end date.'); return false; }
+    if(due<start){ toast('The end date must be on or after the start.'); return false; }
+    fetch(CBASE+'/'+stepId+'/dates',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify({planned_start_date:start,due_date:due})})
+      .then(r=>{ if(r && r.status===422){ r.json().then(j=>toast((j&&j.message)||'Could not save the dates.')).catch(()=>toast('Could not save the dates.')); return; } window.location.reload(); })
+      .catch(()=>toast('Network error saving dates.'));
+    return false;
+  };
 })();
 </script>
 @endpush

@@ -42,26 +42,28 @@ class PipelineTimelineService
             return ['empty' => true, 'day_width' => 21];
         }
 
-        // Only steps with BOTH a start and an end can sit on a date axis.
-        $steps = $allSteps->filter(fn ($s) => $s->planned_start_date && $s->due_date)->values();
+        // Every step with an END (due_date) can sit on the axis: a dated step uses its real span; a step
+        // with a due date but NO start gets a DISPLAY-ONLY projected start (due − days_offset) so the
+        // timeline is never blank when a deal's steps were only ever given due dates (deal 183). Only a
+        // step with NO due date at all cannot be placed (no end to anchor a bar) → the Unscheduled tray.
+        $placeable = $allSteps->filter(fn ($s) => $s->due_date)->values();
 
         // Deal-level comment target = the composer's anchor (Deal Signed), else the first step, so the
         // footer's "General (deal)" option always has a real step to attach a deal-scope note to.
         $anchor   = app(\App\Services\DealV2\DealLaneComposer::class)->board($allSteps)['anchor'] ?? null;
         $anchorId = $anchor ? (int) $anchor->id : (int) (optional($allSteps->first())->id ?? 0);
 
-        // Steps that cannot be positioned on the axis (missing a start or end) go to the PERSISTENT
-        // "Unscheduled" tray — ALWAYS populated, never silently dropped (spec §2/§3). This is populated
-        // even when NO step is dated (deal 183: 17 undated steps must all show).
+        // The PERSISTENT "Unscheduled" tray now carries ONLY steps that genuinely cannot be placed — the
+        // ones with no due date at all. Everything with a due date is projected onto the axis below, so a
+        // deal whose steps have due dates but no starts is fully populated instead of dumped in the tray.
         $unscheduled = $allSteps
-            ->filter(fn ($s) => ! ($s->planned_start_date && $s->due_date))
+            ->filter(fn ($s) => ! $s->due_date)
             ->map(fn ($s) => ['id' => (int) $s->id, 'name' => $s->name])
             ->values()->all();
 
-        // No step is dated → there is no date axis to draw, but the deal is NOT empty: return an empty
-        // axis (so the view still renders) and let the Unscheduled tray carry every step. Removing this
-        // is the exact regression from 5228d94a, which early-returned empty and discarded all steps.
-        if ($steps->isEmpty()) {
+        // No step has a due date → nothing can be placed on an axis, but the deal is NOT empty: return an
+        // empty axis (so the view still renders) and let the Unscheduled tray carry every step.
+        if ($placeable->isEmpty()) {
             $base = Carbon::now()->startOfDay();
             return [
                 'empty'       => false,
@@ -80,8 +82,14 @@ class PipelineTimelineService
             ];
         }
 
-        $base   = $steps->reduce(fn ($c, $s) => ($c === null || $s->planned_start_date->lt($c)) ? $s->planned_start_date->copy() : $c)->startOfDay();
-        $maxEnd = $steps->reduce(fn ($c, $s) => ($c === null || $s->due_date->gt($c)) ? $s->due_date->copy() : $c)->startOfDay();
+        // Effective (real-or-projected) span per placeable step. Pure in-memory — never persisted.
+        $spans = [];
+        foreach ($placeable as $s) {
+            $spans[(int) $s->id] = $this->projectedSpan($s);
+        }
+
+        $base   = collect($spans)->reduce(fn ($c, $sp) => ($c === null || $sp['start']->lt($c)) ? $sp['start']->copy() : $c)->startOfDay();
+        $maxEnd = collect($spans)->reduce(fn ($c, $sp) => ($c === null || $sp['end']->gt($c)) ? $sp['end']->copy() : $c)->startOfDay();
         $idx    = fn (Carbon $d) => (int) $base->diffInDays($d->copy()->startOfDay(), false);
         $days   = max(7, $idx($maxEnd) + 5);
 
@@ -93,9 +101,10 @@ class PipelineTimelineService
 
         $tiles = [];
         $gates = [];
-        foreach ($steps as $s) {
-            $startI = $idx($s->planned_start_date);
-            $endI   = $idx($s->due_date);
+        foreach ($placeable as $s) {
+            $sp     = $spans[(int) $s->id];
+            $startI = $idx($sp['start']);
+            $endI   = $idx($sp['end']);
             if ($s->is_milestone) {
                 $gates[] = [
                     'id'    => (int) $s->id,
@@ -106,12 +115,13 @@ class PipelineTimelineService
                 continue;
             }
             $tiles[] = [
-                'id'     => $s->id,
-                'name'   => $s->name,
-                'start'  => $startI,
-                'dur'    => max(1, $endI - $startI),
-                'status' => $statusOf($s),
-                'star'   => (bool) $s->is_suspensive,
+                'id'        => $s->id,
+                'name'      => $s->name,
+                'start'     => $startI,
+                'dur'       => max(1, $endI - $startI),
+                'status'    => $statusOf($s),
+                'star'      => (bool) $s->is_suspensive,
+                'projected' => $sp['projected'],
             ];
         }
 
@@ -185,6 +195,34 @@ class PipelineTimelineService
             'unscheduled' => $unscheduled,
             'comments'    => $comments,
         ];
+    }
+
+    /**
+     * The effective (real-or-projected) span of a placeable step, for positioning on the axis. A step
+     * that has a real planned_start_date uses it as-is. A step with a due date but NO start gets a
+     * DISPLAY-ONLY projected start = due − days_offset: in the DR2 model a step's start is its
+     * predecessor's due date, so its own days_offset IS its span, which reconstructs where the start
+     * WOULD sit without ever writing to the DB. The offset is floored at 0 and the start clamped to ≤ end
+     * so a missing/negative offset can never invert the bar. Returns Carbon start/end + a projected flag
+     * (true when the start was inferred) the view uses to mark the tile and withhold drag-to-reschedule.
+     */
+    private function projectedSpan(DealStepInstance $s): array
+    {
+        $end = $s->due_date->copy()->startOfDay();
+
+        if ($s->planned_start_date) {
+            $start     = $s->planned_start_date->copy()->startOfDay();
+            $projected = false;
+        } else {
+            $start     = $end->copy()->subDays(max(0, (int) $s->days_offset));
+            $projected = true;
+        }
+
+        if ($start->gt($end)) {
+            $start = $end->copy();
+        }
+
+        return ['start' => $start, 'end' => $end, 'projected' => $projected];
     }
 
     /**
