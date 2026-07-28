@@ -41,9 +41,8 @@ class PipelineListController extends Controller
         }
 
         $ctx = $this->pipelineContext($deal);
-        // The phased board payload — same stage grouping + comment feed the timeline uses, so the
-        // List reads as kanban cards under the SAME stage sections.
-        $ctx['board'] = $this->timeline->buildPhased($deal);
+        // The mockup board payload gives the same comments feed the timeline uses.
+        $ctx['board'] = $this->timeline->buildBoard($deal);
 
         return view('dr2.pipeline-list', $ctx);
     }

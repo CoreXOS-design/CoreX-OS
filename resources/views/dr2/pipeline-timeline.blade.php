@@ -101,9 +101,23 @@
   #dr2tl .cpin.step{border-color:#2563eb;color:#2563eb}
   #dr2tl .cpin .stem{position:absolute;bottom:100%;left:50%;width:1.5px;height:12px;background:currentColor;opacity:.35}
 
-  /* unscheduled strip */
-  #dr2tl .unsched{margin:8px 15px 0;padding:7px 11px;border:1px dashed #fcd34d;background:#fffbeb;border-radius:8px;font-size:11.5px;color:#92400e}
-  #dr2tl .unsched b{color:#78350f}
+  /* persistent Unscheduled tray — bounded, scrolls internally (Johan's "set area, scrolls inside") */
+  #dr2tl .utray-wrap{flex:0 0 auto;margin:8px 15px 0;border:1px dashed #fcd34d;background:#fffbeb;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;max-height:min(44vh,420px)}
+  #dr2tl .utray-h{padding:7px 12px;font-size:11.5px;color:#92400e;border-bottom:1px dashed #fde68a;flex:0 0 auto}
+  #dr2tl .utray-h b{color:#78350f}
+  #dr2tl .utray{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-content:flex-start}
+  #dr2tl .ucard{position:relative;flex:1 1 240px;max-width:340px;min-width:220px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px 8px 13px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+  #dr2tl .ucard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
+  #dr2tl .ucard.active::before{background:#2563eb}#dr2tl .ucard.done::before{background:#16a34a}#dr2tl .ucard.upcoming::before{background:#cbd5e1}
+  #dr2tl .ucard .uh{display:flex;align-items:center;gap:6px}
+  #dr2tl .ucard .usub{font-size:10.5px;color:#94a3b8;margin:3px 0 5px 14px}
+  #dr2tl .ucard.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
+  #dr2tl .ubadge{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:11px;background:#f1f5f9;color:#64748b}
+  #dr2tl .ubadge.active{background:#dbeafe;color:#1d4ed8}#dr2tl .ubadge.done{background:#d1fae5;color:#047857}
+  #dr2tl .ucard .tacts{margin-top:4px}
+  /* draggable dated tile affordance */
+  #dr2tl .ttile.draggable{cursor:grab}
+  #dr2tl .ttile.dragging{cursor:grabbing;z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28);opacity:.95}
 
   /* footer comments */
   #dr2tl .foot{flex:0 0 200px;background:#fff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 14px 14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
@@ -135,7 +149,8 @@
 @php($ROWTOP = 58 + $mileLevels * 17)
 @php($ROWH = 94)
 @php($bandLabelTop = max(2, $ROWTOP - 34 - 15))
-<div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
+<div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}"
+     data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}">
 
   <div class="thead">
     <div>
@@ -197,10 +212,35 @@
       </div>
     </div>
 
+    {{-- Persistent Unscheduled tray — every step with no start/due date sits here with its FULL action
+         set, so nothing is ever dropped (spec CORRECTION 2026-07-28). Set both dates (Edit dates on the
+         List, or Due date here) to move a step onto the axis above. --}}
     @if(!empty($board['unscheduled']))
-      <div class="unsched">
-        <b>⚠ {{ count($board['unscheduled']) }} step(s) not on the timeline</b> (no start/due date set — add dates in Deal Structure):
-        {{ collect($board['unscheduled'])->pluck('name')->implode(' · ') }}
+      <div class="utray-wrap">
+        <div class="utray-h">
+          <b>⚠ Unscheduled — {{ count($board['unscheduled']) }} step{{ count($board['unscheduled']) === 1 ? '' : 's' }} with no start date.</b>
+          They keep every action; set a start &amp; end (Deal Structure or the List view) to place them on the timeline above.
+        </div>
+        <div class="utray">
+          @foreach($board['unscheduled'] as $u)
+            @php($r = $rowById->get((int) $u['id']))
+            @php($s = $r['model'] ?? null)
+            @if($s)
+              @php($usc = $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'upcoming'))
+              @php($cc = $s->comments->count())
+              <div class="ucard {{ $usc }}" data-step-id="{{ $s->id }}"
+                   @unless($locked) x-data="{done:false,due:false,seq:false,na:false,cm:false}" @endunless>
+                <div class="uh">
+                  <span class="dot {{ $usc }}"></span>
+                  <span class="nm" title="{{ $s->name }}">{{ $s->name }}</span>
+                  @if($s->is_milestone)<span class="star" title="Milestone">★</span>@endif
+                </div>
+                <div class="usub"><span class="ubadge {{ $usc }}">{{ ucfirst(str_replace('_', ' ', $s->status)) }}</span> · no dates set</div>
+                @include('dr2._pipeline-timeline-actions', ['s' => $s, 'cc' => $cc])
+              </div>
+            @endif
+          @endforeach
+        </div>
       </div>
     @endif
 
@@ -249,8 +289,10 @@
           @php($isDone = $s && $s->status === 'completed')
           @php($isNa = $s && $s->status === 'skipped' && ! empty($s->na_reason))
           @php($cc = $commentCount[(int) $tile['id']] ?? 0)
-          <div class="ttile {{ $tile['status'] }}" style="left:{{ $left }}px;width:{{ $width }}px;top:{{ $top }}px;"
-               data-step-id="{{ $tile['id'] }}"
+          @php($canDrag = $s && !$locked && !$terminal)
+          <div class="ttile {{ $tile['status'] }}{{ $canDrag ? ' draggable' : '' }}" style="left:{{ $left }}px;width:{{ $width }}px;top:{{ $top }}px;"
+               data-step-id="{{ $tile['id'] }}" data-start="{{ (int) $tile['start'] }}" data-dur="{{ (int) $tile['dur'] }}"
+               @if($canDrag) data-draggable="1" @endif
                @if($s && !$locked) x-data="{done:false,due:false,seq:false,na:false,cm:false}" @endif>
             <div class="th">
               <span class="dot {{ $tile['status'] }}"></span>
@@ -260,114 +302,7 @@
             <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}</div>
 
             @if($s)
-            <div class="tacts">
-              {{-- 1 · Complete / Reopen --}}
-              @if(!$terminal && !$locked)
-                <button type="button" class="b go" @click="done=true" title="Mark done (set the actual date)">✓ Complete</button>
-              @elseif($isDone && !$locked)
-                <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">↺ Reopen</button></form>
-              @endif
-              {{-- 2 · Edit due --}}
-              @unless($locked)<button type="button" class="b" @click="due=true">Edit dates</button>@endunless
-              {{-- 3 · Sequence --}}
-              @unless($locked)<button type="button" class="b seq" @click="seq=true" title="Change which step this follows + offset">Sequence</button>@endunless
-              {{-- 4 · N/A / Reinstate --}}
-              @if(!$terminal && !$locked)
-                <button type="button" class="b" @click="na=true">N/A</button>
-              @elseif($isNa && !$locked)
-                <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">Reinstate</button></form>
-              @endif
-              {{-- 5 · Comments --}}
-              <button type="button" class="b" @click="cm=true">💬 {{ $cc }}</button>
-              {{-- 6 · Remove --}}
-              @unless($locked)<form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b rm">Remove</button></form>@endunless
-            </div>
-
-            {{-- ── action modals (teleported to body so a scrolling canvas never clips them) ── --}}
-            @unless($locked)
-              @if(!$terminal)
-              <template x-teleport="body"><div class="dr2-modal" x-show="done" x-cloak @keydown.escape.window="done=false">
-                <div class="dr2-modal__bg" @click="done=false"></div>
-                <div class="dr2-modal__card">
-                  <h4 class="dr2-modal__h">Complete “{{ $s->name }}”</h4>
-                  <form method="POST" action="{{ route('deals-dr2.pipeline.step.complete', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline">
-                    <label class="dr2-modal__lb">Actually done on
-                      <input type="date" name="actual_date" value="{{ \Illuminate\Support\Carbon::today()->format('Y-m-d') }}" class="corex-input">
-                    </label>
-                    <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="done=false">Cancel</button><button type="submit" class="corex-btn-primary">Mark done</button></div>
-                  </form>
-                </div>
-              </div></template>
-              @endif
-
-              <template x-teleport="body"><div class="dr2-modal" x-show="due" x-cloak @keydown.escape.window="due=false">
-                <div class="dr2-modal__bg" @click="due=false"></div>
-                <div class="dr2-modal__card">
-                  <h4 class="dr2-modal__h">Due date — “{{ $s->name }}”</h4>
-                  <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline">
-                    <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input">
-                    <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="due=false">Cancel</button><button type="submit" class="corex-btn-primary">Save due date</button></div>
-                  </form>
-                </div>
-              </div></template>
-
-              <template x-teleport="body"><div class="dr2-modal" x-show="seq" x-cloak @keydown.escape.window="seq=false">
-                <div class="dr2-modal__bg" @click="seq=false"></div>
-                <div class="dr2-modal__card">
-                  <h4 class="dr2-modal__h">Sequence — “{{ $s->name }}”</h4>
-                  <form method="POST" action="{{ route('deals-dr2.pipeline.step.follows', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline">
-                    <label class="dr2-modal__lb">Follows
-                      <select name="follows" class="corex-input">
-                        <option value="">— nothing (starts on the deal date) —</option>
-                        @foreach($steps as $r2)
-                          @php($o = $r2['model'])
-                          @if($o->id !== $s->id)
-                          <option value="{{ $o->id }}" {{ (int) $s->trigger_step_instance_id === (int) $o->id ? 'selected' : '' }}>{{ $o->name }}</option>
-                          @endif
-                        @endforeach
-                      </select>
-                    </label>
-                    <label class="dr2-modal__lb">+ offset (days)
-                      <input type="number" name="offset" min="0" max="3650" value="{{ (int) $s->days_offset }}" class="corex-input" style="width:6rem;">
-                    </label>
-                    <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="seq=false">Cancel</button><button type="submit" class="corex-btn-primary">Save sequence</button></div>
-                  </form>
-                </div>
-              </div></template>
-
-              @unless($terminal)
-              <template x-teleport="body"><div class="dr2-modal" x-show="na" x-cloak @keydown.escape.window="na=false">
-                <div class="dr2-modal__bg" @click="na=false"></div>
-                <div class="dr2-modal__card">
-                  <h4 class="dr2-modal__h">Mark N/A — “{{ $s->name }}”</h4>
-                  <form method="POST" action="{{ route('deals-dr2.pipeline.step.na', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline">
-                    <input type="text" name="reason" placeholder="Why is this step not applicable? (e.g. no gas on the property)" class="corex-input" style="width:100%;">
-                    <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="na=false">Cancel</button><button type="submit" class="corex-btn-primary">Mark N/A</button></div>
-                  </form>
-                </div>
-              </div></template>
-              @endunless
-            @endunless
-
-            {{-- Comments (survives the lock) --}}
-            <template x-teleport="body"><div class="dr2-modal" x-show="cm" x-cloak @keydown.escape.window="cm=false">
-              <div class="dr2-modal__bg" @click="cm=false"></div>
-              <div class="dr2-modal__card dr2-modal__card--wide">
-                <h4 class="dr2-modal__h">Comments — “{{ $s->name }}”</h4>
-                <div class="dr2-modal__thread">
-                  @forelse($s->comments as $c)
-                    <div class="dr2-cmt"><span>{{ $c->body }}</span><span class="dr2-cmt__by"> — {{ $c->user->name ?? 'Someone' }}, {{ $c->created_at?->format('d M H:i') }}</span></div>
-                  @empty
-                    <div class="dr2-cmt__empty">No comments yet.</div>
-                  @endforelse
-                </div>
-                <form method="POST" action="{{ route('deals-dr2.pipeline.step.comment', [$deal, $s]) }}" class="dr2-modal__cmform">@csrf<input type="hidden" name="from" value="timeline">
-                  <input type="text" name="body" placeholder="Add a note for this step…" required class="corex-input" style="flex:1 1 220px;">
-                  <button type="submit" class="corex-btn-secondary">Post</button>
-                </form>
-                <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="cm=false">Close</button></div>
-              </div>
-            </div></template>
+            @include('dr2._pipeline-timeline-actions', ['s' => $s, 'cc' => $cc])
             @endif
 
             @if($cc)<span class="pin" title="{{ $cc }} comment(s)">{{ $cc }}</span>@endif
@@ -453,6 +388,60 @@
   function toast(m){const t=document.getElementById('dr2tl-toast');if(!t)return;t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2400);}
   const sel=document.getElementById('dr2tl-target'); if(sel) sel.addEventListener('change',()=>{ if(filter==='step') renderFeed(); });
   renderFeed();
+
+  // ---- drag a DATED tile horizontally to reschedule (spec CORRECTION 2026-07-28). Rides the EXISTING
+  //      reschedule endpoint: preview (commit:false) → confirm → commit:true → reload; the service
+  //      preserves the tile's duration and cascades downstream. ONLY already-dated tiles are draggable —
+  //      undated steps live in the Unscheduled tray and are NOT drag-schedulable (that first-time-schedule
+  //      extension needs Johan's sign-off; the reschedule service throws for a null-start step). ----
+  (function(){
+    const BASE = root.dataset.base ? new Date(root.dataset.base+'T00:00:00') : null;
+    const DAYW = parseInt(root.dataset.dayw)||21, PADX = parseInt(root.dataset.padx)||14;
+    if(!BASE) return;
+    const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const addDays=n=>{const d=new Date(BASE.getTime());d.setDate(d.getDate()+n);return d;};
+    const fmtShort=n=>{const d=addDays(n);return d.getDate()+' '+MON[d.getMonth()];};
+    const isoDay=n=>{const d=addDays(n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+    const xForDay=n=>PADX+n*DAYW;
+    const postJson=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify(body)}).then(r=>r.json());
+
+    root.querySelectorAll('.ttile[data-draggable="1"]').forEach(el=>{
+      el.addEventListener('pointerdown', e=>{
+        if(e.button!==0) return;
+        if(e.target.closest('button,form,a,input,select,label,.tacts,template')) return;
+        const stepId=el.dataset.stepId, origStart=parseInt(el.dataset.start)||0, dur=parseInt(el.dataset.dur)||1;
+        const name=((el.querySelector('.nm')||{}).textContent||'step').trim();
+        const sub=el.querySelector('.sub'), subHtml=sub?sub.innerHTML:'';
+        let moved=false, ns=origStart;
+        const sx=e.clientX;
+        el.classList.add('dragging');
+        try{el.setPointerCapture(e.pointerId);}catch(_){}
+        const revert=()=>{el.style.left=xForDay(origStart)+'px';if(sub)sub.innerHTML=subHtml;};
+        const move=ev=>{const dd=Math.round((ev.clientX-sx)/DAYW);if(dd!==0)moved=true;ns=Math.max(0,origStart+dd);el.style.left=xForDay(ns)+'px';if(sub)sub.innerHTML='<span class="d">'+dur+'d</span> · '+fmtShort(ns)+' → '+fmtShort(ns+dur);};
+        const up=()=>{
+          el.classList.remove('dragging');
+          try{el.releasePointerCapture(e.pointerId);}catch(_){}
+          el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',up);el.removeEventListener('pointercancel',up);
+          if(!moved||ns===origStart){revert();return;}
+          const url=CBASE+'/'+stepId+'/reschedule', newStart=isoDay(ns);
+          postJson(url,{new_start:newStart,commit:false}).then(res=>{
+            if(!res||!res.ok){toast((res&&res.error)||'Could not reschedule.');revert();return;}
+            const mv=res.moved||[], held=res.held||[], others=mv.filter(m=>!m.is_dragged).length;
+            let msg='Reschedule “'+name+'” to '+newStart+'?';
+            if(others>0)msg+='\n\n'+others+' downstream step'+(others===1?'':'s')+' will cascade to keep the sequence.';
+            if(held.length)msg+='\n'+held.length+' step'+(held.length===1?'':'s')+' held (date set by hand / done): '+held.map(h=>h.name).join(', ');
+            if(!window.confirm(msg)){revert();return;}
+            postJson(url,{new_start:newStart,commit:true}).then(r2=>{
+              if(!r2||!r2.ok){toast((r2&&r2.error)||'Could not save the new date.');revert();return;}
+              window.location.reload();
+            }).catch(()=>{toast('Network error saving.');revert();});
+          }).catch(()=>{toast('Network error.');revert();});
+        };
+        el.addEventListener('pointermove',move);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);
+        e.preventDefault();
+      });
+    });
+  })();
 })();
 </script>
 @endpush

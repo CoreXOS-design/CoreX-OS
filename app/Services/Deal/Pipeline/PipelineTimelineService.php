@@ -36,24 +36,49 @@ class PipelineTimelineService
         $allSteps = DealStepInstance::where('dr1_deal_id', $deal->id)
             ->orderBy('position')->orderBy('id')->get();
 
-        // Only steps with BOTH a start and an end can sit on a date axis.
-        $steps = $allSteps->filter(fn ($s) => $s->planned_start_date && $s->due_date)->values();
-
-        if ($steps->isEmpty()) {
+        // Truly empty only when the deal has NO pipeline steps at all. A deal whose steps are undated
+        // is NOT empty — those steps must still surface in the persistent Unscheduled tray below.
+        if ($allSteps->isEmpty()) {
             return ['empty' => true, 'day_width' => 21];
         }
+
+        // Only steps with BOTH a start and an end can sit on a date axis.
+        $steps = $allSteps->filter(fn ($s) => $s->planned_start_date && $s->due_date)->values();
 
         // Deal-level comment target = the composer's anchor (Deal Signed), else the first step, so the
         // footer's "General (deal)" option always has a real step to attach a deal-scope note to.
         $anchor   = app(\App\Services\DealV2\DealLaneComposer::class)->board($allSteps)['anchor'] ?? null;
         $anchorId = $anchor ? (int) $anchor->id : (int) (optional($allSteps->first())->id ?? 0);
 
-        // Steps that cannot be positioned on the axis (missing a start or end) are surfaced in a small
-        // "unscheduled" strip — never silently dropped (spec §3).
+        // Steps that cannot be positioned on the axis (missing a start or end) go to the PERSISTENT
+        // "Unscheduled" tray — ALWAYS populated, never silently dropped (spec §2/§3). This is populated
+        // even when NO step is dated (deal 183: 17 undated steps must all show).
         $unscheduled = $allSteps
             ->filter(fn ($s) => ! ($s->planned_start_date && $s->due_date))
             ->map(fn ($s) => ['id' => (int) $s->id, 'name' => $s->name])
             ->values()->all();
+
+        // No step is dated → there is no date axis to draw, but the deal is NOT empty: return an empty
+        // axis (so the view still renders) and let the Unscheduled tray carry every step. Removing this
+        // is the exact regression from 5228d94a, which early-returned empty and discarded all steps.
+        if ($steps->isEmpty()) {
+            $base = Carbon::now()->startOfDay();
+            return [
+                'empty'       => false,
+                'day_width'   => 21,
+                'base_date'   => $base->toDateString(),
+                'today_day'   => 0,
+                'days'        => 7,
+                'phases'      => [],
+                'miles'       => [],
+                'mile_levels' => 1,
+                'tiles'       => [],
+                'row_count'   => 1,
+                'anchor_id'   => $anchorId,
+                'unscheduled' => $unscheduled,
+                'comments'    => $this->boardComments($deal, fn ($d) => 0, 7),
+            ];
+        }
 
         $base   = $steps->reduce(fn ($c, $s) => ($c === null || $s->planned_start_date->lt($c)) ? $s->planned_start_date->copy() : $c)->startOfDay();
         $maxEnd = $steps->reduce(fn ($c, $s) => ($c === null || $s->due_date->gt($c)) ? $s->due_date->copy() : $c)->startOfDay();
@@ -143,18 +168,7 @@ class PipelineTimelineService
 
         // Comments — the normalizer stream (step comments now; email/WhatsApp later), for the footer +
         // the on-timeline pins positioned by the date each was made.
-        $comments = $this->events->eventsForDeal($deal)->map(function ($e) use ($idx, $days) {
-            return [
-                'id'     => $e->sourceType . ':' . $e->sourceId,
-                'target' => $e->isStepScoped() ? (int) $e->stepId : 'deal',
-                'scope'  => $e->scope,
-                'who'    => $e->authorName ?: 'System',
-                'when'   => Carbon::parse($e->occurredAt)->format('j M'),
-                'day'    => max(0, min($days, $idx(Carbon::parse($e->occurredAt)))),
-                'text'   => $e->body,
-                'type'   => $e->type,
-            ];
-        })->values()->all();
+        $comments = $this->boardComments($deal, $idx, $days);
 
         return [
             'empty'       => false,
@@ -171,6 +185,27 @@ class PipelineTimelineService
             'unscheduled' => $unscheduled,
             'comments'    => $comments,
         ];
+    }
+
+    /**
+     * The board comment stream (footer feed + on-axis pins). Shared by the dated and the no-dated-steps
+     * paths of buildBoard() so the footer feed is identical either way. $idx maps a Carbon date to a day
+     * index on the axis (a no-op fn ($d) => 0 when there is no axis); $days clamps the pin position.
+     */
+    private function boardComments(Deal $deal, callable $idx, int $days): array
+    {
+        return $this->events->eventsForDeal($deal)->map(function ($e) use ($idx, $days) {
+            return [
+                'id'     => $e->sourceType . ':' . $e->sourceId,
+                'target' => $e->isStepScoped() ? (int) $e->stepId : 'deal',
+                'scope'  => $e->scope,
+                'who'    => $e->authorName ?: 'System',
+                'when'   => Carbon::parse($e->occurredAt)->format('j M'),
+                'day'    => max(0, min($days, $idx(Carbon::parse($e->occurredAt)))),
+                'text'   => $e->body,
+                'type'   => $e->type,
+            ];
+        })->values()->all();
     }
 
     /**
