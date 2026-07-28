@@ -88,22 +88,31 @@
         <strong style="font-size:.9rem;color:#0f766e;">Supplier Work Orders</strong>
         <span x-show="loading" x-cloak style="font-size:.72rem;color:#6b7280;">Loading…</span>
     </div>
-    <p style="font-size:.72rem;color:#6b7280;margin:0 0 .6rem;">Tick the COCs this deal needs and set who is responsible + who receives each work-order email. Un-ticked COCs are marked N/A on the pipeline. Work orders send when the trigger step completes; listing &amp; selling agents are CC'd (de-duped).</p>
+    <p style="font-size:.68rem;line-height:1.3;color:#6b7280;margin:0 0 .45rem;">Tick the COCs this deal needs; set who's responsible + who gets the email. Un-ticked → N/A on the pipeline. Each sends when its trigger step completes (agents CC'd).</p>
 
     <div x-show="!loading" x-cloak>
         {{-- Trigger step is defined in PIPELINE SETUP (the granting step), not re-selected here. --}}
         {{-- Tick-list — one clean vertical row per COC; responsible/recipient appears under a ticked row --}}
         <template x-for="(it,i) in items" :key="it.code">
             <div style="border-top:1px solid #eee;padding:.5rem 0;">
-                <label style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : (it.status==='awaiting_supplier' ? 'color:#b91c1c;' : ''))">
-                    <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
-                    <span x-text="it.label"></span>
-                    <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">✓ sent</span>
-                    {{-- AT-329 — a trigger-fired send that failed is shown, never silently dropped. --}}
-                    <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">⚠ not sent</span>
-                    {{-- AT-334 P3 — held at the trigger for want of a supplier; sends automatically on assign+save. --}}
-                    <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">⚠ awaiting supplier — set one &amp; save to send</span>
-                </label>
+                {{-- AT-331 compaction — checkbox+name on one line with "+ Add supplier" pulled UP here
+                     (right-aligned) instead of below the picker, so a ticked COC block stays ~2-3 lines. The
+                     button is a SIBLING of (not inside) the label, so clicking it never toggles the checkbox. --}}
+                <div style="display:flex;align-items:center;gap:.5rem;">
+                    <label style="flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : (it.status==='awaiting_supplier' ? 'color:#b91c1c;' : ''))">
+                        <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
+                        <span x-text="it.label"></span>
+                        <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">✓ sent</span>
+                        {{-- AT-329 — a trigger-fired send that failed is shown, never silently dropped. --}}
+                        <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">⚠ not sent</span>
+                        {{-- AT-334 P3 — held at the trigger for want of a supplier; sends automatically on assign+save. --}}
+                        <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">⚠ awaiting supplier — set one &amp; save to send</span>
+                    </label>
+                    {{-- + Add supplier — only when this COC is ticked and its recipient is a supplier/attorney. --}}
+                    <button type="button" x-cloak @click="openAdd(it)"
+                            x-show="it.applies && (it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney') && it.status!=='sent' && addingFor!==it.code"
+                            style="flex:0 0 auto;background:none;border:none;padding:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);font-size:.68rem;font-weight:600;white-space:nowrap;">＋ Add supplier</button>
+                </div>
 
                 {{-- AT-331 tweak — Responsible/recipient (left) + Supplier picker (right) sit in TWO
                      COLUMNS side by side so each COC row is shorter; the status line spans full width below.
@@ -131,9 +140,8 @@
                             <option value="">— pick supplier —</option>
                             <template x-for="s in suppliersFor(it)" :key="s.id"><option :value="s.id" x-text="s.name"></option></template>
                         </select>
-                        {{-- Item 2 — inline add-supplier, no navigating away. --}}
-                        <button type="button" x-show="it.status!=='sent' && addingFor!==it.code" @click="openAdd(it)"
-                                style="margin-top:.2rem;background:none;border:none;padding:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);font-size:.68rem;font-weight:600;">＋ Add supplier</button>
+                        {{-- Item 2 — the "+ Add supplier" trigger now lives UP on the COC name line (AT-331
+                             compaction); the inline add-form it opens still expands here. --}}
                         {{-- Full inline add-supplier — same field set as the Suppliers directory add-form
                              (name, type/specialty incl. attorney, company, email, phone, preferred,
                              service-type COCs). Pure addition; does not touch the COC list. --}}
@@ -166,12 +174,14 @@
                         </div>
                         <span x-show="isSupplierFallback(it)" x-cloak style="font-size:.66rem;color:#b45309;display:block;margin-top:.15rem;">No supplier of this type — showing all, or add one above.</span>
                     </div>
-                    <div style="flex:1 1 100%;font-size:.66rem;color:#6b7280;">
+                    {{-- AT-331 compaction — the "step: <name>" info line is REMOVED (not needed). Only a real
+                         status (sent / failed) or the "no matching step" WARNING renders — small, muted, one
+                         line; otherwise this row shows nothing and takes no height. --}}
+                    <div x-show="it.status==='sent' || it.status==='failed' || !it.step_name" x-cloak style="flex:1 1 100%;font-size:.66rem;color:#6b7280;">
                         <span x-show="it.status==='sent'" x-cloak>→ <span x-text="it.recipient_email"></span><span x-show="it.cc_emails" x-cloak x-text="' (cc ' + it.cc_emails + ')'"></span></span>
                         {{-- AT-329 — surface WHY a trigger send failed (e.g. no email); fix + it re-sends on the next trigger fire. --}}
                         <span x-show="it.status==='failed'" x-cloak style="color:#b45309;font-weight:600;" x-text="'not sent — ' + (it.send_error || 'send failed')"></span>
                         <span x-show="it.status!=='sent' && it.status!=='failed' && !it.step_name" x-cloak style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
-                        <span x-show="it.status!=='sent' && it.status!=='failed' && it.step_name" x-cloak x-text="'step: ' + it.step_name"></span>
                     </div>
                 </div>
             </div>
