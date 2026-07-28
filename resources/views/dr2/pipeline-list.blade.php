@@ -40,7 +40,14 @@
   #dr2ls .left .dr2-tile__btns form{display:inline;width:auto;margin:0}
   #dr2ls .left .dr2-bt{display:inline-block!important;width:auto!important;height:auto!important;min-height:0!important;padding:2px 9px!important;font-size:11px!important;line-height:1.55!important;border-radius:6px!important;border:1px solid #e5e7eb!important;background:#fff!important;color:#374151!important;box-shadow:none!important;white-space:nowrap;overflow:visible;text-overflow:clip}
   #dr2ls .left .dr2-bt:hover{background:#f1f5f9!important}
-  #dr2ls .left .dr2-bt--go{color:#047857!important;border-color:#6ee7b7!important;background:#ecfdf5!important}
+  /* The green "Complete" ACTION button read like the green "Completed" status BADGE, so users thought
+     the step was already done. Disambiguate it (list-left ONLY): an outlined WHITE button with a green
+     border + a ✓, relabelled "Mark complete" via a pseudo-element (the label text lives in the shared
+     _pipeline-step-tile, which we must not touch). Reads as a clickable action, clearly distinct from the
+     solid green "Completed" status pill (whose styling is untouched). */
+  #dr2ls .left .dr2-bt--go{color:#047857!important;background:#fff!important;border:1.5px solid #34d399!important;font-weight:700!important;font-size:0!important;box-shadow:0 1px 0 rgba(16,185,129,.10)!important;}
+  #dr2ls .left .dr2-bt--go::before{content:"✓ Mark complete";font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;}
+  #dr2ls .left .dr2-bt--go:hover{background:#ecfdf5!important;border-color:#10b981!important;}
   #dr2ls .left .dr2-bt--danger{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
   #dr2ls .left .dr2-bt--dis{color:#c7cdd6!important;border-color:#eef2f7!important;background:#fafbfc!important;cursor:not-allowed}
 
