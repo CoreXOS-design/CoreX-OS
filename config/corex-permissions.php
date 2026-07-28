@@ -616,6 +616,9 @@ return [
         ['key' => 'assistants.reassign',             'label' => 'Reassign to Another Agent',          'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 3],
         ['key' => 'assistants.revoke',               'label' => 'Revoke Assistant Access',            'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 4],
         ['key' => 'assistants.view_all',             'label' => 'View All Assistants (agency-wide)',  'section' => 'assistants', 'type' => 'access', 'module' => 'assistants', 'sort_order' => 5],
+        // Multi-agent addendum (assistants-multi-agent-spec.md §7) — linking/unlinking a Sub-Agent
+        // is admin/super_admin ONLY (M2): never the Main Agent, never the Sub-Agent themselves.
+        ['key' => 'assistants.manage_linked_agents',  'label' => 'Link/Unlink Additional Agents',      'section' => 'assistants', 'type' => 'action', 'module' => 'assistants', 'sort_order' => 6],
     ],
 
     // ──────────────────────────────────────────────────────────

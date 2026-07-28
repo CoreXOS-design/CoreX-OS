@@ -796,6 +796,12 @@ class User extends Authenticatable
     /** Per-request cache of agencies.assistants_enabled, keyed by agency id. */
     private static array $assistantsEnabledCache = [];
 
+    /** Memo for the per-request linked-Sub-Agent lookup. Null = not yet resolved. */
+    private ?array $activeLinkedSubAgentIdsMemo = null;
+
+    /** Memo for the per-request linked-Sub-Agent branch lookup. Null = not yet resolved. */
+    private ?array $activeLinkedSubAgentBranchIdsMemo = null;
+
     /** This user's own active assignment — set only when they ARE an assistant. */
     public function assistantAssignment(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
@@ -902,6 +908,15 @@ class User extends Authenticatable
      * granted `contacts.view` at scope 'own' must see the AGENT's contacts. Without
      * this they would see an empty list and the feature would be inert (spec §2.4).
      *
+     * Multi-agent addendum: also includes every currently-active linked Sub-Agent
+     * (assistants-multi-agent-spec.md §2.4) — a Sub-Agent contributes zero permissions
+     * (the ceiling stays the Main Agent's, unchanged) but widens whose records the
+     * assistant may see AND edit, via this exact list. This is the entire mechanism:
+     * every scopeVisibleTo() 'own' branch and all three per-record authorize traits
+     * (AuthorizesPropertyAccess, AuthorizesDealAccess, AuthorizesContactAccess) resolve
+     * through here already, so no other file needs to change for a Sub-Agent's
+     * properties/contacts/deals to become visible and editable.
+     *
      * Every scopeVisibleTo() 'own' branch resolves through here (Prompt D).
      */
     public function dataIdentityIds(): array
@@ -912,20 +927,125 @@ class User extends Authenticatable
             return [$this->id];
         }
 
-        return [$agent->id, $this->id];
+        $ids = [$agent->id, $this->id];
+
+        foreach ($this->activeLinkedSubAgentIds() as $subAgentId) {
+            $ids[] = $subAgentId;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Multi-agent addendum — Sub-Agent ids currently in effect for this assistant's
+     * assignment, filtered LIVE on every call: only agents who are still active, not
+     * themselves an assistant, and not an owner (mirrors base spec E5/E6, applied to
+     * data exposure rather than the permission ceiling). No re-snapshot — a Sub-Agent
+     * removed by an admin, deactivated, or later promoted drops out of this list on the
+     * very next request, exactly like the Main Agent's live-intersection rule (base
+     * spec E3). Empty for every non-assistant and for every assistant with no linked
+     * Sub-Agents — i.e. the entire population before this addendum shipped.
+     *
+     * Spec: .ai/specs/assistants-multi-agent-spec.md §2.4
+     */
+    public function activeLinkedSubAgentIds(): array
+    {
+        if ($this->activeLinkedSubAgentIdsMemo !== null) {
+            return $this->activeLinkedSubAgentIdsMemo;
+        }
+
+        $assignment = $this->activeAssistantAssignment();
+
+        if (!$assignment) {
+            return $this->activeLinkedSubAgentIdsMemo = [];
+        }
+
+        return $this->activeLinkedSubAgentIdsMemo = $assignment->linkedAgentLinks()
+            ->with('agent')
+            ->get()
+            ->pluck('agent')
+            ->filter(fn ($a) => $a
+                && $a->is_active
+                && !$a->is_assistant
+                && !(method_exists($a, 'isOwnerRole') && $a->isOwnerRole()))
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Multi-agent addendum — distinct branch ids of this assistant's currently-active
+     * linked Sub-Agents. Empty for everyone else, and for any assistant with no linked
+     * Sub-Agents. Consumed by BranchScope so a cross-branch Sub-Agent's records are not
+     * silently filtered out by branch isolation when dataIdentityIds() has already
+     * widened to include them (spec §4).
+     */
+    public function activeLinkedSubAgentBranchIds(): array
+    {
+        if ($this->activeLinkedSubAgentBranchIdsMemo !== null) {
+            return $this->activeLinkedSubAgentBranchIdsMemo;
+        }
+
+        $assignment = $this->activeAssistantAssignment();
+
+        if (!$assignment) {
+            return $this->activeLinkedSubAgentBranchIdsMemo = [];
+        }
+
+        return $this->activeLinkedSubAgentBranchIdsMemo = $assignment->linkedAgentLinks()
+            ->with('agent')
+            ->get()
+            ->pluck('agent')
+            ->filter(fn ($a) => $a
+                && $a->is_active
+                && !$a->is_assistant
+                && !(method_exists($a, 'isOwnerRole') && $a->isOwnerRole()))
+            ->pluck('branch_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
      * The user id a record this user CREATES is owned by.
      *
-     * Normal user: self. Assistant: the Assigned Agent — so commission, targets,
-     * the deal pipeline and "My Listings" all land on the agent. A deal captured by
-     * an assistant is the AGENT's deal. The assistant is recorded as the actor in the
-     * audit trail (on_behalf_of_user_id, Prompt J), never as the owner.
+     * Normal user: self. Assistant: the Assigned Agent by default — so commission,
+     * targets, the deal pipeline and "My Listings" all land on the agent. A deal
+     * captured by an assistant is the AGENT's deal. The assistant is recorded as the
+     * actor in the audit trail (on_behalf_of_user_id, Prompt J), never as the owner.
+     *
+     * Multi-agent addendum: an assistant supporting Sub-Agents may explicitly choose
+     * WHICH of their agents a new record belongs to (the "Acting for" selector,
+     * assistants-multi-agent-spec.md §6.1). $actingForUserId is only honoured when it is
+     * a currently valid choice (in dataIdentityIds(), and not the assistant themselves)
+     * — never trusted blindly from a request. Omitting it, or having no linked
+     * Sub-Agents at all, reproduces exactly today's behaviour: the Main Agent.
      */
-    public function ownershipUserId(): int
+    public function ownershipUserId(?int $actingForUserId = null): int
     {
-        return $this->assignedAgent()?->id ?? $this->id;
+        $agent = $this->assignedAgent();
+
+        if (!$agent) {
+            return $this->id;
+        }
+
+        // Multi-agent addendum §6.2 — an explicit per-call value (a form's own "Acting for"
+        // field) wins when given; otherwise fall back to the session-level "Acting for" switcher
+        // (App\Http\Controllers\Agent\ActingForController) so every create surface honours the
+        // assistant's choice without each one needing its own selector. Re-validated against the
+        // LIVE dataIdentityIds() below either way — a stale/forged session value (e.g. the chosen
+        // Sub-Agent was since unlinked) safely falls back to the Main Agent, never trusted blindly.
+        $actingForUserId ??= session()->has('acting_for_user_id')
+            ? (int) session('acting_for_user_id')
+            : null;
+
+        if ($actingForUserId !== null
+            && $actingForUserId !== $this->id
+            && in_array($actingForUserId, $this->dataIdentityIds(), true)) {
+            return $actingForUserId;
+        }
+
+        return $agent->id;
     }
 
     /**

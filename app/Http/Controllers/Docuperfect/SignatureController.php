@@ -106,7 +106,8 @@ class SignatureController extends Controller
                     // AGENT, never the assistant. Document::scopeVisibleTo() resolves the agent's
                     // 'own' as [agent] only, so an assistant-owned row is invisible to the very
                     // person it was prepared for. ownershipUserId() is a no-op for everyone else.
-                    'owner_id'         => $user->ownershipUserId(),
+                    // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                    'owner_id'         => $user->ownershipUserId($request->integer('acting_for_user_id') ?: null),
                     'branch_id'        => $user->branch_id,
                     'document_type'    => 'rental_upload_send',
                     'property_address' => $request->input('property_reference'),

@@ -441,7 +441,9 @@ class DailyActivityController extends Controller
             } else {
                 \DB::table('daily_activity_entries')->insert([
                     'activity_definition_id' => $defId,
-                    'user_id' => $user->ownershipUserId(), // AT-267 — daily activity lands on the AGENT
+                    // multi-agent addendum §6.1 — honours an explicit "Acting for" choice among
+                    // the assistant's Main Agent / linked Sub-Agents; falls back to the Main Agent.
+                    'user_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 — daily activity lands on the AGENT
                     'activity_date' => $date,
                     'period' => $period,
                     'agency_id' => $agencyId,

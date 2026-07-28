@@ -38,8 +38,12 @@ class CalendarEventService
             // agent (appears on their day as if they added it), while created_by_id records the
             // assistant as the actual actor. ownershipUserId() is the agent for an assistant and
             // self for everyone else, so a normal user is unaffected. An assistant is clamped to
-            // their agent — a submitted user_id cannot redirect the event to another practitioner.
-            'user_id'       => $user->isAssistant() ? $user->ownershipUserId() : ($data['user_id'] ?? $user->id),
+            // their agent (or a linked Sub-Agent they explicitly chose via "Acting for" —
+            // multi-agent addendum §6.1) — a submitted user_id cannot redirect the event to
+            // another practitioner.
+            'user_id'       => $user->isAssistant()
+                ? $user->ownershipUserId(isset($data['acting_for_user_id']) ? (int) $data['acting_for_user_id'] : null)
+                : ($data['user_id'] ?? $user->id),
             'created_by_id' => $user->id,
             'event_type'    => $data['event_type'] ?? 'manual',
             // category MUST be set — both web and mobile GETs apply

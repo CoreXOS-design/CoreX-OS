@@ -110,14 +110,29 @@ class BranchScope implements Scope
             return;
         }
 
+        // AT-267 multi-agent addendum — an assistant supporting linked Sub-Agents in OTHER
+        // branches must also see those branches' records; otherwise dataIdentityIds()'s widening
+        // (User::dataIdentityIds(), assistants-multi-agent-spec.md §2.4) would be silently
+        // filtered out here before the 'own'/'branch'/'all' scope logic ever runs. Empty for
+        // every non-assistant and for every assistant with zero (or same-branch) linked
+        // Sub-Agents — i.e. the entire population before this addendum shipped — so this is a
+        // no-op for everyone except this addendum's own users. Spec §4.
+        $branchIds = [$effectiveBranch];
+        if (method_exists($user, 'activeLinkedSubAgentBranchIds')) {
+            $branchIds = array_values(array_unique(array_merge(
+                $branchIds,
+                $user->activeLinkedSubAgentBranchIds()
+            )));
+        }
+
         $table   = $model->getTable();
         $column  = $table . '.branch_id';
         $keyName = $table . '.' . $model->getKeyName();
         $authId  = $user->getKey();
         $isUserModel = $model instanceof \App\Models\User;
 
-        $builder->where(function (Builder $q) use ($column, $effectiveBranch, $keyName, $authId, $isUserModel) {
-            $q->where($column, $effectiveBranch);
+        $builder->where(function (Builder $q) use ($column, $branchIds, $keyName, $authId, $isUserModel) {
+            $q->whereIn($column, $branchIds);
 
             if ($isUserModel && $authId) {
                 $q->orWhere($keyName, $authId);

@@ -29,6 +29,20 @@ use Illuminate\Support\Facades\DB;
  * app-layer audit (which still logs every Eloquent path). On QA1 the trigger is
  * created out-of-band (root, corex_qa1 schema only). For Staging/live a DBA enables
  * the privilege / creates it out-of-band — this lane does NOT attempt the grant.
+ *
+ * SCHEMA-SNAPSHOT PORTABILITY (found 2026-07-28): `php artisan schema:dump` always
+ * bakes an explicit `DEFINER=` clause into the dumped CREATE TRIGGER text, reflecting
+ * whichever concrete user's session created the live trigger being dumped — even
+ * though this migration itself never specifies one. Replaying that snapshot
+ * (`RefreshDatabase`'s schema-load path, §12a) executes the dump's literal SQL
+ * through a plain `mysql` client, which then needs SUPER/SET_USER_ID whenever the
+ * baked-in definer differs from the replaying DB user. A dump taken by a root/SUPER
+ * session therefore breaks every other developer's test bootstrap. Whoever next runs
+ * `schema:dump` after touching this trigger MUST verify the resulting
+ * `database/schema/mysql-schema.sql` does not hard-code a DEFINER a non-privileged
+ * app DB user can't replay — strip `DEFINER=`user`@`host`` clauses from the dump
+ * (or dump as the same restricted app user every environment's tests actually run
+ * as) before committing.
  */
 return new class extends Migration
 {

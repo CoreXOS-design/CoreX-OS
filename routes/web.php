@@ -547,6 +547,16 @@ Route::middleware('auth')->group(function () {
         Route::post('/{assignment}/revoke',         [\App\Http\Controllers\Admin\AssistantController::class, 'revoke'])->name('revoke');
         Route::post('/{assignment}/restore',        [\App\Http\Controllers\Admin\AssistantController::class, 'restore'])->name('restore')->withTrashed();
         Route::post('/{assignment}/resend-invite',  [\App\Http\Controllers\Admin\AssistantController::class, 'resendInvite'])->name('resend-invite');
+
+        /*
+         | Multi-agent addendum (assistants-multi-agent-spec.md §7) — Sub-Agent links.
+         | Admin/super_admin ONLY (M2): never the Main Agent, never the Sub-Agent themselves.
+         | The Main Agent stays singular and unchanged; this only widens whose data the
+         | assistant may see/edit, never the permission ceiling.
+         */
+        Route::post('/{assignment}/linked-agents', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'store'])->name('linked-agents.store');
+        Route::delete('/{assignment}/linked-agents/{linkedAgent}', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'destroy'])->name('linked-agents.destroy');
+        Route::post('/{assignment}/linked-agents/{linkedAgent}/restore', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'restore'])->name('linked-agents.restore');
     });
 
     /*
@@ -562,6 +572,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/{assignment}/matrix',  [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'edit'])->name('matrix');
         Route::post('/{assignment}/matrix', [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'save'])->name('matrix.save');
     });
+
+    /*
+     | Multi-agent addendum (assistants-multi-agent-spec.md §6.2) — the "Acting for" session
+     | switcher. Mirrors branch.switch exactly. Only meaningful for an assistant with at least
+     | one linked Sub-Agent; the controller itself guards isAssistant() and a valid choice.
+     */
+    Route::post('/my-portal/acting-for/clear', [\App\Http\Controllers\Agent\ActingForController::class, 'clear'])->name('acting-for.clear');
+    Route::post('/my-portal/acting-for', [\App\Http\Controllers\Agent\ActingForController::class, 'update'])->name('acting-for.update');
 
     Route::get('/admin/users', [App\Http\Controllers\Admin\UserManagementController::class, 'index'])
         ->middleware('permission:manage_users')->name('admin.users');
