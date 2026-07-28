@@ -95,6 +95,28 @@ final class AgentConditionInitialGateTest extends TestCase
     }
 
     /**
+     * IN-APP agent completion (webSignComplete — the /documents/{id}/sign screen)
+     * is also blocked until every added condition carries the agent's initial.
+     * This is the same authoritative gate as the external ceremony, on the
+     * surface the wizard actually routes the agent to.
+     */
+    public function test_in_app_agent_completion_blocked_until_condition_initialled(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1, includeAgent: true);
+        $this->addOtherCondition($session['signatureTemplate']->id);
+
+        $response = $this->actingAs($session['creator'])
+            ->postJson('/docuperfect/documents/' . $session['document']->id . '/web-sign-complete', [
+                'party_role' => 'agent',
+                'signatures' => self::SIG,
+                'initials'   => [],
+            ]);
+
+        $response->assertStatus(422);
+        $this->assertStringContainsString('initial every condition', (string) $response->json('error'));
+    }
+
+    /**
      * The server block is agent-scoped: it is the agent→recipients advance that
      * must be blocked. A recipient's OWN completion is not rejected by this gate
      * (their per-recipient initialing stays client-gated).

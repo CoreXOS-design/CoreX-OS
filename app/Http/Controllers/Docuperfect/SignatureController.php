@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Docuperfect;
 
 use App\Http\Controllers\Controller;
+use App\Models\Docuperfect\ConditionInitial;
 use App\Models\Docuperfect\Document;
+use App\Models\Docuperfect\DocumentCondition;
 use App\Models\Docuperfect\LeaseRecord;
 use App\Models\Docuperfect\Signature;
 use App\Models\Docuperfect\SignatureAuditLog;
@@ -901,6 +903,7 @@ class SignatureController extends Controller
         $hasDocumentPages = !empty($webTemplateData['flattened_page_count']);
         $isWebTemplate = false;
         $webTemplateHtml = '';
+        $agentSigningToken = null;
 
         if ($hasDocumentPages) {
             // Flattened web template — treat as PDF (page images + overlay fields)
@@ -942,6 +945,28 @@ class SignatureController extends Controller
                 if ($agentRequest) {
                     $webTemplateHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
                         ->applyViewerEditabilityOverlay($canonicalHtml, $agentRequest, $fieldMappingsRaw);
+
+                    // ESIGN AT-300 — agent in-app signing parity with the /sign
+                    // ceremony. The setup/sign screens served the STATIC agent-prep
+                    // canonical bake, so every OTHER CONDITIONS clause rendered as
+                    // plain text with NO clickable initial slot — the agent had
+                    // nothing to initial (Johan's 2 docs). The external ceremony
+                    // (SigningController@show) already re-renders each insertable
+                    // block in the viewer's interactive signing context; do the same
+                    // here so each added condition renders THIS agent's
+                    // "Click to initial" slot (+ the "+ Add condition" affordance).
+                    // Display overlay only — the stored canonical + PDF stay static.
+                    $ibr = app(\App\Services\Docuperfect\InsertableBlockRenderer::class);
+                    $webTemplateHtml = $ibr->reRenderBlocksForViewer(
+                        $webTemplateHtml,
+                        $template,
+                        \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
+                        (string) $agentRequest->token,
+                        $agentRequest->party_role,
+                    );
+                    $webTemplateHtml = $ibr->stampConditionSigningToken($webTemplateHtml, (string) $agentRequest->token);
+                    $webTemplateHtml = $ibr->injectAddConditionGuidance($webTemplateHtml);
+                    $agentSigningToken = (string) $agentRequest->token;
                 } else {
                     $webTemplateHtml = $canonicalHtml;
                 }
@@ -1038,6 +1063,7 @@ class SignatureController extends Controller
             'signingParties' => $signingParties,
             'storedInitials' => $webTemplateData['signed_initials'] ?? [],
             'storedDisclosure' => $webTemplateData['disclosure_answers'] ?? [],
+            'agentSigningToken' => $agentSigningToken,
         ]);
     }
 
@@ -1359,6 +1385,36 @@ class SignatureController extends Controller
             $partyRole = $request->input('party_role', 'agent');
 
             $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+            // ── OTHER-CONDITIONS AGENT-INITIAL GATE (Johan 2026-07-28) ──────────
+            // Universal rule: the document MUST NOT advance to any recipient until
+            // the AGENT has initialled every added condition. This in-app agent
+            // completion is the step that releases the document to the recipients,
+            // so it carries the same authoritative server gate as the external
+            // ceremony (completeWeb). The client incompleteCount already requires
+            // each condition slot, but that is DOM-derived and bypassable; this
+            // reads DocumentCondition + ConditionInitial directly (serve-path
+            // independent). See .ai/specs/esign-recipient-signing-fix.md (2026-07-28).
+            if ($partyRole === 'agent') {
+                $liveConditionIds = DocumentCondition::query()
+                    ->where('signature_template_id', $template->id)
+                    ->whereNull('superseded_at')
+                    ->whereNull('deleted_at')
+                    ->pluck('id');
+                if ($liveConditionIds->isNotEmpty()) {
+                    $agentInitialedIds = ConditionInitial::query()
+                        ->where('initialable_type', DocumentCondition::class)
+                        ->whereIn('initialable_id', $liveConditionIds)
+                        ->where('party_key', 'agent')
+                        ->pluck('initialable_id');
+                    if ($liveConditionIds->diff($agentInitialedIds)->isNotEmpty()) {
+                        return response()->json([
+                            'ok'    => false,
+                            'error' => 'Please initial every condition before submitting — the document cannot be sent to the other parties until you have initialled each added condition.',
+                        ], 422);
+                    }
+                }
+            }
 
             // Store each signature as a Signature record linked to the document
             foreach ($signatures as $sigKey => $sigData) {

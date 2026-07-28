@@ -549,6 +549,16 @@
     {{-- Include signature capture modal --}}
     @include('docuperfect.signatures.partials.signature-modal')
 
+    {{-- ESIGN AT-300 — add-condition + per-condition initial machinery, in parity
+         with the external /sign ceremony. Provides the delegated ".btn-add-initial"
+         click handler (POST /sign/{token}/conditions/{id}/initial), the "+ Add
+         condition" modal, and the corex-refresh-signing-count dispatch. Only for
+         web templates with an agent signing token (the interactive re-render is
+         served only then). --}}
+    @if(!empty($isWebTemplate) && !empty($agentSigningToken))
+        @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $agentSigningToken, 'numberedClauses' => $numberedClauses ?? []])
+    @endif
+
     {{-- Text input modal --}}
     <div x-show="showTextModal" x-cloak x-transition.opacity
          class="fixed inset-0 z-50 flex items-center justify-center"
@@ -686,6 +696,14 @@ function signDocument() {
         init() {
             // Check if agent already has at least one signed marker
             this.firstSignatureDone = this.markers.some(m => m.assigned_party === 'agent' && m.signed);
+
+            // ESIGN AT-300 — when a per-condition initial is filled or a new
+            // condition is added (delegated handlers in the add-condition-modal
+            // partial, outside this Alpine scope), refresh the submit gate so the
+            // "N remaining" count reflects the just-completed condition-initial.
+            document.addEventListener('corex-refresh-signing-count', () => {
+                if (this.isWebTemplate) this._updateIncompleteCount();
+            });
 
             // For web templates: split into A4 pages, then make elements interactive
             // Uses $nextTick + setTimeout to ensure server-rendered HTML is fully in the DOM
@@ -1084,6 +1102,17 @@ function signDocument() {
                 });
             }
 
+            // ESIGN AT-300 — per-condition initial slots THIS agent must still
+            // complete. The renderer emits `.btn-add-initial.initial-active[data-condition-id]`
+            // only for the current party's un-filled slots (a filled one loses
+            // `.initial-active`). Every added OTHER CONDITIONS clause must be
+            // initialled by the agent before submit.
+            if (container) {
+                container.querySelectorAll('.btn-add-initial.initial-active[data-condition-id]').forEach(el => {
+                    items.push({ el, label: 'Condition initial', type: 'condition', party: 'agent' });
+                });
+            }
+
             // Sort by absolute document position (top-to-bottom)
             items.sort((a, b) => {
                 const aTop = a.el ? getDocumentTop(a.el) : 0;
@@ -1137,6 +1166,14 @@ function signDocument() {
                     container.querySelectorAll('button[data-ceremony-field="true"]').forEach(btn => {
                         total++;
                         if (!btn.textContent || !btn.textContent.trim()) incomplete++;
+                    });
+                    // ESIGN AT-300 — per-condition initial slots (agent's own).
+                    // Interactive slots carry `.btn-add-initial[data-condition-id]`;
+                    // filled ones are `.initial-filled`. Counting them makes
+                    // initialing each added condition a required step before submit.
+                    container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
+                        total++;
+                        if (!el.classList.contains('initial-filled')) incomplete++;
                     });
                 }
             }
