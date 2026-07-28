@@ -45,10 +45,15 @@
   #dr2ls .left .dr2-bt--dis{color:#c7cdd6!important;border-color:#eef2f7!important;background:#fafbfc!important;cursor:not-allowed}
 
   /* RIGHT — wider rail: deal panels on TOP, comments BELOW */
-  #dr2ls .right{min-height:0;display:flex;flex-direction:column;gap:14px}
-  #dr2ls .panels{flex:0 1 auto;max-height:56%;overflow-y:auto;overscroll-behavior:contain;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-  #dr2ls .panels-h{font-size:12px;font-weight:800;color:#0f172a;text-transform:uppercase;letter-spacing:.03em;margin:0 0 8px}
-  #dr2ls .comments{flex:1 1 auto;min-height:200px;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  /* RIGHT — a SINGLE tabbed pane (deal panels + a Comments tab). One tab at a time, full-height,
+     nothing stacked. */
+  #dr2ls .right{min-height:0;display:flex;flex-direction:column}
+  #dr2ls .rpane{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  #dr2ls .rtabs{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px 0;border-bottom:1px solid #e2e8f0}
+  #dr2ls .rtabs .dr2-tab{font-size:11px;padding:6px 9px}
+  #dr2ls .rbody{flex:1;min-height:0;display:flex;flex-direction:column}
+  #dr2ls .rp{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+  #dr2ls .rp--comments{padding:0;overflow:hidden;display:flex;flex-direction:column}
   #dr2ls .cbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
   #dr2ls .cbar .t{font-weight:800;color:#0f172a;font-size:13px}#dr2ls .cbar .n{font-size:11px;color:#64748b}
   #dr2ls .feed{flex:1;overflow-y:auto;padding:8px 14px}
@@ -64,7 +69,7 @@
   #dr2ls .cadd select{max-width:150px}#dr2ls .cadd input{flex:1;min-width:120px}
   #dr2ls .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
 
-  @media(max-width:1100px){#dr2ls{height:auto}#dr2ls .two{grid-template-columns:1fr}#dr2ls .left,#dr2ls .panels{max-height:none}#dr2ls .comments{min-height:320px}}
+  @media(max-width:1100px){#dr2ls{height:auto}#dr2ls .two{grid-template-columns:1fr}#dr2ls .left{max-height:none}#dr2ls .rpane{min-height:480px}}
 </style>
 
 @php($from = 'list')
@@ -170,39 +175,62 @@
       @endif
     </div>
 
-    {{-- ══════════ RIGHT · DEAL PANELS (top) + COMMENTS (below) ══════════ --}}
-    <div class="right">
-      <div class="panels">
-        <div class="panels-h">Deal panels</div>
-        @include('dr2._pipeline-context-tabs')
-      </div>
+    {{-- ══════════ RIGHT · ONE tabbed pane — the deal panels + a Comments tab (nothing stacked) ══════════
+         DEFAULT TAB: the deal's structure is "captured" once its pipeline is built — the exact signal the
+         Deal Structure panel itself uses (`_deal-structure` shows the built conditions when $hasPipeline,
+         else the capture form). So default to Structure until captured, then to Comments. localStorage
+         then remembers the user's own switches per deal so we never force them back. --}}
+    @php($woAtt = ($woNeedsAttention ?? false))
+    @php($tabKey = 'dr2_list_tab_'.$deal->id)
+    @php($defaultTab = $hasPipeline ? 'comments' : 'structure')
+    <div class="right"
+         x-data="{ tab: (localStorage.getItem('{{ $tabKey }}') || '{{ $defaultTab }}'), set(t){ this.tab = t; localStorage.setItem('{{ $tabKey }}', t); } }">
+      <div class="rpane">
+        <div class="rtabs" role="tablist" aria-label="Deal panels">
+          <button type="button" class="dr2-tab" :class="tab==='structure'?'corex-tab-active':''" @click="set('structure')" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
+          <button type="button" class="dr2-tab" :class="tab==='wo'?'corex-tab-active':''" @click="set('wo')" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>
+          <button type="button" class="dr2-tab" :class="tab==='docs'?'corex-tab-active':''" @click="set('docs')" role="tab" :aria-selected="tab==='docs'">Documents</button>
+          <button type="button" class="dr2-tab" :class="tab==='email'?'corex-tab-active':''" @click="set('email')" role="tab" :aria-selected="tab==='email'">Email Parties</button>
+          <button type="button" class="dr2-tab" :class="tab==='pi'?'corex-tab-active':''" @click="set('pi')" role="tab" :aria-selected="tab==='pi'">Proforma Invoice</button>
+          <button type="button" class="dr2-tab" :class="tab==='comments'?'corex-tab-active':''" @click="set('comments')" role="tab" :aria-selected="tab==='comments'">Comments{{ count($board['comments'] ?? []) ? ' ('.count($board['comments']).')' : '' }}</button>
+        </div>
 
-      <div class="comments">
-        <div class="cbar"><span class="t">Comments</span><span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span></div>
-        <div class="feed">
-          @forelse(array_reverse($board['comments'] ?? []) as $c)
-            @php($isDeal = ($c['scope'] ?? '') === 'deal' || ($c['step'] ?? null) === ($board['anchor_id'] ?? null))
-            <div class="cm">
-              <div class="av">{{ strtoupper(substr($c['who'] ?? '?', 0, 1)) }}</div>
-              <div class="cm__b">
-                <div class="cmeta"><b>{{ $c['who'] }}</b> · {{ $c['when'] }}<span class="ctag {{ $isDeal ? 'deal' : '' }}">{{ $isDeal ? 'Deal' : $stepLabel($c['step'] ?? null) }}</span></div>
-                <div class="ctxt">{{ $c['text'] }}</div>
-              </div>
+        <div class="rbody">
+          <div class="rp" x-show="tab==='structure'" x-cloak role="tabpanel">@include('dr2._deal-structure', ['deal' => $deal, 'conditionCatalog' => $conditionCatalog, 'dealConditions' => $dealConditions, 'hasPipeline' => $hasPipeline, 'locked' => $locked])</div>
+          <div class="rp" x-show="tab==='wo'" x-cloak role="tabpanel">@include('dr2._supplier-work-orders', ['deal' => $deal, 'steps' => $steps, 'locked' => $locked])</div>
+          <div class="rp" x-show="tab==='docs'" x-cloak role="tabpanel">@include('dr2._deal-documents', ['deal' => $deal])</div>
+          <div class="rp" x-show="tab==='email'" x-cloak role="tabpanel">@include('dr2._email-parties', ['deal' => $deal])</div>
+          <div class="rp" x-show="tab==='pi'" x-cloak role="tabpanel">@include('proforma._deal-section', ['deal' => $deal])</div>
+
+          {{-- Comments tab — the SAME per-step comments UI that used to sit stacked below the panels. --}}
+          <div class="rp rp--comments" x-show="tab==='comments'" x-cloak role="tabpanel">
+            <div class="cbar"><span class="t">Comments</span><span class="n">{{ count($board['comments'] ?? []) }} on this deal · shown against their step</span></div>
+            <div class="feed">
+              @forelse(array_reverse($board['comments'] ?? []) as $c)
+                @php($isDeal = ($c['scope'] ?? '') === 'deal' || ($c['step'] ?? null) === ($board['anchor_id'] ?? null))
+                <div class="cm">
+                  <div class="av">{{ strtoupper(substr($c['who'] ?? '?', 0, 1)) }}</div>
+                  <div class="cm__b">
+                    <div class="cmeta"><b>{{ $c['who'] }}</b> · {{ $c['when'] }}<span class="ctag {{ $isDeal ? 'deal' : '' }}">{{ $isDeal ? 'Deal' : $stepLabel($c['step'] ?? null) }}</span></div>
+                    <div class="ctxt">{{ $c['text'] }}</div>
+                  </div>
+                </div>
+              @empty
+                <div style="color:#94a3b8;font-size:12px;padding:10px 0;">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
+              @endforelse
             </div>
-          @empty
-            <div style="color:#94a3b8;font-size:12px;padding:10px 0;">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
-          @endforelse
+            @unless($locked || $board['empty'])
+            <div class="cadd">
+              <select id="dr2ls-target">
+                <option value="{{ $board['anchor_id'] }}">General (deal)</option>
+                @foreach($steps as $r)<option value="{{ $r['model']->id }}">On: {{ $r['model']->name }}</option>@endforeach
+              </select>
+              <input id="dr2ls-text" placeholder="Add a comment…">
+              <button onclick="dr2lsAddComment()">Add</button>
+            </div>
+            @endunless
+          </div>
         </div>
-        @unless($locked || $board['empty'])
-        <div class="cadd">
-          <select id="dr2ls-target">
-            <option value="{{ $board['anchor_id'] }}">General (deal)</option>
-            @foreach($steps as $r)<option value="{{ $r['model']->id }}">On: {{ $r['model']->name }}</option>@endforeach
-          </select>
-          <input id="dr2ls-text" placeholder="Add a comment…">
-          <button onclick="dr2lsAddComment()">Add</button>
-        </div>
-        @endunless
       </div>
     </div>
   </div>
