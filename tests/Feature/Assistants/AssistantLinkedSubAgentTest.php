@@ -116,8 +116,12 @@ final class AssistantLinkedSubAgentTest extends TestCase
         $this->linkSubAgent($this->subAgent);
 
         // AFTER linking: the assistant can now edit the Sub-Agent's contact — with no code
-        // change to AuthorizesContactAccess at all.
-        $this->actingAs($this->assistant)
+        // change to AuthorizesContactAccess at all. A FRESH model instance is required here —
+        // activeAssistantAssignment() memoises per-instance, and the BEFORE assertion above
+        // already resolved (and cached) the pre-link state onto $this->assistant. A real browser
+        // request re-fetches Auth::user() from the DB each time; only the reused PHP object in
+        // this single test method needs the explicit refetch.
+        $this->actingAs(User::find($this->assistant->id))
             ->delete(route('corex.contacts.destroy', $subAgentsContact))
             ->assertRedirect();
         $this->assertSoftDeleted('contacts', ['id' => $subAgentsContact->id]);
@@ -160,7 +164,7 @@ final class AssistantLinkedSubAgentTest extends TestCase
     {
         $this->linkSubAgent($this->subAgent);
 
-        Role::create(['name' => 'test-owner', 'label' => 'Owner', 'agency_id' => null, 'is_owner' => true]);
+        Role::forceCreate(['name' => 'test-owner', 'label' => 'Owner', 'agency_id' => null, 'is_owner' => true]);
         $this->subAgent->update(['role' => 'test-owner']);
         $this->reset();
 
