@@ -109,8 +109,52 @@
 </style>
 
 @php($from = 'list')
-@php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id))
+@php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id)->map(function ($row) {
+      // STATUS DOTS (#2): the left-list dot colour derives STRICTLY from the step's real status — NOT the
+      // RAG date-proximity colour (which was painting not-started steps green/amber). Grey = not started,
+      // blue = active, green = completed, grey = N/A/skipped. Only the dot colour + its tooltip change.
+      $st = $row['model']->status;
+      $row['colour'] = match ($st) {
+          'completed'                 => '#16a34a',
+          'active'                    => '#2563eb',
+          'skipped', 'not_applicable' => '#9ca3af',
+          default                     => '#cbd5e1', // not_started / neutral
+      };
+      $row['rag'] = ucfirst(str_replace('_', ' ', (string) $st));
+      return $row;
+    }))
 @php($seq = collect($board['stage2']['segments'] ?? [])->flatMap(fn ($seg) => ($seg['type'] ?? null) === 'sequence' ? [(int) $seg['step']->id] : collect($seg['lanes'] ?? [])->flatMap(fn ($lane) => collect($lane)->map(fn ($m) => (int) $m->id)))->all())
+{{-- Dependency (topological) order for "by step / sequence" (#1): every step lists AFTER all the steps
+     it waits on (its trigger + AND-gate deps), so a step can NEVER appear before a predecessor. Kahn's
+     algorithm with a (due, position) tiebreak for parallel steps — a manual drag (which writes position)
+     reorders parallel peers on the next load, but can never break a dependency. Uses the shared
+     DealDependencyResolver so the graph matches the cascade/composer. --}}
+@php($preds = app(\App\Services\DealV2\DealDependencyResolver::class)->predecessorMap($steps->map(fn ($r) => $r['model'])))
+@php($topoRank = (function () use ($steps, $preds) {
+      $models = $steps->mapWithKeys(fn ($r) => [(int) $r['model']->id => $r['model']])->all();
+      $ids    = array_keys($models);
+      $inSet  = array_flip($ids);
+      $need   = [];
+      foreach ($ids as $id) {
+          $need[$id] = array_values(array_filter($preds[$id] ?? [], fn ($p) => isset($inSet[$p])));
+      }
+      $tiekey = function ($m) {
+          $st = $m->status;
+          $dt = $st === 'completed' ? ($m->actual_date ?? $m->completed_at) : null;
+          $dt = $dt ?? $m->due_date;
+          return [$dt ? \Illuminate\Support\Carbon::parse($dt)->getTimestamp() : PHP_INT_MAX, (int) $m->position];
+      };
+      $rank = []; $r = 0; $guard = 0;
+      while (count($rank) < count($ids) && $guard++ < count($ids) + 5) {
+          $ready = array_values(array_filter($ids, fn ($id) => ! isset($rank[$id]) && ! array_diff($need[$id], array_keys($rank))));
+          if (empty($ready)) { // cycle / stuck — emit remaining in tiebreak order so nothing is lost
+              $ready = array_values(array_filter($ids, fn ($id) => ! isset($rank[$id])));
+          }
+          usort($ready, fn ($a, $b) => $tiekey($models[$a]) <=> $tiekey($models[$b]));
+          $rank[$ready[0]] = $r++;
+      }
+      return $rank;
+    })())
 @php($stepLabel = function ($id) use ($rowById, $board) {
       if ($id === null) return 'Deal';
       if ((int) $id === (int) ($board['anchor_id'] ?? 0)) return 'Deal';
@@ -118,18 +162,19 @@
     })
 {{-- Per-row sort keys for the left-list sort toggle (#3) + drag-reorder (#2): position (the reorder
      key) and due date. The JS re-sorts .dr2-lrow WITHIN each phase group by the chosen key. --}}
-@php($lrowAttrs = function ($id) use ($rowById) {
-      $m   = $rowById[(int) $id]['model'] ?? null;
-      $pos = $m ? (int) $m->position : 999999;
+@php($lrowAttrs = function ($id) use ($rowById, $topoRank) {
+      $m    = $rowById[(int) $id]['model'] ?? null;
+      $pos  = $m ? (int) $m->position : 999999;
+      $topo = $topoRank[(int) $id] ?? 999999; // dependency (topological) rank — the "by step/sequence" key
       // Date sort key = the date the tile actually SHOWS: a completed step shows its actual/completion
       // date, everything else its due date. Keeps the "by due date" order matching the visible dates.
-      $dt  = null;
+      $dt   = null;
       if ($m) {
           $dt = $m->status === 'completed' ? ($m->actual_date ?? $m->completed_at) : null;
           $dt = $dt ?? $m->due_date;
       }
       $due = $dt ? \Illuminate\Support\Carbon::parse($dt)->format('Ymd') : '99999999';
-      return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-due="'.$due.'"';
+      return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-topo="'.$topo.'" data-due="'.$due.'"';
     })
 
 <div id="dr2ls" data-reorder="{{ route('deals-dr2.pipeline.reorder', $deal) }}" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
@@ -352,9 +397,11 @@
 
   // ── Sort toggle (#3) + drag-reorder (#2) ────────────────────────────────────────────────────────
   // Re-sort .dr2-lrow WITHIN each phase container (Stage-1 groups, Stage-2), keeping the phase grouping
-  // intact. "seq" = position (the reorder key) — this is what makes drag-reorder actually take effect on
-  // the list (buildPhased renders Stage-2 in due order, ignoring position, which is why dragging never
-  // stuck). "due" = ascending due date. Sequence is the default; the choice is remembered per browser.
+  // intact. "seq" = DEPENDENCY (topological) order via data-topo — every step after all it waits on, so
+  // it can never render before a predecessor (buildPhased sorted Stage-2 by due, which put successors
+  // above their predecessors). "due" = ascending due date. A manual drag writes position, which is the
+  // topological tiebreak for parallel peers, so drag reorders parallels without breaking a dependency.
+  // Sequence is the default; the choice is remembered per browser.
   const SORT_KEY='dr2_list_sort';
   let sortMode=(function(){ try{ return localStorage.getItem(SORT_KEY)||'seq'; }catch(e){ return 'seq'; } })();
   function applySort(mode){
@@ -364,8 +411,8 @@
     groups.forEach((rowsIn,parent)=>{
       if(rowsIn.length<2) return;
       rowsIn.sort((a,b)=> mode==='due'
-        ? ((a.dataset.due||'').localeCompare(b.dataset.due||'') || ((+a.dataset.pos||0)-(+b.dataset.pos||0)))
-        : ((+a.dataset.pos||0)-(+b.dataset.pos||0)) );
+        ? ((a.dataset.due||'').localeCompare(b.dataset.due||'') || ((+a.dataset.topo||0)-(+b.dataset.topo||0)))
+        : ((+a.dataset.topo||0)-(+b.dataset.topo||0)) ); // "seq" = dependency (topological) order
       rowsIn.forEach(r=>parent.appendChild(r));
     });
     root.classList.toggle('sort-due', mode==='due');
