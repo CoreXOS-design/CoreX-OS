@@ -69,12 +69,12 @@
             condition is met, the deal grants and the transfer/registration steps run.
         </div>
         <div class="ms-flow">
-            <span class="n">🖊 Deal Signed</span><span class="ar">→</span>
-            <span class="n" style="border-color:color-mix(in srgb,var(--ds-amber) 45%,var(--border));">🏦 Condition steps <em>(suspensive)</em></span><span class="ar">→</span>
-            <span class="n" style="border-color:color-mix(in srgb,var(--ds-green) 55%,var(--border));">✅ Granted</span><span class="ar">→</span>
-            <span class="n">⚖ Attorneys · FICA · COCs · Rates</span><span class="ar">→</span>
-            <span class="n">🏛 Lodgement</span><span class="ar">→</span>
-            <span class="n">✔ Registration</span>
+            <span class="n">Deal Signed</span><span class="ar">&rarr;</span>
+            <span class="n" style="border-color:color-mix(in srgb,var(--ds-amber) 45%,var(--border));">Condition steps <em>(suspensive)</em></span><span class="ar">&rarr;</span>
+            <span class="n" style="border-color:color-mix(in srgb,var(--ds-green) 55%,var(--border));">Granted</span><span class="ar">&rarr;</span>
+            <span class="n">Attorneys &middot; FICA &middot; COCs &middot; Rates</span><span class="ar">&rarr;</span>
+            <span class="n">Lodgement</span><span class="ar">&rarr;</span>
+            <span class="n">Registration</span>
         </div>
         <div class="text-xs" style="color: var(--text-muted);">
             Tip: edit a step's name / offset inline; open <strong>⚙ details</strong> to change what it follows, its
