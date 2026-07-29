@@ -125,9 +125,9 @@
         <x-slot name="right">
             <a href="{{ route('docuperfect.rental') }}" class="text-sm text-gray-500 hover:text-gray-700 mr-2">Dashboard</a>
             <button @click="handleComplete()"
-                    :disabled="completingForm || incompleteCount > 0"
+                    :disabled="completingForm || incompleteCount > 0 || conditionInitialsRemaining > 0"
                     class="px-4 py-2 text-sm font-semibold rounded-sm transition-colors"
-                    :class="incompleteCount === 0 && !completingForm
+                    :class="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
                         : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
                     :title="incompleteCount > 0 ? 'Please complete all fields: ' + incompleteCount + ' remaining' : ''">
@@ -512,17 +512,26 @@
                     <button @click="scrollToNextIncomplete()" class="text-blue-600 hover:text-blue-800 underline font-medium">go to next</button>
                 </span>
             </template>
-            <template x-if="incompleteCount === 0">
+            {{-- AT-303 ISSUE-1 — other-condition initials are a DELIBERATE separate step:
+                 excluded from auto-fill + the field count, surfaced as their own required
+                 action so the agent can reach 100% (auto-fill the fields, then initial each). --}}
+            <template x-if="incompleteCount === 0 && conditionInitialsRemaining > 0">
+                <span class="font-medium" style="color:#92400e;">
+                    <span x-text="conditionInitialsRemaining"></span> added condition<span x-show="conditionInitialsRemaining !== 1">s</span> still need your initial —
+                    <button @click="initialNextCondition()" class="text-amber-700 hover:text-amber-900 underline font-semibold">initial next</button>
+                </span>
+            </template>
+            <template x-if="incompleteCount === 0 && conditionInitialsRemaining === 0">
                 <span class="font-medium" style="color:var(--brand-button, #0ea5e9);">All fields complete. Ready to send.</span>
             </template>
         </div>
         <button @click="handleComplete()"
-                :disabled="completingForm || incompleteCount > 0"
+                :disabled="completingForm || incompleteCount > 0 || conditionInitialsRemaining > 0"
                 class="rounded-md px-6 py-2.5 text-sm font-semibold transition-colors"
-                :class="incompleteCount === 0 && !completingForm
+                :class="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm
                     ? 'text-white hover:brightness-110'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-                :style="incompleteCount === 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''"
+                :style="incompleteCount === 0 && conditionInitialsRemaining === 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''"
                 :title="incompleteCount > 0 ? 'Please complete all fields (' + incompleteCount + ' remaining)' : ''">
             <span x-show="!completingForm">Complete Signing & Send</span>
             <span x-show="completingForm" x-cloak>Completing...</span>
@@ -673,7 +682,9 @@ function signDocument() {
         webInitialElements: [],    // [{el, partyRole, index, isMine, signed, sigData}]
         _pendingInitialApplyAll: false,
         _initialsApplyAllOffered: false,
-        incompleteCount: 0,        // Total unfilled required items (sigs + initials + ceremony fields)
+        incompleteCount: 0,        // Total unfilled required items (sigs + initials + ceremony fields) — EXCLUDES other-condition initials
+        conditionInitialsRemaining: 0,  // AT-303 ISSUE-1 — other-condition initials still to do (a separate deliberate step)
+        conditionInitialsTotal: 0,      // AT-303 ISSUE-1
 
         // Section-by-section signing state
         hasSections: {{ !empty($sections) ? 'true' : 'false' }},
@@ -1156,6 +1167,8 @@ function signDocument() {
         _updateIncompleteCount() {
             let total = 0;
             let incomplete = 0;
+            let condTotal = 0;      // AT-303 ISSUE-1 — other-condition initials, counted separately
+            let condRemaining = 0;
 
             // Always count agent's DB markers (works for both PDF and web templates)
             this.markers.forEach(m => {
@@ -1191,13 +1204,15 @@ function signDocument() {
                         total++;
                         if (!btn.textContent || !btn.textContent.trim()) incomplete++;
                     });
-                    // ESIGN AT-300 — per-condition initial slots (agent's own).
-                    // Interactive slots carry `.btn-add-initial[data-condition-id]`;
-                    // filled ones are `.initial-filled`. Counting them makes
-                    // initialing each added condition a required step before submit.
+                    // AT-303 ISSUE-1 — per-condition initials are a DELIBERATE,
+                    // separate step (Johan: initial each via the modal, NEVER
+                    // auto-filled). They are counted SEPARATELY (conditionInitials*),
+                    // NOT lumped into incompleteCount — otherwise auto-fill (which
+                    // never touches them) can never drive the count to 0 and the
+                    // agent is stuck. The submit gate requires BOTH counts at 0.
                     container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
-                        total++;
-                        if (!el.classList.contains('initial-filled')) incomplete++;
+                        condTotal++;
+                        if (!el.classList.contains('initial-filled')) condRemaining++;
                     });
                 }
             }
@@ -1215,6 +1230,21 @@ function signDocument() {
 
             this.totalAgent = total;
             this.incompleteCount = incomplete;
+            this.conditionInitialsTotal = condTotal;         // AT-303 ISSUE-1
+            this.conditionInitialsRemaining = condRemaining; // AT-303 ISSUE-1
+        },
+
+        // AT-303 ISSUE-1 — jump to the next un-initialled added condition and open
+        // the SAME draw/type initial modal (via the delegated corex-open-condition-initial
+        // handler). Deliberate per-condition initialing — never auto-filled.
+        initialNextCondition() {
+            const container = this.$refs.webDocContent;
+            if (!container) return;
+            const el = container.querySelector('.btn-add-initial.initial-active[data-condition-id]');
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => el.click(), 250);
+            }
         },
 
         /**

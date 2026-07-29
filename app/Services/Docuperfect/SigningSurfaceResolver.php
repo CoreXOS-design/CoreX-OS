@@ -114,16 +114,26 @@ class SigningSurfaceResolver
                 if ($exists) {
                     continue;
                 }
+                $familyBase = preg_replace('/_\d+$/', '', strtolower((string) $rc['key']));
+
+                // AT-303 ISSUE-2 — a 2nd same-role recipient (seller_2) must render in
+                // the TEMPLATE'S OWN signature layout, GROUPED with seller_1 — never
+                // stranded in a separate injected section at the end of the page (which
+                // is exactly what happened on the real MDF template-123: the seller
+                // .mdf-sig block was not expanded, so seller_2 landed as a lone
+                // sig-party-block after seller/buyer/agent/co_signer). If the family
+                // already HAS a surface, clone THAT block, re-key it to this instance,
+                // and insert it right after — so the sellers group in the real layout.
+                if ($this->cloneFamilyBlockForInstance($dom, $xpath, $rc, (string) $familyBase)) {
+                    $injected = true;
+                    continue;
+                }
+
+                // Fallback (no existing same-family surface at all) — build a generic
+                // block in a signature section, contiguous with its family (BUG-5).
                 if (!isset($sigSection)) {
                     $sigSection = $this->findOrCreateSignatureSection($dom, $xpath);
                 }
-                // AT-303 BUG-5 — keep an injected surface CONTIGUOUS with its role
-                // family. A stale blade often ships one seller surface + the agent
-                // surface (DOM order: seller, agent); a plain appendChild dropped the
-                // injected seller_2 AFTER the agent, stranding it (seller_1 → AGENT →
-                // seller_2). Insert it right after the family's last existing surface
-                // so the sellers group together and the agent stays last.
-                $familyBase = preg_replace('/_\d+$/', '', strtolower((string) $rc['key']));
                 $this->insertSurfaceInFamilyOrder(
                     $xpath,
                     $sigSection,
@@ -200,6 +210,93 @@ class SigningSurfaceResolver
      * in the legally-correct place. If none exists, create one at the end
      * of the document.
      */
+    /**
+     * AT-303 ISSUE-2 — clone the family's OWN signature block for a missing
+     * same-role instance and insert it immediately after, so seller_2 renders in
+     * the template's own layout grouped with seller_1 (e.g. template-123's
+     * `.mdf-sig .signature-section`). Returns true when it cloned; false when the
+     * family has no existing block to clone (caller then builds a generic block).
+     */
+    private function cloneFamilyBlockForInstance(
+        \DOMDocument $dom,
+        \DOMXPath $xpath,
+        array $rc,
+        string $familyBase
+    ): bool {
+        // The LAST existing signature surface whose party is in this family.
+        $markers = $xpath->query('//*[@data-marker-type="signature"][@data-marker-party]');
+        $lastMarker = null;
+        if ($markers !== false) {
+            foreach ($markers as $m) {
+                if (! $m instanceof \DOMElement) {
+                    continue;
+                }
+                $party = strtolower((string) $m->getAttribute('data-marker-party'));
+                if (preg_replace('/_\d+$/', '', $party) === $familyBase) {
+                    $lastMarker = $m;
+                }
+            }
+        }
+        if ($lastMarker === null) {
+            return false;
+        }
+
+        $block = $this->closestSignatureBlock($lastMarker);
+        if ($block === null || ! $block->parentNode instanceof \DOMNode) {
+            return false;
+        }
+
+        $clone = $block->cloneNode(true);
+        if (! $clone instanceof \DOMElement) {
+            return false;
+        }
+
+        // Re-key the clone (root + every marker) to THIS instance so it is
+        // seller_2's own surface and CanonicalInkComposer writes only their ink here.
+        $key = (string) $rc['key'];
+        if ($clone->hasAttribute('data-marker-party')) {
+            $clone->setAttribute('data-marker-party', $key);
+        }
+        $cxp = new \DOMXPath($dom);
+        $cloneMarkers = $cxp->query('.//*[@data-marker-party]', $clone);
+        if ($cloneMarkers !== false) {
+            foreach ($cloneMarkers as $cm) {
+                if ($cm instanceof \DOMElement) {
+                    $cm->setAttribute('data-marker-party', $key);
+                    $cm->setAttribute('data-recipient-identity', $key);
+                }
+            }
+        }
+
+        // Insert immediately after the family's block → grouped in the template layout.
+        if ($block->nextSibling !== null) {
+            $block->parentNode->insertBefore($clone, $block->nextSibling);
+        } else {
+            $block->parentNode->appendChild($clone);
+        }
+        return true;
+    }
+
+    /**
+     * Nearest TEMPLATE-NATIVE per-party signature block ancestor of a marker.
+     * Deliberately matches ONLY `signature-section` / `mdf-sig` — the template's own
+     * per-party layout that the compose-time RoleBlockExpansionService does NOT
+     * expand. `.sig-party-block` is EXCLUDED on purpose: those ARE compose-expanded,
+     * so cloning one here would double them — they stay on the unchanged fallback.
+     */
+    private function closestSignatureBlock(\DOMElement $marker): ?\DOMElement
+    {
+        $node = $marker;
+        while ($node instanceof \DOMElement) {
+            $cls = ' ' . strtolower(trim($node->getAttribute('class'))) . ' ';
+            if (str_contains($cls, ' signature-section ') || str_contains($cls, ' mdf-sig ')) {
+                return $node;
+            }
+            $node = $node->parentNode;
+        }
+        return null;
+    }
+
     /**
      * AT-303 BUG-5 — insert an injected signature surface immediately after the
      * LAST existing surface of the same role family (seller/seller_N together),
