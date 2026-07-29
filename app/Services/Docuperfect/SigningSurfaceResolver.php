@@ -246,6 +246,24 @@ class SigningSurfaceResolver
             return false;
         }
 
+        // AT-303 (recipient field persistence) — the SOURCE block (the first
+        // instance, e.g. seller_1) must carry its OWN data-recipient-identity so its
+        // ceremony/field markers are recipient-scoped. Without it, template-123's
+        // bare `data-marker-party="seller"` markers fall back to party-role, so a 2nd
+        // same-role recipient's signing view treats seller_1's Location/date fields as
+        // editable — replacing rec 1's typed values with empty inputs (and they never
+        // render for rec 2 or the final doc). Stamp the first-instance identity
+        // (familyBase_1) on every un-stamped marker of the source block.
+        $srcXp = new \DOMXPath($dom);
+        $srcMarkers = $srcXp->query('.//*[@data-marker-party]', $block);
+        if ($srcMarkers !== false) {
+            foreach ($srcMarkers as $sm) {
+                if ($sm instanceof \DOMElement && $sm->getAttribute('data-recipient-identity') === '') {
+                    $sm->setAttribute('data-recipient-identity', $familyBase . '_1');
+                }
+            }
+        }
+
         $clone = $block->cloneNode(true);
         if (! $clone instanceof \DOMElement) {
             return false;
