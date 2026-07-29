@@ -52,6 +52,12 @@ Corroborating gaps (agent findings, for the spec's design):
 Deal + Contact + Property (the MDF is a property/mandate document signed by owner
 Contacts, routed through the Deal's signing ceremony). No new pillar.
 
+## Build status (2026-07-29)
+
+- **Stage 1 — LANDED + verified + QA1** (dev `b1434a38`, QA1 `977775dd`). Test `DisclosureMarkLockTest` (3 green).
+- **Stages 2–3 — BUILT + test-verified** (backend `DisclosureMarkAmendmentTest`, 4 green: propose→route-back, accept→ratify, decline→revert, guards). Reject rule per Johan: **decline → revert to original → back to proposer**, no automated loop; parties self-regulate offline. Co-seller collapse avoided by keying mark counter-initials on `signature_request_id` (identity) via `AmendmentAcceptance` — the `ConditionInitial`/`party_role` path is untouched. All shared-completion-logic changes GUARDED to `section_reference === 'Disclosure'`.
+  - **Pending Johan hand-verify:** full 2-seller MDF real-browser ceremony on QA1 (needs a live-DB test document — not created solo per the no-live-data rule).
+
 ## 2. What we build (3 stages, each its own commit, READY-FOR-QA1)
 
 ### Stage 1 — Lock on sign + downstream read-only (the security fix)

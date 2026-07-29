@@ -1513,6 +1513,7 @@ function externalSign() {
         webConsented: false,
         showWebSigCapture: false,
         currentWebSigBlockId: null,
+        pendingDisclosureAmend: null,   {{-- AT-303 Stage 2 — a proposed disclosure-mark change awaiting the amender's initial --}}
         webSigMode: 'draw',
         webTypedSignature: '',
         webCeremonyValues: {},
@@ -3586,6 +3587,48 @@ function externalSign() {
             } catch (e) { return null; }
         },
 
+        // AT-303 Stage 2 — a downstream owner recipient proposes a change to a
+        // LOCKED disclosure mark. Opens the existing draw/type modal to capture
+        // the amender's initial; applyWebSignature() then posts to the endpoint.
+        proposeDisclosureChange(key, statement, newValue) {
+            if (!newValue) {
+                this.showNotification('Tap the answer you want to change it to first, then Propose.', 'warning');
+                return;
+            }
+            this.pendingDisclosureAmend = { key: key, statement: statement, newValue: newValue };
+            this.currentWebSigBlockId = null;
+            this.webSigMode = 'draw';
+            this.webTypedSignature = '';
+            this.showWebSigCapture = true;
+            this.$nextTick(() => this.initWebSigCanvas());
+        },
+
+        submitDisclosureAmendment(amend, initialImage) {
+            fetch('/sign/' + this.token + '/disclosure/' + encodeURIComponent(amend.key) + '/amend', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({
+                    new_value: amend.newValue,
+                    statement: amend.statement,
+                    initial_image: initialImage,
+                }),
+            })
+            .then(r => r.json().then(d => ({ ok: r.ok, d })))
+            .then(({ ok, d }) => {
+                if (ok && d.ok) {
+                    this.showNotification(d.message || 'Your proposed change was sent to the other party.', 'success');
+                    setTimeout(() => { window.location = d.redirect || ('/sign/' + this.token + '/completed'); }, 1200);
+                } else {
+                    this.showNotification((d && d.error) || 'Could not submit your proposed change.', 'error');
+                }
+            })
+            .catch(() => this.showNotification('Network error submitting your proposed change.', 'error'));
+        },
+
         applyWebSignature() {
             const canvas = this.$refs.webSigCanvas;
             let sigData;
@@ -3634,6 +3677,18 @@ function externalSign() {
                 // (consistent height, width = name length), so the fixed-height render
                 // makes every signatory's mark the same size.
                 sigData = this._cropCanvasToInk(out) || out.toDataURL('image/png');
+            }
+
+            // AT-303 Stage 2 — this capture is the amender's INITIAL for a
+            // proposed disclosure-mark change (not a document signature/initial).
+            // Post it to the amend endpoint; the server strikes the original,
+            // applies the new mark, and routes back to the earlier party.
+            if (this.pendingDisclosureAmend) {
+                const amend = this.pendingDisclosureAmend;
+                this.pendingDisclosureAmend = null;
+                this.showWebSigCapture = false;
+                this.submitDisclosureAmendment(amend, sigData);
+                return;
             }
 
             const sigId = this.currentWebSigBlockId;

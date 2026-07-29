@@ -3849,6 +3849,8 @@ Route::prefix('sign')->group(function () {
     Route::get('/{token}/amendment-review', [\App\Http\Controllers\Docuperfect\SigningController::class, 'amendmentReview'])->name('signatures.external.amendment-review');
     Route::post('/{token}/amendment/{amendment}/accept', [\App\Http\Controllers\Docuperfect\SigningController::class, 'acceptAmendment'])->name('signatures.external.acceptAmendment');
     Route::post('/{token}/amendment/{amendment}/reject', [\App\Http\Controllers\Docuperfect\SigningController::class, 'rejectAmendment'])->name('signatures.external.rejectAmendment');
+    // AT-303 — downstream recipient proposes a change to a LOCKED MDF disclosure mark.
+    Route::post('/{token}/disclosure/{key}/amend', [\App\Http\Controllers\Docuperfect\SigningController::class, 'proposeDisclosureAmendment'])->name('signatures.external.proposeDisclosureAmendment');
 
     // Phase 1B.5 — recipient Other Conditions / focused initialing
     Route::post('/{token}/conditions',          [\App\Http\Controllers\Docuperfect\SigningController::class, 'addCondition'])->name('signatures.external.addCondition');
