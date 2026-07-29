@@ -182,8 +182,14 @@
     </div>
   </div>
 
-  {{-- Collapsible deal-context tabs — on TOP, default collapsed, panel bounded + internally scrollable --}}
-  <div class="ctabs" x-data="{ open:false }">
+  {{-- Collapsible deal-context tabs — on TOP. DEFAULT (Johan's rule): a deal with NO structure/pipeline
+       yet opens EXPANDED (prompt the user to set up the deal structure); once structure is captured
+       ($hasPipeline) it opens COLLAPSED to save vertical space. The user's own expand/collapse is then
+       sticky per-deal (localStorage) and never forced back on later loads. Matches the list, whose right
+       pane already defaults to the Structure tab when the deal has no structure. --}}
+  <div class="ctabs"
+       x-data="{ open: (localStorage.getItem('dr2_panels_open_{{ $deal->id }}') || '{{ ($hasPipeline ?? false) ? '0' : '1' }}') === '1' }"
+       x-init="$watch('open', v => localStorage.setItem('dr2_panels_open_{{ $deal->id }}', v ? '1' : '0'))">
     <div class="ctabs-h" :class="open?'open':''" @click="open=!open">
       <span class="chev">▸</span> Deal panels — Structure · Work Orders · Documents · Parties · Proforma
       <span style="margin-left:auto;font-weight:400;color:#94a3b8;" x-text="open?'hide':'show'"></span>
