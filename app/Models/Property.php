@@ -1069,7 +1069,44 @@ class Property extends Model
             return $query;
         }
 
-        foreach ($tokens as $token) {
+        // Field-designator keywords: "unit 14" / "erf 442" name a SPECIFIC column,
+        // so the value token must bind to THAT column only — not roam across all
+        // 11 OR'd address fields the way a bare token does. Without this, "unit 14"
+        // degraded to "(any field has 'unit') AND (any field has '14')", so an
+        // unrelated property (e.g. "Unit 13") matched merely because ITS
+        // street_number/property_number/p24_ref happened to contain "14" — a
+        // false-positive cross-column match with no relevance signal to rank it
+        // below the true "Unit 14" match (AT-274). unit_number is nullable per
+        // PropertyAddressReconciler's UNIT-AS-NUMBER drift (legacy rows where the
+        // unit landed in street_number instead), so street_number is still
+        // consulted for the "unit" keyword — but ONLY when unit_number is empty,
+        // never as a blanket alternative once a row already has a real unit_number.
+        $keywordFields = [
+            'unit' => ['unit_number', 'unit_section_block'],
+            'erf'  => ['erf_number', 'property_number', 'stand_number'],
+        ];
+
+        for ($i = 0, $count = count($tokens); $i < $count; $i++) {
+            $keyword = $keywordFields[strtolower($tokens[$i])] ?? null;
+            $value   = $tokens[$i + 1] ?? null;
+
+            if ($keyword !== null && $value !== null) {
+                $query->where(function ($q) use ($keyword, $value) {
+                    $like = "%{$value}%";
+                    foreach ($keyword as $field) {
+                        $q->orWhere($field, 'like', $like);
+                    }
+                    if (in_array('unit_number', $keyword, true)) {
+                        $q->orWhere(function ($q2) use ($like) {
+                            $q2->whereNull('unit_number')->where('street_number', 'like', $like);
+                        });
+                    }
+                });
+                $i++; // value token consumed by the keyword pairing above
+                continue;
+            }
+
+            $token = $tokens[$i];
             $query->where(function ($q) use ($token) {
                 $like = "%{$token}%";
                 $q->where('address', 'like', $like)
@@ -1082,6 +1119,7 @@ class Property extends Model
                   ->orWhere('unit_number', 'like', $like)
                   ->orWhere('unit_section_block', 'like', $like)
                   ->orWhere('property_number', 'like', $like)
+                  ->orWhere('erf_number', 'like', $like)
                   ->orWhere('p24_ref', 'like', $like);
             });
         }
