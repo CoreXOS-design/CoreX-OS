@@ -88,8 +88,26 @@ class PipelineTimelineService
             $spans[(int) $s->id] = $this->projectedSpan($s);
         }
 
+        // Actual-aware grant date — the LATEST over the suspensive set of (its ACTUAL completion date if
+        // completed, else its planned Due). The Granted milestone is pinned HERE (below) rather than at the
+        // gate step's own stored due, which can be stale / pre-cascade — so the timeline's Granted agrees
+        // with the phased list's gate label (identical rule in buildPhased). DISPLAY ONLY — never persisted;
+        // the cascade/assembler own the stored dates.
+        $grantDate = $allSteps->where('is_suspensive', true)
+            ->map(function ($s) {
+                $raw = $s->status === 'completed' ? ($s->actual_date ?? $s->completed_at) : null;
+                $raw = $raw ?? $s->due_date;
+                return $raw ? Carbon::parse($raw)->startOfDay() : null;
+            })
+            ->filter()
+            ->sortByDesc(fn ($c) => $c->getTimestamp())
+            ->first();
+
         $base   = collect($spans)->reduce(fn ($c, $sp) => ($c === null || $sp['start']->lt($c)) ? $sp['start']->copy() : $c)->startOfDay();
         $maxEnd = collect($spans)->reduce(fn ($c, $sp) => ($c === null || $sp['end']->gt($c)) ? $sp['end']->copy() : $c)->startOfDay();
+        if ($grantDate && $grantDate->gt($maxEnd)) {
+            $maxEnd = $grantDate->copy(); // keep the axis wide enough for a grant that lands after every bar
+        }
         $idx    = fn (Carbon $d) => (int) $base->diffInDays($d->copy()->startOfDay(), false);
         $days   = max(7, $idx($maxEnd) + 5);
 
@@ -106,10 +124,13 @@ class PipelineTimelineService
             $startI = $idx($sp['start']);
             $endI   = $idx($sp['end']);
             if ($s->is_milestone) {
+                // The Granted milestone sits at the actual-aware grant date (parity with the list); every
+                // other milestone stays at its own end date.
+                $mileDay = ($s->is_grant_marker && $grantDate) ? $idx($grantDate) : $endI;
                 $gates[] = [
                     'id'    => (int) $s->id,
                     'name'  => $s->name,
-                    'day'   => $endI,
+                    'day'   => $mileDay,
                     'state' => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
                 ];
                 continue;
