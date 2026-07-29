@@ -71,6 +71,44 @@ final class InsertableBlockRenderer
     }
 
     /**
+     * Step 2 (Johan) — inject the NON-PRINTABLE "one condition at a time"
+     * guidance next to each "+ Add condition" control. This is SCREEN-ONLY
+     * chrome (a soft discipline hint, not hard validation) and MUST NEVER
+     * appear in the print-from-approved canonical / PDF.
+     *
+     * It is applied as a per-viewer DISPLAY OVERLAY at show()-time (exactly like
+     * stampConditionSigningToken) — deliberately NOT baked into the canonical, so
+     * the frozen legal artifact stays clean of UI chrome. As belt-and-braces the
+     * element carries `no-print` (the corex-document.css `@media print` convention)
+     * and `data-screen-only="1"` (which SignaturePdfService strips from the PDF DOM
+     * before rendering), so it cannot survive to print by any path.
+     *
+     * Idempotent: any previously-injected guidance is stripped first, then one is
+     * re-inserted immediately BEFORE every add-condition button.
+     */
+    public function injectAddConditionGuidance(string $html): string
+    {
+        if ($html === '' || ! str_contains($html, 'btn-add-condition')) {
+            return $html;
+        }
+        // Idempotent — remove any prior guidance before re-inserting.
+        $html = (string) preg_replace(
+            '/<div class="condition-add-guidance[^"]*"[^>]*>.*?<\/div>/s',
+            '',
+            $html,
+        );
+        $guidance = '<div class="condition-add-guidance no-print" data-screen-only="1" '
+            . 'style="margin-top:0.5rem; font-size:0.72rem; color:#92400e; font-style:italic;">'
+            . 'Please add only one condition at a time.</div>';
+
+        return (string) preg_replace(
+            '/(<button\b[^>]*\bbtn-add-condition\b[^>]*>)/i',
+            $guidance . '$1',
+            $html,
+        );
+    }
+
+    /**
      * AT-303 BUG-4 — per-viewer condition-initial DISPLAY OVERLAY.
      *
      * The canonical serve bakes the document body ONCE, viewer-agnostically
@@ -177,6 +215,40 @@ final class InsertableBlockRenderer
      *   The template's insertable_blocks metadata (id, purpose, label,
      *   position_marker, max_conditions, auto_number, locked, ...).
      */
+    /**
+     * ESIGN AT-300 — resolve the party_key a signer OWNS for per-condition
+     * initials. parties_json keys same-role instances distinctly (instance 1 as
+     * the base role "seller", instance N>1 as "{role}_{N}"), but a SignatureRequest
+     * only carries party_role + role_index. For SINGLE-instance roles (agent, a
+     * lone seller) this returns exactly party_role — NO behaviour change. For a
+     * 2nd+ same-role party (seller_2) it returns that instance's distinct key so
+     * their initial attributes to THEM, not to seller_1 (the multi-seller quirk).
+     * Falls back to party_role when parties_json is absent or has no index match.
+     */
+    public static function partyKeyForViewer(?array $partiesJson, string $partyRole, int $roleIndex = 1): string
+    {
+        if (! is_array($partiesJson) || $partiesJson === []) {
+            return $partyRole;
+        }
+        foreach ($partiesJson as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $role = (string) ($p['role'] ?? '');
+            if ($role === '') {
+                continue;
+            }
+            $base = preg_replace('/_\d+$/', '', $role); // "seller_2" -> "seller"
+            if (strcasecmp((string) $base, $partyRole) !== 0) {
+                continue;
+            }
+            if ((int) ($p['role_index'] ?? 1) === $roleIndex) {
+                return $role;
+            }
+        }
+        return $partyRole;
+    }
+
     public function renderInDocument(
         string $documentHtml,
         SignatureTemplate $doc,
@@ -405,6 +477,117 @@ final class InsertableBlockRenderer
         return $this->renderConditionRow($c, $context, $doc, $signingToken, $currentPartyKey);
     }
 
+    /**
+     * Render ONE insertable block's full container HTML
+     * (`<div class="insertable-block" data-block-id="…">…</div>`) with its
+     * CURRENT conditions + captured per-condition initials. Public so
+     * CanonicalDocumentRenderer::refreshInsertableBlocks can surgically swap the
+     * block region in an already-baked canonical (preserving signature/initial
+     * ink elsewhere) when a condition is added/initialed during signing.
+     */
+    public function renderBlockContainer(
+        array $block,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
+        $blockId = (string) ($block['id'] ?? '');
+        $conditions = DocumentCondition::query()
+            ->where('signature_template_id', $doc->id)
+            ->where('block_id', $blockId)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->with('initials')
+            ->orderBy('condition_number')
+            ->get();
+
+        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, $signingToken, $currentPartyKey);
+    }
+
+    /**
+     * DISPLAY-TIME re-render of every already-rendered insertable-block region so
+     * the SIGNING surface shows the INTERACTIVE block (the "+ Add condition"
+     * button + the current party's clickable initial slots), regardless of what
+     * the STORED canonical holds.
+     *
+     * The stored canonical is baked STATIC (CONTEXT_PDF_RENDER via
+     * refreshInsertableBlocks — no chrome, so the PDF prints clean). That static
+     * form is served to every surface, including signing — which is why the add
+     * button + initial affordances vanished on the recipient/agent signing view.
+     * This swaps each `<div class="insertable-block" data-block-id>` in the SERVED
+     * html for a fresh render in the viewer's context (block_id + purpose +
+     * auto_number read off the div), leaving the stored canonical untouched.
+     * Filled initials still render as adopted ink; the print path stays static.
+     */
+    public function reRenderBlocksForViewer(
+        string $html,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
+        if ($html === '' || ! str_contains($html, 'insertable-block')) {
+            return $html;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+            );
+            $xpath   = new \DOMXPath($dom);
+            $nodes   = iterator_to_array($xpath->query(
+                '//*[contains(concat(" ", normalize-space(@class), " "), " insertable-block ")][@data-block-id]'
+            ));
+            $changed = false;
+            foreach ($nodes as $old) {
+                if (! $old instanceof \DOMElement) {
+                    continue;
+                }
+                $blockId = $old->getAttribute('data-block-id');
+                if ($blockId === '') {
+                    continue;
+                }
+                $block = [
+                    'id'          => $blockId,
+                    'purpose'     => $old->getAttribute('data-purpose') ?: 'other_conditions',
+                    'auto_number' => $old->getAttribute('data-auto-number') === '1',
+                ];
+                $freshHtml = $this->renderBlockContainer($block, $doc, $context, $signingToken, $currentPartyKey);
+                if (trim($freshHtml) === '') {
+                    continue;
+                }
+                $frag = new \DOMDocument();
+                @$frag->loadHTML(
+                    '<?xml encoding="utf-8"?><div id="__w">' . $freshHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING,
+                );
+                $new = null;
+                foreach ($frag->getElementsByTagName('div') as $d) {
+                    if ($d->getAttribute('data-block-id') === $blockId) {
+                        $new = $d;
+                        break;
+                    }
+                }
+                if ($new === null) {
+                    continue;
+                }
+                $imported = $dom->importNode($new, true);
+                $old->parentNode?->replaceChild($imported, $old);
+                $changed = true;
+            }
+            if (! $changed) {
+                return $html;
+            }
+            $out = $dom->saveHTML();
+            $out = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', (string) $out);
+            return trim((string) $out);
+        } catch (\Throwable $e) {
+            return $html;
+        }
+    }
+
     private function renderConditionRow(
         DocumentCondition $c,
         string $context,
@@ -488,51 +671,63 @@ final class InsertableBlockRenderer
         ?string $signingToken,
         ?string $currentPartyKey
     ): string {
-        // Skip slot rendering for PDF flatten (no interactive UI).
-        if ($context === self::CONTEXT_PDF_RENDER) {
-            return '';
-        }
-
         $parties = $doc->parties_json ?? [];
         if (! is_array($parties) || empty($parties)) {
             return '';
         }
 
-        // Index the already-captured initials by party_key for O(1) lookup.
+        // The interactive add-initial affordance belongs ONLY to the live
+        // recipient-signing surface. Every other surface — agent prep/review,
+        // the stored canonical, and the flattened PDF (print-from-approved) — is
+        // STATIC: it renders each party's CAPTURED initial as their real adopted
+        // ink and nothing else. No "click to initial" / "pending" signing chrome
+        // ever bakes into the printed legal document. (Previously this returned
+        // '' for CONTEXT_PDF_RENDER, so per-condition initials never printed.)
+        $interactive = $context === self::CONTEXT_RECIPIENT_SIGNING;
+
+        // Captured initials for THIS condition, keyed by party_key (stable —
+        // condition_id + party_key; no positional collapse).
         $byParty = [];
         foreach ($c->initials as $initial) {
             $byParty[$initial->party_key] = $initial;
         }
 
-        $slots = '<div class="condition-initials" '
-            . 'style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.4rem; padding-top:0.4rem; '
-            . 'border-top:1px dashed #d1d5db;">';
-
+        $slots = '';
         foreach ($parties as $party) {
             $partyKey   = (string) ($party['role'] ?? '');
             $partyLabel = (string) ($party['name'] ?? $party['role_label'] ?? ucfirst(str_replace('_', ' ', $partyKey)));
             if ($partyKey === '') continue;
 
             $existing = $byParty[$partyKey] ?? null;
-            $initials = $this->makeInitialsToken($partyLabel);
 
             if ($existing) {
-                $slots .= '<div class="initial-slot initial-filled" '
-                    . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
-                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
-                    . 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;">'
-                    . '<strong style="color:#047857; letter-spacing:0.05em;">' . e($initials) . '</strong>'
-                    . '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">'
-                    . e($partyLabel) . ' &middot; ' . e($existing->initialed_at?->format('d M H:i') ?? '')
-                    . '</small></div>';
+                // FILLED — render the party's REAL adopted initial ink (the same
+                // drawn initial they use for page initials), resolved from
+                // signed_initials. Falls back to a typed token only when the
+                // party has no adopted initial on file.
+                $ink   = $this->resolveAdoptedInitial($doc, $partyKey);
+                $inner = $ink !== null
+                    ? '<img src="' . $ink . '" class="corex-ink corex-ink--initial condition-initial-ink" alt="Initial" '
+                        . 'style="height:26px; max-height:26px; width:auto; object-fit:contain; vertical-align:middle;">'
+                    : '<strong style="letter-spacing:0.05em;">' . e($this->makeInitialsToken($partyLabel)) . '</strong>';
+                $slots .= '<span class="condition-initial initial-filled" '
+                    . 'data-condition-id="' . $c->id . '" data-party-key="' . e($partyKey) . '" data-signed="true" '
+                    . 'style="display:inline-flex; align-items:center; gap:0.3rem; margin-right:0.7rem;">'
+                    . $inner
+                    . '<small style="color:#6b7280; font-size:0.6rem;">' . e($partyLabel) . '</small>'
+                    . '</span>';
                 continue;
             }
 
-            // Determine whether THIS party is the current signer + the
-            // context permits a click (recipient signing only).
+            if (! $interactive) {
+                // Static surfaces: an un-initialed party contributes nothing to
+                // the printed document for this condition (no pending chrome).
+                continue;
+            }
+
+            $token  = $this->makeInitialsToken($partyLabel);
             $isMine = $currentPartyKey !== null
                 && strcasecmp($currentPartyKey, $partyKey) === 0
-                && $context === self::CONTEXT_RECIPIENT_SIGNING
                 && $signingToken !== null;
 
             if ($isMine) {
@@ -541,7 +736,7 @@ final class InsertableBlockRenderer
                     . 'data-signing-token="' . e($signingToken) . '" '
                     . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
                     . 'background:#fff; border:1px dashed #0ea5e9; border-radius:4px; cursor:pointer; font-size:0.75rem;">'
-                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($token) . '</strong>'
                     . '<small style="color:#0369a1; font-size:0.65rem; margin-top:1px;">Click to initial</small>'
                     . '</button>';
             } else {
@@ -549,14 +744,58 @@ final class InsertableBlockRenderer
                     . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
                     . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
                     . 'background:#f9fafb; border:1px solid #e5e7eb; border-radius:4px; font-size:0.75rem; opacity:0.85;">'
-                    . '<strong style="color:#9ca3af; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<strong style="color:#9ca3af; letter-spacing:0.05em;">' . e($token) . '</strong>'
                     . '<small style="color:#6b7280; font-size:0.65rem; margin-top:1px;">' . e($partyLabel) . ' &middot; pending</small>'
                     . '</div>';
             }
         }
 
-        $slots .= '</div>';
-        return $slots;
+        if ($slots === '') {
+            return '';
+        }
+
+        return '<div class="condition-initials" '
+            . 'style="display:flex; flex-wrap:wrap; align-items:center; gap:0.4rem; margin-top:0.35rem; '
+            . 'padding-top:0.35rem; border-top:1px dashed #d1d5db;">' . $slots . '</div>';
+    }
+
+    /**
+     * The party's REAL adopted initial ink (data-URI), resolved from the
+     * document's captured `signed_initials` — the SAME drawn initial the party
+     * uses for page initials. This is how a per-condition initial prints as ink:
+     * the ConditionInitial record proves party X initialed condition Y; the
+     * render shows X's adopted initial against Y. Returns null when the party
+     * has no captured initial (caller falls back to a typed token).
+     */
+    private function resolveAdoptedInitial(SignatureTemplate $doc, string $partyKey): ?string
+    {
+        $wtd    = $doc->document?->web_template_data ?? [];
+        $signed = $wtd['signed_initials'] ?? [];
+        if (! is_array($signed)) {
+            return null;
+        }
+        $wanted = strtolower($partyKey);
+
+        // Group may be keyed by party ("seller" / "seller_2" / "agent"); match
+        // case-insensitively.
+        $group = null;
+        foreach ($signed as $k => $v) {
+            if (is_array($v) && strtolower((string) $k) === $wanted) {
+                $group = $v;
+                break;
+            }
+        }
+        if (! is_array($group)) {
+            return null;
+        }
+        // A party's initial is one mark used everywhere — take their first
+        // captured image (init-0), the representative adopted initial.
+        foreach ($group as $img) {
+            if (is_string($img) && str_starts_with(trim($img), 'data:image')) {
+                return $img;
+            }
+        }
+        return null;
     }
 
     /**
@@ -675,6 +914,16 @@ final class InsertableBlockRenderer
             return $candidate;
         }
 
+        // Per-document scope suffix (PACKS): `OTHER_CONDITIONS__<docKey>` keeps each
+        // pack SEGMENT's other-conditions block independent (its own block_id, its
+        // own frames + per-frame initials — a condition on doc A never bleeds to
+        // doc B). Preserve the scoped token verbatim so synthBlockFromToken derives
+        // a per-segment block_id. Must run BEFORE the fuzzy pass, which would
+        // otherwise collapse a short-docKey token back onto the bare canonical.
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__[A-Z0-9_]+$/', $candidate)) {
+            return $candidate;
+        }
+
         // Fuzzy match — catch common misspellings (typo'd one char,
         // dropped underscore, etc.) without inviting unrelated tokens
         // to collapse onto canonical ones.
@@ -716,6 +965,25 @@ final class InsertableBlockRenderer
             'INCLUDED_ITEMS'   => 'included_items',
             'EXCLUDED_ITEMS'   => 'excluded_items',
         ];
+
+        // Per-segment scoped token (packs): `OTHER_CONDITIONS__<docKey>` → a
+        // block_id scoped to that pack document, so each segment's conditions +
+        // per-frame initials are independent. Bare (single-doc) tokens keep
+        // block_id `other_conditions` unchanged (backward-compatible).
+        if (preg_match('/^(OTHER_CONDITIONS|INCLUDED_ITEMS|EXCLUDED_ITEMS)__(.+)$/', $token, $sm)) {
+            $canonical = $sm[1];
+            $purpose   = $purposeMap[$canonical];
+            $scope     = \Illuminate\Support\Str::slug($sm[2], '_');
+            return [
+                'id'              => strtolower($canonical) . '__' . $scope,
+                'purpose'         => $purpose,
+                'label'           => $this->defaultLabelFor($purpose),
+                'position_marker' => "~~~~{$token}~~~~",
+                'auto_number'     => $purpose === 'other_conditions',
+                'locked'          => false,
+            ];
+        }
+
         $purpose = $purposeMap[$token] ?? 'custom_named';
         return [
             'id'              => strtolower($token),
