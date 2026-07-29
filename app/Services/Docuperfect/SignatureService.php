@@ -911,9 +911,12 @@ class SignatureService
             return;
         }
 
+        // AT-294 — sent_at is written by sendSigningRequestEmail AFTER a
+        // successful send (was set here BEFORE the send, so a swallowed failure
+        // still read "sent"). Status + expiry are set now; delivery outcome is
+        // recorded honestly on invite_send_status.
         $request->update([
             'status' => SignatureRequest::STATUS_PENDING,
-            'sent_at' => now(),
             'token_expires_at' => now()->addDays(14),
         ]);
 
@@ -1146,11 +1149,11 @@ class SignatureService
             ])
             ->exists();
 
-        // AT-303 — GUARDED mark-amendment gate. A document carrying an
-        // UNRESOLVED MDF disclosure-mark amendment (section_reference 'Disclosure',
-        // still pending) cannot complete until every affected party has
-        // counter-initialled it. This clause is VACUOUSLY TRUE for any document
-        // with no mark amendments, so no other ceremony's completion changes.
+        // AT-303 — GUARDED mark-amendment gate. A document carrying an UNRESOLVED
+        // MDF disclosure-mark amendment (section_reference 'Disclosure', still
+        // pending) cannot complete until every affected party has counter-initialled
+        // it. VACUOUSLY TRUE for any document with no mark amendments, so no other
+        // ceremony's completion changes.
         $noPendingMarkAmendments = !$template->amendments()
             ->where('section_reference', 'Disclosure')
             ->where('status', DocumentAmendment::STATUS_PENDING)
@@ -1245,9 +1248,15 @@ class SignatureService
                             'signer_name'     => $request?->signer_name,
                         ],
                     );
-                    // Hand the pen to the next waiting party (any group), or finalise
-                    // if this was the last. No agent checkpoint on a clean accept.
-                    $this->advanceToNextParty($template, $completedParty);
+                    // Clean accept: pass the pen straight to the next waiting recipient,
+                    // exactly as Elize's ruling requires — NO between-recipient checkpoint.
+                    // BUT (AT-322) when THIS was the LAST recipient, the finalize is HELD for
+                    // the agent's Review & Approve instead of self-completing — so the finished
+                    // doc lands in "Needs Your Approval" and NOTHING files or emails until the
+                    // agent approves. Wet-ink is EXEMPT (its own review already serves as the
+                    // agent approval — AT-322 open question); it completes as before.
+                    $gateFinalForAgentReview = ($request?->signing_method !== 'wet_ink');
+                    $this->advanceToNextParty($template, $completedParty, null, $gateFinalForAgentReview);
                     return;
                 }
 
@@ -1555,7 +1564,7 @@ class SignatureService
      *                                       contiguous in signing_order. Passing the target explicitly
      *                                       means the caller's intent cannot be lost to a data ordering.
      */
-    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null): void
+    private function advanceToNextParty(SignatureTemplate $template, string $completedParty, ?SignatureRequest $only = null, bool $gateFinalizeForAgentReview = false): void
     {
         // Find the next WAITING request by signing_order — not by role name
         // This correctly handles co-owners who share the same party_role string
@@ -1591,7 +1600,17 @@ class SignatureService
             }
 
             if ($this->isFullyComplete($template)) {
-                $this->completeDocument($template);
+                if ($gateFinalizeForAgentReview) {
+                    // AT-322 — FINAL agent-review gate. The last recipient signed a CLEAN
+                    // electronic document; hold it at pending_agent_approval so it lands in
+                    // the agent's "Needs Your Approval". completeDocument() — which BOTH files
+                    // the PDF (autoFileSignedDocument) AND sends the recipient completion
+                    // emails (sendCompletionEmails is INSIDE it) — runs ONLY after the agent
+                    // approves via approveAndAdvance(). Nothing files or emails before review.
+                    $this->holdForFinalAgentReview($template, $completedParty);
+                } else {
+                    $this->completeDocument($template);
+                }
             }
             return;
         }
@@ -1622,6 +1641,37 @@ class SignatureService
         } else {
             $this->sendSigningRequest($nextRequest);
         }
+    }
+
+    /**
+     * AT-322 — hold a fully-signed CLEAN document at the FINAL agent-review gate.
+     *
+     * Sets status to pending_agent_approval (so it surfaces in the agent's "Needs Your
+     * Approval" on My Documents), audits it, and fires the in-app agent notification.
+     * It deliberately does NOT call completeDocument(): the PDF file
+     * (autoFileSignedDocument) and the recipient completion emails (sendCompletionEmails)
+     * BOTH live inside completeDocument(), so holding here holds BOTH until the agent
+     * clicks Review & Approve — which routes through approveAndAdvance() -> completeDocument().
+     * Failure-isolated is unnecessary here (single status write); the caller's transaction
+     * covers it.
+     */
+    private function holdForFinalAgentReview(SignatureTemplate $template, string $completedParty): void
+    {
+        $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
+
+        SignatureAuditLog::log(
+            $template,
+            'pending_agent_approval',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'completed_party' => $completedParty,
+                'reason'          => 'final_clean_complete',
+            ],
+        );
+
+        // In-app notification to the agent — no PDF, no completion email to recipients yet.
+        $this->sendAgentApprovalNotification($template, $completedParty, null);
     }
 
     /**
@@ -2972,11 +3022,80 @@ class SignatureService
                     expiresAt: $request->token_expires_at,
                 ))->fromAgent($agent)
             );
+
+            // AT-294 — record the honest outcome: sent_at only now (after success),
+            // status 'sent', clear any prior failure.
+            $request->update([
+                'sent_at' => now(),
+                'invite_send_status' => 'sent',
+                'invite_send_error' => null,
+            ]);
         } catch (\Throwable $e) {
+            // AT-294 — surface the failure instead of swallowing it: the agent sees
+            // "Send failed — {reason}" on the document/party view and can Resend.
             Log::error('Failed to send signing request email', [
                 'request_id' => $request->id,
                 'signer_email' => $request->signer_email,
                 'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'invite_send_status' => 'failed',
+                'invite_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+            ]);
+        }
+    }
+
+    /**
+     * AT-294 — RESEND the signing INVITATION to one recipient.
+     * Re-delivers the SAME invitation with the SAME token (no regeneration/churn);
+     * sendSigningRequestEmail records the outcome on invite_send_status.
+     */
+    public function resendInvitationEmail(SignatureRequest $request): void
+    {
+        $this->sendSigningRequestEmail($request);
+    }
+
+    /**
+     * AT-294 — RESEND the completed signed-document email to one recipient.
+     * Re-sends the SAME stored client PDF (template->signed_pdf_client_path); records
+     * the outcome on completion_send_status. Never throws — the controller reads the
+     * refreshed status to tell the agent whether the resend went out.
+     */
+    public function resendCompletionEmail(SignatureRequest $request): void
+    {
+        $template = $request->template;
+        $template->loadMissing(['document', 'creator']);
+        $agent = $template->creator;
+        $documentName = $template->document->name ?? 'Document';
+        $progress = $template->partyProgress();
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $clientRel = $template->signed_pdf_client_path;
+        $clientPdfPath = ($clientRel && $disk->exists($clientRel)) ? $disk->path($clientRel) : null;
+        $pdfFilename = "Signed - {$documentName}.pdf";
+
+        try {
+            $mail = (new SignedDocumentMail(
+                recipientName: $request->signer_name,
+                documentName: $documentName,
+                envelopeUrl: null,
+                progress: $progress,
+                pdfPath: $clientPdfPath,
+                pdfFilename: $clientPdfPath ? $pdfFilename : null,
+                documents: $clientPdfPath ? [['path' => $clientPdfPath, 'name' => $pdfFilename]] : [],
+            ))->fromAgent($agent);
+
+            Mail::to($request->signer_email)->send($mail);
+            $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to resend completion email', [
+                'request_id' => $request->id,
+                'signer_email' => $request->signer_email,
+                'error' => $e->getMessage(),
+            ]);
+            $request->update([
+                'completion_send_status' => 'failed',
+                'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
             ]);
         }
     }
@@ -3226,7 +3345,25 @@ class SignatureService
                     documents: $attachments,
                 ))->fromAgent($agent);
 
-                Mail::to($request->signer_email)->send($mail);
+                // AT-294 — per-recipient try/catch: a single failed send records
+                // 'failed' + reason on THAT recipient and moves on; it never aborts
+                // the remaining recipients (the whole loop used to sit under one
+                // catch, so the first failure silently dropped everyone after it).
+                try {
+                    Mail::to($request->signer_email)->send($mail);
+                    $request->update(['completion_send_status' => 'sent', 'completion_send_error' => null]);
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send completion email to recipient', [
+                        'request_id' => $request->id,
+                        'signer_email' => $request->signer_email,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $request->update([
+                        'completion_send_status' => 'failed',
+                        'completion_send_error' => \Illuminate\Support\Str::limit($e->getMessage(), 480),
+                    ]);
+                    continue;
+                }
 
                 // HD-7 — one audit row PER DOCUMENT per recipient, so the evidence timeline can answer
                 // "was the Disclosure sent to the purchaser?" and not merely "was something sent?".
@@ -3704,6 +3841,16 @@ class SignatureService
                 // view we render server-side from the same surface.
                 try {
                     $url = route('signatures.external.amendment-review', $initialingToken);
+                    // Step 2 (Johan) — "new condition" email variant. When the
+                    // approved amendment is an ADDED CONDITION (the KICKER: a
+                    // party added a condition mid-signing, the agent approved
+                    // it), tell the re-engaged party plainly that a NEW CONDITION
+                    // needs their initial — not a generic "a change was made".
+                    // Their captured signature is untouched; this is initial-only.
+                    $isNewCondition = ($amendment->amendment_type ?? null) === DocumentAmendment::TYPE_ADDITION;
+                    $personalMessage = $isNewCondition
+                        ? 'A new condition was added to this document and approved by the agent. Please initial the new condition to confirm — your original signature stays in place.'
+                        : 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.';
                     // AT-291 ITEMS 1+2 — stamp the acting agent (From +
                     // Reply-To) on the initialing re-send, matching every
                     // other send site; without it both headers fall back to
@@ -3713,7 +3860,7 @@ class SignatureService
                             signerName:      $previousRequest->signer_name,
                             documentName:    $template->document->name ?? 'Document',
                             signingUrl:      $url,
-                            personalMessage: 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.',
+                            personalMessage: $personalMessage,
                             expiresAt:       $previousRequest->token_expires_at,
                         ))->fromAgent($template->creator)
                     );
