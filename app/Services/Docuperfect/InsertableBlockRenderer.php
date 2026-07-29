@@ -71,6 +71,97 @@ final class InsertableBlockRenderer
     }
 
     /**
+     * AT-303 BUG-4 — per-viewer condition-initial DISPLAY OVERLAY.
+     *
+     * The canonical serve bakes the document body ONCE, viewer-agnostically
+     * (CanonicalDocumentRenderer composes at CONTEXT_AGENT_PREPARATION), so the
+     * interactive per-condition initial slots — which only render in
+     * CONTEXT_RECIPIENT_SIGNING — never appeared on the canonical signing page.
+     * This overlay injects each other-condition's initial slots for THIS viewer
+     * (active for them, pending/filled for the others), keyed by the caller's
+     * identity-scoped party key (seller / seller_2 / agent) so every recipient
+     * owns their own slot. Idempotent: a condition row that already carries a
+     * `.condition-initials` block (the legacy renderInDocument path, or a prior
+     * overlay) is left untouched, so calling it on either serving path is safe.
+     */
+    public function overlayConditionInitialsForViewer(
+        string $documentHtml,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken,
+        ?string $currentPartyKey
+    ): string {
+        if (trim($documentHtml) === '' || ! str_contains($documentHtml, 'data-condition-id')) {
+            return $documentHtml;
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $documentHtml,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR
+            );
+            $xpath = new \DOMXPath($dom);
+            // ONLY the condition ROW carries data-condition-id AND class
+            // "condition-row". The injected initial-slot divs ALSO carry
+            // data-condition-id, so a bare @data-condition-id selector would
+            // match them and nest slots inside slots — restrict to the row.
+            $rows = $xpath->query(
+                '//*[@data-condition-id][contains(concat(" ", normalize-space(@class), " "), " condition-row ")]'
+            );
+            if ($rows === false || $rows->length === 0) {
+                return $documentHtml;
+            }
+            $changed = false;
+            foreach ($rows as $row) {
+                $already = $xpath->query(
+                    './/*[contains(concat(" ", normalize-space(@class), " "), " condition-initials ")]',
+                    $row
+                );
+                if ($already !== false && $already->length > 0) {
+                    continue; // already has slots — idempotent
+                }
+                $cid = (int) $row->getAttribute('data-condition-id');
+                if ($cid <= 0) {
+                    continue;
+                }
+                $condition = DocumentCondition::with('initials')->find($cid);
+                if (! $condition) {
+                    continue;
+                }
+                $slotsHtml = $this->renderInitialSlotsForCondition(
+                    $condition, $doc, $context, $signingToken, $currentPartyKey
+                );
+                if (trim($slotsHtml) === '') {
+                    continue;
+                }
+                $tmp = new \DOMDocument();
+                @$tmp->loadHTML(
+                    '<?xml encoding="utf-8"?><div id="cx-slot-wrap">' . $slotsHtml . '</div>',
+                    LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR
+                );
+                $wrapNodes = (new \DOMXPath($tmp))->query('//*[@id="cx-slot-wrap"]');
+                if ($wrapNodes === false || $wrapNodes->length === 0) {
+                    continue;
+                }
+                foreach (iterator_to_array($wrapNodes->item(0)->childNodes) as $child) {
+                    $row->appendChild($dom->importNode($child, true));
+                }
+                $changed = true;
+            }
+            if (! $changed) {
+                return $documentHtml;
+            }
+            $out = (string) $dom->saveHTML();
+            return trim((string) preg_replace('/^<\?xml encoding="utf-8"\?>/', '', $out));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('overlayConditionInitialsForViewer failed', [
+                'error' => $e->getMessage(),
+            ]);
+            return $documentHtml;
+        }
+    }
+
+    /**
      * Replace every `~~~~MARKER~~~~` in $documentHtml with a styled block
      * rendered for the requested context.
      *
