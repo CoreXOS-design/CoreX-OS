@@ -38,7 +38,13 @@
   #dr2tl .midbar .t{font-weight:800;color:#0f172a;font-size:13.5px}
   #dr2tl .midbar .hint{font-size:11.5px;color:#64748b}
   #dr2tl .midbar .hint b{color:#2563eb}
-  #dr2tl .legend{display:flex;gap:13px;font-size:11px;color:#64748b;align-items:center;margin-left:auto;flex-wrap:wrap}
+  /* zoom control — Month/Week/Day pixels-per-day levels, rescales the axis + every tile together */
+  #dr2tl .zoomctl{display:inline-flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:11.5px;margin-left:auto}
+  #dr2tl .zbtn{padding:5px 11px;border:0;border-left:1px solid #e2e8f0;background:#fff;color:#374151;cursor:pointer;font-family:inherit;font-weight:600}
+  #dr2tl .zbtn:first-child{border-left:0}
+  #dr2tl .zbtn:hover{background:#f1f5f9}
+  #dr2tl .zbtn.on{background:#0f172a;color:#fff}
+  #dr2tl .legend{display:flex;gap:13px;font-size:11px;color:#64748b;align-items:center;flex-wrap:wrap}
   #dr2tl .lg{display:flex;align-items:center;gap:5px}
   #dr2tl .sw{width:16px;height:9px;border-radius:3px;display:inline-block}
   #dr2tl .sw.done{background:#16a34a}#dr2tl .sw.active{background:#2563eb}#dr2tl .sw.upcoming{background:#cbd5e1}
@@ -169,7 +175,8 @@
 @php($ROWH = 152)
 @php($bandLabelTop = max(2, $ROWTOP - 34 - 15))
 <div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}"
-     data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}">
+     data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}"
+     data-days="{{ (int) ($board['days'] ?? 0) }}" data-deal="{{ $deal->id }}">
 
   <div class="thead">
     <div>
@@ -239,6 +246,11 @@
     <div class="midbar">
       <span class="t">Timeline</span>
       <span class="hint">tiles stretch to their duration · overlapping tiles stack underneath · <b>drag a tile to reschedule</b> · <b>drag an edge to resize</b> · 📅 sets exact dates · dashed = projected · 💬 marks comments on the date made</span>
+      <div class="zoomctl" role="group" aria-label="Zoom">
+        <button type="button" class="zbtn" data-zoom="month">Month</button>
+        <button type="button" class="zbtn" data-zoom="week">Week</button>
+        <button type="button" class="zbtn" data-zoom="day">Day</button>
+      </div>
       <div class="legend">
         <span class="lg"><span class="sw done"></span>Done</span>
         <span class="lg"><span class="sw active"></span>Active</span>
@@ -292,14 +304,15 @@
         {{-- phase bands --}}
         @foreach($board['phases'] as $i => $p)
           @php($bandW = max(0, ($p['to'] - $p['from']) * $DAYW))
-          <div class="band {{ $i % 2 ? 'alt' : '' }}" style="left:{{ $PADX + $p['from'] * $DAYW }}px;width:{{ $bandW }}px;">
+          <div class="band {{ $i % 2 ? 'alt' : '' }}" data-from="{{ (int) $p['from'] }}" data-to="{{ (int) $p['to'] }}"
+               style="left:{{ $PADX + $p['from'] * $DAYW }}px;width:{{ $bandW }}px;">
             @if($bandW >= 118)<span class="bname" style="top:{{ $bandLabelTop }}px;max-width:{{ $bandW - 14 }}px;overflow:hidden;text-overflow:ellipsis;">{{ $p['name'] }}</span>@endif
           </div>
         @endforeach
 
         {{-- milestone diamonds --}}
         @foreach($board['miles'] as $m)
-          <div class="mile {{ $m['state'] }}" style="left:{{ $PADX + $m['day'] * $DAYW }}px;">
+          <div class="mile {{ $m['state'] }}" data-day="{{ (int) $m['day'] }}" style="left:{{ $PADX + $m['day'] * $DAYW }}px;">
             <span class="cap"></span>
             <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
           </div>
@@ -307,7 +320,7 @@
 
         {{-- red TODAY line --}}
         @if((int) $board['today_day'] >= 0 && (int) $board['today_day'] <= $days)
-          <div class="today" style="left:{{ $PADX + (int) $board['today_day'] * $DAYW }}px;"><span class="cap">TODAY</span></div>
+          <div class="today" data-day="{{ (int) $board['today_day'] }}" style="left:{{ $PADX + (int) $board['today_day'] * $DAYW }}px;"><span class="cap">TODAY</span></div>
         @endif
 
         {{-- step TILES (positioned by date, width ∝ duration, stacked by packed row) --}}
@@ -333,6 +346,7 @@
           @php($dueIso = $s && $s->due_date ? $s->due_date->format('Y-m-d') : $dstrIso((int) $tile['start'] + (int) $tile['dur']))
           <div class="ttile {{ $tile['status'] }}{{ $projected ? ' projected' : '' }}{{ $canDrag ? ' draggable' : '' }}" style="left:{{ $left }}px;width:{{ $width }}px;top:{{ $top }}px;"
                data-step-id="{{ $tile['id'] }}" data-start="{{ (int) $tile['start'] }}" data-dur="{{ (int) $tile['dur'] }}"
+               data-cap="{{ $cap === null ? '' : (int) $cap }}"
                data-startdate="{{ $startIso }}" data-due="{{ $dueIso }}"
                @if($canDrag) data-draggable="1" @endif
                @if($canResize) data-resizable="1" @endif
@@ -364,7 +378,7 @@
         <div class="ctrack-line" style="top:{{ $trackY }}px;width:{{ $W }}px;"></div>
         <div class="ctrack-lbl" style="top:{{ $trackY + 4 }}px;">💬 Comments</div>
         @foreach($commentsResolved as $c)
-          <div class="cpin {{ ($c['scope'] ?? '') === 'step' ? 'step' : 'deal' }}" style="left:{{ $PADX + (int) ($c['day'] ?? 0) * $DAYW }}px;top:{{ $trackY + 20 }}px;"
+          <div class="cpin {{ ($c['scope'] ?? '') === 'step' ? 'step' : 'deal' }}" data-day="{{ (int) ($c['day'] ?? 0) }}" style="left:{{ $PADX + (int) ($c['day'] ?? 0) * $DAYW }}px;top:{{ $trackY + 20 }}px;"
                title="{{ $c['step_name'] }} · {{ $c['who'] }} · {{ $c['when'] }} — {{ \Illuminate\Support\Str::limit($c['text'], 140) }}"><span class="stem"></span>{{ \Illuminate\Support\Str::substr($c['who'] ?? '?', 0, 1) }}</div>
         @endforeach
 
@@ -440,22 +454,27 @@
   const sel=document.getElementById('dr2tl-target'); if(sel) sel.addEventListener('change',()=>{ if(filter==='step') renderFeed(); });
   renderFeed();
 
-  // ---- drag a DATED tile horizontally to reschedule (spec CORRECTION 2026-07-28). Rides the EXISTING
-  //      reschedule endpoint: preview (commit:false) → confirm → commit:true → reload; the service
-  //      preserves the tile's duration and cascades downstream. ONLY already-dated tiles are draggable —
-  //      undated steps live in the Unscheduled tray and are NOT drag-schedulable (that first-time-schedule
-  //      extension needs Johan's sign-off; the reschedule service throws for a null-start step). ----
-  (function(){
-    const BASE = root.dataset.base ? new Date(root.dataset.base+'T00:00:00') : null;
-    const DAYW = parseInt(root.dataset.dayw)||21, PADX = parseInt(root.dataset.padx)||14;
-    if(!BASE) return;
+  // ---- shared date/scale state for drag / resize / zoom. DAYW is `let`, not `const` — zoom reassigns
+  //      it, and every closure below reads it live (JS closures capture `let` bindings by reference), so
+  //      a drag/resize started after a zoom change uses the CURRENT pixels-per-day, not the page-load one.
+  const BASE = root.dataset.base ? new Date(root.dataset.base+'T00:00:00') : null;
+  const PADX = parseInt(root.dataset.padx)||14;
+  let DAYW = parseInt(root.dataset.dayw)||21;
+
+  if (BASE) {
     const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const addDays=n=>{const d=new Date(BASE.getTime());d.setDate(d.getDate()+n);return d;};
     const fmtShort=n=>{const d=addDays(n);return d.getDate()+' '+MON[d.getMonth()];};
     const isoDay=n=>{const d=addDays(n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
     const xForDay=n=>PADX+n*DAYW;
     const postJson=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify(body)}).then(r=>r.json());
+    const postDates=(stepId,startIso,dueIso)=>fetch(CBASE+'/'+stepId+'/dates',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify({planned_start_date:startIso,due_date:dueIso})});
 
+    // ---- drag a DATED tile horizontally to reschedule (spec CORRECTION 2026-07-28). Rides the EXISTING
+    //      reschedule endpoint: preview (commit:false) → confirm → commit:true → reload; the service
+    //      preserves the tile's duration and cascades downstream. ONLY already-dated tiles are draggable —
+    //      undated steps live in the Unscheduled tray and are NOT drag-schedulable (that first-time-schedule
+    //      extension needs Johan's sign-off; the reschedule service throws for a null-start step). ----
     root.querySelectorAll('.ttile[data-draggable="1"]').forEach(el=>{
       el.addEventListener('pointerdown', e=>{
         if(e.button!==0) return;
@@ -492,32 +511,23 @@
         e.preventDefault();
       });
     });
-  })();
 
-  // ---- edge-drag RESIZE (dated, non-terminal tiles only): grab a tile's left/right edge to change its
-  //      start / end. Persisted through the EXISTING editDates route (POST .../dates) then a reload — no
-  //      new endpoint, no shared file touched. Projected/undated tiles are NOT edge-resizable; they use
-  //      the 📅 Set-dates modal to commit real dates. ----
-  (function(){
-    const BASE = root.dataset.base ? new Date(root.dataset.base+'T00:00:00') : null;
-    const DAYW = parseInt(root.dataset.dayw)||21, PADX = parseInt(root.dataset.padx)||14;
-    if(!BASE) return;
-    const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const addDays=n=>{const d=new Date(BASE.getTime());d.setDate(d.getDate()+n);return d;};
-    const isoDay=n=>{const d=addDays(n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
-    const fmtShort=n=>{const d=addDays(n);return d.getDate()+' '+MON[d.getMonth()];};
-    const xForDay=n=>PADX+n*DAYW;
-    const postDates=(stepId,startIso,dueIso)=>fetch(CBASE+'/'+stepId+'/dates',{method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify({planned_start_date:startIso,due_date:dueIso})});
-
+    // ---- edge-drag RESIZE (dated, non-terminal tiles only): grab a tile's left/right edge to change its
+    //      start / end. Persisted through the EXISTING editDates route (POST .../dates) then a reload — no
+    //      new endpoint, no shared file touched. Projected/undated tiles are NOT edge-resizable; they use
+    //      the 📅 Set-dates modal to commit real dates. ----
     root.querySelectorAll('.ttile[data-resizable="1"]').forEach(el=>{
       const stepId=el.dataset.stepId;
       const origStart=parseInt(el.dataset.start)||0, origDur=parseInt(el.dataset.dur)||1;
       const sub=el.querySelector('.sub'); const subHtml=sub?sub.innerHTML:'';
-      const baseLeft=parseInt(el.style.left)||xForDay(origStart), baseW=parseInt(el.style.width)||(origDur*DAYW-4);
       el.querySelectorAll('.rhandle').forEach(h=>{
         const isRight=h.classList.contains('rright');
         h.addEventListener('pointerdown', e=>{
           if(e.button!==0) return; e.stopPropagation(); e.preventDefault();
+          // Read the CURRENT on-screen box fresh (not captured once at page-load) — a zoom change since
+          // load has already rewritten el.style.left/width, and revert() must snap back to THAT, not a
+          // stale pre-zoom position.
+          const baseLeft=parseInt(el.style.left)||xForDay(origStart), baseW=parseInt(el.style.width)||(origDur*DAYW-4);
           let ns=origStart, ne=origStart+origDur, moved=false; const sx=e.clientX;
           el.classList.add('resizing');
           try{h.setPointerCapture(e.pointerId);}catch(_){}
@@ -543,7 +553,67 @@
         });
       });
     });
-  })();
+
+    // ---- ZOOM — Month/Week/Day pixels-per-day levels. Every positioned element (ticks, bands,
+    //      milestones, today line, tiles, comment pins) carries its position as a plain day-index data
+    //      attribute, so a zoom change is a pure client-side re-layout from those — no reload, no server
+    //      round-trip. Reassigning DAYW here is what makes the drag/resize closures above pick up the new
+    //      scale on their NEXT interaction (they read the shared `let DAYW`, not a frozen copy). ----
+    const ZOOM_LEVELS = {month:7, week:21, day:50};
+    const ZDAYS = parseInt(root.dataset.days)||0;
+    const canvasEl = root.querySelector('.canvas'), axisEl = root.querySelector('.axis');
+    const dealId = root.dataset.deal;
+    const tickInterval = dayw => Math.max(1, Math.round(140/dayw));
+
+    function rebuildAxis(){
+      if(!axisEl) return;
+      axisEl.querySelectorAll('.tick').forEach(t=>t.remove());
+      const step=tickInterval(DAYW);
+      for(let d=0; d<=ZDAYS; d+=step){
+        const t=document.createElement('div'); t.className='tick';
+        t.style.left=xForDay(d)+'px'; t.textContent=fmtShort(d);
+        axisEl.appendChild(t);
+      }
+    }
+
+    function applyZoom(level){
+      DAYW = ZOOM_LEVELS[level] || ZOOM_LEVELS.week;
+      root.dataset.dayw = String(DAYW);
+      const w = PADX + ZDAYS*DAYW + 40;
+      if(canvasEl) canvasEl.style.width = w+'px';
+      if(axisEl) axisEl.style.width = w+'px';
+      rebuildAxis();
+
+      root.querySelectorAll('.band').forEach(b=>{
+        const from=parseInt(b.dataset.from)||0, to=parseInt(b.dataset.to)||0;
+        b.style.left=xForDay(from)+'px'; b.style.width=Math.max(0,(to-from)*DAYW)+'px';
+      });
+      root.querySelectorAll('.mile').forEach(m=>{ m.style.left=xForDay(parseInt(m.dataset.day)||0)+'px'; });
+      const todayEl=root.querySelector('.today');
+      if(todayEl) todayEl.style.left=xForDay(parseInt(todayEl.dataset.day)||0)+'px';
+
+      // same floor/cap formula as the server-side render (PipelineTimelineService's blade) — kept in
+      // sync so a tile is never narrower under JS re-layout than the initial server paint would give it.
+      root.querySelectorAll('.ttile[data-start]').forEach(el=>{
+        const start=parseInt(el.dataset.start)||0, dur=parseInt(el.dataset.dur)||1;
+        const capRaw=el.dataset.cap, cap=(capRaw===''||capRaw===undefined)?null:parseInt(capRaw);
+        const left=xForDay(start);
+        const floorW=Math.max(168, dur*DAYW-4);
+        const maxW = cap!==null ? Math.max(46,xForDay(cap)-left-4) : floorW;
+        el.style.left=left+'px'; el.style.width=Math.min(floorW,maxW)+'px';
+      });
+      root.querySelectorAll('.cpin').forEach(p=>{ p.style.left=xForDay(parseInt(p.dataset.day)||0)+'px'; });
+
+      root.querySelectorAll('.zbtn').forEach(b=>b.classList.toggle('on', b.dataset.zoom===level));
+      try{ if(dealId) localStorage.setItem('dr2tl_zoom_'+dealId, level); }catch(_){}
+    }
+
+    root.querySelectorAll('.zbtn').forEach(b=>b.addEventListener('click', ()=>applyZoom(b.dataset.zoom)));
+
+    let initialZoom='week';
+    try{ if(dealId){ const saved=localStorage.getItem('dr2tl_zoom_'+dealId); if(saved && ZOOM_LEVELS[saved]) initialZoom=saved; } }catch(_){}
+    applyZoom(initialZoom);
+  }
 
   // Direct SET-DATES from the 📅 modal (dated OR projected tiles). Posts both dates to the existing
   // editDates route, then reloads the timeline. The 302→list redirect is not followed (redirect:manual).
