@@ -458,6 +458,16 @@
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
                     <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
+                        {{-- AT-303 Stage 1 — disclosure-mark lock notice. Shown to a
+                             DOWNSTREAM recipient whose shared MDF disclosure grid was
+                             already signed by an earlier party; the grid renders
+                             read-only (see disclosure-logic._disclosureEditable). --}}
+                        <template x-if="disclosureMarksLocked">
+                            <div style="width:210mm; max-width:100%; margin:0 auto 12px; padding:10px 14px; border:1px solid #fcd34d; background:#fffbeb; border-radius:8px; font-size:13px; color:#92400e; line-height:1.45;">
+                                <strong>Disclosure answers are locked.</strong>
+                                <span x-text="'These answers were completed and signed by ' + ((disclosureLockInfo && disclosureLockInfo.by) || 'an earlier signer') + ' and are read-only for you. If an answer needs to change, contact your agent to raise an amendment.'"></span>
+                            </div>
+                        </template>
                         <div x-ref="pageContainer" class="relative"
                              style="width:210mm; max-width:100%; margin:0 auto;">
                             {{-- Shared visual contract — Step 4 / Step 5 /
@@ -1498,6 +1508,8 @@ function externalSign() {
         webSignatures: {},
         webDisclosureAnswers: {},
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
+        disclosureMarksLocked: @json($disclosureMarksLocked ?? false),   {{-- AT-303 Stage 1 --}}
+        disclosureLockInfo: @json($disclosureLockInfo ?? null),          {{-- AT-303 Stage 1 --}}
         webConsented: false,
         showWebSigCapture: false,
         currentWebSigBlockId: null,
@@ -1559,38 +1571,6 @@ function externalSign() {
             // Listen for method reset from wet ink back button
             this.$el.addEventListener('reset-method', () => {
                 this.signingMethod = null;
-            });
-
-            // Recipient-signing fix — when a per-condition initial is filled or
-            // a new condition is added (delegated handlers in the add-condition
-            // modal partial, outside Alpine scope), refresh the submit gate so
-            // the "N remaining" count reflects the just-completed condition.
-            document.addEventListener('corex-refresh-signing-count', () => {
-                if (this.isWebTemplate) this.updateIncompleteCount();
-            });
-
-            // ESIGN AT-300 — a recipient clicked a condition-initial slot. Open
-            // the SAME draw/type modal every other initial uses (one unified
-            // signing process — no one-click on the ceremony either). Claim the
-            // event so the shared partial does NOT one-click; applySignature()
-            // applies the captured ink to the condition.
-            document.addEventListener('corex-open-condition-initial', (e) => {
-                e.preventDefault();
-                const d = e.detail || {};
-                if (!d.el || d.el.classList.contains('initial-filled')) return;
-                this.activeMarker = {
-                    type: 'initial',
-                    assigned_party: d.partyKey || 'signer',
-                    label: 'Condition initial',
-                    page_number: '',
-                    _isConditionInitial: true,
-                    _conditionEl: d.el,
-                    _conditionId: d.conditionId,
-                    _conditionToken: d.token,
-                };
-                this.captureMode = 'draw';
-                this.showSignModal = true;
-                this.$nextTick(() => this.initCanvas());
             });
 
             // For web templates: split into A4 pages, convert editable field spans to inputs, make sig elements interactive
@@ -1937,20 +1917,6 @@ function externalSign() {
                 });
             }
 
-            // 5b. Per-condition initial slots (THIS signer's, not yet filled).
-            //     The renderer emits `.btn-add-initial.initial-active` ONLY for
-            //     the current party's un-filled slots; a filled one loses
-            //     `.initial-active` (gains `.initial-filled`). Every condition
-            //     the signer is a party to — including ones the AGENT added —
-            //     must be initialed before submit (previously uncounted, so the
-            //     agent was never required to initial conditions they added and
-            //     recipients could skip them).
-            if (container) {
-                container.querySelectorAll('.btn-add-initial.initial-active[data-condition-id]').forEach(el => {
-                    items.push({ el, label: 'Condition initial' });
-                });
-            }
-
             // 6. Consent checkbox (always last)
             if (!this.webConsented) {
                 const consentEl = document.getElementById('consent-checkbox-label');
@@ -2032,17 +1998,6 @@ function externalSign() {
                 container.querySelectorAll('input.field-editable[data-viewer-editable]').forEach(inp => {
                     total++;
                     if (!inp.value || !inp.value.trim()) incomplete++;
-                });
-            }
-
-            // 7. Per-condition initial slots (THIS signer's). Interactive slots
-            //    carry `.btn-add-initial[data-condition-id]`; filled ones are
-            //    `.initial-filled`. Counting them makes initialing each
-            //    condition (agent-added OR recipient-added) a required step.
-            if (container) {
-                container.querySelectorAll('.btn-add-initial[data-condition-id]').forEach(el => {
-                    total++;
-                    if (!el.classList.contains('initial-filled')) incomplete++;
                 });
             }
 
@@ -2697,22 +2652,6 @@ function externalSign() {
                 const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
                 signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
-            }
-
-            // ESIGN AT-300 — condition-initial capture on the ceremony. Same modal,
-            // same ink; the drawn/typed initial is applied to THIS condition and
-            // adopted into signed_initials for this recipient (via initialCondition).
-            if (this.activeMarker._isConditionInitial) {
-                const ok = await window.__corexApplyConditionInitial(
-                    this.activeMarker._conditionEl,
-                    this.activeMarker._conditionToken,
-                    this.activeMarker._conditionId,
-                    signatureData,
-                );
-                this.showSignModal = false;
-                this.applying = false;
-                if (ok) this.updateIncompleteCount();
-                return;
             }
 
             const success = await this.submitSignature(this.activeMarker, signatureData, signatureType);

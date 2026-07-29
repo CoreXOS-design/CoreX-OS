@@ -18,6 +18,13 @@
 --}}
         // Editable ONLY when the current signer is the owner/seller party.
         _disclosureEditable(disclosureParty) {
+            // AT-303 Stage 1 — once an earlier owner-party recipient has SIGNED
+            // the shared MDF grid it is LOCKED. A downstream recipient sees it
+            // READ-ONLY and proposes changes via a mark amendment (Stage 2),
+            // never a silent overwrite that would void the earlier party's
+            // already-applied signature. The server enforces this too
+            // (completeWeb disclosure_lock) — this is the UI half.
+            if (this.disclosureMarksLocked) return false;
             const ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
             const dp = (disclosureParty || 'owner_party').toLowerCase();
             const role = (typeof this._currentSignerRole === 'function'
@@ -88,7 +95,7 @@
                 row.querySelectorAll('.corex-radio-placeholder').forEach(ph => {
                     const sel = (ph.dataset.value || '').toLowerCase() === val;
                     ph.setAttribute('data-selected', sel ? 'true' : 'false');
-                    ph.textContent = sel ? '✓' : '○'; // Step 3 — tick the chosen answer
+                    ph.textContent = sel ? '●' : '○';
                 });
             });
             Object.keys(ans).forEach(k => {
@@ -130,7 +137,7 @@
                         const isSel = (self.webDisclosureAnswers[rowKey] || '')
                             .toString().toLowerCase() === rv;
                         radio.setAttribute('data-selected', isSel ? 'true' : 'false');
-                        radio.textContent = isSel ? '✓' : '○'; // Step 3 — tick the chosen answer
+                        radio.textContent = isSel ? '●' : '○';
                         radio.style.fontSize = '16pt';
 
                         if (editable) {
@@ -141,7 +148,7 @@
                                     r.textContent = '○';
                                 });
                                 radio.setAttribute('data-selected', 'true');
-                                radio.textContent = '✓'; // Step 3 — tick the chosen answer
+                                radio.textContent = '●';
                                 self.webDisclosureAnswers[rowKey] = radio.dataset.value || '';
                                 if (typeof self.updateIncompleteCount === 'function') self.updateIncompleteCount();
                                 if (typeof self._updateIncompleteCount === 'function') self._updateIncompleteCount();

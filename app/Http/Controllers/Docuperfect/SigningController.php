@@ -285,34 +285,8 @@ class SigningController extends Controller
                 // button carries no signing token, so stamp the current token on so
                 // the recipient (or agent) can post a new condition. Display overlay
                 // only — the document body stays byte-identical across surfaces.
-                // The stored canonical bakes each insertable block STATIC (PDF
-                // render — no chrome) so the printed PDF is clean. But THIS is the
-                // interactive signing surface: re-render every block in the viewer's
-                // context so the "+ Add condition" button + the current party's
-                // clickable initial slots are present (they are absent in the static
-                // canonical). Display-only; the stored canonical + PDF are untouched.
-                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
-                    ->reRenderBlocksForViewer(
-                        $webTemplateHtml,
-                        $template,
-                        \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
-                        (string) $token,
-                        // AT-300 — resolve seller_2's distinct key (not seller_1).
-                        \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
-                            $template->parties_json,
-                            (string) $signingRequest->party_role,
-                            (int) ($signingRequest->role_index ?? 1),
-                        ),
-                    );
-
                 $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
                     ->stampConditionSigningToken($webTemplateHtml, (string) $token);
-
-                // Step 2 (Johan) — screen-only "one condition at a time" guidance
-                // beside each add-condition control. Display overlay only; stripped
-                // from the print-from-approved canonical/PDF (see SignaturePdfService).
-                $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
-                    ->injectAddConditionGuidance($webTemplateHtml);
 
                 // Editable field-name list — the signing view still consumes
                 // this array (client input-affordance gating). Prefer CDS
@@ -419,12 +393,7 @@ class SigningController extends Controller
                     is_array($blocksMeta) ? $blocksMeta : [],
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                     $token,
-                    // AT-300 — resolve seller_2's distinct key (not seller_1).
-                    \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
-                        $template->parties_json,
-                        (string) $signingRequest->party_role,
-                        (int) ($signingRequest->role_index ?? 1),
-                    )
+                    $signingRequest->party_role
                 );
 
             // Recipient Loop Engine — B2.5/B3 expansion pass. Detects role
@@ -545,6 +514,24 @@ class SigningController extends Controller
         // exposed a legal bypass.
         $isAgent = ($signingRequest->party_role === 'agent');
 
+        // AT-303 Stage 1 — MDF disclosure-mark lock. The mandatory-disclosure
+        // grid is shared, document-scoped state (one answer per question, no
+        // per-recipient key). Once an owner-party recipient SIGNS it (authored
+        // in completeWeb), it is frozen: a DOWNSTREAM recipient (a different
+        // signing request) sees it READ-ONLY and cannot silently overwrite what
+        // an earlier party already signed. Here we only surface whether THIS
+        // viewer is downstream of an existing lock.
+        $disclosureLock = $webTemplateData['disclosure_lock'] ?? null;
+        $disclosureMarksLocked = is_array($disclosureLock)
+            && !empty($disclosureLock['locked'])
+            && (int) ($disclosureLock['request_id'] ?? 0) !== (int) $signingRequest->id;
+        $disclosureLockInfo = $disclosureMarksLocked
+            ? [
+                'by' => $disclosureLock['signer_name'] ?? 'an earlier signer',
+                'at' => $disclosureLock['locked_at'] ?? null,
+            ]
+            : null;
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
@@ -578,6 +565,8 @@ class SigningController extends Controller
             'signingParties' => $signingParties,
             'storedInitials' => $webTemplateData['signed_initials'] ?? [],
             'storedDisclosure' => $webTemplateData['disclosure_answers'] ?? [],
+            'disclosureMarksLocked' => $disclosureMarksLocked,   // AT-303 Stage 1
+            'disclosureLockInfo' => $disclosureLockInfo,         // AT-303 Stage 1
         ]);
     }
 
@@ -1504,41 +1493,6 @@ class SigningController extends Controller
             ], 422);
         }
 
-        // ── OTHER-CONDITIONS INITIAL GATE (Johan 2026-07-28) — UNIVERSAL ────
-        // Every party (agent AND each recipient) must have initialled every added
-        // condition before THEIR signing completes: the agent's completion
-        // releases the document to the recipients, and each recipient's
-        // completion is their own consent — neither may proceed on un-initialled
-        // conditions. The client (canSubmitWeb / webIncompleteCount) already
-        // counts the slots, but that is DOM-derived and bypassable; this is the
-        // authoritative server-side ceiling, reading DocumentCondition +
-        // ConditionInitial directly (serve-path independent). Keyed by the
-        // signer's RESOLVED party_key so seller_2 is gated on seller_2's own
-        // initials, never seller_1's (.ai/specs/esign-recipient-signing-fix.md).
-        $viewerPartyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
-            $template->parties_json,
-            (string) $signingRequest->party_role,
-            (int) ($signingRequest->role_index ?? 1),
-        );
-        $liveConditionIds = DocumentCondition::query()
-            ->where('signature_template_id', $template->id)
-            ->whereNull('superseded_at')
-            ->whereNull('deleted_at')
-            ->pluck('id');
-        if ($liveConditionIds->isNotEmpty()) {
-            $mineInitialedIds = ConditionInitial::query()
-                ->where('initialable_type', DocumentCondition::class)
-                ->whereIn('initialable_id', $liveConditionIds)
-                ->where('party_key', $viewerPartyKey)
-                ->pluck('initialable_id');
-            if ($liveConditionIds->diff($mineInitialedIds)->isNotEmpty()) {
-                return response()->json([
-                    'ok'    => false,
-                    'error' => 'Please initial every condition before submitting — you must initial each added condition before your signing can be completed.',
-                ], 422);
-            }
-        }
-
         // Log consent to audit log
         SignatureAuditLog::create([
             'signature_template_id' => $template->id,
@@ -1564,12 +1518,73 @@ class SigningController extends Controller
         }
 
         // Save disclosure answers
+        // AT-303 Stage 1 — MDF disclosure-mark LOCK. The disclosure grid is
+        // shared, document-scoped state. Once an owner-party recipient signs it,
+        // it is frozen; a DOWNSTREAM recipient (a different signing request) must
+        // not silently overwrite a locked answer — that voids the earlier
+        // signer's agreement. A differing value is refused here (belt-and-braces
+        // behind the read-only UI); an identical value (a genuine agree) passes.
         $disclosureAnswers = $request->input('disclosure_answers', []);
+        $existingLock = $webData['disclosure_lock'] ?? null;
+        $ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+        $isOwnerParty = in_array(strtolower((string) $signingRequest->party_role), $ownerTerms, true);
+
+        if (is_array($existingLock) && !empty($existingLock['locked'])
+            && (int) ($existingLock['request_id'] ?? 0) !== (int) $signingRequest->id) {
+            $lockedAnswers = (array) ($existingLock['answers'] ?? []);
+            $conflicts = [];
+            foreach ($disclosureAnswers as $k => $v) {
+                if (array_key_exists($k, $lockedAnswers)
+                    && (string) $lockedAnswers[$k] !== (string) $v) {
+                    $conflicts[] = $k;
+                }
+            }
+            if (!empty($conflicts)) {
+                SignatureAuditLog::create([
+                    'signature_template_id' => $template->id,
+                    'action' => 'disclosure_lock_write_denied',
+                    'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+                    'actor_name' => $signingRequest->signer_name,
+                    'actor_email' => $signingRequest->signer_email,
+                    'actor_ip_address' => $request->ip(),
+                    'actor_user_agent' => $request->userAgent(),
+                    'signature_request_id' => $signingRequest->id,
+                    'metadata_json' => [
+                        'actor_role_identity' => $signingRequest->role_identity,
+                        'locked_by_request_id' => $existingLock['request_id'] ?? null,
+                        'locked_by_name' => $existingLock['signer_name'] ?? null,
+                        'conflicting_keys' => $conflicts,
+                    ],
+                ]);
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'The disclosure answers were locked when '
+                        . ($existingLock['signer_name'] ?? 'an earlier signer')
+                        . ' signed. To change an answer you must propose an amendment.',
+                    'locked_keys' => $conflicts,
+                ], 422);
+            }
+        }
+
         if (!empty($disclosureAnswers)) {
             $webData['disclosure_answers'] = array_merge(
                 $webData['disclosure_answers'] ?? [],
                 $disclosureAnswers
             );
+        }
+
+        // Author the lock on the FIRST owner-party completion — a snapshot of
+        // exactly what this signer signed. Later owner signers who merely agree
+        // do not re-author it (the snapshot stays bound to the first signer).
+        if ($isOwnerParty && !is_array($existingLock)) {
+            $webData['disclosure_lock'] = [
+                'locked'        => true,
+                'request_id'    => (int) $signingRequest->id,
+                'role_identity' => $signingRequest->role_identity,
+                'signer_name'   => $signingRequest->signer_name,
+                'locked_at'     => now()->toIso8601String(),
+                'answers'       => $webData['disclosure_answers'] ?? [],
+            ];
         }
 
         // Save ceremony values (location, day, month, year, time, am_pm per party)
@@ -1619,21 +1634,8 @@ class SigningController extends Controller
             $initials = array_merge($initials, $pageBreakInitials);
         }
         if (!empty($initials)) {
-            // AT-324/AT-325 — key signed_initials by the CANONICAL per-recipient
-            // key (seller vs seller_2), NOT the bare party_role, and MERGE rather
-            // than overwrite. N same-role co-signers share one base party_role, so
-            // `$existingInitials[$partyRole] = $initials` let the 2nd co-seller's
-            // completion CLOBBER the 1st's captured initials — present in
-            // web_template_data['signatures'] but dropped from signed_initials, the
-            // store the review/PDF read. Each recipient now keeps their own group;
-            // the initial sub-keys are already recipient-distinct so a merge is safe
-            // and a re-sign only tops up the same recipient's group.
-            $recipientKey = $signingRequest->canonicalPartyKey();
             $existingInitials = $webData['signed_initials'] ?? [];
-            $existingInitials[$recipientKey] = array_merge(
-                $existingInitials[$recipientKey] ?? [],
-                $initials
-            );
+            $existingInitials[$partyRole] = $initials;
             $webData['signed_initials'] = $existingInitials;
         }
 
@@ -2381,15 +2383,8 @@ class SigningController extends Controller
 
         $signatureTemplate = $signingRequest->template;
         $document = $signatureTemplate->document;
-
-        // Re-render + download WITHOUT re-signing: regenerate the PDF from the stored
-        // signed content through the SAME measure-and-fit engine the completion email
-        // uses (SignaturePdfService::buildInjectedRenderHtml → resolveRenderHtml +
-        // injectInitialsPagination), so a downloaded signed doc is a page-for-page A4
-        // copy — one physical sheet per logical page, no spill — identical to the
-        // emailed PDF. (Was rendering raw merged_html verbatim, which spilled.)
-        $mergedHtml = app(\App\Services\Docuperfect\SignaturePdfService::class)
-            ->buildInjectedRenderHtml($signatureTemplate);
+        $webTemplateData = $document->web_template_data ?? [];
+        $mergedHtml = $webTemplateData['merged_html'] ?? '';
 
         if (empty($mergedHtml)) {
             return response()->json(['error' => 'Document content not available for PDF generation.'], 404);
@@ -2639,58 +2634,6 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 /* === PDF: hide interactive elements === */
 {$cleanupCss}
 CSS;
-
-        // AT-332 / LEGAL WYSIWYG — render each captured .corex-a4-page as one physical
-        // A4 sheet, wrapped at TRUE A4 (a4-page-styles now breaks at the real printable
-        // height), with the @page margins zeroed and the counter blanked (the DOM's own
-        // .page-number footer is authoritative) and no wrapper zoom.
-        //
-        // The box is sized by MIN-HEIGHT (grows to fit) with overflow VISIBLE and NO
-        // fixed height — never a fixed height + overflow:hidden, which CLIPPED ~40% of a
-        // page's content below the 297mm cut. A NEW doc's page now fits exactly one A4
-        // sheet; a LEGACY doc captured at the old (taller) breaks reproduces EXACTLY what
-        // was signed — every element present, uncut — flowing onto extra A4 sheets rather
-        // than being clipped. NEVER hide signed content.
-        if (str_contains($mergedHtml, 'corex-a4-page')) {
-            $pdfStyles .= <<<CSS
-
-/* === AT-332 / legal WYSIWYG — each captured .corex-a4-page renders FULLY, never clipped === */
-@page { size: A4; margin: 0; @bottom-center { content: ""; } }
-.corex-document-wrapper { zoom: 1 !important; }
-.corex-a4-page {
-    width: 210mm !important;
-    min-height: 297mm !important;       /* at least one A4 sheet; grows for a legacy tall page */
-    height: auto !important;            /* NEVER a fixed height — that is what clipped content */
-    padding: 20mm 18mm 25mm 18mm !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    overflow: visible !important;       /* never clip — no signed content may be hidden */
-    page-break-after: always !important;
-    break-after: page !important;
-    page-break-inside: auto !important; /* a >A4 element / legacy tall page may span sheets, uncut */
-    position: relative !important;      /* anchor the absolute page-number footer inside the box */
-}
-.corex-a4-page:last-child { page-break-after: auto !important; break-after: auto !important; }
-/* The "Page X of Y" footer MUST be OUT OF FLOW (absolute, in the bottom padding),
-   exactly as the signing view renders it. Without this rule the emailed PDF was
-   missing the .page-number CSS, so the footer flowed IN-LINE and added ~8px to
-   each box — enough to push a near-full page PAST one physical A4 sheet and spill
-   its bottom onto a near-blank next page (docs 455/454: 5 logical → 7 physical).
-   Absolute-positioned it consumes no flow height, so the box the paginator
-   measured (content + initials strip, no footer) IS the box that prints. */
-.corex-a4-page .page-number {
-    position: absolute !important;
-    bottom: 10mm !important;
-    left: 0 !important;
-    right: 0 !important;
-    text-align: center !important;
-    font-size: 9px !important;
-    color: #94a3b8 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-CSS;
-        }
 
         // If it already has a DOCTYPE or <html> tag, inject all styles before </head>
         if (preg_match('/<!DOCTYPE|<html/i', $mergedHtml)) {
@@ -3610,19 +3553,8 @@ CSS;
                 \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                 $signingRequest->template,
                 $token,
-                // AT-300 — resolve seller_2's distinct key (not seller_1).
-                \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
-                    $signingRequest->template?->parties_json,
-                    (string) $signingRequest->party_role,
-                    (int) ($signingRequest->role_index ?? 1),
-                )
+                $signingRequest->party_role
             );
-
-        // GAP 1 (A) — fold the new condition into the stored canonical so the
-        // print-from-approved artifact (agent review + PDF) contains it, not
-        // just the live DOM. Non-fatal.
-        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
-            ->refreshInsertableBlocks($signingRequest->template);
 
         return response()->json([
             'ok'               => true,
@@ -4059,16 +3991,7 @@ CSS;
             return response()->json(['error' => 'Condition not found on this document.'], 404);
         }
 
-        // ESIGN AT-300 — attribute the initial to the signer's OWN party_key.
-        // For a 2nd+ same-role party (seller_2) party_role alone collapses onto
-        // seller_1; resolve the distinct parties_json instance from role_index so
-        // each recipient's initial is recorded against THEM. Single-instance
-        // roles (agent, lone seller) resolve back to party_role unchanged.
-        $partyKey = \App\Services\Docuperfect\InsertableBlockRenderer::partyKeyForViewer(
-            $signingRequest->template?->parties_json,
-            (string) $signingRequest->party_role,
-            (int) ($signingRequest->role_index ?? 1),
-        );
+        $partyKey = (string) $signingRequest->party_role;
         if ($partyKey === '') {
             return response()->json(['error' => 'No party_role on this signing request.'], 400);
         }
@@ -4098,29 +4021,6 @@ CSS;
             'user_agent'           => substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        // ESIGN AT-300 — unified initial capture. The condition-initial modal
-        // (the SAME draw/type modal every other initial uses) sends the ACTUAL
-        // drawn/typed ink as a data-URL. Adopt it as this party's initial in
-        // web_template_data['signed_initials'] — the identical store page-break
-        // initials use — so the condition renders the real ink via
-        // resolveAdoptedInitial (initial_image_path is varchar(255) and cannot
-        // hold a data-URL; the ink lives with every other initial, and the
-        // ConditionInitial row is the per-condition proof-of-consent). Keyed by
-        // condition so multiple conditions coexist without clobbering.
-        $initialImage = (string) $request->input('initial_image', '');
-        if (str_starts_with($initialImage, 'data:image') && strlen($initialImage) <= 2_000_000) {
-            $document = $signingRequest->template?->document;
-            if ($document) {
-                $wtd    = is_array($document->web_template_data) ? $document->web_template_data : [];
-                $signed = is_array($wtd['signed_initials'] ?? null) ? $wtd['signed_initials'] : [];
-                $group  = is_array($signed[$partyKey] ?? null) ? $signed[$partyKey] : [];
-                $group['condition_' . $condition->id] = $initialImage;
-                $signed[$partyKey] = $group;
-                $wtd['signed_initials'] = $signed;
-                $document->update(['web_template_data' => $wtd]);
-            }
-        }
-
         SignatureAuditLog::log(
             $signingRequest->template,
             'condition_initialed',
@@ -4134,12 +4034,6 @@ CSS;
                 'amendment_id'   => $condition->amendment_id,
             ],
         );
-
-        // GAP 1 (A) — bake this per-condition initial into the stored canonical
-        // (as the party's adopted ink) so it prints on the PDF and shows on
-        // agent review, not only in the live signing DOM. Non-fatal.
-        app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
-            ->refreshInsertableBlocks($signingRequest->template);
 
         return response()->json([
             'ok'      => true,
