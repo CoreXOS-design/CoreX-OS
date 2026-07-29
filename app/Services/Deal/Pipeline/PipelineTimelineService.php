@@ -362,10 +362,24 @@ class PipelineTimelineService
             || ($gate && $gate->status === 'completed')
             || ($suspensive->isNotEmpty() && $suspensive->every(fn ($s) => $s->status === 'completed'));
 
-        // Projected grant date = the latest due date across the suspensive conditions (the gate step's
-        // own date isn't cascaded), else the gate's due date.
-        $projected = $suspensive->filter(fn ($s) => $s->due_date)->max('due_date')
-            ?? ($gate?->due_date);
+        // Grant date — ACTUAL-AWARE, matching the cascade's committed semantics (spec c0d9642b): the deal
+        // grants once every suspensive condition is met, so the grant date = the LATEST over the suspensive
+        // set of (its ACTUAL completion date if completed, else its planned Due). A condition completed
+        // EARLY therefore contributes its real (earlier) date, not its original due — so a deal whose bond
+        // approved ahead of a still-pending proof reflects the real grant (deal 183: bond met 27 Jul, proof
+        // due 31 Jul → 31 Jul), while an all-pending deal shows the latest due (a pure projection). The gate
+        // step's own date isn't cascaded, so fall back to it only if the suspensive set has no dates at all.
+        // DISPLAY LABEL ONLY — the cascade/assembler own the stored step dates (untouched here).
+        $grantDate = $suspensive
+            ->map(function ($s) {
+                $raw = $s->status === 'completed' ? ($s->actual_date ?? $s->completed_at) : null;
+                $raw = $raw ?? $s->due_date;
+                return $raw ? Carbon::parse($raw)->startOfDay() : null;
+            })
+            ->filter()
+            ->sortByDesc(fn ($c) => $c->getTimestamp())
+            ->first();
+        $grantDate = $grantDate ?? ($gate?->due_date ? Carbon::parse($gate->due_date)->startOfDay() : null);
 
         return [
             'empty'     => false,
@@ -374,7 +388,10 @@ class PipelineTimelineService
             'gate'      => [
                 'id'        => $gate ? (int) $gate->id : null,
                 'granted'   => (bool) $granted,
-                'projected' => $projected ? Carbon::parse($projected)->format('j M Y') : null,
+                // The gate label reads "GRANTED" when the deal is actually granted (the date has passed /
+                // conditions met), else "GRANTED — pending · projected {date}". Same actual-aware date drives
+                // both; the blade picks the wording off `granted`.
+                'projected' => $grantDate ? $grantDate->format('j M Y') : null,
             ],
             'stage1'    => ['groups' => $stage1Groups],
             'stage2'    => [
