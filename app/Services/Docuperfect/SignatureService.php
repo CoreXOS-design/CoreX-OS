@@ -1136,7 +1136,7 @@ class SignatureService
     public function isFullyComplete(SignatureTemplate $template): bool
     {
         // Document is fully complete when zero waiting/pending/deferred requests remain
-        return !$template->requests()
+        $noOpenRequests = !$template->requests()
             ->whereIn('status', [
                 SignatureRequest::STATUS_WAITING,
                 SignatureRequest::STATUS_PENDING,
@@ -1145,6 +1145,18 @@ class SignatureService
                 SignatureRequest::STATUS_DEFERRED,
             ])
             ->exists();
+
+        // AT-303 — GUARDED mark-amendment gate. A document carrying an
+        // UNRESOLVED MDF disclosure-mark amendment (section_reference 'Disclosure',
+        // still pending) cannot complete until every affected party has
+        // counter-initialled it. This clause is VACUOUSLY TRUE for any document
+        // with no mark amendments, so no other ceremony's completion changes.
+        $noPendingMarkAmendments = !$template->amendments()
+            ->where('section_reference', 'Disclosure')
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->exists();
+
+        return $noOpenRequests && $noPendingMarkAmendments;
     }
 
     /**
@@ -3447,6 +3459,183 @@ class SignatureService
 
             // Also notify the agent
             $this->sendAgentAmendmentNotification($template, $amendment, $amendingRequest);
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // AT-303 — MDF disclosure-MARK amendment routing (Stages 2/3).
+    //
+    // Self-contained and GUARDED: these methods are called ONLY for mark
+    // amendments (DocumentAmendment section_reference === 'Disclosure') from the
+    // mark endpoints. They deliberately do NOT touch the text-condition /
+    // clause-flag cascade (checkInitialingCascadeComplete / checkAmendmentResolution),
+    // so no other ceremony's behaviour changes. Counter-initials are tracked per
+    // AmendmentAcceptance (keyed by signature_request_id), so joint co-owners are
+    // attributed individually and never collapse to one required initial.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Re-open a signing request with a fresh token, PENDING, and an email. */
+    public function reactivateRequestForMark(
+        SignatureRequest $request,
+        SignatureTemplate $template,
+        string $personalMessage
+    ): void {
+        $token = $this->generateToken();
+        $request->update([
+            'token' => $token,
+            'token_expires_at' => now()->addDays(14),
+            'status' => SignatureRequest::STATUS_PENDING,
+        ]);
+        try {
+            $url = route('signatures.external.sign', $token);
+            Mail::to($request->signer_email)->send(
+                (new SigningRequestMail(
+                    signerName: $request->signer_name,
+                    documentName: $template->document->name ?? 'Document',
+                    signingUrl: $url,
+                    personalMessage: $personalMessage,
+                    expiresAt: $request->token_expires_at,
+                ))->fromAgent($template->creator)
+            );
+        } catch (\Throwable $e) {
+            Log::error('AT-303 mark reactivation email failed', [
+                'request_id' => $request->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * An earlier signer COUNTER-INITIALS a mark amendment (agrees). Ratifies
+     * only once EVERY affected party (by identity) has counter-initialled.
+     */
+    public function markAmendmentAccept(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        ?string $initialImage
+    ): void {
+        DB::transaction(function () use ($amendment, $signerRequest, $initialImage) {
+            $acceptance = AmendmentAcceptance::firstOrCreate(
+                ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+                ['accepted' => false, 'rejected' => false],
+            );
+            $acceptance->update(['accepted' => true, 'rejected' => false, 'initial_image' => $initialImage]);
+
+            SignatureAuditLog::log(
+                $amendment->template,
+                'disclosure_mark_counter_initialled',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signerRequest->signer_name ?? 'Unknown',
+                metadata: ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+            );
+
+            if ($amendment->fresh()->isFullyAccepted()) {
+                $this->ratifyMarkAmendment($amendment);
+            }
+        });
+    }
+
+    /**
+     * All affected parties have counter-initialled — the amended mark STANDS.
+     * The new value becomes the document truth and re-locks the snapshot; the
+     * proposer is routed back to complete their signature on the settled doc.
+     */
+    private function ratifyMarkAmendment(DocumentAmendment $amendment): void
+    {
+        $template = $amendment->template;
+        $document = $template->document;
+        $amendment->update(['status' => DocumentAmendment::STATUS_ACCEPTED]);
+
+        $key = $amendment->flag_clause_ref;
+        $webData = $document->web_template_data ?? [];
+        $marks = $webData['disclosure_mark_amendments'] ?? [];
+        if ($key !== null && isset($marks[$key]['new'])) {
+            $webData['disclosure_answers'][$key] = $marks[$key]['new'];
+            if (isset($webData['disclosure_lock']['answers']) && is_array($webData['disclosure_lock']['answers'])) {
+                $webData['disclosure_lock']['answers'][$key] = $marks[$key]['new'];
+            }
+            $marks[$key]['status'] = 'ratified';
+            $webData['disclosure_mark_amendments'] = $marks;
+            $document->update(['web_template_data' => $webData]);
+        }
+
+        // Restore every earlier signer who counter-initialled to COMPLETED
+        // (their original signature stands) — but NOT the proposer.
+        $acceptedIds = $amendment->acceptances()->where('accepted', true)->pluck('signature_request_id');
+        $template->requests()
+            ->whereIn('id', $acceptedIds)
+            ->where('id', '!=', $amendment->amended_by_request_id)
+            ->where('status', SignatureRequest::STATUS_PENDING)
+            ->update(['status' => SignatureRequest::STATUS_COMPLETED]);
+
+        // Hand back to the proposer to finish signing the now-settled document.
+        $proposer = $amendment->amendedByRequest;
+        if ($proposer) {
+            $this->reactivateRequestForMark(
+                $proposer,
+                $template,
+                'The disclosure change you proposed was agreed. Please return to your signing link to complete your signature.',
+            );
+        }
+        $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
+    }
+
+    /**
+     * An earlier signer DECLINES a mark amendment. Johan's rule: no ping-pong,
+     * no auto-void — the amendment REVERTS to the original mark (which stands)
+     * and routes BACK to the proposer, who accepts-and-signs the original or
+     * proposes a different change (agreed offline). No automated negotiation.
+     */
+    public function markAmendmentDecline(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        string $reason
+    ): void {
+        DB::transaction(function () use ($amendment, $signerRequest, $reason) {
+            $acceptance = AmendmentAcceptance::firstOrCreate(
+                ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id],
+                ['accepted' => false, 'rejected' => false],
+            );
+            $acceptance->update(['accepted' => false, 'rejected' => true, 'rejection_reason' => $reason]);
+            $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
+
+            $template = $amendment->template;
+            $document = $template->document;
+            $webData = $document->web_template_data ?? [];
+            $key = $amendment->flag_clause_ref;
+            if ($key !== null && isset($webData['disclosure_mark_amendments'][$key])) {
+                $webData['disclosure_mark_amendments'][$key]['status'] = 'reverted';
+                $webData['disclosure_mark_amendments'][$key]['reverted_reason'] = $reason;
+                // The original answer is untouched in disclosure_answers — it stands.
+                $document->update(['web_template_data' => $webData]);
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'disclosure_mark_amendment_declined',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signerRequest->signer_name ?? 'Unknown',
+                metadata: ['amendment_id' => $amendment->id, 'signature_request_id' => $signerRequest->id, 'reason' => $reason],
+            );
+
+            // Restore every reopened earlier signer to COMPLETED (originals stand).
+            $reopenedIds = $amendment->acceptances()->pluck('signature_request_id');
+            $template->requests()
+                ->whereIn('id', $reopenedIds)
+                ->where('id', '!=', $amendment->amended_by_request_id)
+                ->where('status', SignatureRequest::STATUS_PENDING)
+                ->update(['status' => SignatureRequest::STATUS_COMPLETED]);
+
+            // Back to the proposer.
+            $proposer = $amendment->amendedByRequest;
+            if ($proposer) {
+                $this->reactivateRequestForMark(
+                    $proposer,
+                    $template,
+                    'Your proposed disclosure change was declined, so the original answer stands. Please return to your signing link to accept it and sign, or propose a different change you have agreed with the other party.',
+                );
+            }
+            $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
         });
     }
 

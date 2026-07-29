@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Docuperfect;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Docuperfect\ConditionInitial;
+use App\Models\Docuperfect\AmendmentAcceptance;
 use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\DocumentClauseStrikethrough;
 use App\Models\Docuperfect\DocumentCondition;
@@ -3311,6 +3312,15 @@ CSS;
         $amendment = \App\Models\Docuperfect\DocumentAmendment::findOrFail($amendmentId);
         $initialImage = $request->input('initial_image');
 
+        // AT-303 — GUARDED: an MDF disclosure-MARK amendment resolves via the
+        // self-contained mark path (ratify + re-lock + hand back to proposer),
+        // NOT the text-condition cascade. Every other amendment type is
+        // untouched (falls through to the existing service accept below).
+        if ($this->isMarkAmendment($amendment)) {
+            $this->signatureService->markAmendmentAccept($amendment, $signingRequest, $initialImage);
+            return response()->json(['ok' => true, 'accepted' => true, 'mark_amendment' => true]);
+        }
+
         $acceptance = $this->signatureService->acceptAmendment($amendment, $signingRequest, $initialImage);
 
         return response()->json([
@@ -3338,12 +3348,160 @@ CSS;
             return response()->json(['ok' => false, 'error' => 'A reason is required when rejecting an amendment.'], 422);
         }
 
+        // AT-303 — GUARDED: declining an MDF mark amendment REVERTS to the
+        // original mark and routes back to the proposer (Johan's rule — no
+        // ping-pong, no auto-void). Other amendment types keep the existing
+        // reject behaviour (agent-notified) below.
+        if ($this->isMarkAmendment($amendment)) {
+            $this->signatureService->markAmendmentDecline($amendment, $signingRequest, $reason);
+            return response()->json(['ok' => true, 'rejected' => true, 'reverted' => true, 'mark_amendment' => true]);
+        }
+
         $acceptance = $this->signatureService->rejectAmendment($amendment, $signingRequest, $reason);
 
         return response()->json([
             'ok' => true,
             'rejected' => true,
             'acceptance_id' => $acceptance->id,
+        ]);
+    }
+
+    /** AT-303 — an MDF disclosure-mark amendment (guard for the mark path). */
+    private function isMarkAmendment(DocumentAmendment $amendment): bool
+    {
+        return $amendment->section_reference === 'Disclosure'
+            && $amendment->amendment_type === DocumentAmendment::TYPE_MODIFICATION;
+    }
+
+    /**
+     * AT-303 Stage 2 — a DOWNSTREAM owner recipient proposes a change to a
+     * LOCKED MDF disclosure mark: strike the original, apply the new value, and
+     * initial it. Creates a mark amendment + the proposer's own counter-initial,
+     * records it for the tracked-change render, and routes the document BACK to
+     * the earlier signer(s) to counter-initial before it can complete.
+     */
+    public function proposeDisclosureAmendment(Request $request, $token, $key)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        $template = $signingRequest->template;
+        $document = $template->document;
+        if (!$document) {
+            return response()->json(['ok' => false, 'error' => 'Document not found.'], 404);
+        }
+
+        // Only an owner/seller party may touch the disclosure grid.
+        $ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+        if (!in_array(strtolower((string) $signingRequest->party_role), $ownerTerms, true)) {
+            return response()->json(['ok' => false, 'error' => 'Only an owner/seller party may amend the disclosure.'], 403);
+        }
+
+        $webData = $document->web_template_data ?? [];
+        $lock = $webData['disclosure_lock'] ?? null;
+        if (!is_array($lock) || empty($lock['locked'])) {
+            return response()->json(['ok' => false, 'error' => 'The disclosure is not locked — edit it directly.'], 409);
+        }
+        // The proposer must be DOWNSTREAM of the lock (not its author).
+        if ((int) ($lock['request_id'] ?? 0) === (int) $signingRequest->id) {
+            return response()->json(['ok' => false, 'error' => 'You authored these answers — edit them directly.'], 409);
+        }
+
+        $lockedAnswers = (array) ($lock['answers'] ?? []);
+        if (!array_key_exists($key, $lockedAnswers)) {
+            return response()->json(['ok' => false, 'error' => 'Unknown disclosure item.'], 422);
+        }
+
+        $oldValue      = (string) $lockedAnswers[$key];
+        $newValue      = (string) $request->input('new_value', '');
+        $statement     = trim((string) $request->input('statement', '')) ?: $key;
+        $initialImage  = (string) $request->input('initial_image', '');
+
+        if ($newValue === '' || $newValue === $oldValue) {
+            return response()->json(['ok' => false, 'error' => 'Choose a different answer to propose a change.'], 422);
+        }
+        if (trim($initialImage) === '') {
+            return response()->json(['ok' => false, 'error' => 'Please initial your proposed change.'], 422);
+        }
+
+        $amendment = null;
+        DB::transaction(function () use (
+            $request, $template, $document, $signingRequest, $key, $oldValue, $newValue, $statement, $initialImage, &$amendment, &$webData
+        ) {
+            $version = (int) ($template->document_version ?? 1);
+            $amendment = DocumentAmendment::create([
+                'document_id'             => $document->id,
+                'signature_template_id'   => $template->id,
+                'amended_by_request_id'   => $signingRequest->id,
+                'amendment_type'          => DocumentAmendment::TYPE_MODIFICATION,
+                'flag_origin'             => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
+                'flag_clause_ref'         => $key,
+                'section_reference'       => 'Disclosure',
+                'original_text'           => $statement . ': ' . strtoupper($oldValue),
+                'new_text'                => $statement . ': ' . strtoupper($newValue),
+                'document_version_before' => $version,
+                'document_version_after'  => $version + 1,
+                'document_hash_before'    => $template->document_hash,
+                'document_hash_after'     => null,
+                'status'                  => DocumentAmendment::STATUS_PENDING,
+            ]);
+
+            // The proposer affirms their OWN change with their initial.
+            AmendmentAcceptance::create([
+                'amendment_id'         => $amendment->id,
+                'signature_request_id' => $signingRequest->id,
+                'accepted'             => true,
+                'rejected'             => false,
+                'initial_image'        => $initialImage,
+            ]);
+
+            // Record the proposed mark for the tracked-change render + ratify/revert.
+            $marks = $webData['disclosure_mark_amendments'] ?? [];
+            $marks[$key] = [
+                'amendment_id'           => $amendment->id,
+                'statement'              => $statement,
+                'old'                    => $oldValue,
+                'new'                    => $newValue,
+                'proposed_by_request_id' => $signingRequest->id,
+                'proposed_by_name'       => $signingRequest->signer_name,
+                'proposer_initial_image' => $initialImage,
+                'status'                 => 'pending',
+            ];
+            $webData['disclosure_mark_amendments'] = $marks;
+            $document->update(['web_template_data' => $webData]);
+
+            SignatureAuditLog::create([
+                'signature_template_id' => $template->id,
+                'action' => 'disclosure_mark_amendment_proposed',
+                'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+                'actor_name' => $signingRequest->signer_name,
+                'actor_email' => $signingRequest->signer_email,
+                'actor_ip_address' => $request->ip(),
+                'actor_user_agent' => $request->userAgent(),
+                'signature_request_id' => $signingRequest->id,
+                'metadata_json' => [
+                    'amendment_id' => $amendment->id,
+                    'disclosure_key' => $key,
+                    'from' => $oldValue,
+                    'to' => $newValue,
+                ],
+            ]);
+
+            // The proposer waits until the earlier party has resolved the change.
+            $signingRequest->update(['status' => SignatureRequest::STATUS_WAITING]);
+
+            // Route BACK to the earlier signer(s) to counter-initial (identity-keyed).
+            $this->signatureService->handleAmendment($template, $amendment, $signingRequest);
+        });
+
+        return response()->json([
+            'ok' => true,
+            'amendment_id' => $amendment?->id,
+            'message' => 'Your proposed change has been sent to the other party to counter-initial.',
+            'redirect' => route('signatures.external.completed', $token),
         ]);
     }
 
