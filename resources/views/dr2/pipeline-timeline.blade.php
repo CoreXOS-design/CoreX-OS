@@ -55,34 +55,34 @@
   #dr2tl .scroll{flex:1;min-height:0;overflow:auto;position:relative}
   #dr2tl .canvas{position:relative}
 
-  /* sticky phase header band — Suspensive Conditions | Transfer & Registration, split at GRANTED.
-     Sits ABOVE the date axis, so every offset below (axis/band/mile/today top, ROWTOP) is pushed down
-     by its 28px height. */
-  #dr2tl .phaseband{position:sticky;top:0;height:28px;z-index:6;background:#f8fafc;border-bottom:1px solid #e2e8f0;overflow:hidden}
-  #dr2tl .pbz{position:absolute;top:0;bottom:0;display:flex;align-items:center;gap:6px;padding:0 10px;overflow:hidden;white-space:nowrap}
-  #dr2tl .pbz1{background:rgba(37,99,235,.07);border-right:1px dashed #c7d2fe}
-  #dr2tl .pbz2{background:rgba(100,116,139,.07)}
-  #dr2tl .pbn{width:16px;height:16px;flex:0 0 16px;border-radius:5px;background:#2563eb;color:#fff;font-weight:700;font-size:9.5px;display:flex;align-items:center;justify-content:center}
-  #dr2tl .pbt{font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis}
+  /* stage legend — static, NOT date-positioned. A date-positioned split mis-filed steps whose due date
+     lands past Granted even though they're genuinely Stage 1 (e.g. "Guarantees Issued", "Bond Approved")
+     — that was the whole bug. Membership is shown per-item instead, via .stagebadge on each tile and
+     each non-anchor/non-gate milestone (below); this legend is just the key. */
+  #dr2tl .stagelegend{display:flex;align-items:center;gap:14px;padding:6px 15px;border-bottom:1px solid #e2e8f0;background:#f8fafc;font-size:11px;color:#475569;flex-wrap:wrap}
+  #dr2tl .stagelegend .lgi{display:flex;align-items:center;gap:5px}
+  #dr2tl .stagebadge{width:14px;height:14px;flex:0 0 14px;border-radius:4px;background:#2563eb;color:#fff;font-weight:700;font-size:8.5px;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+  #dr2tl .stagebadge.s2{background:#64748b}
 
-  /* phase bands (behind) */
-  #dr2tl .band{position:absolute;top:62px;bottom:0;z-index:0;border-left:1px dashed #dbe4ff;background:rgba(99,102,241,.03)}
+  /* phase bands (behind) — alternating tint BETWEEN milestone dates (a calendar-phase visualisation,
+     unrelated to Stage 1/2 membership) */
+  #dr2tl .band{position:absolute;top:34px;bottom:0;z-index:0;border-left:1px dashed #dbe4ff;background:rgba(99,102,241,.03)}
   #dr2tl .band.alt{background:rgba(37,99,235,.045)}
   #dr2tl .band .bname{position:absolute;left:10px;font-size:11px;font-weight:800;color:#4f46e5;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;opacity:.85}
 
   /* date axis */
-  #dr2tl .axis{position:sticky;top:28px;height:34px;background:#fbfcfe;border-bottom:1px solid #e2e8f0;z-index:5}
+  #dr2tl .axis{position:sticky;top:0;height:34px;background:#fbfcfe;border-bottom:1px solid #e2e8f0;z-index:5}
   #dr2tl .tick{position:absolute;top:0;height:34px;border-left:1px solid #eef2f7;font-size:10.5px;color:#64748b;font-weight:600;padding:9px 0 0 5px;white-space:nowrap}
 
   /* milestone vertical gate */
-  #dr2tl .mile{position:absolute;z-index:2;width:2px;background:#eab308;top:60px;bottom:0}
+  #dr2tl .mile{position:absolute;z-index:2;width:2px;background:#eab308;top:32px;bottom:0}
   #dr2tl .mile .cap{position:absolute;top:2px;left:-8px;width:16px;height:16px;background:#eab308;transform:rotate(45deg);border:2px solid #fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
   #dr2tl .mile.done{background:#16a34a}#dr2tl .mile.done .cap{background:#16a34a}#dr2tl .mile.done .txt{color:#16a34a}
   #dr2tl .mile.up{background:#cbd5e1}#dr2tl .mile.up .cap{background:#cbd5e1}#dr2tl .mile.up .txt{color:#64748b}
 
   /* today line */
-  #dr2tl .today{position:absolute;width:2px;background:#ef4444;z-index:4;top:62px;bottom:0}
+  #dr2tl .today{position:absolute;width:2px;background:#ef4444;z-index:4;top:34px;bottom:0}
   #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:#ef4444;background:#fff;padding:0 3px;border-radius:3px}
 
   /* the TILE = the duration bar. Compact at rest — name + dates only, hugging content (~60px, not the
@@ -208,15 +208,13 @@
 @php($DAYW = (int) ($board['day_width'] ?? 21))
 @php($PADX = 14)
 @php($mileLevels = max(1, (int) ($board['mile_levels'] ?? 1)))
-{{-- +28 reserves room for the sticky phase header band (Suspensive Conditions | Transfer & Registration)
-     sitting above the axis. --}}
-@php($ROWTOP = 58 + 28 + $mileLevels * 17)
+@php($ROWTOP = 58 + $mileLevels * 17)
 {{-- ROWH tracks the compact resting .ttile CSS height (60px) + a tight 10px gap between stacked rows.
      A hovered tile grows taller than this to show its actions (CSS :hover, see .ttile:hover), but that's
      a transient interaction state layered ABOVE the row stack (z-index), not a resting-layout height —
      rows stay packed at 70px regardless. --}}
 @php($ROWH = 70)
-@php($bandLabelTop = max(2, $ROWTOP - 62 - 15))
+@php($bandLabelTop = max(2, $ROWTOP - 34 - 15))
 <div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}"
      data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}"
      data-days="{{ (int) ($board['days'] ?? 0) }}" data-deal="{{ $deal->id }}">
@@ -264,11 +262,11 @@
   @php($days = (int) $board['days'])
   @php($W = $PADX + $days * $DAYW + 40)
   @php($tiles = collect($board['tiles']))
-  {{-- Phase header split point — the GRANTED gate, same field (is_grant_marker) the list's Stage
-       1/Stage 2 split reads. No grant gate (old-model/flat deal) → no band, mirroring the list's own
-       flat fallback rather than guessing a split point. --}}
-  @php($grantGate = collect($board['miles'] ?? [])->first(fn ($m) => ! empty($m['is_grant'])))
-  @php($grantDay = $grantGate['day'] ?? null)
+  {{-- Whether ANY tile/milestone carries a Stage 1/2 group (buildBoard's $stageOf, sourced from the
+       exact same DealLaneComposer split buildPhased/the List uses) — false only for an old-model/flat
+       deal with no gate at all, mirroring the List's own flat fallback rather than guessing. --}}
+  @php($anyStaged = $tiles->contains(fn ($t) => ($t['stage'] ?? null) !== null)
+        || collect($board['miles'] ?? [])->contains(fn ($m) => ($m['stage'] ?? null) !== null))
   @php($maxRow = (int) ($tiles->max('row') ?? 0))
   @php($trackY = $ROWTOP + ($maxRow + 1) * $ROWH + 4)
   @php($canvasH = $trackY + 60)
@@ -296,6 +294,17 @@
         <span class="lg"><span class="dia"></span>Milestone</span>
       </div>
     </div>
+
+    {{-- Stage legend — a static key, NOT positioned by date. Membership itself is shown per-item via the
+         .stagebadge on each tile/milestone (a date-positioned split previously mis-filed steps whose due
+         date lands past Granted even though they're genuinely Stage 1 — e.g. "Guarantees Issued",
+         "Bond Approved"). --}}
+    @if($anyStaged)
+      <div class="stagelegend">
+        <span class="lgi"><span class="stagebadge">1</span> Suspensive Conditions</span>
+        <span class="lgi"><span class="stagebadge s2">2</span> Transfer &amp; Registration</span>
+      </div>
+    @endif
 
     {{-- Persistent Unscheduled tray — every step with no start/due date sits here with its FULL action
          set, so nothing is ever dropped (spec CORRECTION 2026-07-28). Set both dates (Edit dates on the
@@ -332,20 +341,6 @@
     <div class="scroll">
       <div class="canvas" style="width:{{ $W }}px;height:{{ $canvasH }}px;">
 
-        {{-- sticky phase header — Suspensive Conditions | Transfer & Registration, split at GRANTED
-             (mirrors the phased List's Stage 1 / Stage 2). Display only. --}}
-        @if($grantDay !== null)
-          @php($splitX = $PADX + $grantDay * $DAYW)
-          <div class="phaseband" data-grant-day="{{ (int) $grantDay }}" style="width:{{ $W }}px;">
-            <div class="pbz pbz1" style="left:0px;width:{{ $splitX }}px;">
-              <span class="pbn">1</span><span class="pbt">Suspensive Conditions</span>
-            </div>
-            <div class="pbz pbz2" style="left:{{ $splitX }}px;width:{{ max(0, $W - $splitX) }}px;">
-              <span class="pbn">2</span><span class="pbt">Transfer &amp; Registration</span>
-            </div>
-          </div>
-        @endif
-
         {{-- date axis --}}
         <div class="axis" style="width:{{ $W }}px;">
           @for($d = 0; $d <= $days; $d += 7)
@@ -366,7 +361,9 @@
         @foreach($board['miles'] as $m)
           <div class="mile {{ $m['state'] }}" data-day="{{ (int) $m['day'] }}" style="left:{{ $PADX + $m['day'] * $DAYW }}px;">
             <span class="cap"></span>
-            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
+            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">
+              @if(!empty($m['stage']))<span class="stagebadge{{ $m['stage'] == 2 ? ' s2' : '' }}" title="{{ $m['stage'] == 1 ? 'Suspensive Conditions' : 'Transfer & Registration' }}">{{ $m['stage'] }}</span>@endif
+              ★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
           </div>
         @endforeach
 
@@ -404,6 +401,7 @@
                @if($canResize) data-resizable="1" @endif
                @if($s && !$locked) x-data="{done:false,seq:false,na:false,cm:false,ed:false}" @endif>
             <div class="th">
+              @if(!empty($tile['stage']))<span class="stagebadge{{ $tile['stage'] == 2 ? ' s2' : '' }}" title="{{ $tile['stage'] == 1 ? 'Suspensive Conditions' : 'Transfer & Registration' }}">{{ $tile['stage'] }}</span>@endif
               <span class="dot {{ $tile['status'] }}"></span>
               <span class="nm" title="{{ $tile['name'] }}">{{ $tile['name'] }}</span>
               @if(!empty($tile['star']))<span class="star" title="Suspensive condition">★</span>@endif
@@ -635,18 +633,6 @@
       if(canvasEl) canvasEl.style.width = w+'px';
       if(axisEl) axisEl.style.width = w+'px';
       rebuildAxis();
-
-      const phaseband=root.querySelector('.phaseband');
-      if(phaseband){
-        phaseband.style.width = w+'px';
-        const gd=parseInt(phaseband.dataset.grantDay);
-        if(!isNaN(gd)){
-          const splitX=xForDay(gd);
-          const z1=phaseband.querySelector('.pbz1'), z2=phaseband.querySelector('.pbz2');
-          if(z1){ z1.style.left='0px'; z1.style.width=splitX+'px'; }
-          if(z2){ z2.style.left=splitX+'px'; z2.style.width=Math.max(0,w-splitX)+'px'; }
-        }
-      }
 
       root.querySelectorAll('.band').forEach(b=>{
         const from=parseInt(b.dataset.from)||0, to=parseInt(b.dataset.to)||0;

@@ -48,10 +48,27 @@ class PipelineTimelineService
         // step with NO due date at all cannot be placed (no end to anchor a bar) → the Unscheduled tray.
         $placeable = $allSteps->filter(fn ($s) => $s->due_date)->values();
 
-        // Deal-level comment target = the composer's anchor (Deal Signed), else the first step, so the
-        // footer's "General (deal)" option always has a real step to attach a deal-scope note to.
-        $anchor   = app(\App\Services\DealV2\DealLaneComposer::class)->board($allSteps)['anchor'] ?? null;
-        $anchorId = $anchor ? (int) $anchor->id : (int) (optional($allSteps->first())->id ?? 0);
+        // Stage membership — the SAME source buildPhased() (the List) uses, so a step's Suspensive
+        // Conditions vs Transfer & Registration group here can never disagree with the List. Deliberately
+        // NOT derived from date/grant-line position: a Stage-1 step (e.g. "Guarantees Issued", condition
+        // "bond") can have a due date that lands after the Granted gate's date, and must still group as
+        // Stage 1 — the whole bug this membership computation exists to fix. The GRANTED gate itself is
+        // read off $membership['gate'] (DealLaneComposer's own resolution of is_grant_marker) rather than
+        // re-checking the column per-step, so "which step is the grant marker" can never diverge from the
+        // List's answer either.
+        $membership = $this->stageMembership($allSteps);
+        $anchor     = $membership['anchor'];
+        $anchorId   = $anchor ? (int) $anchor->id : (int) (optional($allSteps->first())->id ?? 0);
+        $gateId     = $membership['gate'] ? (int) $membership['gate']->id : null;
+        $stage1Ids  = $membership['stage1_steps']->pluck('id')->flip()->map(fn () => true)->all();
+        $stage2Ids  = $membership['stage2_ids'];
+        foreach ($membership['orphans'] as $o) {
+            $stage2Ids[(int) $o->id] = true;
+        }
+        // A step is Stage 1, Stage 2, or neither (the anchor / the GRANTED gate itself — those render as
+        // their own thing, not a stage member). Applies uniformly to tiles AND milestones: "Bond Approved"
+        // is is_milestone=true but still genuinely Stage 1 in the List, so it must group that way here too.
+        $stageOf = fn (int $id) => isset($stage1Ids[$id]) ? 1 : (isset($stage2Ids[$id]) ? 2 : null);
 
         // The PERSISTENT "Unscheduled" tray now carries ONLY steps that genuinely cannot be placed — the
         // ones with no due date at all. Everything with a due date is projected onto the axis below, so a
@@ -123,19 +140,19 @@ class PipelineTimelineService
             $sp     = $spans[(int) $s->id];
             $startI = $idx($sp['start']);
             $endI   = $idx($sp['end']);
+            $isGrant = $gateId !== null && (int) $s->id === $gateId;
             if ($s->is_milestone) {
                 // The Granted milestone sits at the actual-aware grant date (parity with the list); every
                 // other milestone stays at its own end date.
-                $mileDay = ($s->is_grant_marker && $grantDate) ? $idx($grantDate) : $endI;
+                $mileDay = ($isGrant && $grantDate) ? $idx($grantDate) : $endI;
                 $gates[] = [
                     'id'       => (int) $s->id,
                     'name'     => $s->name,
                     'day'      => $mileDay,
                     'state'    => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
-                    // Marks the GRANTED gate specifically, for the phase header band's two-zone split
-                    // (Suspensive Conditions | Transfer & Registration) — same field the list's
-                    // Stage 1/Stage 2 split is driven from (DealLaneComposer's gate), not a name match.
-                    'is_grant' => (bool) $s->is_grant_marker,
+                    'is_grant' => $isGrant,
+                    // Stage group (1|2|null) — see $stageOf above. null for the anchor/grant gate itself.
+                    'stage'    => $stageOf((int) $s->id),
                 ];
                 continue;
             }
@@ -147,6 +164,7 @@ class PipelineTimelineService
                 'status'    => $statusOf($s),
                 'star'      => (bool) $s->is_suspensive,
                 'projected' => $sp['projected'],
+                'stage'     => $stageOf((int) $s->id),
             ];
         }
 
@@ -312,36 +330,12 @@ class PipelineTimelineService
             return ['empty' => true, 'comments' => $comments];
         }
 
-        $composed = app(\App\Services\DealV2\DealLaneComposer::class)->board($steps);
-        $anchor   = $composed['anchor'];
-        $gate     = $composed['gate'];
-
-        // Every step the composer placed in Stage 2 (flatten sequence + band lanes).
-        $stage2Ids = [];
-        foreach ($composed['stage2'] as $seg) {
-            if (($seg['type'] ?? null) === 'sequence') {
-                $stage2Ids[(int) $seg['step']->id] = true;
-            } else {
-                foreach ($seg['lanes'] ?? [] as $lane) {
-                    foreach ($lane as $m) {
-                        $stage2Ids[(int) $m->id] = true;
-                    }
-                }
-            }
-        }
-
-        $exclude = $stage2Ids;
-        if ($anchor) $exclude[(int) $anchor->id] = true;
-        if ($gate)   $exclude[(int) $gate->id]   = true;
-
-        // The remainder = everything the composer left out of anchor / gate / Stage 2. Only the steps
-        // that actually belong to a suspensive CONDITION (condition_key set) form Stage 1 groups. A
-        // remainder step with NO condition (e.g. a compliance step orphaned by a broken predecessor
-        // edge, so it wasn't reachable from the gate) is post-grant transfer work — it merges into
-        // Stage 2 by date rather than inventing a bogus "Other conditions" group.
-        $remainder   = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
-        $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
-        $orphans     = $remainder->reject(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+        $membership  = $this->stageMembership($steps);
+        $composed    = $membership['composed'];
+        $anchor      = $membership['anchor'];
+        $gate        = $membership['gate'];
+        $stage1Steps = $membership['stage1_steps'];
+        $orphans     = $membership['orphans'];
 
         // Merge orphans into the Stage-2 segment list as their own sequence points, ordered with the
         // composer's segments by earliest due date so they read in the right place in the sequence.
@@ -440,6 +434,61 @@ class PipelineTimelineService
             ],
             'all_ids'   => $steps->pluck('id')->map(fn ($id) => (int) $id)->all(),
             'comments'  => $comments,
+        ];
+    }
+
+    /**
+     * The single source of Stage 1 / Stage 2 STAGE membership — shared by buildPhased() (the List) and
+     * buildBoard() (the Timeline), so the two views can never disagree about which group a step belongs
+     * to. Anchor (Deal Signed) and the GRANTED gate (is_grant_marker — read off the structure, never
+     * hardcoded) are their own thing, in neither stage. Stage 1 = remaining steps with a suspensive
+     * condition_key — REGARDLESS of date, and regardless of whether the step also happens to be a
+     * milestone (e.g. "Bond Approved" is is_milestone=true but still genuinely Stage 1). Stage 2 =
+     * everything DealLaneComposer placed in its stage2 (sequence points + band lanes) PLUS "orphan"
+     * remainder steps with no condition_key (post-grant work with a broken/no predecessor edge) —
+     * identical rule buildPhased() already used before this was extracted; buildPhased()'s own output is
+     * therefore untouched by this refactor.
+     */
+    private function stageMembership($steps): array
+    {
+        $composed = app(\App\Services\DealV2\DealLaneComposer::class)->board($steps);
+        $anchor   = $composed['anchor'];
+        $gate     = $composed['gate'];
+
+        // Every step the composer placed in Stage 2 (flatten sequence + band lanes).
+        $stage2Ids = [];
+        foreach ($composed['stage2'] as $seg) {
+            if (($seg['type'] ?? null) === 'sequence') {
+                $stage2Ids[(int) $seg['step']->id] = true;
+            } else {
+                foreach ($seg['lanes'] ?? [] as $lane) {
+                    foreach ($lane as $m) {
+                        $stage2Ids[(int) $m->id] = true;
+                    }
+                }
+            }
+        }
+
+        $exclude = $stage2Ids;
+        if ($anchor) $exclude[(int) $anchor->id] = true;
+        if ($gate)   $exclude[(int) $gate->id]   = true;
+
+        // The remainder = everything the composer left out of anchor / gate / Stage 2. Only the steps
+        // that actually belong to a suspensive CONDITION (condition_key set) form Stage 1. A remainder
+        // step with NO condition (e.g. a compliance step orphaned by a broken predecessor edge, so it
+        // wasn't reachable from the gate) is post-grant transfer work — it counts as Stage 2 rather than
+        // inventing a bogus "Other conditions" group.
+        $remainder   = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
+        $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+        $orphans     = $remainder->reject(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+
+        return [
+            'composed'     => $composed,
+            'anchor'       => $anchor,
+            'gate'         => $gate,
+            'stage1_steps' => $stage1Steps,
+            'orphans'      => $orphans,
+            'stage2_ids'   => $stage2Ids,
         ];
     }
 
