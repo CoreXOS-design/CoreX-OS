@@ -37,6 +37,7 @@ class SyncReferenceData extends Command
         \Database\Seeders\DemoTncVersionSeeder::class,      // demo T&C v1 — without it EVERY demo prospect is blocked at the clickwrap (AT-230)
         \Database\Seeders\PayrollTaxTableSeeder::class,     // AT-237 C1 — SARS PAYE brackets (GLOBAL, seed-only) — without it PAYE silently R0
         \Database\Seeders\PayrollTaxRebateSeeder::class,    // AT-237 C1 — SARS rebates/thresholds/UIF ceiling/SDL rate (GLOBAL, seed-only)
+        \Database\Seeders\Dr2PipelineCatalogSeeder::class,   // AT-334 — GLOBAL master pipeline template the composable Deal Structure reads from; un-seeded env falls back to the code definition, but seed it so edits land in the DB
     ];
 
     /** Idempotent reference-provisioning commands [name, args]. */
