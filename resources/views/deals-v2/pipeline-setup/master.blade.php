@@ -82,19 +82,19 @@
                                         <span x-show="s.is_anchor" class="ds-badge ds-badge-info" style="font-size:.6rem;">anchor</span>
                                     </td>
                                     <td class="px-2 py-1.5">
-                                        <select x-model="s.follows_key" class="corex-input" style="min-width:11rem;" x-bind:disabled="s.is_grant_marker">
-                                            <option x-bind:value="null">— none (root)</option>
-                                            <option value="__grant__">↳ Granted marker</option>
+                                        <select x-on:change="s.follows_key = $event.target.value || null" class="corex-input" style="min-width:11rem;" x-bind:disabled="s.is_grant_marker">
+                                            <option value="" x-bind:selected="!s.follows_key">— none (root)</option>
+                                            <option value="__grant__" x-bind:selected="s.follows_key === '__grant__'">↳ Granted marker</option>
                                             <template x-for="o in allSteps" x-bind:key="o.key">
-                                                <option x-bind:value="o.key" x-show="o.key !== s.step_key" x-text="o.name + ' (' + o.key + ')'"></option>
+                                                <option x-bind:value="o.key" x-bind:selected="o.key === s.follows_key" x-show="o.key !== s.step_key" x-text="o.name + ' (' + o.key + ')'"></option>
                                             </template>
                                         </select>
                                         <div x-show="s.is_grant_marker" style="color:var(--text-muted);font-size:.6rem;">auto: converges on all suspensive</div>
                                     </td>
                                     <td class="px-2 py-1.5">
-                                        <select multiple x-model="s.deps_keys" class="corex-input" style="min-width:11rem;height:3.6rem;" x-bind:disabled="s.is_grant_marker">
+                                        <select multiple x-on:change="s.deps_keys = Array.from($event.target.selectedOptions).map(o => o.value)" class="corex-input" style="min-width:11rem;height:3.6rem;" x-bind:disabled="s.is_grant_marker">
                                             <template x-for="o in allSteps" x-bind:key="o.key">
-                                                <option x-bind:value="o.key" x-show="o.key !== s.step_key" x-text="o.name"></option>
+                                                <option x-bind:value="o.key" x-bind:selected="s.deps_keys.includes(o.key)" x-show="o.key !== s.step_key" x-text="o.name"></option>
                                             </template>
                                         </select>
                                     </td>
@@ -105,26 +105,26 @@
                                     <td class="px-2 py-1.5 text-center"><input type="checkbox" x-model="s.is_suspensive"></td>
                                     <td class="px-2 py-1.5 text-center"><input type="checkbox" x-model="s.is_grant_marker"></td>
                                     <td class="px-2 py-1.5">
-                                        <select x-model="s.completion_type" class="corex-input" style="min-width:9rem;">
+                                        <select x-on:change="s.completion_type = $event.target.value" class="corex-input" style="min-width:9rem;">
                                             <template x-for="(label, key) in completionTypes" x-bind:key="key">
-                                                <option x-bind:value="key" x-text="label"></option>
+                                                <option x-bind:value="key" x-bind:selected="key === s.completion_type" x-text="label"></option>
                                             </template>
                                         </select>
                                     </td>
                                     <td class="px-2 py-1.5">
-                                        <select x-model="s.status_trigger" class="corex-input" style="min-width:9rem;">
-                                            <option x-bind:value="null">— none</option>
+                                        <select x-on:change="s.status_trigger = $event.target.value || null" class="corex-input" style="min-width:9rem;">
+                                            <option value="" x-bind:selected="!s.status_trigger">— none</option>
                                             <template x-for="(label, key) in statusTriggers" x-bind:key="key">
-                                                <option x-bind:value="key" x-text="label"></option>
+                                                <option x-bind:value="key" x-bind:selected="key === s.status_trigger" x-text="label"></option>
                                             </template>
                                         </select>
                                     </td>
                                     <td class="px-2 py-1.5">
                                         <template x-if="Object.keys(g.date_options).length">
-                                            <select x-model="s.manual_due_option" class="corex-input" style="min-width:9rem;">
-                                                <option x-bind:value="null">— offset only</option>
+                                            <select x-on:change="s.manual_due_option = $event.target.value || null" class="corex-input" style="min-width:9rem;">
+                                                <option value="" x-bind:selected="!s.manual_due_option">— offset only</option>
                                                 <template x-for="(label, key) in g.date_options" x-bind:key="key">
-                                                    <option x-bind:value="key" x-text="label"></option>
+                                                    <option x-bind:value="key" x-bind:selected="key === s.manual_due_option" x-text="label"></option>
                                                 </template>
                                             </select>
                                         </template>
