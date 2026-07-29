@@ -85,6 +85,12 @@ class PipelineRescheduleService
                 $reason = $s->status === 'completed' ? 'completed' : 'N/A';
             } elseif ($s->planned_start_manual || $s->due_date_manual) {
                 $reason = 'date set by hand';
+            } elseif (! $orig[$id]['start'] || ! $orig[$id]['end']) {
+                // Never been given a real start/due date (still only a display projection, per
+                // PipelineTimelineService::projectedSpan) — nothing real to slide, and re-anchoring it
+                // here would fabricate a committed due date as a side effect of dragging an unrelated
+                // ancestor. Leave it for its own "Edit dates" or the natural cascade instead.
+                $reason = 'not yet dated';
             }
             if ($reason) {
                 $held[$id] = $reason;
@@ -123,10 +129,14 @@ class PipelineRescheduleService
             }
         }
 
-        // What actually moved (start OR end differs from original).
+        // What actually moved (start OR end differs from original). $work/$orig hold a NULL start/end
+        // for every step in the deal that has no real dates yet (undated steps outside the dragged
+        // chain entirely, not just the held ones above) — Carbon's equalTo() has no null-safe form, so
+        // compare null-aware instead of calling it on a possibly-null value.
+        $sameDate = fn (?CarbonInterface $a, ?CarbonInterface $b) => $a === null ? $b === null : ($b !== null && $a->equalTo($b));
         $moved = [];
         foreach ($work as $id => $w) {
-            if ($w['start']->equalTo($orig[$id]['start']) && $w['end']->equalTo($orig[$id]['end'])) {
+            if ($sameDate($w['start'], $orig[$id]['start']) && $sameDate($w['end'], $orig[$id]['end'])) {
                 continue;
             }
             $moved[$id] = [
