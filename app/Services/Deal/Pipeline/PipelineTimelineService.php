@@ -128,10 +128,14 @@ class PipelineTimelineService
                 // other milestone stays at its own end date.
                 $mileDay = ($s->is_grant_marker && $grantDate) ? $idx($grantDate) : $endI;
                 $gates[] = [
-                    'id'    => (int) $s->id,
-                    'name'  => $s->name,
-                    'day'   => $mileDay,
-                    'state' => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
+                    'id'       => (int) $s->id,
+                    'name'     => $s->name,
+                    'day'      => $mileDay,
+                    'state'    => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
+                    // Marks the GRANTED gate specifically, for the phase header band's two-zone split
+                    // (Suspensive Conditions | Transfer & Registration) — same field the list's
+                    // Stage 1/Stage 2 split is driven from (DealLaneComposer's gate), not a name match.
+                    'is_grant' => (bool) $s->is_grant_marker,
                 ];
                 continue;
             }
