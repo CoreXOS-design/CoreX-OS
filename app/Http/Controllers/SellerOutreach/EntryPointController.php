@@ -147,7 +147,22 @@ final class EntryPointController extends Controller
                     ->withInput();
             }
 
-            $existing = $this->findExistingContact($agencyId, $validated);
+            // Blocking duplicate check AT ADD TIME (parity with the Contacts
+            // screen and the DR2 party-picker). Replaces the old silent
+            // findExistingContact() match-or-create, whose only signal was a
+            // "Linked to existing contact" toast one screen later on the
+            // composer — the deferral behind the duplicate-contact report.
+            $gate = $this->duplicateGate(
+                $request,
+                $agencyId,
+                $validated,
+                $idNumber,
+                route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $prospectingListingId]),
+            );
+            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                return $gate;   // blocking duplicate panel — back to the capture page
+            }
+            $existing = $gate;  // Contact (auto_link match) or null (create new)
             $isNew = $existing === null;
         }
 
@@ -374,7 +389,20 @@ final class EntryPointController extends Controller
                     ->withInput();
             }
 
-            $existing = $this->findExistingContact($agencyId, $validated);
+            // Blocking duplicate check AT ADD TIME — same contract as
+            // storeFromProspecting (the T-pin pitch shares the capture form,
+            // so it must speak the same duplicate-panel language).
+            $gate = $this->duplicateGate(
+                $request,
+                $agencyId,
+                $validated,
+                $idNumber,
+                route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => $trackedProperty->id]),
+            );
+            if ($gate instanceof \Illuminate\Http\RedirectResponse) {
+                return $gate;
+            }
+            $existing = $gate;
             $isNew = $existing === null;
         }
 
@@ -458,32 +486,84 @@ final class EntryPointController extends Controller
     }
 
     /**
-     * Dedupe per spec S3:
-     *  - exact phone (normalised digits-only) → hard match
-     *  - exact email (lowercased, trimmed) → hard match
-     *  - soft name matches: surfaced for v2; v1 creates a new contact.
+     * Blocking duplicate gate for the pitch contact-capture (parity with
+     * ContactController@store and Dr2\DealRegisterController@contactInline).
+     *
+     * Replaces the former silent findExistingContact() match-or-create, which
+     * linked to an existing contact without telling the agent until the
+     * composer screen ("Linked to existing contact: …"). That deferral is the
+     * root cause behind the duplicate-contact report: the dedup ran at add
+     * time but its only signal appeared one screen later, so the agent had no
+     * chance to decide "use existing" vs "this is a different person".
+     *
+     * Uses the canonical App\Services\ContactDuplicateService::findDuplicates()
+     * (mirror columns + child identifier tables, agency-scoped) — the same
+     * matcher the Contacts screen and DR2 use.
+     *
+     * Returns one of:
+     *   - RedirectResponse  back to the capture page carrying a `pitch_duplicate`
+     *                       session payload the view renders as a blocking panel
+     *                       ("use existing & continue" / "create anyway"), for
+     *                       soft_warn and hard_block_* modes.
+     *   - Contact           the matched contact when the agency runs auto_link
+     *                       mode (silent link is the configured behaviour there).
+     *   - null              no duplicate — the caller creates a new contact.
+     *
+     * Bypassed when the capture form re-submits with bypass_duplicate_check=1
+     * (the agent chose "create anyway", subject to mode/can_override).
      */
-    private function findExistingContact(int $agencyId, array $data): ?Contact
-    {
-        // AT-125 — route through the canonical resolver so an incoming phone/email
-        // matches ANY of a contact's identifiers (child tables + mirror), agency-scoped.
-        $resolver = app(\App\Services\Communications\ContactIdentifierResolver::class);
-
-        if (!empty($data['phone'])) {
-            $existing = $resolver->resolve((string) $data['phone'], $agencyId);
-            if ($existing) {
-                return $existing;
-            }
+    private function duplicateGate(
+        Request $request,
+        int $agencyId,
+        array $validated,
+        ?string $idNumber,
+        string $fallbackUrl,
+    ): \Illuminate\Http\RedirectResponse|Contact|null {
+        if ($request->boolean('bypass_duplicate_check')) {
+            return null;
         }
 
-        if (!empty($data['email'])) {
-            $existing = $resolver->resolve((string) $data['email'], $agencyId);
-            if ($existing) {
-                return $existing;
-            }
+        $service = app(\App\Services\ContactDuplicateService::class);
+        $dupes = $service->findDuplicates([
+            'first_name' => $validated['first_name'] ?? '',
+            'last_name'  => $validated['last_name'] ?? '',
+            'phone'      => $validated['phone'] ?? null,
+            'email'      => $validated['email'] ?? null,
+            'id_number'  => $idNumber,
+        ], $agencyId);
+
+        if ($dupes->isEmpty()) {
+            return null;
         }
 
-        return null;
+        $mode = $service->resolveMode($agencyId);
+
+        // auto_link: silently link to the match (the agency configured this).
+        if ($mode === 'auto_link') {
+            return $dupes->first();
+        }
+
+        // soft_warn / hard_block_* → block and surface the matches. can_override
+        // uses the SAME formula as the Contacts screen and DR2: only an admin/
+        // owner may override a hard_block_override; a soft_warn allows anyone to
+        // create anyway (front-end gates the "create anyway" button on mode).
+        $canOverride = $mode === 'hard_block_override'
+            && in_array($request->user()->effectiveRole(), ['admin', 'super_admin', 'owner'], true);
+        $mask = $mode === 'hard_block_request';
+
+        return back(302, [], $fallbackUrl)
+            ->withInput()
+            ->with('pitch_duplicate', [
+                'mode'         => $mode,
+                'can_override' => $canOverride,
+                'duplicates'   => $dupes->map(fn ($c) => [
+                    'id'    => $c->id,
+                    'name'  => $c->full_name,
+                    'phone' => $mask ? null : $c->phone,
+                    'email' => $mask ? null : $c->email,
+                    'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                ])->values()->all(),
+            ]);
     }
 
     /**
