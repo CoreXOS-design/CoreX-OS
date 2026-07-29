@@ -4,18 +4,43 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
 @push('head')
-<style>[x-cloak]{display:none !important;}</style>
+<style>
+    [x-cloak]{display:none !important;}
+    .ms-group{background:var(--surface);border:1px solid var(--border);border-radius:.6rem;margin-bottom:1.1rem;overflow:visible;}
+    .ms-ghead{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.7rem .9rem;border-bottom:1px solid var(--border);background:var(--surface-2);border-radius:.6rem .6rem 0 0;}
+    .ms-gdesc{width:100%;font-size:.72rem;color:var(--text-muted);margin-top:.15rem;}
+    .ms-step{border-top:1px solid var(--border);padding:.55rem .9rem;}
+    .ms-step:first-child{border-top:0;}
+    .ms-row{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;}
+    .ms-name{flex:1 1 15rem;min-width:12rem;}
+    .ms-follows{flex:0 1 15rem;min-width:11rem;}
+    .ms-key{font-family:ui-monospace,monospace;font-size:.62rem;color:var(--text-muted);}
+    .ms-badge{font-size:.58rem;font-weight:700;letter-spacing:.03em;padding:.08rem .35rem;border-radius:.3rem;text-transform:uppercase;}
+    .ms-more{margin-top:.55rem;padding-top:.55rem;border-top:1px dashed var(--border);}
+    .ms-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.55rem;margin-top:.5rem;}
+    .ms-fld label{font-size:.62rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;display:block;margin-bottom:.15rem;}
+    .ms-flags{display:flex;gap:1rem;flex-wrap:wrap;margin-top:.6rem;font-size:.78rem;}
+    .ms-flags label{display:flex;align-items:center;gap:.35rem;cursor:pointer;}
+    .ms-chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;padding:.1rem .2rem .1rem .45rem;border-radius:.35rem;background:color-mix(in srgb,var(--brand-icon) 12%,transparent);color:var(--text-primary);}
+    .ms-chip button{color:var(--text-muted);font-size:.85rem;line-height:1;padding:0 .2rem;}
+    .ms-pop{position:absolute;z-index:40;top:100%;left:0;min-width:14rem;max-height:13rem;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:.4rem;padding:.4rem;box-shadow:0 8px 20px rgba(0,0,0,.2);}
+    .ms-pop label{display:flex;align-items:center;gap:.45rem;padding:.15rem .25rem;font-size:.74rem;cursor:pointer;}
+    .ms-flow{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;font-size:.72rem;}
+    .ms-flow .n{padding:.2rem .5rem;border-radius:.35rem;background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);white-space:nowrap;}
+    .ms-flow .ar{color:var(--text-muted);}
+    .ms-mini{background:none;border:1px solid var(--border);border-radius:.35rem;font-size:.68rem;padding:.15rem .45rem;color:var(--text-secondary);cursor:pointer;}
+</style>
 @endpush
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="masterEditor()">
+<div class="w-full space-y-4" x-data="masterEditor()">
 
-    {{-- Header (Pattern A — branded banner) --}}
+    {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Deal Structure — Master Template</h1>
-                <p class="text-sm text-white/60">The single pipeline definition every new composable deal is built from. Edits apply to <strong>new deals only</strong> — existing deals are never changed.</p>
+                <p class="text-sm text-white/60">The single pipeline every new composable deal is built from. Edits apply to <strong>new deals only</strong> — existing deals are never changed.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-btn-outline corex-btn-on-brand">Back to templates</a>
@@ -34,13 +59,31 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ session('error') }}</div>
     @endif
 
-    {{-- Guardrail live hint --}}
-    <div class="rounded-md px-4 py-2.5 text-xs flex items-center gap-4 flex-wrap" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
-        <span>Grant-convergence markers:
-            <strong x-text="grantCount" x-bind:style="grantCount === 1 ? 'color:var(--ds-green)' : 'color:var(--ds-crimson)'"></strong>
-            <span x-show="grantCount !== 1" style="color:var(--ds-crimson);">(must be exactly 1)</span>
-        </span>
-        <span style="color:var(--text-muted);">Cash payment fan-out, deposit &amp; proof-of-funds inclusion stay automatic (procedural) — not edited here.</span>
+    {{-- How it comes together (self-explanatory) --}}
+    <div class="rounded-md px-4 py-3.5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="text-sm" style="color: var(--text-primary);">
+            <strong>How a deal is built:</strong> every deal runs the <strong>Base spine</strong>. Ticking a condition
+            (<em>Bond</em>, <em>Cash</em>, <em>Sale of another</em>) on a deal adds that condition's steps. Each step
+            <strong>follows</strong> a predecessor and lands <strong>+N days</strong> after it. Steps marked
+            <strong>Suspensive</strong> gate the single <strong>Granted</strong> convergence — once every suspensive
+            condition is met, the deal grants and the transfer/registration steps run.
+        </div>
+        <div class="ms-flow">
+            <span class="n">🖊 Deal Signed</span><span class="ar">→</span>
+            <span class="n" style="border-color:color-mix(in srgb,var(--ds-amber) 45%,var(--border));">🏦 Condition steps <em>(suspensive)</em></span><span class="ar">→</span>
+            <span class="n" style="border-color:color-mix(in srgb,var(--ds-green) 55%,var(--border));">✅ Granted</span><span class="ar">→</span>
+            <span class="n">⚖ Attorneys · FICA · COCs · Rates</span><span class="ar">→</span>
+            <span class="n">🏛 Lodgement</span><span class="ar">→</span>
+            <span class="n">✔ Registration</span>
+        </div>
+        <div class="text-xs" style="color: var(--text-muted);">
+            Tip: edit a step's name / offset inline; open <strong>⚙ details</strong> to change what it follows, its
+            dependencies and flags. Cash payment fan-out and deposit / proof-of-funds inclusion stay automatic — not edited here.
+            <span style="margin-left:.4rem;">Grant-convergence markers:
+                <strong x-text="grantCount" x-bind:style="grantCount === 1 ? 'color:var(--ds-green)' : 'color:var(--ds-crimson)'"></strong>
+                <span x-show="grantCount !== 1" style="color:var(--ds-crimson);">(must be exactly 1)</span>
+            </span>
+        </div>
     </div>
 
     <form method="POST" action="{{ route('deals-v2.pipeline.master.update') }}" x-ref="form">
@@ -49,118 +92,119 @@
         <input type="hidden" name="payload" x-ref="payload">
 
         <template x-for="(g, gi) in groups" x-bind:key="g.key">
-            <div class="rounded-md mb-5" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="ms-group">
                 {{-- Group header --}}
-                <div class="px-4 py-3 flex items-center gap-3 flex-wrap" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
-                    <span class="ds-badge ds-badge-default font-mono" x-text="g.key"></span>
-                    <input type="text" x-model="g.label" class="corex-input font-semibold" style="max-width:22rem;" x-bind:readonly="g.is_base" x-bind:title="g.is_base ? 'The base spine label is fixed' : 'Condition label'">
-                    <span class="text-xs" style="color:var(--text-muted);" x-show="!g.is_base">condition</span>
-                    <button type="button" class="corex-btn-outline ml-auto text-xs" x-on:click="addStep(g)">+ Add step</button>
+                <div class="ms-ghead">
+                    <span class="ms-badge" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);" x-text="g.is_base ? 'BASE SPINE' : 'CONDITION'"></span>
+                    <input type="text" x-model="g.label" class="corex-input font-semibold" style="max-width:20rem;" x-bind:readonly="g.is_base">
+                    <span class="ms-key" x-text="g.key"></span>
+                    <button type="button" class="ms-mini ml-auto" x-on:click="addStep(g)">+ Add step</button>
+                    <span class="ms-gdesc" x-text="groupHelp(g.key)"></span>
                 </div>
 
-                {{-- Steps table --}}
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-xs ds-table">
-                        <thead>
-                            <tr style="background: var(--surface);">
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Name</th>
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Follows</th>
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Also waits on (deps)</th>
-                                <th class="text-center px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Offset</th>
-                                <th class="text-center px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Mile</th>
-                                <th class="text-center px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Susp</th>
-                                <th class="text-center px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Grant</th>
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Completion</th>
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status trigger</th>
-                                <th class="text-left px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Due from date</th>
-                                <th class="text-center px-2 py-2 font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Pos</th>
-                                <th class="px-2 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="(s, si) in g.steps" x-bind:key="si">
-                                <tr style="border-top:1px solid var(--border);">
-                                    <td class="px-2 py-1.5">
-                                        <input type="text" x-model="s.name" class="corex-input" style="min-width:12rem;">
-                                        <div class="font-mono mt-0.5" style="color:var(--text-muted);font-size:.65rem;" x-text="s.step_key"></div>
-                                        <span x-show="s.is_anchor" class="ds-badge ds-badge-info" style="font-size:.6rem;">anchor</span>
-                                    </td>
-                                    <td class="px-2 py-1.5">
-                                        <select x-on:change="s.follows_key = $event.target.value || null" class="corex-input" style="min-width:11rem;" x-bind:disabled="s.is_grant_marker">
-                                            <option value="" x-bind:selected="!s.follows_key">— none (root)</option>
-                                            <option value="__grant__" x-bind:selected="s.follows_key === '__grant__'">↳ Granted marker</option>
-                                            <template x-for="o in allSteps" x-bind:key="o.key">
-                                                <option x-bind:value="o.key" x-bind:selected="o.key === s.follows_key" x-show="o.key !== s.step_key" x-text="o.name + ' (' + o.key + ')'"></option>
-                                            </template>
-                                        </select>
-                                        <div x-show="s.is_grant_marker" style="color:var(--text-muted);font-size:.6rem;">auto: converges on all suspensive</div>
-                                    </td>
-                                    <td class="px-2 py-1.5" x-data="{ open: false }" style="position:relative;">
-                                        <button type="button" class="corex-input text-left" style="min-width:11rem;" x-on:click="open = !open" x-bind:disabled="s.is_grant_marker">
-                                            <span x-show="!s.deps_keys.length" style="color:var(--text-muted);">None</span>
-                                            <span x-show="s.deps_keys.length" x-text="s.deps_keys.length + ' step' + (s.deps_keys.length > 1 ? 's' : '')"></span>
-                                            <span x-show="s.is_grant_marker" style="color:var(--text-muted);font-size:.6rem;display:block;">auto: all suspensive</span>
-                                        </button>
-                                        <div x-show="open" x-on:click.outside="open = false" x-cloak
-                                             style="position:absolute;z-index:30;top:100%;left:0;min-width:15rem;max-height:13rem;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:.375rem;padding:.4rem;box-shadow:0 6px 16px rgba(0,0,0,.18);">
-                                            <div class="px-1 pb-1 mb-1 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
-                                                <span style="font-size:.65rem;color:var(--text-muted);">Also wait on…</span>
-                                                <button type="button" class="text-xs" style="color:var(--brand-icon,#0ea5e9);" x-show="s.deps_keys.length" x-on:click="s.deps_keys = []">Clear</button>
-                                            </div>
-                                            <template x-for="o in allSteps" x-bind:key="o.key">
-                                                <label class="flex items-center gap-2 px-1 py-0.5" x-show="o.key !== s.step_key" style="cursor:pointer;">
-                                                    <input type="checkbox" x-bind:checked="s.deps_keys.includes(o.key)" x-on:change="toggleDep(s, o.key)">
-                                                    <span x-text="o.name" style="font-size:.72rem;"></span>
+                {{-- Steps --}}
+                <template x-for="(s, si) in g.steps" x-bind:key="si">
+                    <div class="ms-step" x-data="{ open:false, depsOpen:false }">
+                        {{-- Primary row: name · follows · offset · flags-at-a-glance --}}
+                        <div class="ms-row">
+                            <input type="text" x-model="s.name" class="corex-input ms-name" placeholder="Step name">
+
+                            <div class="flex items-center gap-1 ms-follows">
+                                <span class="text-xs" style="color:var(--text-muted);white-space:nowrap;">follows</span>
+                                <template x-if="!s.is_grant_marker">
+                                    <select x-on:change="s.follows_key = $event.target.value || null" class="corex-input" style="width:100%;">
+                                        <option value="" x-bind:selected="!s.follows_key">— none (root)</option>
+                                        <option value="__grant__" x-bind:selected="s.follows_key === '__grant__'">↳ Granted</option>
+                                        <template x-for="o in allSteps" x-bind:key="o.key">
+                                            <option x-bind:value="o.key" x-bind:selected="o.key === s.follows_key" x-show="o.key !== s.step_key" x-text="o.name"></option>
+                                        </template>
+                                    </select>
+                                </template>
+                                <span x-show="s.is_grant_marker" class="text-xs" style="color:var(--text-muted);">auto (all suspensive)</span>
+                            </div>
+
+                            <div class="flex items-center gap-1" style="white-space:nowrap;">
+                                <span class="text-xs" style="color:var(--text-muted);">+</span>
+                                <input type="number" min="0" x-model.number="s.days_offset" class="corex-input text-center" style="width:3.6rem;">
+                                <span class="text-xs" style="color:var(--text-muted);">days</span>
+                            </div>
+
+                            {{-- at-a-glance status --}}
+                            <span x-show="s.is_anchor" class="ms-badge" style="background:color-mix(in srgb,var(--brand-icon) 18%,transparent);color:var(--brand-icon);">anchor</span>
+                            <span x-show="s.is_grant_marker" class="ms-badge" style="background:color-mix(in srgb,var(--ds-green) 20%,transparent);color:var(--ds-green);">grant</span>
+                            <span x-show="s.is_suspensive" class="ms-badge" style="background:color-mix(in srgb,var(--ds-amber) 22%,transparent);color:var(--ds-amber,#b45309);" title="Suspensive — gates Granted">susp</span>
+                            <span x-show="s.is_milestone && !s.is_grant_marker && !s.is_anchor" title="Milestone" style="color:var(--text-muted);">◆</span>
+                            <span x-show="s.deps_keys.length" class="text-xs" style="color:var(--text-muted);" x-text="'· waits on ' + s.deps_keys.length"></span>
+
+                            <button type="button" class="ms-mini ml-auto" x-on:click="open = !open" x-bind:style="open ? 'border-color:var(--brand-icon);color:var(--brand-icon);' : ''">⚙ details</button>
+                            <button type="button" x-show="!s.is_anchor && !s.is_grant_marker" x-on:click="removeStep(g, si)" title="Remove step" style="color:var(--ds-crimson);font-size:1.05rem;line-height:1;padding:0 .2rem;">&times;</button>
+                        </div>
+
+                        {{-- Expandable details --}}
+                        <div class="ms-more" x-show="open" x-cloak>
+                            {{-- Dependencies (chips + popover) --}}
+                            <div class="ms-fld">
+                                <label>Also waits on (all must be done first)</label>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <template x-for="dk in s.deps_keys" x-bind:key="dk">
+                                        <span class="ms-chip"><span x-text="stepName(dk)"></span><button type="button" x-on:click="toggleDep(s, dk)">&times;</button></span>
+                                    </template>
+                                    <span x-show="!s.deps_keys.length && !s.is_grant_marker" class="text-xs" style="color:var(--text-muted);">None</span>
+                                    <span x-show="s.is_grant_marker" class="text-xs" style="color:var(--text-muted);">Automatic — converges on all suspensive steps</span>
+                                    <div style="position:relative;" x-data="{ o:false }" x-show="!s.is_grant_marker">
+                                        <button type="button" class="ms-mini" x-on:click="o = !o">+ add</button>
+                                        <div class="ms-pop" x-show="o" x-on:click.outside="o = false" x-cloak>
+                                            <template x-for="o2 in allSteps" x-bind:key="o2.key">
+                                                <label x-show="o2.key !== s.step_key">
+                                                    <input type="checkbox" x-bind:checked="s.deps_keys.includes(o2.key)" x-on:change="toggleDep(s, o2.key)">
+                                                    <span x-text="o2.name"></span>
                                                 </label>
                                             </template>
                                         </div>
-                                    </td>
-                                    <td class="px-2 py-1.5 text-center">
-                                        <input type="number" min="0" x-model.number="s.days_offset" class="corex-input text-center" style="width:4rem;">
-                                    </td>
-                                    <td class="px-2 py-1.5 text-center"><input type="checkbox" x-model="s.is_milestone"></td>
-                                    <td class="px-2 py-1.5 text-center"><input type="checkbox" x-model="s.is_suspensive"></td>
-                                    <td class="px-2 py-1.5 text-center"><input type="checkbox" x-model="s.is_grant_marker"></td>
-                                    <td class="px-2 py-1.5">
-                                        <select x-on:change="s.completion_type = $event.target.value" class="corex-input" style="min-width:9rem;">
-                                            <template x-for="(label, key) in completionTypes" x-bind:key="key">
-                                                <option x-bind:value="key" x-bind:selected="key === s.completion_type" x-text="label"></option>
-                                            </template>
-                                        </select>
-                                    </td>
-                                    <td class="px-2 py-1.5">
-                                        <select x-on:change="s.status_trigger = $event.target.value || null" class="corex-input" style="min-width:9rem;">
-                                            <option value="" x-bind:selected="!s.status_trigger">— none</option>
-                                            <template x-for="(label, key) in statusTriggers" x-bind:key="key">
-                                                <option x-bind:value="key" x-bind:selected="key === s.status_trigger" x-text="label"></option>
-                                            </template>
-                                        </select>
-                                    </td>
-                                    <td class="px-2 py-1.5">
-                                        <template x-if="Object.keys(g.date_options).length">
-                                            <select x-on:change="s.manual_due_option = $event.target.value || null" class="corex-input" style="min-width:9rem;">
-                                                <option value="" x-bind:selected="!s.manual_due_option">— offset only</option>
-                                                <template x-for="(label, key) in g.date_options" x-bind:key="key">
-                                                    <option x-bind:value="key" x-bind:selected="key === s.manual_due_option" x-text="label"></option>
-                                                </template>
-                                            </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- Completion / status / due-from --}}
+                            <div class="ms-grid">
+                                <div class="ms-fld">
+                                    <label>Completed by</label>
+                                    <select x-on:change="s.completion_type = $event.target.value" class="corex-input" style="width:100%;">
+                                        <template x-for="(label, key) in completionTypes" x-bind:key="key">
+                                            <option x-bind:value="key" x-bind:selected="key === s.completion_type" x-text="label"></option>
                                         </template>
-                                        <span x-show="!Object.keys(g.date_options).length" style="color:var(--text-muted);">—</span>
-                                    </td>
-                                    <td class="px-2 py-1.5 text-center">
-                                        <input type="number" x-model.number="s.position" class="corex-input text-center" style="width:4rem;">
-                                    </td>
-                                    <td class="px-2 py-1.5 text-right">
-                                        <button type="button" class="pipeline-action-btn"
-                                                x-show="!s.is_anchor && !s.is_grant_marker"
-                                                x-on:click="removeStep(g, si)" title="Remove step"
-                                                style="color:var(--ds-crimson);font-size:1rem;line-height:1;">&times;</button>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
+                                    </select>
+                                </div>
+                                <div class="ms-fld">
+                                    <label>Status trigger</label>
+                                    <select x-on:change="s.status_trigger = $event.target.value || null" class="corex-input" style="width:100%;">
+                                        <option value="" x-bind:selected="!s.status_trigger">— none</option>
+                                        <template x-for="(label, key) in statusTriggers" x-bind:key="key">
+                                            <option x-bind:value="key" x-bind:selected="key === s.status_trigger" x-text="label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div class="ms-fld" x-show="Object.keys(g.date_options).length">
+                                    <label>Due date from</label>
+                                    <select x-on:change="s.manual_due_option = $event.target.value || null" class="corex-input" style="width:100%;">
+                                        <option value="" x-bind:selected="!s.manual_due_option">— offset only</option>
+                                        <template x-for="(label, key) in g.date_options" x-bind:key="key">
+                                            <option x-bind:value="key" x-bind:selected="key === s.manual_due_option" x-text="label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {{-- Flags --}}
+                            <div class="ms-flags">
+                                <label><input type="checkbox" x-model="s.is_milestone"> Milestone</label>
+                                <label><input type="checkbox" x-model="s.is_suspensive"> Suspensive <span style="color:var(--text-muted);">(gates Granted)</span></label>
+                                <label><input type="checkbox" x-model="s.is_grant_marker"> Grant convergence <span style="color:var(--text-muted);">(exactly one)</span></label>
+                                <span class="ms-key" style="margin-left:auto;align-self:center;" x-text="'key: ' + s.step_key"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </div>
         </template>
     </form>
@@ -183,6 +227,18 @@
                 let n = 0;
                 this.groups.forEach(g => g.steps.forEach(s => { if (s.is_grant_marker) n++; }));
                 return n;
+            },
+            stepName(key) {
+                const s = this.allSteps.find(o => o.key === key);
+                return s ? s.name : key;
+            },
+            groupHelp(key) {
+                return ({
+                    '__base__': 'Runs on every deal — the common conveyancing steps from signing through to registration.',
+                    'bond': 'Added when the deal is bond-financed. “Bond Approved” is suspensive — it gates Granted.',
+                    'cash': 'Added for cash deals. If “proof of funds now” is chosen it is suspensive; payments settle after lodgement. (Payment fan-out is automatic.)',
+                    'sale_of_another': 'Subject to the sale of another property. “Linked Property Sold” is suspensive — it gates Granted.',
+                })[key] || '';
             },
             addStep(g) {
                 const maxPos = g.steps.length ? Math.max.apply(null, g.steps.map(s => Number(s.position) || 0)) : 0;
