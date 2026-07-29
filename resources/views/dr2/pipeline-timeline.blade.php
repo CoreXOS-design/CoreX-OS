@@ -225,6 +225,15 @@
       }))
   @php($commentCount = [])
   @php($steps->each(function ($r) use (&$commentCount) { $commentCount[(int) $r['model']->id] = $r['model']->comments->count(); }))
+  {{-- Resolve each comment's target step id to its real name (same pattern as the List's $stepLabel) —
+       the feed otherwise had nothing but the literal "STEP" tag with no indication of WHICH step. --}}
+  @php($stepLabel = function ($target) use ($rowById) {
+        if ($target === 'deal' || $target === null) return 'Deal';
+        return $rowById->has((int) $target) ? $rowById[(int) $target]['model']->name : 'Deal';
+      })
+  @php($commentsResolved = collect($board['comments'] ?? [])->map(function ($c) use ($stepLabel) {
+        return $c + ['step_name' => $stepLabel($c['target'] ?? null)];
+      })->all())
 
   <div class="mid">
     <div class="midbar">
@@ -354,9 +363,9 @@
         {{-- comments track — pins positioned by the date each note was made --}}
         <div class="ctrack-line" style="top:{{ $trackY }}px;width:{{ $W }}px;"></div>
         <div class="ctrack-lbl" style="top:{{ $trackY + 4 }}px;">💬 Comments</div>
-        @foreach($board['comments'] as $c)
+        @foreach($commentsResolved as $c)
           <div class="cpin {{ ($c['scope'] ?? '') === 'step' ? 'step' : 'deal' }}" style="left:{{ $PADX + (int) ($c['day'] ?? 0) * $DAYW }}px;top:{{ $trackY + 20 }}px;"
-               title="{{ $c['who'] }} · {{ $c['when'] }} — {{ \Illuminate\Support\Str::limit($c['text'], 140) }}"><span class="stem"></span>{{ \Illuminate\Support\Str::substr($c['who'] ?? '?', 0, 1) }}</div>
+               title="{{ $c['step_name'] }} · {{ $c['who'] }} · {{ $c['when'] }} — {{ \Illuminate\Support\Str::limit($c['text'], 140) }}"><span class="stem"></span>{{ \Illuminate\Support\Str::substr($c['who'] ?? '?', 0, 1) }}</div>
         @endforeach
 
       </div>
@@ -393,7 +402,7 @@
 <script>
 (function(){
   const root=document.getElementById('dr2tl'); if(!root) return;
-  const COMMENTS=@json($board['comments'] ?? []);
+  const COMMENTS=@json($commentsResolved);
   const ANCHOR={{ $board['anchor_id'] ?? 'null' }};
   const CBASE=root.dataset.comment, CSRF=root.dataset.csrf;
   let filter='all';
@@ -412,7 +421,7 @@
       const deal=(c.scope==='deal'||c.target===ANCHOR);
       const cm=document.createElement('div');cm.className='cm';
       cm.innerHTML='<div class="av">'+esc((c.who||'?')[0])+'</div><div><div class="cmeta"><b>'+esc(c.who)+'</b> · '+esc(c.when)+
-        '<span class="ctag '+(deal?'deal':'')+'">'+(deal?'DEAL':'STEP')+'</span></div><div class="ctxt">'+esc(c.text)+'</div></div>';
+        '<span class="ctag '+(deal?'deal':'')+'">'+esc((c.step_name||(deal?'Deal':'Step')).toUpperCase())+'</span></div><div class="ctxt">'+esc(c.text)+'</div></div>';
       feed.appendChild(cm);
     });
   }
