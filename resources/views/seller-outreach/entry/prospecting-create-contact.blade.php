@@ -28,6 +28,15 @@
         </div>
     @endif
 
+    {{-- Blocking duplicate panel — shown when duplicateGate() found an existing
+         contact at add time (parity with the Contacts screen / DR2 party-picker).
+         The action URL matches the source: tracked-property or prospecting listing. --}}
+    @include('seller-outreach.entry._duplicate-modal', [
+        'actionUrl' => !empty($trackedProperty)
+            ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
+            : route('seller-outreach.entry.store-from-prospecting', $listing->id),
+    ])
+
     {{-- Source summary — listing OR tracked property. Map Workspace Phase B
          extends the view to render either context; the form below posts to
          the matching store route. --}}
