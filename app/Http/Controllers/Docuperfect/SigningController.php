@@ -394,7 +394,7 @@ class SigningController extends Controller
                     is_array($blocksMeta) ? $blocksMeta : [],
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                     $token,
-                    $signingRequest->party_role
+                    $this->conditionPartyKey($signingRequest) // AT-303 BUG-4 — identity-scoped so seller_2 owns their own initial slot
                 );
 
             // Recipient Loop Engine — B2.5/B3 expansion pass. Detects role
@@ -3711,7 +3711,7 @@ CSS;
                 \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
                 $signingRequest->template,
                 $token,
-                $signingRequest->party_role
+                $this->conditionPartyKey($signingRequest) // AT-303 BUG-4 — identity-scoped party key
             );
 
         return response()->json([
@@ -4130,6 +4130,27 @@ CSS;
      * throws DomainException on existing rows). If the party already has
      * an initial for this condition we 409 with the existing record.
      */
+    /**
+     * AT-303 BUG-4 — the identity-scoped party key for condition initials.
+     *
+     * InsertableBlockRenderer emits one initial slot per `parties_json[].role`,
+     * which is bare-first (`seller`, then `seller_2`, `seller_3` …). But a
+     * SignatureRequest stores the BASE `party_role` (`seller`) for every same-role
+     * recipient, disambiguated only by `role_index`. Keying the saved initial and
+     * the current viewer on the bare role collapses N same-role recipients onto ONE
+     * slot. This rebuilds the renderer's bare-first key so each recipient owns their
+     * own slot (seller 1 → `seller`, seller 2 → `seller_2`).
+     */
+    private function conditionPartyKey(SignatureRequest $signingRequest): string
+    {
+        $role = (string) $signingRequest->party_role;
+        if ($role === '') {
+            return '';
+        }
+        $idx = (int) ($signingRequest->role_index ?? 1);
+        return $idx <= 1 ? $role : $role . '_' . $idx;
+    }
+
     public function initialCondition(Request $request, string $token, int $conditionId): \Illuminate\Http\JsonResponse
     {
         $signingRequest = SignatureRequest::where('token', $token)
@@ -4149,7 +4170,7 @@ CSS;
             return response()->json(['error' => 'Condition not found on this document.'], 404);
         }
 
-        $partyKey = (string) $signingRequest->party_role;
+        $partyKey = $this->conditionPartyKey($signingRequest); // AT-303 BUG-4 — identity-scoped (seller vs seller_2)
         if ($partyKey === '') {
             return response()->json(['error' => 'No party_role on this signing request.'], 400);
         }
@@ -4226,6 +4247,11 @@ CSS;
             'amendments.*.initials.*.initial_image_path' => ['nullable', 'string', 'max:500'],
         ]);
 
+        // NOTE: the amendment-initialing CASCADE gate (checkInitialingCascadeComplete)
+        // keys required initials on the BARE party_role (->pluck('party_role')->unique()),
+        // so this path stays on the bare key to remain consistent with that gate. The
+        // BUG-4 fix is scoped to the other-condition signing-view path (initialCondition +
+        // the renderer viewer key), which does NOT go through that cascade gate.
         $partyKey = $signingRequest->party_role ?? 'unknown';
         $created  = 0;
 

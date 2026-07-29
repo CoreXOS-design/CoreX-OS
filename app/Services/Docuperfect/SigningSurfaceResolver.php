@@ -117,7 +117,19 @@ class SigningSurfaceResolver
                 if (!isset($sigSection)) {
                     $sigSection = $this->findOrCreateSignatureSection($dom, $xpath);
                 }
-                $sigSection->appendChild($this->buildSignatureBlock($dom, $rc));
+                // AT-303 BUG-5 — keep an injected surface CONTIGUOUS with its role
+                // family. A stale blade often ships one seller surface + the agent
+                // surface (DOM order: seller, agent); a plain appendChild dropped the
+                // injected seller_2 AFTER the agent, stranding it (seller_1 → AGENT →
+                // seller_2). Insert it right after the family's last existing surface
+                // so the sellers group together and the agent stays last.
+                $familyBase = preg_replace('/_\d+$/', '', strtolower((string) $rc['key']));
+                $this->insertSurfaceInFamilyOrder(
+                    $xpath,
+                    $sigSection,
+                    $this->buildSignatureBlock($dom, $rc),
+                    (string) $familyBase
+                );
                 $injected = true;
             }
 
@@ -188,6 +200,46 @@ class SigningSurfaceResolver
      * in the legally-correct place. If none exists, create one at the end
      * of the document.
      */
+    /**
+     * AT-303 BUG-5 — insert an injected signature surface immediately after the
+     * LAST existing surface of the same role family (seller/seller_N together),
+     * so a missing same-role instance never lands after a different-role block
+     * (e.g. the agent). Falls back to appendChild when the family has no surface
+     * yet (e.g. an agent-only stale blade), preserving prior behaviour.
+     */
+    private function insertSurfaceInFamilyOrder(
+        \DOMXPath $xpath,
+        \DOMElement $sigSection,
+        \DOMElement $newBlock,
+        string $familyBase
+    ): void {
+        $anchorChild = null;
+        $markers = $xpath->query('.//*[@data-marker-type="signature"][@data-marker-party]', $sigSection);
+        if ($markers !== false) {
+            foreach ($markers as $marker) {
+                $party = strtolower((string) $marker->getAttribute('data-marker-party'));
+                $base  = preg_replace('/_\d+$/', '', $party);
+                if ($base !== $familyBase) {
+                    continue;
+                }
+                // Walk up to the direct child of the signature section.
+                $child = $marker;
+                while ($child->parentNode !== null && $child->parentNode !== $sigSection) {
+                    $child = $child->parentNode;
+                }
+                if ($child->parentNode === $sigSection) {
+                    $anchorChild = $child; // last same-family surface in document order
+                }
+            }
+        }
+
+        if ($anchorChild !== null) {
+            $sigSection->insertBefore($newBlock, $anchorChild->nextSibling);
+        } else {
+            $sigSection->appendChild($newBlock);
+        }
+    }
+
     private function findOrCreateSignatureSection(\DOMDocument $dom, \DOMXPath $xpath): \DOMElement
     {
         $sections = $xpath->query(
