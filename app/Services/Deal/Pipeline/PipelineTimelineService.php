@@ -141,18 +141,21 @@ class PipelineTimelineService
             $startI = $idx($sp['start']);
             $endI   = $idx($sp['end']);
             $isGrant = $gateId !== null && (int) $s->id === $gateId;
-            if ($s->is_milestone) {
-                // The Granted milestone sits at the actual-aware grant date (parity with the list); every
-                // other milestone stays at its own end date.
-                $mileDay = ($isGrant && $grantDate) ? $idx($grantDate) : $endI;
+            // The ONLY milestone diamond on the timeline is the true GRANTED gate ($gateId, the same
+            // is_grant_marker step DealLaneComposer resolves for the List). Every OTHER step renders as a
+            // normal tile — INCLUDING ones flagged is_milestone in the DB (e.g. "Bond Approved", "Deeds
+            // Office Lodgement") — because the List renders them as plain step-cards in their stage group,
+            // not as special markers. is_milestone alone used to gate this and silently dropped stage
+            // members out of their band into a star, undercounting the band vs the List's step count.
+            if ($isGrant) {
                 $gates[] = [
                     'id'       => (int) $s->id,
                     'name'     => $s->name,
-                    'day'      => $mileDay,
+                    // The Granted milestone sits at the actual-aware grant date (parity with the list).
+                    'day'      => $grantDate ? $idx($grantDate) : $endI,
                     'state'    => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
-                    'is_grant' => $isGrant,
-                    // Stage group (1|2|null) — see $stageOf above. null for the anchor/grant gate itself.
-                    'stage'    => $stageOf((int) $s->id),
+                    'is_grant' => true,
+                    'stage'    => null,
                 ];
                 continue;
             }

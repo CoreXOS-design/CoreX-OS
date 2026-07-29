@@ -357,13 +357,14 @@
           </div>
         @endforeach
 
-        {{-- milestone diamonds --}}
+        {{-- milestone diamonds — the ONLY one is the true GRANTED gate now (buildBoard filters every
+             other step, is_milestone or not, into $tiles instead — a stage-member step like "Bond
+             Approved" is a plain tile with a stage badge, same as the List shows it). No stage badge here
+             since the gate itself is never a stage member (stage always null). --}}
         @foreach($board['miles'] as $m)
           <div class="mile {{ $m['state'] }}" data-day="{{ (int) $m['day'] }}" style="left:{{ $PADX + $m['day'] * $DAYW }}px;">
             <span class="cap"></span>
-            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">
-              @if(!empty($m['stage']))<span class="stagebadge{{ $m['stage'] == 2 ? ' s2' : '' }}" title="{{ $m['stage'] == 1 ? 'Suspensive Conditions' : 'Transfer & Registration' }}">{{ $m['stage'] }}</span>@endif
-              ★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
+            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
           </div>
         @endforeach
 
