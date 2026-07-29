@@ -301,6 +301,31 @@ final class EntryPointController extends Controller
         [$contact, $property] = $result;
 
         $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+
+        // Pitch lock: capturing + linking a contact via "Pitch now" PERMANENTLY
+        // claims this MIC listing to the agent — it drops out of the default
+        // canvassing pool (MarketIntelligenceController::work hides active
+        // pitched claims) and is exempt from the 48h no-feedback expiry
+        // (ProspectingClaim::isExpired). Consuming the temp lock now (rather than
+        // only at composer-send) is what makes the lock stick the moment the
+        // contact is linked. Failure-isolated: a claim hiccup must never break
+        // the contact/property work or the composer redirect. The later
+        // composer-send call to the same method is idempotent.
+        try {
+            app(ProspectingClaimService::class)->consumeLockAsPermanentClaim(
+                listingId:    (int) $listing->id,
+                userId:       (int) $request->user()->id,
+                agencyId:     $agencyId,
+                pitchContext: ['recipient_name' => $name],
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Pitch-lock claim from prospecting capture failed', [
+                'listing_id' => $listing->id,
+                'contact_id' => $contact->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+
         return redirect()
             ->route('seller-outreach.composer.show', [
                 'contact'     => $contact->id,
