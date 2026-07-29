@@ -113,13 +113,6 @@ final class InsertableBlockRenderer
             }
             $changed = false;
             foreach ($rows as $row) {
-                $already = $xpath->query(
-                    './/*[contains(concat(" ", normalize-space(@class), " "), " condition-initials ")]',
-                    $row
-                );
-                if ($already !== false && $already->length > 0) {
-                    continue; // already has slots — idempotent
-                }
                 $cid = (int) $row->getAttribute('data-condition-id');
                 if ($cid <= 0) {
                     continue;
@@ -133,6 +126,21 @@ final class InsertableBlockRenderer
                 );
                 if (trim($slotsHtml) === '') {
                     continue;
+                }
+                // Remove any existing initial block first. The canonical serve
+                // BAKES a viewer-agnostic block (compose runs at AGENT_PREPARATION,
+                // so every slot is "pending" — none clickable). We replace it with
+                // one rendered for THIS viewer, so their own slot becomes active
+                // while others stay pending/filled. Also makes the overlay
+                // idempotent (one block per row) and no-ops the legacy path.
+                $existing = $xpath->query(
+                    './/*[contains(concat(" ", normalize-space(@class), " "), " condition-initials ")]',
+                    $row
+                );
+                if ($existing !== false) {
+                    foreach (iterator_to_array($existing) as $ex) {
+                        $ex->parentNode?->removeChild($ex);
+                    }
                 }
                 $tmp = new \DOMDocument();
                 @$tmp->loadHTML(
