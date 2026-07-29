@@ -3,6 +3,10 @@
 {{-- AT-334 Phase 2 — GLOBAL composable master pipeline template editor. --}}
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
+@push('head')
+<style>[x-cloak]{display:none !important;}</style>
+@endpush
+
 @section('corex-content')
 <div class="w-full space-y-5" x-data="masterEditor()">
 
@@ -91,12 +95,25 @@
                                         </select>
                                         <div x-show="s.is_grant_marker" style="color:var(--text-muted);font-size:.6rem;">auto: converges on all suspensive</div>
                                     </td>
-                                    <td class="px-2 py-1.5">
-                                        <select multiple x-on:change="s.deps_keys = Array.from($event.target.selectedOptions).map(o => o.value)" class="corex-input" style="min-width:11rem;height:3.6rem;" x-bind:disabled="s.is_grant_marker">
+                                    <td class="px-2 py-1.5" x-data="{ open: false }" style="position:relative;">
+                                        <button type="button" class="corex-input text-left" style="min-width:11rem;" x-on:click="open = !open" x-bind:disabled="s.is_grant_marker">
+                                            <span x-show="!s.deps_keys.length" style="color:var(--text-muted);">None</span>
+                                            <span x-show="s.deps_keys.length" x-text="s.deps_keys.length + ' step' + (s.deps_keys.length > 1 ? 's' : '')"></span>
+                                            <span x-show="s.is_grant_marker" style="color:var(--text-muted);font-size:.6rem;display:block;">auto: all suspensive</span>
+                                        </button>
+                                        <div x-show="open" x-on:click.outside="open = false" x-cloak
+                                             style="position:absolute;z-index:30;top:100%;left:0;min-width:15rem;max-height:13rem;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:.375rem;padding:.4rem;box-shadow:0 6px 16px rgba(0,0,0,.18);">
+                                            <div class="px-1 pb-1 mb-1 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
+                                                <span style="font-size:.65rem;color:var(--text-muted);">Also wait on…</span>
+                                                <button type="button" class="text-xs" style="color:var(--brand-icon,#0ea5e9);" x-show="s.deps_keys.length" x-on:click="s.deps_keys = []">Clear</button>
+                                            </div>
                                             <template x-for="o in allSteps" x-bind:key="o.key">
-                                                <option x-bind:value="o.key" x-bind:selected="s.deps_keys.includes(o.key)" x-show="o.key !== s.step_key" x-text="o.name"></option>
+                                                <label class="flex items-center gap-2 px-1 py-0.5" x-show="o.key !== s.step_key" style="cursor:pointer;">
+                                                    <input type="checkbox" x-bind:checked="s.deps_keys.includes(o.key)" x-on:change="toggleDep(s, o.key)">
+                                                    <span x-text="o.name" style="font-size:.72rem;"></span>
+                                                </label>
                                             </template>
-                                        </select>
+                                        </div>
                                     </td>
                                     <td class="px-2 py-1.5 text-center">
                                         <input type="number" min="0" x-model.number="s.days_offset" class="corex-input text-center" style="width:4rem;">
@@ -179,6 +196,10 @@
                 });
             },
             removeStep(g, i) { g.steps.splice(i, 1); },
+            toggleDep(s, key) {
+                const i = s.deps_keys.indexOf(key);
+                if (i === -1) { s.deps_keys.push(key); } else { s.deps_keys.splice(i, 1); }
+            },
             submit() {
                 if (this.grantCount !== 1) {
                     alert('Exactly ONE grant-convergence marker is required (currently ' + this.grantCount + ').');
