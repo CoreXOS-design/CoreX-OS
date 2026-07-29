@@ -136,12 +136,19 @@
                             <span x-show="s.is_milestone && !s.is_grant_marker && !s.is_anchor" title="Milestone" style="color:var(--text-muted);">◆</span>
                             <span x-show="s.deps_keys.length" class="text-xs" style="color:var(--text-muted);" x-text="'· waits on ' + s.deps_keys.length"></span>
 
-                            <button type="button" class="ms-mini ml-auto" x-on:click="open = !open" x-bind:style="open ? 'border-color:var(--brand-icon);color:var(--brand-icon);' : ''">⚙ details</button>
-                            <button type="button" x-show="!s.is_anchor && !s.is_grant_marker" x-on:click="removeStep(g, si)" title="Remove step" style="color:var(--ds-crimson);font-size:1.05rem;line-height:1;padding:0 .2rem;">&times;</button>
+                            <button type="button" class="ms-mini ml-auto" x-on:click="open = !open"
+                                    x-bind:style="open ? 'border-color:var(--brand-icon);color:var(--brand-icon);' : ''"
+                                    x-text="open ? 'Close details ▲' : 'Edit details ▼'"></button>
                         </div>
 
                         {{-- Expandable details --}}
                         <div class="ms-more" x-show="open" x-cloak>
+                            {{-- Details header + explicit CLOSE (collapses only — never deletes) --}}
+                            <div class="flex items-center justify-between" style="margin-bottom:.55rem;">
+                                <span class="ms-key" x-text="'Step details · ' + s.step_key"></span>
+                                <button type="button" class="ms-mini" x-on:click="open = false" title="Collapse these details">&#x2715; Close</button>
+                            </div>
+
                             {{-- Dependencies (chips + popover) --}}
                             <div class="ms-fld">
                                 <label>Also waits on (all must be done first)</label>
@@ -200,7 +207,22 @@
                                 <label><input type="checkbox" x-model="s.is_milestone"> Milestone</label>
                                 <label><input type="checkbox" x-model="s.is_suspensive"> Suspensive <span style="color:var(--text-muted);">(gates Granted)</span></label>
                                 <label><input type="checkbox" x-model="s.is_grant_marker"> Grant convergence <span style="color:var(--text-muted);">(exactly one)</span></label>
-                                <span class="ms-key" style="margin-left:auto;align-self:center;" x-text="'key: ' + s.step_key"></span>
+                            </div>
+
+                            {{-- Delete — clearly a delete, confirmed; anchor/grant cannot be removed. --}}
+                            <div style="margin-top:.7rem;padding-top:.6rem;border-top:1px solid var(--border);">
+                                <template x-if="!s.is_anchor && !s.is_grant_marker">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <button type="button" x-on:click="confirmRemove(g, si, s)"
+                                                style="font-size:.75rem;font-weight:600;padding:.28rem .7rem;border-radius:.35rem;color:#fff;background:var(--ds-crimson);border:1px solid var(--ds-crimson);">
+                                            Delete this step
+                                        </button>
+                                        <span class="text-xs" style="color:var(--text-muted);">Removes it from new deals — existing deals keep it. You'll be asked to confirm.</span>
+                                    </div>
+                                </template>
+                                <template x-if="s.is_anchor || s.is_grant_marker">
+                                    <span class="text-xs" style="color:var(--text-muted);" x-text="s.is_anchor ? 'The anchor (Deal Signed) cannot be deleted.' : 'The Granted convergence step cannot be deleted.'"></span>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -252,6 +274,11 @@
                 });
             },
             removeStep(g, i) { g.steps.splice(i, 1); },
+            confirmRemove(g, i, s) {
+                if (window.confirm('Delete the step "' + s.name + '"?\n\nNew deals will no longer include it. Existing deals are unchanged. This cannot be undone from here (Save to persist).')) {
+                    this.removeStep(g, i);
+                }
+            },
             toggleDep(s, key) {
                 const i = s.deps_keys.indexOf(key);
                 if (i === -1) { s.deps_keys.push(key); } else { s.deps_keys.splice(i, 1); }

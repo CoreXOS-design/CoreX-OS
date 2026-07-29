@@ -452,14 +452,14 @@ class Dr2ConditionCatalog
                     'steps'   => [
                         ['key' => 'otp',           'name' => 'Deal Signed',                 'follows' => null,        'offset' => 0,  'milestone' => true, 'completion' => 'date_input',      'anchor' => true, 'pos' => 10],
                         ['key' => 'attorneys',     'name' => 'Attorneys Instructed',        'follows' => '__grant__', 'offset' => 3,  'completion' => 'text_input',      'pos' => 40],
-                        ['key' => 'fica_buyer',    'name' => 'FICA Completed (Buyer)',      'follows' => 'attorneys', 'offset' => 7,  'completion' => 'document_upload', 'pos' => 45],
-                        ['key' => 'fica_seller',   'name' => 'FICA Completed (Seller)',     'follows' => 'fica_buyer','offset' => 3,  'completion' => 'document_upload', 'pos' => 46],
+                        // FICA removed from DR2 — it is enforced by the Compliance module (a person cannot be
+                        // processed without FICA approval), so it is no longer a pipeline step (Johan 2026-07-29).
                         ['key' => 'elec_coc',      'name' => 'Electrical COC',              'follows' => 'attorneys', 'offset' => 14, 'completion' => 'document_upload', 'pos' => 50],
                         ['key' => 'beetle',        'name' => 'Beetle Certificate',          'follows' => 'attorneys', 'offset' => 14, 'completion' => 'document_upload', 'pos' => 51],
                         ['key' => 'rates',         'name' => 'Rates Clearance',             'follows' => 'attorneys', 'offset' => 21, 'completion' => 'document_upload', 'pos' => 55],
                         ['key' => 'docs_signed',   'name' => 'Documents Signed',            'follows' => 'attorneys', 'offset' => 5,  'completion' => 'document_signed', 'pos' => 60],
                         ['key' => 'transfer_duty', 'name' => 'Transfer Duty / SARS Receipt','follows' => 'docs_signed','offset' => 7, 'completion' => 'document_upload', 'pos' => 65],
-                        ['key' => 'lodgement',     'name' => 'Deeds Office Lodgement',      'follows' => 'rates',     'deps' => ['fica_seller', 'elec_coc', 'beetle', 'transfer_duty'], 'offset' => 5, 'milestone' => true, 'completion' => 'date_input', 'pos' => 70],
+                        ['key' => 'lodgement',     'name' => 'Deeds Office Lodgement',      'follows' => 'rates',     'deps' => ['elec_coc', 'beetle', 'transfer_duty'], 'offset' => 5, 'milestone' => true, 'completion' => 'date_input', 'pos' => 70],
                         ['key' => 'registration',  'name' => 'Registration / Transfer',     'follows' => 'lodgement', 'offset' => 10, 'milestone' => true, 'completion' => 'date_input', 'status_trigger' => 'completed', 'pos' => 80],
                         // The Granted convergence marker — a stored, editable step; its follows/deps
                         // are computed procedurally at compose time (auto-converges on all suspensive
