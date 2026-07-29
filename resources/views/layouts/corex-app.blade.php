@@ -117,7 +117,7 @@
                 </div>
 
                 {{-- Content --}}
-                <main class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg, #f4f6fb)">
+                <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg, #f4f6fb)">
                     {{-- Branch-isolation: unassigned-user banner (Phase 2, spec §8) --}}
                     @php
                         $_bannerUser    = auth()->user();
@@ -174,6 +174,9 @@
              every long-lived authenticated screen. Loaded before @stack('scripts')
              so page-pushed scripts can rely on window.CoreXSessionGuard. --}}
         @include('layouts.partials._session-guard')
+
+        {{-- Global container-scroll preserve/restore across full-page reloads. --}}
+        @include('layouts._scroll-restore')
 
         {{-- Partial-pushed scripts (e.g. P24 location pickers via @push('scripts')) --}}
         @stack('scripts')
