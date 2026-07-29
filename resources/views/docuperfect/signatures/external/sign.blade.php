@@ -458,6 +458,16 @@
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
                     <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
+                        {{-- AT-303 Stage 1 — disclosure-mark lock notice. Shown to a
+                             DOWNSTREAM recipient whose shared MDF disclosure grid was
+                             already signed by an earlier party; the grid renders
+                             read-only (see disclosure-logic._disclosureEditable). --}}
+                        <template x-if="disclosureMarksLocked">
+                            <div style="width:210mm; max-width:100%; margin:0 auto 12px; padding:10px 14px; border:1px solid #fcd34d; background:#fffbeb; border-radius:8px; font-size:13px; color:#92400e; line-height:1.45;">
+                                <strong>Disclosure answers are locked.</strong>
+                                <span x-text="'These answers were completed and signed by ' + ((disclosureLockInfo && disclosureLockInfo.by) || 'an earlier signer') + ' and are read-only for you. If an answer needs to change, contact your agent to raise an amendment.'"></span>
+                            </div>
+                        </template>
                         <div x-ref="pageContainer" class="relative"
                              style="width:210mm; max-width:100%; margin:0 auto;">
                             {{-- Shared visual contract — Step 4 / Step 5 /
@@ -1498,6 +1508,8 @@ function externalSign() {
         webSignatures: {},
         webDisclosureAnswers: {},
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
+        disclosureMarksLocked: @json($disclosureMarksLocked ?? false),   {{-- AT-303 Stage 1 --}}
+        disclosureLockInfo: @json($disclosureLockInfo ?? null),          {{-- AT-303 Stage 1 --}}
         webConsented: false,
         showWebSigCapture: false,
         currentWebSigBlockId: null,

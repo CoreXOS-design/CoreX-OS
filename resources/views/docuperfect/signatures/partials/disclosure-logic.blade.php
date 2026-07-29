@@ -18,6 +18,13 @@
 --}}
         // Editable ONLY when the current signer is the owner/seller party.
         _disclosureEditable(disclosureParty) {
+            // AT-303 Stage 1 — once an earlier owner-party recipient has SIGNED
+            // the shared MDF grid it is LOCKED. A downstream recipient sees it
+            // READ-ONLY and proposes changes via a mark amendment (Stage 2),
+            // never a silent overwrite that would void the earlier party's
+            // already-applied signature. The server enforces this too
+            // (completeWeb disclosure_lock) — this is the UI half.
+            if (this.disclosureMarksLocked) return false;
             const ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
             const dp = (disclosureParty || 'owner_party').toLowerCase();
             const role = (typeof this._currentSignerRole === 'function'

@@ -514,6 +514,24 @@ class SigningController extends Controller
         // exposed a legal bypass.
         $isAgent = ($signingRequest->party_role === 'agent');
 
+        // AT-303 Stage 1 — MDF disclosure-mark lock. The mandatory-disclosure
+        // grid is shared, document-scoped state (one answer per question, no
+        // per-recipient key). Once an owner-party recipient SIGNS it (authored
+        // in completeWeb), it is frozen: a DOWNSTREAM recipient (a different
+        // signing request) sees it READ-ONLY and cannot silently overwrite what
+        // an earlier party already signed. Here we only surface whether THIS
+        // viewer is downstream of an existing lock.
+        $disclosureLock = $webTemplateData['disclosure_lock'] ?? null;
+        $disclosureMarksLocked = is_array($disclosureLock)
+            && !empty($disclosureLock['locked'])
+            && (int) ($disclosureLock['request_id'] ?? 0) !== (int) $signingRequest->id;
+        $disclosureLockInfo = $disclosureMarksLocked
+            ? [
+                'by' => $disclosureLock['signer_name'] ?? 'an earlier signer',
+                'at' => $disclosureLock['locked_at'] ?? null,
+            ]
+            : null;
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
             'currentRecipient' => $signingRequest,        // B1 — alias for the loop-engine downstream layers
@@ -547,6 +565,8 @@ class SigningController extends Controller
             'signingParties' => $signingParties,
             'storedInitials' => $webTemplateData['signed_initials'] ?? [],
             'storedDisclosure' => $webTemplateData['disclosure_answers'] ?? [],
+            'disclosureMarksLocked' => $disclosureMarksLocked,   // AT-303 Stage 1
+            'disclosureLockInfo' => $disclosureLockInfo,         // AT-303 Stage 1
         ]);
     }
 
@@ -1498,12 +1518,73 @@ class SigningController extends Controller
         }
 
         // Save disclosure answers
+        // AT-303 Stage 1 — MDF disclosure-mark LOCK. The disclosure grid is
+        // shared, document-scoped state. Once an owner-party recipient signs it,
+        // it is frozen; a DOWNSTREAM recipient (a different signing request) must
+        // not silently overwrite a locked answer — that voids the earlier
+        // signer's agreement. A differing value is refused here (belt-and-braces
+        // behind the read-only UI); an identical value (a genuine agree) passes.
         $disclosureAnswers = $request->input('disclosure_answers', []);
+        $existingLock = $webData['disclosure_lock'] ?? null;
+        $ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+        $isOwnerParty = in_array(strtolower((string) $signingRequest->party_role), $ownerTerms, true);
+
+        if (is_array($existingLock) && !empty($existingLock['locked'])
+            && (int) ($existingLock['request_id'] ?? 0) !== (int) $signingRequest->id) {
+            $lockedAnswers = (array) ($existingLock['answers'] ?? []);
+            $conflicts = [];
+            foreach ($disclosureAnswers as $k => $v) {
+                if (array_key_exists($k, $lockedAnswers)
+                    && (string) $lockedAnswers[$k] !== (string) $v) {
+                    $conflicts[] = $k;
+                }
+            }
+            if (!empty($conflicts)) {
+                SignatureAuditLog::create([
+                    'signature_template_id' => $template->id,
+                    'action' => 'disclosure_lock_write_denied',
+                    'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+                    'actor_name' => $signingRequest->signer_name,
+                    'actor_email' => $signingRequest->signer_email,
+                    'actor_ip_address' => $request->ip(),
+                    'actor_user_agent' => $request->userAgent(),
+                    'signature_request_id' => $signingRequest->id,
+                    'metadata_json' => [
+                        'actor_role_identity' => $signingRequest->role_identity,
+                        'locked_by_request_id' => $existingLock['request_id'] ?? null,
+                        'locked_by_name' => $existingLock['signer_name'] ?? null,
+                        'conflicting_keys' => $conflicts,
+                    ],
+                ]);
+                return response()->json([
+                    'ok' => false,
+                    'error' => 'The disclosure answers were locked when '
+                        . ($existingLock['signer_name'] ?? 'an earlier signer')
+                        . ' signed. To change an answer you must propose an amendment.',
+                    'locked_keys' => $conflicts,
+                ], 422);
+            }
+        }
+
         if (!empty($disclosureAnswers)) {
             $webData['disclosure_answers'] = array_merge(
                 $webData['disclosure_answers'] ?? [],
                 $disclosureAnswers
             );
+        }
+
+        // Author the lock on the FIRST owner-party completion — a snapshot of
+        // exactly what this signer signed. Later owner signers who merely agree
+        // do not re-author it (the snapshot stays bound to the first signer).
+        if ($isOwnerParty && !is_array($existingLock)) {
+            $webData['disclosure_lock'] = [
+                'locked'        => true,
+                'request_id'    => (int) $signingRequest->id,
+                'role_identity' => $signingRequest->role_identity,
+                'signer_name'   => $signingRequest->signer_name,
+                'locked_at'     => now()->toIso8601String(),
+                'answers'       => $webData['disclosure_answers'] ?? [],
+            ];
         }
 
         // Save ceremony values (location, day, month, year, time, am_pm per party)
