@@ -249,6 +249,16 @@ class Dr1PipelineService
             ? $step->planned_start_date
             : $baseDate->copy();
 
+        // A tile must NEVER render inverted (start after due). This happens when the due is a
+        // MANUAL date EARLIER than the real activation anchor — e.g. a deposit captured as due
+        // in the past, activated off a later "Deal Signed" anchor. Keep the non-manual start
+        // duration-preserving: pin it to due − days_offset so the step stays a normal short bar
+        // ENDING on its due date (the same rule createPipeline uses), never a 1-day sliver. A
+        // manual start is the agent's explicit placement and is left exactly as set.
+        if (! ($step->planned_start_manual && $step->planned_start_date) && $plannedStart->gt($dueDate)) {
+            $plannedStart = $dueDate->copy()->subDays(max(0, (int) $step->days_offset));
+        }
+
         $step->update([
             'status'             => 'active',
             'activated_at'       => now(),
