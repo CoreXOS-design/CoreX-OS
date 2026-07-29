@@ -192,6 +192,19 @@
 
 @php($from = 'timeline')
 @php($rowById = $steps->keyBy(fn ($r) => (int) $r['model']->id))
+{{-- Resolve each comment's target step id to its real name (same pattern as the List's $stepLabel) —
+     the feed otherwise had nothing but the literal "STEP" tag with no indication of WHICH step.
+     Computed HERE, unconditionally, BEFORE the $board['empty'] branch below: the truly-empty board
+     shape (no pipeline steps at all — AT-... regression on deal 185) carries no 'comments' key at all,
+     and the @push('scripts') block below (which reads $commentsResolved) renders regardless of which
+     branch fired, so this must never live only inside the @else. --}}
+@php($stepLabel = function ($target) use ($rowById) {
+      if ($target === 'deal' || $target === null) return 'Deal';
+      return $rowById->has((int) $target) ? $rowById[(int) $target]['model']->name : 'Deal';
+    })
+@php($commentsResolved = collect($board['comments'] ?? [])->map(function ($c) use ($stepLabel) {
+      return $c + ['step_name' => $stepLabel($c['target'] ?? null)];
+    })->all())
 @php($DAYW = (int) ($board['day_width'] ?? 21))
 @php($PADX = 14)
 @php($mileLevels = max(1, (int) ($board['mile_levels'] ?? 1)))
@@ -267,15 +280,6 @@
       }))
   @php($commentCount = [])
   @php($steps->each(function ($r) use (&$commentCount) { $commentCount[(int) $r['model']->id] = $r['model']->comments->count(); }))
-  {{-- Resolve each comment's target step id to its real name (same pattern as the List's $stepLabel) —
-       the feed otherwise had nothing but the literal "STEP" tag with no indication of WHICH step. --}}
-  @php($stepLabel = function ($target) use ($rowById) {
-        if ($target === 'deal' || $target === null) return 'Deal';
-        return $rowById->has((int) $target) ? $rowById[(int) $target]['model']->name : 'Deal';
-      })
-  @php($commentsResolved = collect($board['comments'] ?? [])->map(function ($c) use ($stepLabel) {
-        return $c + ['step_name' => $stepLabel($c['target'] ?? null)];
-      })->all())
 
   <div class="mid">
     <div class="midbar">
