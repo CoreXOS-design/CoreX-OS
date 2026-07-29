@@ -416,6 +416,23 @@ class SigningController extends Controller
                     $fieldMappingsRaw,
                 );
             } // ── end LEGACY SERVING PATH (AT-177/WS6 dual-path) ──
+
+            // AT-303 BUG-4 — per-viewer condition-initial overlay. Runs for EVERY
+            // web serving path (canonical / compiled / legacy). The canonical serve
+            // bakes the body viewer-agnostically (no interactive initial slots), so
+            // without this a recipient's per-other-condition initial box never
+            // rendered on the canonical signing page. Keyed by the identity-scoped
+            // condition party key so seller 1 → seller slot, seller 2 → seller_2
+            // slot. Idempotent: rows that already carry slots (legacy path) are
+            // skipped, so the legacy path is unaffected.
+            $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
+                ->overlayConditionInitialsForViewer(
+                    $webTemplateHtml,
+                    $template,
+                    \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
+                    $token,
+                    $this->conditionPartyKey($signingRequest)
+                );
         }
 
         // Build page image URLs — use flattened images when available (PDF path)
