@@ -235,7 +235,21 @@ class PipelineTimelineService
             $start     = $s->planned_start_date->copy()->startOfDay();
             $projected = false;
         } else {
-            $start     = $end->copy()->subDays(max(0, (int) $s->days_offset));
+            $start = $end->copy()->subDays(max(0, (int) $s->days_offset));
+
+            // A step already ACTIVE (in progress) with no recorded start has genuinely been running
+            // since at latest today — the catalog days_offset is only a typical-duration ESTIMATE for a
+            // step that hasn't started yet, so anchoring an in-progress step to it alone under-projects
+            // the span and renders a tile that hugs its due date instead of stretching from now. Clamp
+            // the projected start to no later than today for active steps only; not_started/overdue/
+            // completed/skipped are unaffected (display-only — never persisted).
+            if ($s->status === 'active') {
+                $today = Carbon::now()->startOfDay();
+                if ($today->lt($start)) {
+                    $start = $today;
+                }
+            }
+
             $projected = true;
         }
 

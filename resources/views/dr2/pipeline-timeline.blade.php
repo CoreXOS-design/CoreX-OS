@@ -68,22 +68,23 @@
   #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:#ef4444;background:#fff;padding:0 3px;border-radius:3px}
 
   /* the TILE = the duration bar */
-  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:78px;
+  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:136px;
     padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(15,23,42,.10);overflow:hidden}
   #dr2tl .ttile:hover{z-index:8;box-shadow:0 6px 16px rgba(37,99,235,.20)}
   #dr2tl .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
   #dr2tl .ttile.active::before{background:#2563eb}#dr2tl .ttile.done::before{background:#16a34a}#dr2tl .ttile.upcoming::before{background:#cbd5e1}
-  #dr2tl .th{display:flex;align-items:center;gap:6px}
-  #dr2tl .th .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  #dr2tl .th{display:flex;align-items:flex-start;gap:6px}
+  #dr2tl .th .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:4px}
   #dr2tl .th .dot.active{background:#2563eb}#dr2tl .th .dot.done{background:#16a34a}#dr2tl .th .dot.upcoming{background:#cbd5e1}
-  #dr2tl .nm{font-weight:700;font-size:12px;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* name wraps up to 2 lines (clamped) instead of single-line-ellipsis truncating — "Deposit Paym…" */
+  #dr2tl .nm{font-weight:700;font-size:12px;line-height:1.25;color:#1e293b;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   #dr2tl .ttile.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
-  #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px}
-  #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px;margin-top:2px}
+  /* dates line — allowed to wrap rather than being clipped mid-date */
+  #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:normal;overflow:visible}
   #dr2tl .sub .d{color:#64748b;font-weight:700}
-  #dr2tl .tacts{display:flex;gap:4px;margin-top:auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:thin}
-  #dr2tl .tacts::-webkit-scrollbar{height:5px}
-  #dr2tl .tacts::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+  /* actions WRAP onto multiple lines instead of forcing an internal horizontal scrollbar */
+  #dr2tl .tacts{display:flex;gap:4px;row-gap:3px;margin-top:auto;flex-wrap:wrap;overflow:visible}
   /* !important beats the .hfc-card button[type=submit] global (which is also !important); our
      id-scoped selector is more specific, so submit buttons (Reopen/Remove) match type=button ones. */
   #dr2tl .tacts .b{font-size:9.5px!important;line-height:1!important;padding:4px 6px!important;border:1px solid #e2e8f0!important;border-radius:5px!important;background:#fff!important;color:#64748b!important;cursor:pointer;font-family:inherit;font-weight:600!important;white-space:nowrap;flex:0 0 auto}
@@ -163,7 +164,9 @@
 @php($PADX = 14)
 @php($mileLevels = max(1, (int) ($board['mile_levels'] ?? 1)))
 @php($ROWTOP = 58 + $mileLevels * 17)
-@php($ROWH = 94)
+{{-- ROWH must stay ≥ the .ttile CSS height (136px) + a gap, so taller wrapped-content tiles never
+     overlap the row stacked beneath them. --}}
+@php($ROWH = 152)
 @php($bandLabelTop = max(2, $ROWTOP - 34 - 15))
 <div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}"
      data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}">
@@ -303,7 +306,9 @@
           @php($r = $rowById->get((int) $tile['id']))
           @php($s = $r['model'] ?? null)
           @php($left = $PADX + (int) $tile['start'] * $DAYW)
-          @php($floorW = max(128, (int) $tile['dur'] * $DAYW - 4))
+          {{-- legibility floor raised from 128 to 168 so the wrapped name/dates/actions have room without
+               forcing the internal horizontal scroll the old narrow floor caused on short-duration tiles --}}
+          @php($floorW = max(168, (int) $tile['dur'] * $DAYW - 4))
           @php($cap = $capRight[(int) $tile['id']] ?? null)
           @php($maxW = $cap !== null ? max(46, ($PADX + (int) $cap * $DAYW) - $left - 4) : $floorW)
           @php($width = (int) min($floorW, $maxW))
