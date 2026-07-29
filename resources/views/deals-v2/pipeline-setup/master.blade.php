@@ -72,7 +72,7 @@
             <span class="n">Deal Signed</span><span class="ar">&rarr;</span>
             <span class="n" style="border-color:color-mix(in srgb,var(--ds-amber) 45%,var(--border));">Condition steps <em>(suspensive)</em></span><span class="ar">&rarr;</span>
             <span class="n" style="border-color:color-mix(in srgb,var(--ds-green) 55%,var(--border));">Granted</span><span class="ar">&rarr;</span>
-            <span class="n">Attorneys &middot; FICA &middot; COCs &middot; Rates</span><span class="ar">&rarr;</span>
+            <span class="n">Attorneys &middot; COCs &middot; Rates &middot; Docs</span><span class="ar">&rarr;</span>
             <span class="n">Lodgement</span><span class="ar">&rarr;</span>
             <span class="n">Registration</span>
         </div>
