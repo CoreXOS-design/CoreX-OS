@@ -3,7 +3,9 @@
      Sequence · N/A/Reinstate · Comments · Remove) is identical wherever the step is shown — undated
      steps in the tray keep every action they had before the redesign (spec CORRECTION 2026-07-28).
      Expects in scope: $s (DealStepInstance), $cc (int comment count), $deal, $locked, $steps.
-     The enclosing element MUST carry x-data="{done:false,due:false,seq:false,na:false,cm:false}". --}}
+     The enclosing element MUST carry x-data="{done:false,seq:false,na:false,cm:false,ed:false}".
+     Date editing = the SINGLE "Edit dates" control → the both-dates (start + end) modal, posted through
+     the editDates route via dr2tlSaveDates() (defined in pipeline-timeline.blade.php). --}}
 @php($terminal = in_array($s->status, ['completed', 'skipped'], true))
 @php($isDone = $s->status === 'completed')
 @php($isNa = $s->status === 'skipped' && ! empty($s->na_reason))
@@ -14,8 +16,8 @@
   @elseif($isDone && !$locked)
     <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">↺ Reopen</button></form>
   @endif
-  {{-- 2 · Edit dates --}}
-  @unless($locked)<button type="button" class="b" @click="due=true">Edit dates</button>@endunless
+  {{-- 2 · Edit dates — the ONE date control (start + end); opens the both-dates modal below. --}}
+  @unless($locked)<button type="button" class="b" @click="ed=true" title="Set the start &amp; end (due) dates">Edit dates</button>@endunless
   {{-- 3 · Sequence --}}
   @unless($locked)<button type="button" class="b seq" @click="seq=true" title="Change which step this follows + offset">Sequence</button>@endunless
   {{-- 4 · N/A / Reinstate --}}
@@ -47,13 +49,27 @@
   </div></template>
   @endif
 
-  <template x-teleport="body"><div class="dr2-modal" x-show="due" x-cloak @keydown.escape.window="due=false">
-    <div class="dr2-modal__bg" @click="due=false"></div>
+  {{-- Edit dates — BOTH start & end. Posts to the editDates route via dr2tlSaveDates() then reloads.
+       Works for projected/undated steps too (tray cards): this is how an undated step commits real
+       dates. Start defaults to the projected start (due − offset) when no real start is stored. --}}
+  @php($edStart = $s->planned_start_date
+        ? \Illuminate\Support\Carbon::parse($s->planned_start_date)->format('Y-m-d')
+        : ($s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->copy()->subDays(max(0, (int) $s->days_offset))->format('Y-m-d')
+                        : \Illuminate\Support\Carbon::today()->format('Y-m-d')))
+  @php($edDue = $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : \Illuminate\Support\Carbon::today()->format('Y-m-d'))
+  <template x-teleport="body"><div class="dr2-modal" x-show="ed" x-cloak @keydown.escape.window="ed=false">
+    <div class="dr2-modal__bg" @click="ed=false"></div>
     <div class="dr2-modal__card">
-      <h4 class="dr2-modal__h">Due date — “{{ $s->name }}”</h4>
-      <form method="POST" action="{{ route('deals-dr2.pipeline.step.due', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline">
-        <input type="date" name="due_date" value="{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('Y-m-d') : '' }}" class="corex-input">
-        <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="due=false">Cancel</button><button type="submit" class="corex-btn-primary">Save due date</button></div>
+      <h4 class="dr2-modal__h">Set dates — “{{ $s->name }}”</h4>
+      <form onsubmit="return dr2tlSaveDates(event, {{ (int) $s->id }})">
+        <label class="dr2-modal__lb">Start
+          <input type="date" name="planned_start_date" value="{{ $edStart }}" class="corex-input" required>
+        </label>
+        <label class="dr2-modal__lb">End (due)
+          <input type="date" name="due_date" value="{{ $edDue }}" class="corex-input" required>
+        </label>
+        @unless($s->planned_start_date)<div class="ed-note">This step has no start date yet — saving commits the start &amp; end as its real dates.</div>@endunless
+        <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="ed=false">Cancel</button><button type="submit" class="corex-btn-primary">Save dates</button></div>
       </form>
     </div>
   </div></template>

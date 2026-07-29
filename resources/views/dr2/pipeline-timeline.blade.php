@@ -246,7 +246,7 @@
               @php($usc = $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'upcoming'))
               @php($cc = $s->comments->count())
               <div class="ucard {{ $usc }}" data-step-id="{{ $s->id }}"
-                   @unless($locked) x-data="{done:false,due:false,seq:false,na:false,cm:false}" @endunless>
+                   @unless($locked) x-data="{done:false,seq:false,na:false,cm:false,ed:false}" @endunless>
                 <div class="uh">
                   <span class="dot {{ $usc }}"></span>
                   <span class="nm" title="{{ $s->name }}">{{ $s->name }}</span>
@@ -316,13 +316,12 @@
                data-startdate="{{ $startIso }}" data-due="{{ $dueIso }}"
                @if($canDrag) data-draggable="1" @endif
                @if($canResize) data-resizable="1" @endif
-               @if($s && !$locked) x-data="{done:false,due:false,seq:false,na:false,cm:false,ed:false}" @endif>
+               @if($s && !$locked) x-data="{done:false,seq:false,na:false,cm:false,ed:false}" @endif>
             <div class="th">
               <span class="dot {{ $tile['status'] }}"></span>
               <span class="nm" title="{{ $tile['name'] }}">{{ $tile['name'] }}</span>
               @if(!empty($tile['star']))<span class="star" title="Suspensive condition">★</span>@endif
-              @if($projected)<span class="projtag" title="Projected start (due date − offset) — no start date is set. Use 📅 to confirm the real dates.">proj</span>@endif
-              @unless($locked)<button type="button" class="setdates" @click="ed=true" title="Set exact start &amp; end dates">📅</button>@endunless
+              @if($projected)<span class="projtag" title="Projected start (due date − offset) — no start date is set. Use “Edit dates” to confirm the real dates.">proj</span>@endif
             </div>
             <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}{{ $projected ? ' · projected' : '' }}</div>
 
@@ -336,28 +335,8 @@
             @endif
 
             @if($cc)<span class="pin" title="{{ $cc }} comment(s)">{{ $cc }}</span>@endif
-
-            {{-- Edit-dates control: set BOTH start & end directly (posts to the existing editDates route via
-                 AJAX, then reloads the timeline). Works for projected tiles too — this is how an undated
-                 step commits real dates from the timeline. --}}
-            @if($s && !$locked)
-            <template x-teleport="body"><div class="dr2-modal" x-show="ed" x-cloak @keydown.escape.window="ed=false">
-              <div class="dr2-modal__bg" @click="ed=false"></div>
-              <div class="dr2-modal__card">
-                <h4 class="dr2-modal__h">Set dates — “{{ $s->name }}”</h4>
-                <form onsubmit="return dr2tlSaveDates(event, {{ (int) $tile['id'] }})">
-                  <label class="dr2-modal__lb">Start
-                    <input type="date" name="planned_start_date" value="{{ $startIso }}" class="corex-input" required>
-                  </label>
-                  <label class="dr2-modal__lb">End (due)
-                    <input type="date" name="due_date" value="{{ $dueIso }}" class="corex-input" required>
-                  </label>
-                  @if($projected)<div class="ed-note">These dates are currently <b>projected</b> from the due date and offset. Saving commits them as this step's real start &amp; end.</div>@endif
-                  <div class="dr2-modal__row"><button type="button" class="corex-btn-secondary" @click="ed=false">Cancel</button><button type="submit" class="corex-btn-primary">Save dates</button></div>
-                </form>
-              </div>
-            </div></template>
-            @endif
+            {{-- The both-dates "Edit dates" control now lives in the shared _pipeline-timeline-actions
+                 partial (one date control, used identically by on-axis tiles AND Unscheduled tray cards). --}}
           </div>
         @endforeach
 

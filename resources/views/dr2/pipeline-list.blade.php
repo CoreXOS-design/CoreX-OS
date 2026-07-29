@@ -140,9 +140,15 @@
       }
       $tiekey = function ($m) {
           $st = $m->status;
+          // Completed / skipped PARALLEL peers sink to the BOTTOM of their group; open (not-started /
+          // active) steps rank first (#1). This is a Kahn TIEBREAK only — the algorithm still emits a
+          // step solely once every predecessor is ranked, so a completed predecessor is always listed
+          // before its open successor. Dependency order is never broken; only genuinely-parallel peers
+          // (no edge between them) get the done-last ordering.
+          $doneLast = in_array($st, ['completed', 'skipped', 'not_applicable'], true) ? 1 : 0;
           $dt = $st === 'completed' ? ($m->actual_date ?? $m->completed_at) : null;
           $dt = $dt ?? $m->due_date;
-          return [$dt ? \Illuminate\Support\Carbon::parse($dt)->getTimestamp() : PHP_INT_MAX, (int) $m->position];
+          return [$doneLast, $dt ? \Illuminate\Support\Carbon::parse($dt)->getTimestamp() : PHP_INT_MAX, (int) $m->position];
       };
       $rank = []; $r = 0; $guard = 0;
       while (count($rank) < count($ids) && $guard++ < count($ids) + 5) {
