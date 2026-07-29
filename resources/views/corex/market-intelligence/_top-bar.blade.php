@@ -15,6 +15,7 @@
     $mode = request('mode', 'work') === 'analyse' ? 'analyse' : 'work';
     $isManager = auth()->user()?->hasPermission('prospecting_setup.manage') ?? false;
     $includeInStockToggle = (bool) request()->boolean('include_in_stock');
+    $showPitchedToggle = (bool) request()->boolean('show_pitched');
     $agency = auth()->user()?->agency?->name ?? 'Your agency';
 
     $workQuery    = array_merge(request()->except(['mode']), ['mode' => 'work']);
@@ -34,6 +35,23 @@
          top of the page now handles tab switching. --}}
 
     <div class="mi-topbar-right" style="display: flex; align-items: center; gap: 12px;">
+        {{-- Pitch lock: pitched listings are hidden from the pool by default;
+             this reveals them (badged "claimed by X"). Available to every agent,
+             not just managers — it's about the agent's own pitched properties. --}}
+        <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
+               style="color: var(--text-secondary);"
+               title="Show listings you (or a colleague) have already pitched — hidden from the working pool by default">
+            <input type="checkbox"
+                   {{ $showPitchedToggle ? 'checked' : '' }}
+                   onchange="(function(cb){
+                       const url = new URL(window.location.href);
+                       if (cb.checked) { url.searchParams.set('show_pitched','1'); }
+                       else { url.searchParams.delete('show_pitched'); }
+                       window.location.href = url.toString();
+                   })(this)">
+            Show pitched
+        </label>
+
         @if($isManager)
         <label class="inline-flex items-center gap-2 text-xs cursor-pointer"
                style="color: var(--text-secondary);"

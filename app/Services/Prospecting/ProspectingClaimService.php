@@ -181,6 +181,12 @@ final class ProspectingClaimService
                         currentOwnerUserId: (int) $existing->user_id,
                     );
                 }
+                // A pitch makes the claim PERMANENT — stamp pitched_at if this
+                // claim pre-dated the pitch lock (e.g. a plain Claim upgraded by
+                // an actual pitch). Never un-set it.
+                if ($existing->pitched_at === null) {
+                    $existing->pitched_at = now();
+                }
                 $this->recordActionOnClaim($existing, 'contacted', $note);
                 return $existing->refresh();
             }
@@ -192,6 +198,10 @@ final class ProspectingClaimService
                 'status'                 => 'contacted',
                 'notes'                  => $note,
                 'claimed_at'             => now(),
+                // Pitch lock: this claim was born from an actual pitch, so it is
+                // permanent (no 48h expiry, no silent re-claim). See
+                // ProspectingClaim::isExpired().
+                'pitched_at'             => now(),
                 'last_updated_at'        => now(),
                 'is_active'              => true,
             ]);

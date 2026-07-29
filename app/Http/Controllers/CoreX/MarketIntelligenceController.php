@@ -90,6 +90,21 @@ class MarketIntelligenceController extends Controller
         // F.2: also bypassed when an action preset suspends the canvass filter.
         $query = $this->applyInStockFilter($query, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
 
+        // Pitch lock (2026-07-29): a listing an agent has PITCHED (captured +
+        // linked a contact via "Pitch now") is permanently claimed to that agent
+        // and drops out of the default canvassing pool. `?show_pitched=1` reveals
+        // them (still badged "claimed by X"). This keys on the presence of an
+        // active PITCHED claim (pitched_at set) — reliable whether or not the
+        // listing was promoted to a Property — and is DISTINCT from the
+        // manager-only in-stock (stock) toggle above. Suspended for the
+        // claim-centric action presets (my_claims / expiring / log_outcomes),
+        // which exist precisely to surface claimed rows.
+        if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter) {
+            $query->whereDoesntHave('activeClaim', function ($q) {
+                $q->whereNotNull('pitched_at');
+            });
+        }
+
         // Filters
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
             $query->where('portal_source', $request->portal_source);
