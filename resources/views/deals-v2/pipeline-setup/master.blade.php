@@ -64,9 +64,10 @@
         <div class="text-sm" style="color: var(--text-primary);">
             <strong>How a deal is built:</strong> every deal runs the <strong>Base spine</strong>. Ticking a condition
             (<em>Bond</em>, <em>Cash</em>, <em>Sale of another</em>) on a deal adds that condition's steps. Each step
-            <strong>follows</strong> a predecessor and lands <strong>+N days</strong> after it. Steps marked
-            <strong>Suspensive</strong> gate the single <strong>Granted</strong> convergence — once every suspensive
-            condition is met, the deal grants and the transfer/registration steps run.
+            <strong>follows</strong> a predecessor and lands <strong>+N days</strong> after it. <strong>Granted</strong>
+            auto-follows <strong>every step you flag Suspensive</strong> — its date is the <strong>latest</strong> of
+            them (you never set Granted directly). A suspensive step is a Stage-1 condition that gates the deal;
+            every non-suspensive step runs after Granted, under <strong>Transfer &amp; Registration</strong>.
         </div>
         <div class="ms-flow">
             <span class="n">Deal Signed</span><span class="ar">&rarr;</span>
@@ -257,7 +258,7 @@
             groupHelp(key) {
                 return ({
                     '__base__': 'Runs on every deal — the common conveyancing steps from signing through to registration.',
-                    'bond': 'Added when the deal is bond-financed. “Bond Approved” is suspensive — it gates Granted.',
+                    'bond': 'Added when the deal is bond-financed. Suspensive (gates Granted): Application, Approved, Deposit. Guarantees Issued is post-grant (Transfer).',
                     'cash': 'Added for cash deals. If “proof of funds now” is chosen it is suspensive; payments settle after lodgement. (Payment fan-out is automatic.)',
                     'sale_of_another': 'Subject to the sale of another property. “Linked Property Sold” is suspensive — it gates Granted.',
                 })[key] || '';

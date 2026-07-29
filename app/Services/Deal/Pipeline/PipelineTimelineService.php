@@ -478,9 +478,22 @@ class PipelineTimelineService
         // step with NO condition (e.g. a compliance step orphaned by a broken predecessor edge, so it
         // wasn't reachable from the gate) is post-grant transfer work — it counts as Stage 2 rather than
         // inventing a bogus "Other conditions" group.
-        $remainder   = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
-        $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
-        $orphans     = $remainder->reject(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+        $remainder = $steps->reject(fn (DealStepInstance $s) => isset($exclude[(int) $s->id]))->values();
+
+        // Stage-1 membership. NEW model (Johan 2026-07-29): a step's own SUSPENSIVE flag decides
+        // Stage 1 — the SAME flag that drives the Granted date (max of suspensive dues), so the grant
+        // line can never precede a Stage-1 step, and non-suspensive condition steps (e.g. Guarantees
+        // Issued) render under Stage 2 (Transfer). This applies ONLY to deals composed from the
+        // updated catalogue, detected by the new suspensive SHAPE (see usesSuspensiveStageModel).
+        // LEGACY/EXISTING deals carry the old single-gate-per-condition flagging and fall back to
+        // condition_key grouping, so they render EXACTLY as before and are never mutated.
+        if ($this->usesSuspensiveStageModel($steps)) {
+            $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => (bool) $s->is_suspensive)->values();
+            $orphans     = $remainder->reject(fn (DealStepInstance $s) => (bool) $s->is_suspensive)->values();
+        } else {
+            $stage1Steps = $remainder->filter(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+            $orphans     = $remainder->reject(fn (DealStepInstance $s) => $s->condition_key !== null)->values();
+        }
 
         return [
             'composed'     => $composed,
@@ -490,6 +503,22 @@ class PipelineTimelineService
             'orphans'      => $orphans,
             'stage2_ids'   => $stage2Ids,
         ];
+    }
+
+    /**
+     * True when this deal was composed from the UPDATED catalogue that flags the full suspensive
+     * SET per condition (bond → application + approved + deposit). Detected by ANY single condition
+     * carrying ≥2 suspensive steps — a shape the legacy catalogue never produced (it flagged exactly
+     * one gate per condition, e.g. only "Bond Approved"). Legacy/existing deals therefore always take
+     * the old condition_key grouping and render unchanged; the new is_suspensive grouping is opt-in
+     * via the composed data. (Cash-/sale-only deals resolve identically either way, so the guard only
+     * ever changes behaviour where the new bond flagging is present.)
+     */
+    private function usesSuspensiveStageModel($steps): bool
+    {
+        return $steps->filter(fn (DealStepInstance $s) => (bool) $s->is_suspensive && $s->condition_key !== null)
+            ->groupBy('condition_key')
+            ->contains(fn ($grp) => $grp->count() >= 2);
     }
 
     /**

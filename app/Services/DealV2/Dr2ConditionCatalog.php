@@ -475,10 +475,13 @@ class Dr2ConditionCatalog
                         'deposit_due' => ['type' => 'date', 'label' => 'Deposit due by'],
                     ],
                     'steps' => [
-                        ['key' => 'bond_app',      'name' => 'Bond Application Submitted', 'follows' => 'otp',      'offset' => 3,  'completion' => 'date_input',   'condition' => 'bond', 'pos' => 20],
+                        // Suspensive SET for bond = the pre-grant conditions that gate Granted (Johan 2026-07-29):
+                        // application + approval + deposit. Guarantees Issued is POST-grant (Transfer/Stage 2),
+                        // so it is deliberately NOT suspensive. Granted date = MAX(due of the suspensive set).
+                        ['key' => 'bond_app',      'name' => 'Bond Application Submitted', 'follows' => 'otp',      'offset' => 3,  'suspensive' => true, 'completion' => 'date_input',   'condition' => 'bond', 'pos' => 20],
                         ['key' => 'bond_approved', 'name' => 'Bond Approved',              'follows' => 'bond_app', 'offset' => 21, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'bond', 'manual_due_option' => 'bond_due', 'pos' => 21],
                         ['key' => 'guarantees',    'name' => 'Guarantees Issued',          'follows' => 'bond_approved', 'offset' => 10, 'completion' => 'text_input', 'condition' => 'bond', 'pos' => 48],
-                        ['key' => 'deposit',       'name' => 'Deposit Paid',               'follows' => 'otp',      'offset' => 3,  'completion' => 'amount_input', 'condition' => 'bond', 'manual_due_option' => 'deposit_due', 'requires_option' => 'deposit', 'pos' => 19],
+                        ['key' => 'deposit',       'name' => 'Deposit Paid',               'follows' => 'otp',      'offset' => 3,  'suspensive' => true, 'completion' => 'amount_input', 'condition' => 'bond', 'manual_due_option' => 'deposit_due', 'requires_option' => 'deposit', 'pos' => 19],
                     ],
                 ],
                 'cash' => [
