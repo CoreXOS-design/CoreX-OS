@@ -100,9 +100,22 @@ class Dr2ConditionCatalog
 
         // Granted marker CONVERGES on EVERY active suspensive condition — primary follows =
         // the last suspensive step, the rest are AND-gate deps. No suspensive → follows OTP.
+        // The marker is a STORED, editable template step (name/offset/pos), but its convergence
+        // WIRING stays procedural (auto-derived from the suspensive set) — kept out of the UI.
         $grantFollows = end($suspensiveKeys) ?: 'otp';
         $grantDeps    = array_values(array_diff($suspensiveKeys, [$grantFollows]));
-        $steps[] = ['key' => 'granted', 'name' => 'Granted', 'follows' => $grantFollows, 'deps' => $grantDeps, 'offset' => 0, 'milestone' => true, 'grant_marker' => true, 'completion' => 'manual_tick', 'pos' => 30];
+        $gm = $this->grantMarkerTemplate($def);
+        $steps[] = [
+            'key'          => $gm['key'] ?? 'granted',
+            'name'         => $gm['name'] ?? 'Granted',
+            'follows'      => $grantFollows,
+            'deps'         => $grantDeps,
+            'offset'       => (int) ($gm['offset'] ?? 0),
+            'milestone'    => $gm['milestone'] ?? true,
+            'grant_marker' => true,
+            'completion'   => $gm['completion'] ?? 'manual_tick',
+            'pos'          => (int) ($gm['pos'] ?? 30),
+        ];
 
         // Resolve the __grant__ sentinel (base steps that start after grant → follow the marker).
         foreach ($steps as &$s) {
@@ -116,13 +129,30 @@ class Dr2ConditionCatalog
         return $steps;
     }
 
-    /** The common spine (final-shape step defs), taken from the definition's base group. */
+    /**
+     * The common spine (final-shape step defs), taken from the definition's base group.
+     * The grant marker is excluded here — composeFrom() appends it with procedural wiring.
+     */
     private function baseStepsFrom(array $def): array
     {
-        return array_map(
-            fn ($t) => $this->finalizeStep($t),
+        $steps = array_filter(
             $def['conditions'][self::BASE_KEY]['steps'] ?? [],
+            fn ($t) => empty($t['grant_marker']),
         );
+        return array_map(fn ($t) => $this->finalizeStep($t), array_values($steps));
+    }
+
+    /** The one grant-marker template step (lives in the base group), or null. */
+    private function grantMarkerTemplate(array $def): ?array
+    {
+        foreach ($def['conditions'] as $group) {
+            foreach ($group['steps'] ?? [] as $t) {
+                if (! empty($t['grant_marker'])) {
+                    return $t;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -251,6 +281,7 @@ class Dr2ConditionCatalog
             'pos'        => (int) $r->position,
         ];
         if ($groupKey !== self::BASE_KEY)  { $t['condition'] = $groupKey; }
+        if ($r->is_grant_marker)           { $t['grant_marker'] = true; }
         if ($r->is_milestone)              { $t['milestone'] = true; }
         if ($r->is_suspensive)             { $t['suspensive'] = true; }
         if ($r->is_anchor)                 { $t['anchor'] = true; }
@@ -261,6 +292,149 @@ class Dr2ConditionCatalog
         if ($r->requires_funds_mode)       { $t['requires_funds_mode'] = $r->requires_funds_mode; }
         if ($r->expand)                    { $t['expand'] = $r->expand; }
         return $t;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Settings UI — editable master (Phase 2, global-only). Only the condition list +
+    // steps-per-condition templates are editable; option-driven expansion stays procedural.
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /** Completion types offered in the steps editor (and validated against). */
+    public const COMPLETION_TYPES = [
+        'manual_tick'     => 'Manual tick',
+        'date_input'      => 'Date input',
+        'text_input'      => 'Text input',
+        'amount_input'    => 'Amount input',
+        'document_upload' => 'Document upload',
+        'document_signed' => 'Document signed',
+    ];
+
+    /** Status triggers offered (a step completing can advance the deal's status). */
+    public const STATUS_TRIGGERS = ['completed' => 'Marks deal registered/completed'];
+
+    /**
+     * The master template shaped for the settings editor: ordered groups (Base spine +
+     * each condition), each with its label, its date-bearing options (for the manual-due
+     * dropdown), and its editable step rows. Reads the active definition (DB if seeded).
+     */
+    public function editableMaster(): array
+    {
+        $def    = $this->activeDefinition();
+        $order  = array_merge([self::BASE_KEY], self::CONDITION_ORDER);
+        $groups = [];
+
+        foreach ($order as $key) {
+            if (! isset($def['conditions'][$key])) {
+                continue;
+            }
+            $c = $def['conditions'][$key];
+
+            // Date-bearing options → the manual-due dropdown for this group's steps.
+            $dateOptions = [];
+            foreach (($c['options'] ?? []) as $optKey => $opt) {
+                if (in_array($opt['type'] ?? null, ['date', 'date_list'], true)) {
+                    $dateOptions[$optKey] = $opt['label'] ?? $optKey;
+                }
+            }
+
+            $steps = [];
+            foreach ($c['steps'] ?? [] as $t) {
+                $steps[] = [
+                    'step_key'            => $t['key'] ?? '',
+                    'name'                => $t['name'] ?? '',
+                    'follows_key'         => $t['follows'] ?? null,
+                    'deps_keys'           => array_values($t['deps'] ?? []),
+                    'days_offset'         => (int) ($t['offset'] ?? 0),
+                    'is_milestone'        => ! empty($t['milestone']),
+                    'is_suspensive'       => ! empty($t['suspensive']),
+                    'is_anchor'           => ! empty($t['anchor']),
+                    'is_grant_marker'     => ! empty($t['grant_marker']),
+                    'completion_type'     => $t['completion'] ?? 'manual_tick',
+                    'status_trigger'      => $t['status_trigger'] ?? null,
+                    'manual_due_option'   => $t['manual_due_option'] ?? null,
+                    'position'            => (int) ($t['pos'] ?? 0),
+                    // Procedural markers — preserved, not editable in the UI.
+                    'requires_option'     => $t['requires_option'] ?? null,
+                    'requires_funds_mode' => $t['requires_funds_mode'] ?? null,
+                    'expand'              => $t['expand'] ?? null,
+                ];
+            }
+
+            $groups[] = [
+                'key'          => $key,
+                'label'        => $c['label'] ?? $key,
+                'is_base'      => $key === self::BASE_KEY,
+                'date_options' => $dateOptions,
+                'steps'        => $steps,
+            ];
+        }
+
+        return ['groups' => $groups];
+    }
+
+    /**
+     * Persist the edited master (global rows). $groups = [[key,label,steps[]],...] where
+     * each step carries the fields from editableMaster(). Options schema is preserved from
+     * the canonical definition (options stay procedural). Idempotent full replace of the
+     * global master. Guardrail validation is the caller's job (see the controller).
+     */
+    public function saveMaster(array $groups): void
+    {
+        $tpl        = self::MASTER_TEMPLATE_ID;
+        $canonical  = $this->definition()['conditions'];   // source of the (non-editable) options schema
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($groups, $tpl, $canonical) {
+            $condIds = \Illuminate\Support\Facades\DB::table('deal_pipeline_conditions')
+                ->whereNull('agency_id')->where('pipeline_template_id', $tpl)->pluck('id');
+            if ($condIds->isNotEmpty()) {
+                \Illuminate\Support\Facades\DB::table('deal_pipeline_condition_steps')->whereIn('condition_id', $condIds)->delete();
+                \Illuminate\Support\Facades\DB::table('deal_pipeline_conditions')->whereIn('id', $condIds)->delete();
+            }
+
+            $now = now();
+            foreach ($groups as $g) {
+                $key     = $g['key'];
+                $options = $canonical[$key]['options'] ?? null;   // preserved, not edited
+                $condId  = \Illuminate\Support\Facades\DB::table('deal_pipeline_conditions')->insertGetId([
+                    'pipeline_template_id' => $tpl,
+                    'agency_id'            => null,
+                    'key'                  => $key,
+                    'label'                => $g['label'],
+                    'is_default'           => false,
+                    'options_schema'       => $options !== null ? json_encode($options) : null,
+                    'created_at'           => $now,
+                    'updated_at'           => $now,
+                ]);
+
+                foreach ($g['steps'] as $s) {
+                    \Illuminate\Support\Facades\DB::table('deal_pipeline_condition_steps')->insert([
+                        'condition_id'        => $condId,
+                        'pipeline_step_id'    => null,
+                        'agency_id'           => null,
+                        'position'            => (int) ($s['position'] ?? 0),
+                        'is_grant_marker'     => ! empty($s['is_grant_marker']),
+                        'step_key'            => $s['step_key'],
+                        'name'                => $s['name'],
+                        'follows_key'         => $s['follows_key'] ?: null,
+                        'deps_keys'           => ! empty($s['deps_keys']) ? json_encode(array_values($s['deps_keys'])) : null,
+                        'days_offset'         => (int) ($s['days_offset'] ?? 0),
+                        'is_milestone'        => ! empty($s['is_milestone']),
+                        'is_suspensive'       => ! empty($s['is_suspensive']),
+                        'is_anchor'           => ! empty($s['is_anchor']),
+                        'completion_type'     => $s['completion_type'] ?? null,
+                        'status_trigger'      => $s['status_trigger'] ?: null,
+                        'manual_due_option'   => $s['manual_due_option'] ?: null,
+                        'requires_option'     => $s['requires_option'] ?: null,
+                        'requires_funds_mode' => $s['requires_funds_mode'] ?: null,
+                        'expand'              => $s['expand'] ?: null,
+                        'created_at'          => $now,
+                        'updated_at'          => $now,
+                    ]);
+                }
+            }
+        });
+
+        $this->activeDefinition = null; // bust the per-request cache
     }
 
     /**
@@ -287,6 +461,10 @@ class Dr2ConditionCatalog
                         ['key' => 'transfer_duty', 'name' => 'Transfer Duty / SARS Receipt','follows' => 'docs_signed','offset' => 7, 'completion' => 'document_upload', 'pos' => 65],
                         ['key' => 'lodgement',     'name' => 'Deeds Office Lodgement',      'follows' => 'rates',     'deps' => ['fica_seller', 'elec_coc', 'beetle', 'transfer_duty'], 'offset' => 5, 'milestone' => true, 'completion' => 'date_input', 'pos' => 70],
                         ['key' => 'registration',  'name' => 'Registration / Transfer',     'follows' => 'lodgement', 'offset' => 10, 'milestone' => true, 'completion' => 'date_input', 'status_trigger' => 'completed', 'pos' => 80],
+                        // The Granted convergence marker — a stored, editable step; its follows/deps
+                        // are computed procedurally at compose time (auto-converges on all suspensive
+                        // conditions), so only name/offset are meaningfully configurable.
+                        ['key' => 'granted',       'name' => 'Granted',                     'follows' => null,        'offset' => 0,  'milestone' => true, 'grant_marker' => true, 'completion' => 'manual_tick', 'pos' => 30],
                     ],
                 ],
                 'bond' => [

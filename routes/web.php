@@ -803,6 +803,9 @@ Route::middleware(['auth', 'permission:proforma.manage'])->group(function () {
 // ===== DEAL REGISTER V2 — PIPELINE SETUP =====
 Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
+    // AT-334 Phase 2 — the GLOBAL composable master template the Deal Structure reads from.
+    Route::get('/master', [\App\Http\Controllers\DealV2\Dr2MasterTemplateController::class, 'edit'])->name('deals-v2.pipeline.master');
+    Route::put('/master', [\App\Http\Controllers\DealV2\Dr2MasterTemplateController::class, 'update'])->name('deals-v2.pipeline.master.update');
     Route::get('/create', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'create'])->name('deals-v2.pipeline.create');
     Route::post('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'store'])->name('deals-v2.pipeline.store');
     // AT-158 WS-R1 — one-click "Load standard templates" (idempotent, own agency)
