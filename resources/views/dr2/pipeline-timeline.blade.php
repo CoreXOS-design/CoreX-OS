@@ -36,8 +36,10 @@
   #dr2tl .mid{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:14px 14px 0 0;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
   #dr2tl .midbar{display:flex;align-items:center;gap:14px;padding:10px 15px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
   #dr2tl .midbar .t{font-weight:800;color:#0f172a;font-size:13.5px}
-  #dr2tl .midbar .hint{font-size:11.5px;color:#64748b}
-  #dr2tl .midbar .hint b{color:#2563eb}
+  /* the old .hint was a full-width caption row on its own — reclaimed as a "?" badge with a native
+     title-attr tooltip instead, so the toolbar stays a single compact line */
+  #dr2tl .qhint{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#e2e8f0;color:#64748b;font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:middle}
+  #dr2tl .qhint:hover{background:#cbd5e1;color:#334155}
   /* zoom control — Month/Week/Day pixels-per-day levels, rescales the axis + every tile together */
   #dr2tl .zoomctl{display:inline-flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:11.5px;margin-left:auto}
   #dr2tl .zbtn{padding:5px 11px;border:0;border-left:1px solid #e2e8f0;background:#fff;color:#374151;cursor:pointer;font-family:inherit;font-weight:600}
@@ -83,24 +85,33 @@
   #dr2tl .today{position:absolute;width:2px;background:#ef4444;z-index:4;top:62px;bottom:0}
   #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:#ef4444;background:#fff;padding:0 3px;border-radius:3px}
 
-  /* the TILE = the duration bar */
-  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:136px;
+  /* the TILE = the duration bar. Compact at rest — name + dates only, hugging content (~60px, not the
+     136px the readability pass over-corrected to). Actions reveal on hover/focus (below) rather than
+     permanently reserving space for them. */
+  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:60px;
     padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(15,23,42,.10);overflow:hidden}
-  #dr2tl .ttile:hover{z-index:8;box-shadow:0 6px 16px rgba(37,99,235,.20)}
+  /* on hover: grow to fit the revealed actions row, rise above neighbouring rows so it never gets
+     clipped — a transient interaction state, not a layout change to the resting row-stack. */
+  #dr2tl .ttile:hover,#dr2tl .ttile:focus-within{height:auto;min-height:60px;overflow:visible;z-index:8;box-shadow:0 6px 16px rgba(37,99,235,.20)}
   #dr2tl .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
   #dr2tl .ttile.active::before{background:#2563eb}#dr2tl .ttile.done::before{background:#16a34a}#dr2tl .ttile.upcoming::before{background:#cbd5e1}
-  #dr2tl .th{display:flex;align-items:flex-start;gap:6px}
-  #dr2tl .th .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:4px}
+  #dr2tl .th{display:flex;align-items:center;gap:6px}
+  #dr2tl .th .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
   #dr2tl .th .dot.active{background:#2563eb}#dr2tl .th .dot.done{background:#16a34a}#dr2tl .th .dot.upcoming{background:#cbd5e1}
-  /* name wraps up to 2 lines (clamped) instead of single-line-ellipsis truncating — "Deposit Paym…" */
-  #dr2tl .nm{font-weight:700;font-size:12px;line-height:1.25;color:#1e293b;white-space:normal;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  /* name — single line, ellipsis if it overflows; full name is the title attr (tooltip on hover) */
+  #dr2tl .nm{font-weight:700;font-size:12px;line-height:1.25;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #dr2tl .ttile.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
-  #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px;margin-top:2px}
-  /* dates line — allowed to wrap rather than being clipped mid-date */
-  #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:normal;overflow:visible}
+  #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px}
+  /* dates line — single line, matches the compact rest height */
+  #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #dr2tl .sub .d{color:#64748b;font-weight:700}
-  /* actions WRAP onto multiple lines instead of forcing an internal horizontal scrollbar */
-  #dr2tl .tacts{display:flex;gap:4px;row-gap:3px;margin-top:auto;flex-wrap:wrap;overflow:visible}
+  /* base actions-row styling — shared by the on-axis tile AND the Unscheduled tray's .ucard (which is
+     NOT height-constrained and keeps its actions always visible, unaffected by the rule below) */
+  #dr2tl .tacts{display:flex;gap:4px;row-gap:3px;margin-top:6px;flex-wrap:wrap;overflow:visible}
+  /* .ttile only: actions hidden at rest (this is what the compact 60px height budgets for), revealed on
+     hover/focus directly under the dates in natural flow */
+  #dr2tl .ttile .tacts{display:none}
+  #dr2tl .ttile:hover .tacts,#dr2tl .ttile:focus-within .tacts{display:flex}
   /* !important beats the .hfc-card button[type=submit] global (which is also !important); our
      id-scoped selector is more specific, so submit buttons (Reopen/Remove) match type=button ones. */
   #dr2tl .tacts .b{font-size:9.5px!important;line-height:1!important;padding:4px 6px!important;border:1px solid #e2e8f0!important;border-radius:5px!important;background:#fff!important;color:#64748b!important;cursor:pointer;font-family:inherit;font-weight:600!important;white-space:nowrap;flex:0 0 auto}
@@ -187,9 +198,11 @@
 {{-- +28 reserves room for the sticky phase header band (Suspensive Conditions | Transfer & Registration)
      sitting above the axis. --}}
 @php($ROWTOP = 58 + 28 + $mileLevels * 17)
-{{-- ROWH must stay ≥ the .ttile CSS height (136px) + a gap, so taller wrapped-content tiles never
-     overlap the row stacked beneath them. --}}
-@php($ROWH = 152)
+{{-- ROWH tracks the compact resting .ttile CSS height (60px) + a tight 10px gap between stacked rows.
+     A hovered tile grows taller than this to show its actions (CSS :hover, see .ttile:hover), but that's
+     a transient interaction state layered ABOVE the row stack (z-index), not a resting-layout height —
+     rows stay packed at 70px regardless. --}}
+@php($ROWH = 70)
 @php($bandLabelTop = max(2, $ROWTOP - 62 - 15))
 <div id="dr2tl" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}"
      data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}"
@@ -266,8 +279,7 @@
 
   <div class="mid">
     <div class="midbar">
-      <span class="t">Timeline</span>
-      <span class="hint">tiles stretch to their duration · overlapping tiles stack underneath · <b>drag a tile to reschedule</b> · <b>drag an edge to resize</b> · 📅 sets exact dates · dashed = projected · 💬 marks comments on the date made</span>
+      <span class="t">Timeline<span class="qhint" title="Tiles stretch to their duration. Overlapping tiles stack underneath. Drag a tile to reschedule. Drag an edge to resize. 📅 sets exact dates. Dashed = projected. 💬 marks comments on the date made. Hover a tile to see its actions.">?</span></span>
       <div class="zoomctl" role="group" aria-label="Zoom">
         <button type="button" class="zbtn" data-zoom="month">Month</button>
         <button type="button" class="zbtn" data-zoom="week">Week</button>
