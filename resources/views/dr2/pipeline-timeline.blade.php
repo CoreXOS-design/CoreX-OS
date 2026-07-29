@@ -134,11 +134,16 @@
   #dr2tl .th .setdates{margin-left:auto;flex:0 0 auto;border:1px solid #e2e8f0;background:#fff;border-radius:5px;font-size:10px;line-height:1;padding:2px 5px;cursor:pointer}
   #dr2tl .th .setdates:hover{background:#eff6ff;border-color:#bfdbfe}
   /* edge-drag resize handles (dated, non-terminal tiles only) */
-  #dr2tl .rhandle{position:absolute;top:0;bottom:0;width:9px;z-index:6;cursor:ew-resize;touch-action:none;background:transparent}
+  #dr2tl .rhandle{position:absolute;top:0;bottom:0;width:8px;z-index:6;cursor:ew-resize;touch-action:none;background:transparent;display:flex;align-items:center;justify-content:center}
   #dr2tl .rhandle.rleft{left:0;border-radius:10px 0 0 10px}
-  #dr2tl .rhandle.rright{right:0;border-radius:0 10px 10px 0}
+  /* right handle: ALWAYS visible (not hover-only) — a fixed 8px grab zone with a grip mark, present on
+     every resizable tile regardless of width, so it's consistently findable instead of an invisible
+     hover-only strip a narrow tile could hide entirely */
+  #dr2tl .rhandle.rright{right:0;border-radius:0 10px 10px 0;background:rgba(37,99,235,.08);border-left:1px solid rgba(37,99,235,.16)}
+  #dr2tl .rhandle.rright::after{content:"";width:2px;height:20px;border-radius:1px;background:rgba(37,99,235,.5)}
   #dr2tl .ttile:hover .rhandle{background:rgba(37,99,235,.14)}
   #dr2tl .rhandle:hover{background:rgba(37,99,235,.32)!important}
+  #dr2tl .rhandle.rright:hover::after{background:#2563eb}
   #dr2tl .ttile.resizing{z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28)}
   #dr2tl .ed-note{font-size:11px;color:#4f46e5;background:#eef2ff;border-radius:7px;padding:6px 9px;margin-top:2px;line-height:1.35}
 
