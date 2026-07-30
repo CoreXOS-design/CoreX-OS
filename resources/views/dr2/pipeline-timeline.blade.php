@@ -143,6 +143,29 @@
   #dr2tl .ubadge{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:11px;background:#f1f5f9;color:#64748b}
   #dr2tl .ubadge.active{background:#dbeafe;color:#1d4ed8}#dr2tl .ubadge.done{background:#d1fae5;color:#047857}
   #dr2tl .ucard .tacts{margin-top:4px}
+
+  /* Add custom step — same control/fields as the List (route deals-dr2.pipeline.step.add), surfaced here too */
+  #dr2tl .addstep{flex:0 0 auto;margin:8px 15px 0;padding-top:2px}
+  #dr2tl .addstep__toggle{font-size:12px;font-weight:700;color:#2563eb;background:#fff;border:1px solid #cdd8e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
+  #dr2tl .addstep__toggle:hover{background:#f1f5f9}
+  #dr2tl .addstep__form{margin-top:8px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 13px}
+  #dr2tl .addstep__row{display:flex;gap:10px;flex-wrap:wrap}
+  #dr2tl .addstep__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:700;color:#475569;gap:3px}
+  #dr2tl .addstep__hintt{font-weight:500;color:#94a3b8}
+  #dr2tl .addstep__f input,#dr2tl .addstep__f select{font-family:inherit;font-size:13px;font-weight:400;color:#1e293b;border:1px solid #e2e8f0;border-radius:7px;padding:6px 8px}
+  #dr2tl .addstep__due{margin-top:11px;border-top:1px solid #eef2f7;padding-top:9px}
+  #dr2tl .addstep__duehdr{font-size:11.5px;font-weight:700;color:#475569;margin-bottom:5px}
+  #dr2tl .addstep__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#1e293b;padding:3px 0}
+  #dr2tl .addstep__radio.is-dim{color:#94a3b8}
+  #dr2tl .addstep__radio span{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
+  #dr2tl .addstep__radio input[type=date]{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2tl .addstep__num{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2tl .addstep__num:disabled,#dr2tl .addstep__radio input:disabled{opacity:.45}
+  #dr2tl .addstep__note{font-size:11px;color:#94a3b8;margin-top:4px}
+  #dr2tl .addstep__actions{margin-top:11px}
+  #dr2tl .addstep__submit{font-size:12.5px;font-weight:700;padding:6px 16px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit}
+  #dr2tl .addstep__submit:hover{background:#1d4ed8}
+
   /* draggable dated tile affordance */
   #dr2tl .ttile.draggable{cursor:grab}
   #dr2tl .ttile.dragging{cursor:grabbing;z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28);opacity:.95}
@@ -337,6 +360,46 @@
         </div>
       </div>
     @endif
+
+    {{-- Add a custom (ad-hoc) step — same control the List has (restored there in 165a67eb), surfaced
+         here too. Posts to the EXISTING deals-dr2.pipeline.step.add route/controller — no backend change.
+         The step's DUE is EITHER/OR: linked to another step it's "+N days after that step completes"
+         (relative, via trigger + days_offset) OR a fixed date; standalone steps use a fixed date. Once
+         saved it has a real due_date, so on reload it renders as a normal tile like any other step —
+         nothing extra required from buildBoard(). --}}
+    @unless($locked)
+    @permission('view_deals')
+    <div class="addstep" x-data="{ open:false, mode:'fixed', link:'' }">
+      <button type="button" class="addstep__toggle" @click="open=!open" x-text="open ? '× Cancel' : '+ Add custom step'"></button>
+      <form x-show="open" x-cloak method="POST" action="{{ route('deals-dr2.pipeline.step.add', $deal) }}" class="addstep__form">@csrf<input type="hidden" name="from" value="timeline">
+        <div class="addstep__row">
+          <label class="addstep__f">Step name
+            <input type="text" name="name" required placeholder="e.g. Plans approved">
+          </label>
+          <label class="addstep__f">Link to step <span class="addstep__hintt">(what it follows)</span>
+            <select name="link_step_id" x-model="link" @change="if(!link) mode='fixed'">
+              <option value="">— none (standalone, at the end) —</option>
+              @foreach($steps as $r2)<option value="{{ $r2['model']->id }}">{{ $r2['model']->name }}</option>@endforeach
+            </select>
+          </label>
+        </div>
+        <div class="addstep__due">
+          <div class="addstep__duehdr">Due date</div>
+          <label class="addstep__radio" :class="link ? '' : 'is-dim'">
+            <input type="radio" name="due_mode" value="relative" x-model="mode" :disabled="!link">
+            <span>+ <input type="number" name="offset" min="0" max="3650" value="7" :disabled="mode!=='relative' || !link" class="addstep__num"> days after the linked step completes</span>
+          </label>
+          <label class="addstep__radio">
+            <input type="radio" name="due_mode" value="fixed" x-model="mode">
+            <span>On a fixed date <input type="date" name="due_date" :disabled="mode!=='fixed'"></span>
+          </label>
+          <div class="addstep__note" x-show="!link" x-cloak>Pick a linked step to enable “+N days after”. Standalone steps use a fixed date.</div>
+        </div>
+        <div class="addstep__actions"><button type="submit" class="addstep__submit">Add step</button></div>
+      </form>
+    </div>
+    @endpermission
+    @endunless
 
     <div class="scroll">
       <div class="canvas" style="width:{{ $W }}px;height:{{ $canvasH }}px;">
