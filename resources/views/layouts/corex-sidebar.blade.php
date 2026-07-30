@@ -445,6 +445,65 @@
     </div>
     @endif
 
+    {{-- Multi-agent addendum (assistants-multi-agent-spec.md §6.2) — "Acting for" switcher.
+         Identity only, mirrors "Acting as branch manager" above: does NOT change what the
+         assistant is ALLOWED to do (the permission ceiling stays the Main Agent's, unchanged) —
+         only whose book a NEW record they create lands on. Shown only when there is a real
+         choice to make: an assistant with at least one linked Sub-Agent. --}}
+    @php
+        $_actingForLinkedIds = auth()->check() && auth()->user()->isAssistant()
+            ? auth()->user()->activeLinkedSubAgentIds()
+            : [];
+    @endphp
+    @if(auth()->check() && auth()->user()->isAssistant() && count($_actingForLinkedIds) > 0)
+    @php
+        $_mainAgent = auth()->user()->assignedAgent();
+        $_actingForId = session('acting_for_user_id');
+        $_actingForUser = $_actingForId ? \App\Models\User::find($_actingForId) : null;
+        $_linkedAgentUsers = \App\Models\User::whereIn('id', $_actingForLinkedIds)->get(['id', 'name']);
+    @endphp
+    <div class="px-3 pb-2">
+        <div x-data="{ actingForOpen: false }" class="px-0">
+            <button type="button" @click="actingForOpen = !actingForOpen"
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                    style="background:var(--side-control-bg, var(--surface-2)); color:var(--text-secondary); border:1px solid var(--side-control-border, var(--border));">
+                <span class="flex-1 text-left truncate">
+                    Acting for: {{ $_actingForUser?->name ?? $_mainAgent?->name ?? 'Choose…' }}
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 transition-transform" :class="actingForOpen && 'rotate-90'">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+            </button>
+            <div x-show="actingForOpen" x-cloak @click.outside="actingForOpen = false" x-transition
+                 class="mt-1 rounded-md overflow-hidden shadow-lg"
+                 style="background:var(--surface-2); border:1px solid var(--border);">
+                @if($_mainAgent)
+                <form method="POST" action="{{ route('acting-for.update') }}">
+                    @csrf
+                    <input type="hidden" name="acting_for_user_id" value="{{ $_mainAgent->id }}">
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ !$_actingForId ? 'font-semibold' : '' }}"
+                            style="color: @if(!$_actingForId) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        {{ $_mainAgent->name }}
+                    </button>
+                </form>
+                @endif
+                @foreach($_linkedAgentUsers as $_la)
+                <form method="POST" action="{{ route('acting-for.update') }}">
+                    @csrf
+                    <input type="hidden" name="acting_for_user_id" value="{{ $_la->id }}">
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[color:var(--surface)] {{ (int) $_actingForId === (int) $_la->id ? 'font-semibold' : '' }}"
+                            style="color: @if((int) $_actingForId === (int) $_la->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
+                        {{ $_la->name }}
+                    </button>
+                </form>
+                @endforeach
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Navigation — sliding-panel drill-down (root + per-group overlay panels) --}}
     <nav class="flex-1 min-h-0 corex-nav-viewport"
          x-data="{

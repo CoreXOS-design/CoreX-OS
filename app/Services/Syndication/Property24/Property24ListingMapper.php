@@ -1599,6 +1599,17 @@ class Property24ListingMapper
         //    Back on Market, …) can never keep a withdrawn/sold/expired listing
         //    live on the portal. See the WHY note in the docblock.
         $terminal = match (true) {
+            // AT-350 — MUST precede the generic 'sold' arm, which this value would
+            // otherwise satisfy by substring. Two things go wrong if it does:
+            //   1. P24 badges a COMPETITOR's sale as an HFC sale on our own listing;
+            //   2. removesFromPortal() treats 'Sold' as still-on-portal (correctly —
+            //      P24 keeps sold stock listed), so the advert is never withdrawn
+            //      and a property we no longer have stays publicly live. That is
+            //      exactly the stranded-listing class of
+            //      .ai/audits/p24-sold-not-delisted-2026-07-10.md (property #2142).
+            // 'Withdrawn' is the honest push: the listing leaves the portal, and no
+            // sale is attributed to us. Spec D3.
+            Property::isSoldByThirdPartyStatus($status)  => 'Withdrawn',
             str_contains($status, 'sold')              => 'Sold',
             str_contains($status, 'rented')
                 || str_contains($status, 'let out')     => 'Rented',

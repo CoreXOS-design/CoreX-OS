@@ -42,6 +42,11 @@ class PropertyAuditService
                 'actor_type'     => $actor['actor_type'],
                 'actor_label'    => $actor['actor_label'],
                 'source'         => $actor['source'],
+                // multi-agent addendum §6.3 — the PROPERTY's own current agent_id is the correct
+                // "on behalf of" for this audit row, not whichever agent the assistant currently
+                // has selected via "Acting for". StampsOnBehalfOf only fills a BLANK value, so
+                // this explicit resolution always wins.
+                'on_behalf_of_user_id' => \App\Support\ActingFor::onBehalfOfUserId($property->agent_id),
                 'agency_id'      => $agencyId,
                 'branch_id'      => $property->branch_id,
                 'event_category' => $eventCategory,
@@ -166,7 +171,9 @@ class PropertyAuditService
             'property_id' => $property->id,
             'user_id' => $user?->id ?? auth()->id(),
             // AT-267 §11 — raw insert (bypasses the model), so stamp on-behalf-of here.
-            'on_behalf_of_user_id' => \App\Support\ActingFor::onBehalfOfUserId(),
+            // multi-agent addendum §6.3 — the property's own agent_id is the correct
+            // "on behalf of" for a share of THIS property.
+            'on_behalf_of_user_id' => \App\Support\ActingFor::onBehalfOfUserId($property->agent_id),
             'agency_id' => $property->agency_id,   // AT-253 Rule 17
 
             'channel' => $channel,

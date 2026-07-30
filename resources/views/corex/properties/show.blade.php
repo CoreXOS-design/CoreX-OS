@@ -77,6 +77,21 @@
         </div>
     @endif
 
+    {{-- AT-350 — loss banner: this listing was sold by another agency. Rendered at
+         page level (not inside a tab) because it changes how every other panel on
+         the page should be read. STANDARDS "No Silent Locks": it says what the
+         state is AND carries its way out (Add details / Re-list).
+         Spec: .ai/specs/property-sold-by-third-party.md §6.5 --}}
+    @if(!$isNew && ($thirdPartySale ?? null))
+        <div class="mt-3">
+            @include('corex.properties.partials._third-party-sale', [
+                'property'        => $property,
+                'thirdPartySale'  => $thirdPartySale,
+                'canEdit'         => $canEdit,
+            ])
+        </div>
+    @endif
+
     {{-- Readiness bar removed --}}
 
     {{-- Two-column layout on large screens --}}
@@ -92,12 +107,16 @@
             'active'    => 'var(--ds-green)',
             'draft'     => 'var(--text-muted)',
             'sold'      => 'var(--ds-navy)',
+            // AT-350 — amber, distinct from Sold's navy: at a glance an agent must
+            // be able to tell "we sold it" from "they sold it".
+            'sold_by_3rd_party' => 'var(--ds-amber)',
             'withdrawn' => 'var(--ds-amber)',
         ];
         $statusBadgeVariants = [
             'active'    => 'ds-badge-success',
             'draft'     => 'ds-badge-default',
             'sold'      => 'ds-badge-info',
+            'sold_by_3rd_party' => 'ds-badge-warning',
             'withdrawn' => 'ds-badge-warning',
         ];
         $sc = $statusColors[$property->status] ?? 'var(--text-muted)';
@@ -4915,6 +4934,29 @@
                                 <button type="submit" class="text-[10px] font-medium px-3 py-1 rounded text-white" style="background: #ef4444;">Confirm Sold</button>
                             </form>
                         </details>
+
+                        @endif
+
+                        {{-- AT-350 — the honest third option beside "Mark as Sold".
+                             Amber against its red so the two are never mis-clicked:
+                             one credits HFC with the sale, the other explicitly does
+                             not.
+
+                             Deliberately OUTSIDE the four-status gate above: a listing
+                             at 'on_show', 'on_auction' or 'reduced_price' can be sold
+                             by a competitor just as easily as one at 'active', and the
+                             narrow gate would leave those agents with no action at all.
+                             The partial gates itself on isConcluded(), so it hides on a
+                             listing that is already done. Only renders when no loss
+                             record is standing — the banner at the top of the page owns
+                             that state.
+                             Spec: .ai/specs/property-sold-by-third-party.md §6.2 --}}
+                        @if(!($thirdPartySale ?? null))
+                            @include('corex.properties.partials._third-party-sale', [
+                                'property'       => $property,
+                                'thirdPartySale' => null,
+                                'canEdit'        => $canEdit,
+                            ])
                         @endif
                     <details class="inline">
                         <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">+ Log Marketing Action</summary>

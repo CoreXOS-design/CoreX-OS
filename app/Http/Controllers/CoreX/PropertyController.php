@@ -563,10 +563,15 @@ class PropertyController extends Controller
         // no edit affordance is shown that would only 403 on save.
         $canEdit = $this->canMutateProperty($property);
 
+        // AT-350 — the OPEN loss record (another agency sold this listing), or null.
+        // Drives the amber loss banner at the top of the page and suppresses the
+        // "Sold by 3rd Party" capture action while one is already standing.
+        $thirdPartySale = $property->openThirdPartySale();
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale'
         ));
     }
 
@@ -648,8 +653,11 @@ class PropertyController extends Controller
         // This path is the just-created listing shown to its creator — always editable. (Assistants
         // cannot reach property creation at all, so this never renders read-only.)
         $canEdit   = true;
+        // AT-350 — a just-created listing cannot yet have been lost to a competitor.
+        // Declared rather than omitted so the shared view never hits an undefined var.
+        $thirdPartySale = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale'));
     }
 
     /**

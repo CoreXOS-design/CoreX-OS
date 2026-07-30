@@ -1943,7 +1943,8 @@ class ESignWizardController extends Controller
                 // Document::scopeVisibleTo() resolves an agent's 'own' as [agent] only, so an
                 // assistant-owned OTP/mandate was invisible to the practitioner it was prepared
                 // for. ownershipUserId() returns $user->id for everyone who is not an assistant.
-                'owner_id'         => $user->ownershipUserId(),
+                // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null),
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
@@ -4199,7 +4200,7 @@ class ESignWizardController extends Controller
             'name' => $docName,
             'template_id' => $template->id,
             'fields_json' => $fields,
-            'owner_id' => $user->ownershipUserId(), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
+            'owner_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
             'branch_id' => $user->effectiveBranchId(),
             'document_type' => $template->template_type,
             'property_address' => $propertyAddress,
@@ -4399,7 +4400,7 @@ class ESignWizardController extends Controller
                 'name'             => $docName,
                 'template_id'      => $template->id,
                 'fields_json'      => $fields,
-                'owner_id'         => $user->ownershipUserId(), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
+                'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,

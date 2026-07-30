@@ -358,7 +358,8 @@ class ViewingPackController extends Controller
             // (assistant-control-page.md §Decisions 2). agent_id is both the owner AND the
             // buyer-facing contact on the pack, so filing it under the assistant hid the pack
             // from the agent it was built for AND put the assistant's name in front of the buyer.
-            'agent_id'   => $request->user()->ownershipUserId(),
+            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+            'agent_id'   => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
             'status'     => ViewingPack::STATUS_DRAFT,
             'title'      => $this->defaultTitle($buyer),
         ]);
@@ -495,7 +496,8 @@ class ViewingPackController extends Controller
             'branch_id'         => $calendarEvent->branch_id,   // else BelongsToBranch fills from actor
             'contact_id'        => $buyer->id,
             // AT-267 / AUDIT 2026-07-26 (F3) — see store(): ownership is always the agent.
-            'agent_id'          => $request->user()->ownershipUserId(),
+            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+            'agent_id'          => $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null),
             'calendar_event_id' => $calendarEvent->id,
             'tour_at'           => $calendarEvent->event_date,
             'status'            => ViewingPack::STATUS_DRAFT,

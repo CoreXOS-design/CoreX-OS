@@ -29,6 +29,10 @@ class PropertyAuditLog extends Model
         'event_category', 'event_type',
         'old_values', 'new_values', 'metadata',
         'human_summary', 'created_at',
+        // multi-agent addendum §6.3 — must be fillable for an explicit resolution (the
+        // property's own agent_id) to win over StampsOnBehalfOf's creating() hook, which only
+        // ever fills a BLANK value.
+        'on_behalf_of_user_id',
     ];
 
     protected $casts = [

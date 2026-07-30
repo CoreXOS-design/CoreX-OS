@@ -139,6 +139,30 @@
                 </div>
             </div>
 
+            {{-- Multi-agent addendum (assistants-multi-agent-spec.md §7) — read-only awareness
+                 ONLY. Admin/super_admin manage who is linked (M2); this line just tells you it's
+                 happening so you're not confused about records you don't recognise. --}}
+            @php $_linkedSubAgents = $assignment->linkedAgentLinks()->with('agent')->get()->pluck('agent')->filter(); @endphp
+            @if($_linkedSubAgents->isNotEmpty())
+            <div class="px-4 py-3 flex items-start gap-3"
+                 style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+                     style="width:18px; height:18px; margin-top:1px; color:var(--text-muted, #6b7280);">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 8a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clip-rule="evenodd" />
+                </svg>
+                <div>
+                    <div class="text-sm font-semibold">
+                        This assistant also supports: {{ $_linkedSubAgents->pluck('name')->join(', ') }}
+                    </div>
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary, #6b7280);">
+                        {{ $assistant?->name }} can also see and edit those agents' own records, the same way
+                        they can yours. Only an administrator can add or remove this — it doesn't change what
+                        {{ $assistant?->name }} is allowed to do, only whose records they may reach.
+                    </div>
+                </div>
+            </div>
+            @endif
+
             @foreach($behaviourToggles as $t)
                 <div class="px-4 py-3 flex items-center justify-between gap-4"
                      style="border-top:1px solid var(--border, rgba(0,0,0,0.07)); color:var(--text-primary, #111827);">

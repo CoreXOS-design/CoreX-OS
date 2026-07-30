@@ -76,6 +76,14 @@
                 </a>
                 @include('corex.properties.partials.p24-number-fix')
                 @endif
+                {{-- AT-350 — Non-negotiable #2: the loss report ships with its own way
+                     in on day one. A report nobody can reach is a report nobody reads. --}}
+                <a href="{{ route('corex.properties.reports.lost-to-competitors') }}"
+                   class="corex-btn-outline text-xs"
+                   style=""
+                   title="Listings another agency sold — who beat us, at what price, and why">
+                    Lost to Competitors
+                </a>
                 <a href="{{ route('corex.properties.create') }}"
                    class="corex-btn-outline text-xs"
                    style=""
@@ -328,6 +336,10 @@
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
                 <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
+                {{-- AT-350 — sold by another agency. Separate from Sold on purpose:
+                     "how much did WE sell" and "how much did we LOSE" are different
+                     questions and an agent must be able to filter for either. --}}
+                <option value="sold_by_3rd_party" {{ $status === 'sold_by_3rd_party' ? 'selected' : '' }}>Sold by 3rd Party</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
             </select>
 
@@ -707,13 +719,23 @@
             $thumb  = $images[0] ?? null;
             $listingTypeLabel = $property->isRental() ? 'For Rent' : 'For Sale';
             $statusKey   = strtolower((string) ($property->status ?: 'draft'));
-            $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+            // AT-350 — ucwords() would render "Sold By 3rd Party" (capital "By").
+            // statusBadge() is the model's own honest label, so the pill matches
+            // the settings item and the rest of the app exactly.
+            $isThirdParty = \App\Models\Property::isSoldByThirdPartyStatus($statusKey);
+            $statusLabel = $isThirdParty
+                ? $property->statusBadge()
+                : ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
             $brandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
             // Sold listings get a red status pill; withdrawn/sold also grey out the portal refs.
-            $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true);
-            $statusPillStyle = $statusKey === 'sold'
-                ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
-                : $brandPillStyle;
+            $isOffMarket    = in_array($statusKey, ['sold', 'withdrawn'], true) || $isThirdParty;
+            // Amber, not crimson: crimson is "we sold it". A competitor's sale is a
+            // different fact and must be distinguishable at a glance on a busy grid.
+            $statusPillStyle = $isThirdParty
+                ? 'background:var(--ds-amber, #d97706); color:#fff; border:none;'
+                : ($statusKey === 'sold'
+                    ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
+                    : $brandPillStyle);
             $refPillStyle = $isOffMarket
                 ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);'
                 : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);';
@@ -930,12 +952,18 @@
                     $rowThumb  = $rowImages[0] ?? null;
                     $rowListingLabel = $property->isRental() ? 'For Rent' : 'For Sale';
                     $rowStatusKey   = strtolower((string) ($property->status ?: 'draft'));
-                    $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                    // AT-350 — see the grid-view block above for why statusBadge().
+                    $rowIsThirdParty = \App\Models\Property::isSoldByThirdPartyStatus($rowStatusKey);
+                    $rowStatusLabel = $rowIsThirdParty
+                        ? $property->statusBadge()
+                        : ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
                     $rowBrandPillStyle = 'background:var(--brand-default, #0b2a4a); color:#fff; border:none;';
-                    $rowIsOffMarket  = in_array($rowStatusKey, ['sold', 'withdrawn'], true);
-                    $rowStatusPillStyle = $rowStatusKey === 'sold'
-                        ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
-                        : $rowBrandPillStyle;
+                    $rowIsOffMarket  = in_array($rowStatusKey, ['sold', 'withdrawn'], true) || $rowIsThirdParty;
+                    $rowStatusPillStyle = $rowIsThirdParty
+                        ? 'background:var(--ds-amber, #d97706); color:#fff; border:none;'
+                        : ($rowStatusKey === 'sold'
+                            ? 'background:var(--ds-crimson, #c41e3a); color:#fff; border:none;'
+                            : $rowBrandPillStyle);
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">

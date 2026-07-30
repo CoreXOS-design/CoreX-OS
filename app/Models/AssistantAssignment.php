@@ -88,10 +88,14 @@ class AssistantAssignment extends Model
                 return;
             }
             $assignment->permissions()->delete();
+            // Multi-agent addendum — Sub-Agent links travel with the assignment the same way
+            // the matrix does: no orphans, and a restore brings them back intact.
+            $assignment->linkedAgentLinks()->delete();
         });
 
         static::restored(function (self $assignment) {
             $assignment->permissions()->withTrashed()->restore();
+            $assignment->linkedAgentLinks()->withTrashed()->restore();
         });
     }
 
@@ -109,6 +113,15 @@ class AssistantAssignment extends Model
     public function permissions(): HasMany
     {
         return $this->hasMany(AssistantAssignmentPermission::class);
+    }
+
+    /**
+     * Multi-agent addendum — the Sub-Agent links (data-breadth only, no permissions).
+     * Spec: .ai/specs/assistants-multi-agent-spec.md §2.2
+     */
+    public function linkedAgentLinks(): HasMany
+    {
+        return $this->hasMany(AssistantLinkedAgent::class, 'assistant_assignment_id');
     }
 
     public function createdBy(): BelongsTo

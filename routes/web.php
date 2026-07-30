@@ -547,6 +547,16 @@ Route::middleware('auth')->group(function () {
         Route::post('/{assignment}/revoke',         [\App\Http\Controllers\Admin\AssistantController::class, 'revoke'])->name('revoke');
         Route::post('/{assignment}/restore',        [\App\Http\Controllers\Admin\AssistantController::class, 'restore'])->name('restore')->withTrashed();
         Route::post('/{assignment}/resend-invite',  [\App\Http\Controllers\Admin\AssistantController::class, 'resendInvite'])->name('resend-invite');
+
+        /*
+         | Multi-agent addendum (assistants-multi-agent-spec.md §7) — Sub-Agent links.
+         | Admin/super_admin ONLY (M2): never the Main Agent, never the Sub-Agent themselves.
+         | The Main Agent stays singular and unchanged; this only widens whose data the
+         | assistant may see/edit, never the permission ceiling.
+         */
+        Route::post('/{assignment}/linked-agents', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'store'])->name('linked-agents.store');
+        Route::delete('/{assignment}/linked-agents/{linkedAgent}', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'destroy'])->name('linked-agents.destroy');
+        Route::post('/{assignment}/linked-agents/{linkedAgent}/restore', [\App\Http\Controllers\Admin\AssistantLinkedAgentController::class, 'restore'])->name('linked-agents.restore');
     });
 
     /*
@@ -562,6 +572,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/{assignment}/matrix',  [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'edit'])->name('matrix');
         Route::post('/{assignment}/matrix', [\App\Http\Controllers\Agent\AssistantMatrixController::class, 'save'])->name('matrix.save');
     });
+
+    /*
+     | Multi-agent addendum (assistants-multi-agent-spec.md §6.2) — the "Acting for" session
+     | switcher. Mirrors branch.switch exactly. Only meaningful for an assistant with at least
+     | one linked Sub-Agent; the controller itself guards isAssistant() and a valid choice.
+     */
+    Route::post('/my-portal/acting-for/clear', [\App\Http\Controllers\Agent\ActingForController::class, 'clear'])->name('acting-for.clear');
+    Route::post('/my-portal/acting-for', [\App\Http\Controllers\Agent\ActingForController::class, 'update'])->name('acting-for.update');
 
     Route::get('/admin/users', [App\Http\Controllers\Admin\UserManagementController::class, 'index'])
         ->middleware('permission:manage_users')->name('admin.users');
@@ -2989,6 +3007,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/',                        [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
+
+        // Sold by 3rd Party — another agency sold our listing (AT-350).
+        // Spec: .ai/specs/property-sold-by-third-party.md
+        // No extra permission key: an ordinary property write, gated by the
+        // group's access_properties + per-property data scope in the controller.
+        Route::post('/{property}/third-party-sale',         [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'store'])->name('third-party-sale.store');
+        Route::patch('/{property}/third-party-sale',        [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'update'])->name('third-party-sale.update');
+        Route::post('/{property}/third-party-sale/revert',  [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'revert'])->name('third-party-sale.revert');
+
+        // Lost to Competitors — the loss-analysis report that makes the loss
+        // record worth keeping (spec §6.6). Read-only.
+        Route::get('/reports/lost-to-competitors', [\App\Http\Controllers\CoreX\LossAnalysisController::class, 'index'])->name('reports.lost-to-competitors');
 
         // Sold Properties Import — super-admin only (AT-24)
         Route::middleware('super_admin')->group(function () {

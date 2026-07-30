@@ -76,6 +76,70 @@
         </p>
     </div>
 
+    {{-- Multi-agent addendum (assistants-multi-agent-spec.md §7) — Sub-Agent links.
+         The Main Agent above is unchanged and singular; this section only widens whose
+         records the assistant may see and edit. Admin/super_admin manage this exclusively. --}}
+    @unless($revoked)
+    <div class="rounded-lg p-6 space-y-4"
+         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+        <div>
+            <h2 class="text-sm font-bold mb-1">Also supports these agents</h2>
+            <p class="text-xs" style="color:var(--text-muted);">
+                {{ $assistant?->name }} can also see and edit these agents' own records — properties,
+                contacts, deals — the same way they already can for {{ $agent?->name }}. This never
+                changes what {{ $assistant?->name }} is allowed to DO, only whose records they may reach.
+            </p>
+        </div>
+
+        @if($assignment->linkedAgentLinks->isNotEmpty())
+            <ul class="space-y-2">
+                @foreach($assignment->linkedAgentLinks as $link)
+                    <li class="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface-2); border:1px solid var(--border);">
+                        <span>
+                            {{ $link->agent?->name ?? 'Unknown agent' }}
+                            <span class="text-xs" style="color:var(--text-muted);">
+                                {{ $link->agent?->branch?->name ?? '—' }}
+                            </span>
+                        </span>
+                        @permission('assistants.manage_linked_agents')
+                        <form method="POST" action="{{ route('admin.assistants.linked-agents.destroy', [$assignment, $link]) }}">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="corex-btn-outline text-xs"
+                                    style="color:var(--ds-crimson, #dc2626); border-color:var(--ds-crimson, #dc2626);"
+                                    onclick="return confirm('Unlink {{ $link->agent?->name }}? {{ $assistant?->name }} will immediately lose access to their records. This can be restored later.');">
+                                Unlink
+                            </button>
+                        </form>
+                        @endpermission
+                    </li>
+                @endforeach
+            </ul>
+        @else
+            <p class="text-xs" style="color:var(--text-muted);">No additional agents linked yet.</p>
+        @endif
+
+        @permission('assistants.manage_linked_agents')
+        @if($linkableAgents->isNotEmpty())
+            <form method="POST" action="{{ route('admin.assistants.linked-agents.store', $assignment) }}"
+                  class="flex flex-col sm:flex-row gap-3 pt-2" style="border-top:1px solid var(--border);">
+                @csrf
+                <select name="agent_user_id" required
+                        class="flex-1 rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    <option value="">Choose an agent to add…</option>
+                    @foreach($linkableAgents as $candidate)
+                        <option value="{{ $candidate->id }}">{{ $candidate->name }}</option>
+                    @endforeach
+                </select>
+                <button type="submit" class="corex-btn-outline">Link agent</button>
+            </form>
+        @endif
+        @endpermission
+    </div>
+    @endunless
+
     @if($pending && !$revoked)
         <div class="rounded-lg p-4 flex items-center justify-between gap-4"
              style="background:var(--surface); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 40%, transparent); color:var(--text-primary);">

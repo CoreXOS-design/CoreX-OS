@@ -165,12 +165,13 @@ class ContactObserver
             // agent's book), not the assistant. ownershipUserId() maps the capturer to their agent
             // for an assistant, and to themselves for everyone else; created_by_user_id still
             // records who actually captured it. Non-auth ingress (imports) has no assistant, so it
-            // falls through to the capturer id unchanged.
+            // falls through to the capturer id unchanged. multi-agent addendum §6.1 — honours an
+            // explicit "Acting for" choice among the assistant's Main Agent / linked Sub-Agents.
             $capturer = Auth::user();
             $contact->agent_id = ($capturer
                 && (int) $capturer->id === (int) $contact->created_by_user_id
                 && method_exists($capturer, 'ownershipUserId'))
-                    ? $capturer->ownershipUserId()
+                    ? $capturer->ownershipUserId(request()->integer('acting_for_user_id') ?: null)
                     : $contact->created_by_user_id;
         }
 

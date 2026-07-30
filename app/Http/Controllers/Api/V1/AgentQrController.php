@@ -7,7 +7,6 @@ use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Models\ContactSource;
 use App\Models\Scopes\AgencyScope;
-use App\Models\Scopes\ContactScope;
 use App\Models\User;
 use App\Services\ClientAuthService;
 use Illuminate\Http\JsonResponse;
@@ -199,11 +198,16 @@ class AgentQrController extends Controller
      */
     private function upsertAgencyContact(User $agent, array $data, string $email, ?ClientUser $clientUser): Contact
     {
-        $contact = Contact::query()
-            ->withoutGlobalScope(AgencyScope::class)
-            ->withoutGlobalScope(ContactScope::class)
-            ->where('agency_id', $agent->agency_id)
-            ->whereRaw('LOWER(email) = ?', [$email])
+        // Match on phone AS WELL as email — an email-only lookup let a scan whose
+        // email differed (or was blank) but whose phone already existed spawn a
+        // duplicate. The canonical matcher checks mirror columns AND the child
+        // identifier tables for both, agency-scoped, honouring the agency's
+        // configured duplicate_match_fields.
+        $contact = app(\App\Services\ContactDuplicateService::class)
+            ->findDuplicates([
+                'email' => $email,
+                'phone' => $data['phone'] ?? null,
+            ], (int) $agent->agency_id)
             ->first();
 
         if (!$contact) {

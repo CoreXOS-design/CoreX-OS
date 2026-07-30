@@ -1461,7 +1461,10 @@ class CommandCentreService
         $query = \App\Models\Property::withoutGlobalScopes()
             ->where('agency_id', (int) ($user->effectiveAgencyId() ?: 0))   // AT-253 Rule 17
             ->whereNull('compliance_snapshot_at')
-            ->whereNotIn('status', ['sold', 'withdrawn', 'draft'])
+            // BUILD_STANDARD §6 — single source of truth for "not live". Was
+            // ['sold','withdrawn','draft']; a listing sold by another agency would
+            // otherwise sit in "pending marketing" forever (AT-350).
+            ->whereNotIn('status', \App\Models\Property::OFF_MARKET_STATUSES)
             ->whereNull('deleted_at');
 
         // Scope by role

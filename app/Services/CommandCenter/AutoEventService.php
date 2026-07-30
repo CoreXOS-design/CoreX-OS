@@ -176,8 +176,12 @@ class AutoEventService
         $count = 0;
         Property::whereNull('deleted_at')
             ->where(function ($q) {
+                // BUILD_STANDARD §6 — single source of truth for "not live". The
+                // hand-written trio omitted expired/cancelled/draft and would have
+                // kept generating chase work for a listing another agency had
+                // already sold (AT-350).
                 $q->whereNull('status')
-                  ->orWhereNotIn('status', ['sold', 'withdrawn', 'archived']);
+                  ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
             ->chunk(50, function ($properties) use (&$count) {
                 foreach ($properties as $property) {
@@ -218,8 +222,12 @@ class AutoEventService
 
         Property::whereNull('deleted_at')
             ->where(function ($q) {
+                // BUILD_STANDARD §6 — single source of truth for "not live". The
+                // hand-written trio omitted expired/cancelled/draft and would have
+                // kept generating chase work for a listing another agency had
+                // already sold (AT-350).
                 $q->whereNull('status')
-                  ->orWhereNotIn('status', ['sold', 'withdrawn', 'archived']);
+                  ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
             // Compliant stock (e.g. P24 go-live imports) is vetted/established
             // and must not be flagged "needs attention" — that flooded the

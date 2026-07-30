@@ -13,8 +13,12 @@ class ProspectingClaimMaintenance extends Command
 
     public function handle(): int
     {
-        // 1. Auto-release expired claims (48h with no feedback)
+        // 1. Auto-release expired claims (48h with no feedback).
+        //    PITCHED claims (pitched_at set — the agent captured + linked a
+        //    contact via "Pitch now") are permanent and never auto-release; the
+        //    48h window applies only to a claim-without-pitch.
         $expired = ProspectingClaim::active()
+            ->whereNull('pitched_at')
             ->whereNull('feedback_at')
             ->where('claimed_at', '<', now()->subHours(48))
             ->update([

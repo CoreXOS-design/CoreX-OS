@@ -74,8 +74,9 @@ class TaskController extends Controller
         $data = $request->all();
         // AT-267 — an assistant's task is filed as the AGENT (ownershipUserId), never assigned to the
         // assistant or a caller-supplied user; everyone else keeps the existing "default to self".
+        // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
         $data['assigned_to']    = $request->user()->is_assistant
-            ? $request->user()->ownershipUserId()
+            ? $request->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null)
             : ($data['assigned_to'] ?? $request->user()->id);
         $data['task_type']      = $data['task_type'] ?? 'custom';
         $data['send_reminder']  = $request->boolean('send_reminder');

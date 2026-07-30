@@ -108,7 +108,8 @@ class PresentationGeneratorController extends Controller
 
             $version = $this->generator->generateForProperty(
                 propertyId:  $property->id,
-                agentUserId: $user->ownershipUserId(), // AT-267 — file an assistant's presentation as the agent
+                // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+                agentUserId: $user->ownershipUserId($request->integer('acting_for_user_id') ?: null), // AT-267 — file an assistant's presentation as the agent
                 agencyId:    (int) $property->agency_id,
                 options:     $options,
             );

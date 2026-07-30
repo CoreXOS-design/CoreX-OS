@@ -160,13 +160,18 @@ class AssistantController extends Controller
     {
         abort_unless($request->user()->hasPermission('assistants.view'), 403);
 
-        $assignment->load(['assistant', 'assignedAgent', 'branch', 'permissions', 'createdBy', 'revokedBy']);
+        $assignment->load([
+            'assistant', 'assignedAgent', 'branch', 'permissions', 'createdBy', 'revokedBy',
+            'linkedAgentLinks' => fn ($q) => $q->with('agent')->latest(),
+        ]);
 
         return view('admin.assistants.show', [
             'assignment'   => $assignment,
             'grantedCount' => $assignment->permissions->where('granted', true)->count(),
             'lockedCount'  => $assignment->permissions->where('is_locked', true)->count(),
             'agents'       => $this->assignableAgents($assignment->assistant_user_id),
+            // Multi-agent addendum — candidates for the "Also supports these agents" section.
+            'linkableAgents' => \App\Models\AssistantLinkedAgent::eligibleCandidates($assignment),
         ]);
     }
 

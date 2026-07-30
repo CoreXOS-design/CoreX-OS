@@ -329,7 +329,9 @@ class DealV2Controller extends Controller
         // is themselves, so behaviour is unchanged.
         if (empty($data['listing_agent_id'])) {
             $firstListing = collect($data['agents'] ?? [])->firstWhere('side', 'listing');
-            $data['listing_agent_id'] = $firstListing['user_id'] ?? auth()->user()->ownershipUserId();
+            // multi-agent addendum §6.1 — honours an explicit "Acting for" choice.
+            $data['listing_agent_id'] = $firstListing['user_id']
+                ?? auth()->user()->ownershipUserId($request->integer('acting_for_user_id') ?: null);
         }
 
         // WS-V3 (Ruling b): an agent granted ONLY own-capture (not full create) may

@@ -116,8 +116,30 @@ class AdManagerController extends Controller
         // Property queries are agency-scoped (AgencyScope). Within the agency the
         // data scope narrows further: 'all' = every agent, 'branch' = own branch
         // (+ own listings), 'own' = only the user's own listings.
+        // BUILD_STANDARD §6 — sourced from Property::OFF_MARKET_STATUSES instead of
+        // 14 hand-cased literals, so a new terminal status (AT-350's
+        // 'sold_by_3rd_party') can never leak an advert for stock we no longer
+        // have. Compared on LOWER(status) because properties.status is genuinely
+        // mixed-case in production — the wizard writes lowercase slugs, the P24
+        // sync writes capitalised labels — which is why the old list had to spell
+        // every value twice.
+        //
+        // 'rented' is appended explicitly: it is in Property::CONCLUDED_STATUSES but
+        // NOT in OFF_MARKET_STATUSES (which carries only the 'let_out' spelling).
+        // Dropping it here would start generating adverts for tenanted stock, so
+        // the pre-existing exclusion is preserved verbatim. That asymmetry in the
+        // constants is a real gap, but widening OFF_MARKET_STATUSES moves KPI and
+        // map numbers agency-wide — out of scope for AT-350, raised separately.
+        $adDeadStatuses = array_values(array_unique(
+            array_merge(Property::OFF_MARKET_STATUSES, ['rented'])
+        ));
+
         $query = Property::with('agent:id,name')
-            ->whereNotIn('status', ['Sold', 'sold', 'Rented', 'rented', 'Draft', 'draft', 'Withdrawn', 'withdrawn', 'Expired', 'expired', 'Cancelled', 'cancelled', 'Archived', 'archived'])
+            ->whereRaw(
+                'LOWER(COALESCE(properties.status, \'\')) NOT IN ('
+                . implode(',', array_fill(0, count($adDeadStatuses), '?')) . ')',
+                $adDeadStatuses
+            )
             ->where(function ($q) use ($websiteLiveIds) {
                 $q->where(function ($w) {
                     $w->whereNotNull('p24_ref')->where('p24_ref', '<>', '')->where('p24_syndication_status', 'active');
