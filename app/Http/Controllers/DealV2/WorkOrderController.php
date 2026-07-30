@@ -333,18 +333,18 @@ class WorkOrderController extends Controller
         // extra trashed rows; a live step always outscores nothing, and there is one step per COC.
         $steps   = \App\Models\DealV2\DealStepInstance::withTrashed()->where('dr1_deal_id', $deal->id)->get();
         $types   = \App\Models\DealV2\AgencyServiceType::active()->get()->keyBy('code');
-        // The trigger step is defined in PIPELINE SETUP (the granting step), never re-selected on
-        // the deal panel — derive it here, ignore any client-posted trigger (Johan 2026-07-20).
-        $triggerId = optional($steps->firstWhere('status_trigger', 'granted'))->id
-                     ?? optional($steps->firstWhere('status_trigger', 'accepted'))->id;
-        // BUGFIX (Johan) — the COMPOSABLE (assemble) model marks its grant gate with is_grant_marker=1
-        // but does NOT set status_trigger='granted', so $triggerId is NULL on composable deals. A ticked
-        // COC with no matching pipeline step (e.g. Gas / Electric Fence, not in this deal's structure)
-        // then had NO step to anchor its work order to, so it was silently skipped ("unanchored") and
-        // ADDING a COC never persisted pre-grant (un-ticking worked because it just soft-deletes an
-        // existing row). Recognise the grant-marker gate as a valid anchor of last resort so ticking a
-        // new COC persists, exactly as un-ticking persists removal.
+        // The grant gate. COMPOSABLE (assemble) deals mark it is_grant_marker=1 but do NOT set
+        // status_trigger='granted', so it is both the anchor of last resort (a ticked COC with no
+        // matching step still persists against it) AND — below — the granting TRIGGER of last resort.
         $grantMarkerId = optional($steps->first(fn ($s) => $s->is_grant_marker && ! $s->trashed()))->id;
+        // The trigger step is defined in PIPELINE SETUP (the granting step), never re-selected on the
+        // deal panel — derive it here, ignore any client-posted trigger (Johan 2026-07-20).
+        // AUTO-SEND FIX — fall back to the grant-marker gate so a COMPOSABLE deal's work orders carry a
+        // real trigger. Without it trigger_step_instance_id was NULL, so neither the trigger-driven send
+        // (fireSupplierWorkOrders when the gate completes) nor the on-save release ever fired.
+        $triggerId = optional($steps->firstWhere('status_trigger', 'granted'))->id
+                     ?? optional($steps->firstWhere('status_trigger', 'accepted'))->id
+                     ?? $grantMarkerId;
         $naReason  = 'Not required — supplier work orders';
         $userId    = $request->user()?->id;
 

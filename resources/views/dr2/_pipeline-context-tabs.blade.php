@@ -9,6 +9,22 @@
      @dr2-open-structure.window="tab='structure'"
      style="margin-bottom:1rem;">
 
+    {{-- Deal-level DECLINE — prominent at the top of the deal panels (the Timeline's own header is
+         owned by cc5, so this is the visible non-tab home on the Timeline). Reuses the canonical
+         accepted_status → 'D' transition (locks the pipeline; re-grantable from the register). --}}
+    @php $accepted = (string) ($deal->accepted_status ?? 'P'); @endphp
+    <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:.4rem;">
+        @if($accepted === 'D')
+            <span style="color:#b91c1c;font-size:12px;font-weight:700;">● Deal Declined — re-grant from the register</span>
+        @elseif($accepted !== 'R')
+            <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}" style="margin:0;"
+                  onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
+                @csrf
+                <button type="submit" style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;">Decline deal</button>
+            </form>
+        @endif
+    </div>
+
     <div class="dr2-tabbar" role="tablist" aria-label="Deal context">
         <button type="button" class="dr2-tab" :class="tab==='structure' ? 'corex-tab-active' : ''" @click="tab='structure'" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
         <button type="button" class="dr2-tab" :class="tab==='wo' ? 'corex-tab-active' : ''" @click="tab='wo'" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>

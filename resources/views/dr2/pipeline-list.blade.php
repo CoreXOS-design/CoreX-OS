@@ -214,6 +214,18 @@
         @if($deal->property) — {{ $deal->property->buildDisplayAddress() }} @endif</div>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
+      {{-- Deal-level DECLINE — visible in the header (not buried in a panel tab). Reuses the canonical
+           accepted_status → 'D' transition (locks the pipeline; re-grantable from the register). --}}
+      @php $accepted = (string) ($deal->accepted_status ?? 'P'); @endphp
+      @if($accepted === 'D')
+        <span style="color:#b91c1c;font-size:12.5px;font-weight:700;">● Declined</span>
+      @elseif($accepted !== 'R')
+        <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}" style="display:inline;margin:0;"
+              onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
+          @csrf
+          <button type="submit" style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;">Decline deal</button>
+        </form>
+      @endif
       <div class="toggle"><a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}">Timeline</a><span class="on">List</span></div>
       <a class="back" href="{{ route('deals-dr2.index') }}">← DR2 Register</a>
     </div>

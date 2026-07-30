@@ -487,6 +487,11 @@ class Dr1PipelineService
             // Grant unblocks Stage 2 (Transfer & Registration): activate the steps that follow the
             // marker, exactly as any other completion would.
             $this->activateDownstreamSteps($gate);
+            // AUTO-SEND — the grant gate is the trigger for supplier work orders (composable deals anchor
+            // COC work orders to it). completeStep() fires these when a normal trigger step completes; the
+            // gate completes HERE (via convergence, not completeStep), so fire them too or the auto email
+            // to the supplier never happens on grant. Each send is isolated (records failure, never aborts).
+            $this->fireSupplierWorkOrders($gate, $userId);
         }
 
         // Advance the persisted register status (accepted_status — the truth the DR2 screen reads).
