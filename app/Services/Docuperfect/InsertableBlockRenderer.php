@@ -288,8 +288,21 @@ final class InsertableBlockRenderer
         // Fallback: when there are no structured rows but
         // signature_templates.other_conditions_text is populated, render
         // that legacy text inline so pre-Phase-1B.5 documents still surface.
+        //
+        // PACK DOC-SCOPING (Johan 2026-07-30): other_conditions_text is a SINGLE
+        // flat whole-template field — in a pack it holds EVERY segment's conditions
+        // concatenated, with no per-document scoping. A per-document pack block is
+        // keyed `other_conditions__<docKey>`; its OWN conditions are the structured
+        // DocumentCondition rows filtered by that block_id. A scoped block that has
+        // no structured rows (e.g. Addendum B, to which no condition was linked) must
+        // render EMPTY — never the flat blob, which would bleed EATS's + MDF's clauses
+        // onto Addendum B (foreign legal clauses on a document). So the legacy flat
+        // fallback is allowed ONLY for the UNSCOPED single-document block
+        // (block_id `other_conditions`, no `__` suffix) — the genuine pre-structured
+        // legacy case it was written for.
         $useLegacyTextFallback = $conditions->isEmpty()
             && $purpose === 'other_conditions'
+            && ! str_contains($blockId, '__')
             && trim((string) $doc->other_conditions_text) !== '';
 
         $itemsHtml = '';
