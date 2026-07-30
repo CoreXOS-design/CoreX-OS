@@ -250,9 +250,17 @@ class DealMoneyLineRebuilder
             // (SQLSTATE[HY000] 1364). Derive it from the deal, mirroring
             // InheritsBranchFromParent. Guarded so we never pass an EXPLICIT null (which the
             // trait treats as a deliberate GLOBAL row and would leave unstamped).
-            if ($deal->agency_id) {
-                $payload['agency_id'] = (int) $deal->agency_id;
+            // Defensive: an agency-less deal (CoreX-admin test data only — real agency users
+            // always carry an agency) cannot own a money line (deal_money_lines.agency_id is
+            // NOT NULL). SKIP the create for such a deal rather than crash the CALLER's
+            // transaction: a grant auto-declines a same-property sibling, whose save recalcs
+            // money lines, so an agency-less sibling used to roll the whole grant back with
+            // SQLSTATE 1364 (see .ai/investigations/dr2-money-line-rebuilder-null-agency-crash).
+            // The normal WITH-agency path below is unchanged.
+            if (! $deal->agency_id) {
+                continue;
             }
+            $payload['agency_id'] = (int) $deal->agency_id;
 
             if (!$dryRun) {
                 DealMoneyLine::create($payload);
