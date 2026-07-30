@@ -70,6 +70,12 @@ class PipelineTimelineService
         // is is_milestone=true but still genuinely Stage 1 in the List, so it must group that way here too.
         $stageOf = fn (int $id) => isset($stage1Ids[$id]) ? 1 : (isset($stage2Ids[$id]) ? 2 : null);
 
+        // The agency-configured display order (cc6's read-model field, deal_step_instances.display_priority)
+        // + position, for the row-packing input order below. Read directly off the model — this is the
+        // same raw value the List's step_meta exposes, not a re-derivation of it.
+        $priorityOf = $allSteps->pluck('display_priority', 'id')->all();
+        $positionOf = $allSteps->pluck('position', 'id')->all();
+
         // The PERSISTENT "Unscheduled" tray now carries ONLY steps that genuinely cannot be placed — the
         // ones with no due date at all. Everything with a due date is projected onto the axis below, so a
         // deal whose steps have due dates but no starts is fully populated instead of dumped in the tray.
@@ -180,9 +186,44 @@ class PipelineTimelineService
             ];
         }
 
-        // Greedy interval row-packing: sort by start, drop each tile into the first row whose last tile
-        // has already ended (no overlap); else a new row underneath. So overlapping tiles never collide.
-        usort($tiles, fn ($a, $b) => [$a['start'], $a['start'] + $a['dur']] <=> [$b['start'], $b['start'] + $b['dur']]);
+        // Row-INPUT order — NOT the packing algorithm itself (unchanged below), just which tile gets
+        // first pick of a free row. Mirrors the List's own safety guard (buildPhased's orderGroupIds):
+        // when NO step in the deal has a configured display_priority — every existing deal today, and
+        // any template whose priority was never set — the input order is the EXACT original pure
+        // chronological sort, unchanged byte for byte. Only once at least one step actually carries a
+        // real agency-configured priority does the new ordering apply: within each stage band,
+        // OUTSTANDING steps by display_priority (cc6's read-model field, read directly — not
+        // recomputed) so the important ones claim the top rows, then COMPLETED steps (sorted after
+        // every outstanding one in their stage) fall to whatever rows are left — the bottom. Stage 1 is
+        // processed before Stage 2 so it gets first claim on the shared row-stack; un-staged tiles (the
+        // anchor) sort last. The packer only ever checks $t['start'] >= a row's last end, so re-ordering
+        // the input can't introduce an overlap — it only changes which tile wins a contested row, and
+        // can use more rows than the date-sorted packing would (accepted trade-off: priority visibility
+        // over row-count optimality).
+        $anyPriorityConfigured = collect($priorityOf)->contains(fn ($p) => $p !== null);
+        usort($tiles, function ($a, $b) use ($priorityOf, $positionOf, $anyPriorityConfigured) {
+            if (! $anyPriorityConfigured) {
+                return [$a['start'], $a['start'] + $a['dur']] <=> [$b['start'], $b['start'] + $b['dur']];
+            }
+            $sa = $a['stage'] ?? 99;
+            $sb = $b['stage'] ?? 99;
+            if ($sa !== $sb) {
+                return $sa <=> $sb;
+            }
+            $ca = $a['completed'] ? 1 : 0;
+            $cb = $b['completed'] ? 1 : 0;
+            if ($ca !== $cb) {
+                return $ca <=> $cb;
+            }
+            $pa = $priorityOf[$a['id']] ?? $positionOf[$a['id']] ?? 0;
+            $pb = $priorityOf[$b['id']] ?? $positionOf[$b['id']] ?? 0;
+            if ($pa !== $pb) {
+                return $pa <=> $pb;
+            }
+            return ($positionOf[$a['id']] ?? 0) <=> ($positionOf[$b['id']] ?? 0);
+        });
+        // Greedy interval row-packing: drop each tile into the first row whose last tile has already
+        // ended (no overlap); else a new row underneath. So overlapping tiles never collide.
         $rowEnds = [];
         foreach ($tiles as &$t) {
             $placed = false;
