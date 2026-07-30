@@ -121,8 +121,26 @@
                             <option :value="t.id" x-text="t.label"></option>
                         </template>
                     </select>
-                    <p class="text-xs" style="color: var(--text-muted);">Sold/historic stock, the deal register, and commissions stay attributed to the departing agent.</p>
+                    <p class="text-xs" x-show="!transferHistoricStock" style="color: var(--text-muted);">Sold/historic stock, the deal register, and commissions stay attributed to the departing agent.</p>
+                    <p class="text-xs" x-show="transferHistoricStock" style="color: var(--text-muted);">Historic stock will also transfer. The deal register and commissions still stay attributed to the departing agent.</p>
                 </div>
+            </template>
+
+            {{-- Historic stock — opt-in, off by default. AT-118's default keeps sold/withdrawn/
+                 expired/draft stock attributed to the departing agent as their track record; this
+                 checkbox is for the case where the successor is meant to inherit the FULL book. --}}
+            <template x-if="!loading && !error && counts && (counts.properties_primary_historic + counts.properties_secondary_historic) > 0">
+                <label class="flex items-start gap-2 text-sm cursor-pointer p-3 rounded-md" style="border: 1px solid var(--border);">
+                    <input type="checkbox" x-model="transferHistoricStock" class="mt-1">
+                    <span>
+                        Also transfer historic stock
+                        (<span x-text="counts.properties_primary_historic + counts.properties_secondary_historic"></span>
+                        sold / withdrawn / expired / draft properties) to the successor.
+                        <span class="text-xs block mt-0.5" style="color: var(--text-muted);">
+                            Off by default — historic listings normally stay attributed to <span x-text="userName"></span> as their track record.
+                        </span>
+                    </span>
+                </label>
             </template>
 
             {{-- Deals — leave under this agent (default) or move everything to another agent --}}
@@ -229,6 +247,7 @@ function agentDeleteModal() {
         targets: [],
         targetUserId: '',
         secondaryHandling: 'promote',
+        transferHistoricStock: false,
         qrRerouteUserId: '',
         qrTouched: false,
         dealHandling: 'leave',
@@ -255,6 +274,7 @@ function agentDeleteModal() {
             this.targets = [];
             this.targetUserId = '';
             this.secondaryHandling = 'promote';
+            this.transferHistoricStock = false;
             this.qrRerouteUserId = '';
             this.qrTouched = false;
             this.dealHandling = 'leave';
@@ -312,6 +332,12 @@ function agentDeleteModal() {
             const s = document.createElement('input');
             s.type = 'hidden'; s.name = 'secondary_handling'; s.value = this.secondaryHandling;
             form.appendChild(s);
+
+            if (this.transferHistoricStock) {
+                const h = document.createElement('input');
+                h.type = 'hidden'; h.name = 'transfer_historic_stock'; h.value = '1';
+                form.appendChild(h);
+            }
 
             if (this.counts.deals > 0) {
                 const dh = document.createElement('input');
