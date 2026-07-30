@@ -289,6 +289,7 @@ class WorkOrderController extends Controller
                 'label'             => $t->label,
                 'step_id'           => $step?->id,
                 'step_name'         => $step?->name,
+                'work_order_id'     => $wo?->id,   // for the manual "send to supplier" action
                 'applies'           => (bool) $wo,
                 'responsible_party' => $wo->responsible_party ?? 'supplier',
                 'service_provider_id' => $wo->service_provider_id ?? '',

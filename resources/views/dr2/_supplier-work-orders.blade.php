@@ -81,6 +81,19 @@
                 else { this.err=(j.errors?Object.values(j.errors).flat().join(' '):'Save failed.'); }
             } catch(e){ this.err='Save failed.'; }
             this.busy=false;
+        },
+        // Manual send — POST the existing per-step cocSend (same email plumbing the trigger fires).
+        async sendWorkOrder(it){
+            if(!it.work_order_id || !it.step_id){ this.err='Save the work order first, then send.'; return; }
+            it.sending=true; this.err=''; this.msg='';
+            const url = '{{ url('deals-dr2') }}/{{ $deal->id }}/pipeline/steps/'+it.step_id+'/coc/'+it.work_order_id+'/send';
+            try {
+                const r = await fetch(url, {method:'POST',headers:{'Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'},credentials:'same-origin'});
+                const j = await r.json();
+                if(r.ok && j.ok){ this.msg = j.message || 'Work order sent to the supplier.'; it.status='sent'; }
+                else { this.err = j.message || 'Could not send the work order.'; }
+            } catch(e){ this.err='Could not send the work order.'; }
+            it.sending=false;
         }
      }" x-init="load()">
 
@@ -182,6 +195,18 @@
                         {{-- AT-329 — surface WHY a trigger send failed (e.g. no email); fix + it re-sends on the next trigger fire. --}}
                         <span x-show="it.status==='failed'" x-cloak style="color:#b45309;font-weight:600;" x-text="'not sent — ' + (it.send_error || 'send failed')"></span>
                         <span x-show="it.status!=='sent' && it.status!=='failed' && !it.step_name" x-cloak style="color:#b45309;">no matching pipeline step — sends on the trigger step</span>
+                    </div>
+                    {{-- Manual "send to supplier" — surfaces the existing cocSend so an agent can EMAIL the
+                         work order to the supplier NOW, without waiting for the trigger step. Shows for an
+                         applicable supplier/attorney COC that hasn't sent yet; the button needs a SAVED work
+                         order (work_order_id), so an un-saved row shows a "save first" hint instead. --}}
+                    <div x-show="it.applies && it.status!=='sent' && (it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney')" x-cloak style="flex:1 1 100%;margin-top:.25rem;">
+                        <template x-if="it.work_order_id">
+                            <button type="button" @click="sendWorkOrder(it)" :disabled="it.sending" class="corex-btn-outline" style="font-size:.7rem;padding:.2rem .6rem;color:#0f766e;border-color:#5eead4;">
+                                <span x-text="it.sending ? 'Sending…' : '✉ Send work order to supplier'"></span>
+                            </button>
+                        </template>
+                        <span x-show="!it.work_order_id" x-cloak style="font-size:.66rem;color:#9ca3af;">Save to enable emailing the supplier.</span>
                     </div>
                 </div>
             </div>

@@ -322,6 +322,43 @@ class PipelineController extends Controller
     }
 
     /**
+     * Manual "Decline deal" — surfaces the CANONICAL decline transition on the DR2 pipeline
+     * (there was no manual control here; declining was register-only). Reuses the exact
+     * accepted_status → 'D' transition the auto-decline writes: DealPipelineLockService treats
+     * 'D' as the whole lock set (the pipeline goes read-only), and the save fires the existing
+     * property-revert reactivity. Forward-safe — a Registered deal is never declined here; an
+     * already-declined deal is a no-op. A declined deal stays re-grantable from the register.
+     */
+    public function declineDeal(Deal $deal, Request $request): RedirectResponse
+    {
+        abort_unless($request->user()?->hasPermission('view_deals'), 403);
+
+        $current = (string) ($deal->accepted_status ?? '');
+        if ($current === 'D') {
+            return $this->pipelineRedirect($deal)->with('info', 'This deal is already declined.');
+        }
+        if ($current === 'R') {
+            return $this->pipelineRedirect($deal)->with('error', 'A registered deal cannot be declined from the pipeline.');
+        }
+
+        $deal->accepted_status = 'D';   // canonical transition — same field/value the auto-decline writes
+        $deal->save();                  // fires DealObserver → DealStatusChanged → property-revert etc.
+
+        \App\Models\DealLog::create([
+            'deal_id'       => $deal->id,
+            'agency_id'     => $deal->agency_id,   // derive from the parent — robust for owner/non-agency context
+            'actor_user_id' => $request->user()?->id,
+            'event_type'    => 'declined',
+            'from_value'    => $current,
+            'to_value'      => 'D',
+            'message'       => 'Deal declined manually from the pipeline.',
+        ]);
+
+        return $this->pipelineRedirect($deal)
+            ->with('info', 'Deal declined — the pipeline is now locked (read-only). It stays re-grantable from the register.');
+    }
+
+    /**
      * AT-334 P1 — reopen a completed step (composable deals only): clear actual_date /
      * completed_at, return it to not_started, and re-cascade downstream Dues. Reversible;
      * the deal-level lock still applies. Direct successors that this completion activated are

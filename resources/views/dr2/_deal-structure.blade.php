@@ -139,4 +139,24 @@
             </div>
         </form>
     @endif
+
+    {{-- Deal-level lifecycle: manual DECLINE. Reuses the canonical accepted_status → 'D' transition
+         (locks the pipeline; property status reverts). A declined deal stays re-grantable from the
+         register — so this shows the state and offers the action, never a silent dead-end. --}}
+    @php $accepted = (string) ($deal->accepted_status ?? 'P'); @endphp
+    <div style="margin-top:1rem;padding-top:.7rem;border-top:1px solid var(--border,rgba(0,0,0,.08));">
+        @if($accepted === 'D')
+            <div style="font-size:.78rem;color:var(--ds-crimson,#b91c1c);">This deal is <strong>Declined</strong> — its pipeline is locked. Re-grant it from the DR2 Register.</div>
+        @elseif($accepted === 'R')
+            <div style="font-size:.75rem;color:var(--text-muted,#9ca3af);">Registered deals can't be declined here.</div>
+        @else
+            <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}"
+                  onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
+                @csrf
+                <button type="submit" class="corex-btn-outline"
+                        style="color:var(--ds-crimson,#b91c1c);border-color:color-mix(in srgb,var(--ds-crimson,#b91c1c) 40%,var(--border,#e5e7eb));font-size:.78rem;padding:.28rem .7rem;">Decline deal</button>
+                <span style="font-size:.72rem;color:var(--text-muted,#9ca3af);margin-left:.5rem;">Deal not proceeding — locks the pipeline; re-grantable from the register.</span>
+            </form>
+        @endif
+    </div>
 </div>
