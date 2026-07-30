@@ -79,11 +79,10 @@ chose a constant set for the identical reason ("preserve analytics integrity").
 CLAUDE.md Non-negotiable #10a (every new setting reaches the Setup Wizard) does
 **not** apply and no `config/agency-onboarding-copy.php` change is required.
 
-> **Johan — this is the one item in the spec that needs an explicit yes/no.**
-> If you would rather agencies configure their own loss reasons, say so and
-> the reasons move to `agency_feedback_options` with
-> `category = 'listing_loss_reason'`, and the wizard question comes back into
-> scope.
+> **DECIDED 2026-07-30 — Johan: "your call".** The constant set stands, as
+> built. If an agency ever needs its own loss vocabulary, the migration path is
+> `agency_feedback_options` with `category = 'listing_loss_reason'`, and
+> Non-negotiable #10a (Setup Wizard) comes back into scope at that point.
 
 ### D6 — Rental sibling: OUT of scope, deliberately
 
@@ -144,21 +143,53 @@ Idempotent per tenant: insert only when absent, matching
 It is deliberately **not** registered in `deploy:sync-reference-data`: that
 command carries GLOBAL reference rows, and this row is tenant-owned.
 
-#### Pre-existing gap found here — new agencies get no property statuses at all
+### 4.1a AT-352 — every agency gets the default property settings (FIXED HERE)
 
-Nothing in CoreX provisions default property statuses for an agency created
-**after** a given migration. The original set came from `2026_03_05_300003`, and
-there is no agency-creation hook (`AgencyObserver` does not touch
-`property_setting_items`; no onboarding service does either). A tenant onboarded
-tomorrow therefore starts with an **empty** Status dropdown — not just missing
-"Sold by 3rd Party", but missing "Sold", "Withdrawn" and every other status —
-and must configure them under Settings → Properties.
+**Gap found while fixing §4.1.** Nothing in CoreX provisioned property settings
+for an agency created **after** a given migration. The sets were all one-off
+backfills — `2026_03_05_300002` (property_type), `2026_03_05_300003`
+(category / status / mandate_type), `2026_06_17_120000` (condition_level) — and
+no agency-creation hook touched the table (`AgencyObserver` seeded contact
+settings and leave visibility, nothing else; no onboarding service did either).
 
-This is **not introduced by AT-350 and not fixed by it**: closing it means adding
-agency-creation provisioning for the whole settings tree, which is a platform
-change several tickets wide. Recorded here so it is a known gap on the record
-rather than something rediscovered during the next onboarding. Suggested
-follow-up: **AT-352 — provision default property settings on agency creation**.
+A tenant onboarded after those ran therefore opened Properties to **empty
+required dropdowns** — not just missing "Sold by 3rd Party", but missing *Sold*,
+*Withdrawn*, *House*, *Residential*, *Sole* and every condition level — and
+could not capture a listing at all until someone configured the system by hand.
+
+**Johan's call, 2026-07-30: "Change that all agencies should get the current
+Status as default."** Built for **all five groups**, not statuses alone: the
+mechanism is identical and a fix that fills the Status dropdown while leaving
+Type, Category, Mandate and Condition empty is the same defect one field over.
+
+**Implementation**
+
+| Piece | Role |
+|---|---|
+| `PropertySettingItem::DEFAULT_ROWS` | the canonical set, captured verbatim from the three original migrations (property types use the **post-normalisation** names from `2026_05_14_130001`, so a new agency never starts on the retired vocabulary). Array order is sort order. Mirrors `AgencyLeaveVisibilityMatrix::defaultRows()`, the precedent `AgencyObserver` already consumes |
+| `PropertySettingItem::provisionDefaultsFor()` | idempotent seeder. Writes via the query builder — `BelongsToAgency`'s `creating` hook force-stamps the **acting** user's agency over an explicit `agency_id`, so seeding a brand-new tenant from an admin's session would file the rows under the admin's own agency (the trap `AgencyObserver` already documents for `AgencyContactSettings`). Returns 0 on `agencyId <= 0` — never a sentinel tenant (Rule 17) |
+| `AgencyObserver::created()` | every agency from now on. Wrapped in try/catch: a tenant must not fail to be created because its settings could not be seeded — the settings are recoverable on the next deploy, a half-created agency is not |
+| `2026_08_20_000004` | backfills agencies that already exist. Irreversible by design (`down()` is a no-op): these rows are indistinguishable from ones an agency has since adopted or reordered, and deleting every `is_default` row would strip working agencies of the vocabulary their live listings reference |
+
+**The load-bearing rule: seeding is PER GROUP, and only when that group is
+completely empty.** An agency that curated its own statuses — renamed "For Sale"
+to "On the Market", deleted the auction status it never uses — must never have
+those choices silently reinstated by a later deploy. SYSTEM.md §3 exists so the
+agency owns its vocabulary. A group holding even one row is treated as
+configured and left entirely alone.
+
+That makes §4.1 and §4.1a **complementary by construction**, covering every
+agency between them with no overlap and no possibility of overwriting tenant
+data:
+
+- `2026_08_20_000001` → agencies that **have** statuses get the one new value.
+- `2026_08_20_000004` → agencies that have **none** get the whole default set
+  (which now includes "Sold by 3rd Party").
+
+Ordered 000001 before 000004 so an agency seeded by the latter is not then
+double-handled.
+
+Covered by `tests/Feature/Properties/PropertySettingDefaultsTest.php`.
 
 ### 4.2 New table `property_third_party_sales` — the loss record
 
@@ -493,11 +524,14 @@ No new permission key. Recording a 3rd-party sale is an ordinary property write:
 
 ---
 
-## 12. Open question for sign-off
+## 12. Sign-off record (2026-07-30)
 
-**D5** — loss reasons as a code constant set (recommended, mirrors
-`PresentationOutcome`, keeps analytics comparable, adds no wizard work) versus
-agency-configurable via `agency_feedback_options` (satisfies SYSTEM.md §3
-literally, but fragments the analytics and pulls the Setup Wizard into scope).
+All open items are closed:
 
-Everything else in this spec is settled by D1–D4 and D6.
+| Item | Outcome |
+|---|---|
+| **D1–D4** | Confirmed at spec time; built as specced |
+| **D5** — loss reasons: code constant vs agency-configurable | **"Your call"** → the constant set stands. Recorded at §3 D5 |
+| **D6** — rental sibling ("Let by another agency") | Remains out of scope. Suggested **AT-351** |
+| **§4.1a** — new agencies get no property settings | **"Change that all agencies should get the current Status as default"** → built for all five setting groups (AT-352) |
+| **§5** — the `rented` asymmetry in `OFF_MARKET_STATUSES` | **"If it won't cause issues just leave it"** → left as-is. It causes no issue for AT-350 (`sold_by_3rd_party` is in the constant, and `rented` behaves exactly as before — the exclusion is preserved verbatim in `AdManagerController`). Remains a documented gap, not a live defect |

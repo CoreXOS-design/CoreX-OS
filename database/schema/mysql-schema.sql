@@ -10047,7 +10047,7 @@ CREATE TABLE `property_sold_records` (
   `source` enum('manual','tva_api','p24_capture','pp_capture','deeds_office') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `source_reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sold_by_third_party` tinyint(1) NOT NULL DEFAULT '0',
-  `sold_by_agency` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sold_by_agency` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `captured_by_user_id` bigint unsigned DEFAULT NULL,
   `captured_at` timestamp NULL DEFAULT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
@@ -10078,14 +10078,14 @@ CREATE TABLE `property_third_party_sales` (
   `property_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned DEFAULT NULL,
   `branch_id` bigint unsigned DEFAULT NULL,
-  `sold_by_agency` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sold_by_agency` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sold_price` decimal(14,2) DEFAULT NULL,
   `sold_date` date DEFAULT NULL,
   `our_listing_price` decimal(14,2) DEFAULT NULL,
-  `our_mandate_type` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `our_mandate_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `days_on_market` int unsigned DEFAULT NULL,
-  `loss_reason` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `loss_reason` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `sold_record_id` bigint unsigned DEFAULT NULL,
   `recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `recorded_at` timestamp NULL DEFAULT NULL,
@@ -14064,3 +14064,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1044,'2026_08_19_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1045,'2026_08_20_000001_add_sold_by_3rd_party_status_item',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1046,'2026_08_20_000002_create_property_third_party_sales_table',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1047,'2026_08_20_000003_add_third_party_flags_to_property_sold_records',198);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1048,'2026_08_20_000004_backfill_default_property_settings_per_agency',199);
