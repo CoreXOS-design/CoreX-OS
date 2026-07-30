@@ -1462,6 +1462,35 @@ CREATE TABLE `assistant_assignments` (
   CONSTRAINT `assistant_assignments_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `assistant_linked_agents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `assistant_linked_agents` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `assistant_assignment_id` bigint unsigned NOT NULL,
+  `agent_user_id` bigint unsigned NOT NULL,
+  `added_by_user_id` bigint unsigned DEFAULT NULL,
+  `removed_by_user_id` bigint unsigned DEFAULT NULL,
+  `removed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `active_agent_user_id` bigint unsigned GENERATED ALWAYS AS (if((`deleted_at` is null),`agent_user_id`,NULL)) STORED,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ala_assignment_agent_unique` (`assistant_assignment_id`,`active_agent_user_id`),
+  KEY `assistant_linked_agents_agency_id_foreign` (`agency_id`),
+  KEY `ala_added_by_fk` (`added_by_user_id`),
+  KEY `ala_removed_by_fk` (`removed_by_user_id`),
+  KEY `assistant_linked_agents_assistant_assignment_id_index` (`assistant_assignment_id`),
+  KEY `assistant_linked_agents_agent_user_id_index` (`agent_user_id`),
+  CONSTRAINT `ala_added_by_fk` FOREIGN KEY (`added_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ala_agent_fk` FOREIGN KEY (`agent_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `ala_assignment_fk` FOREIGN KEY (`assistant_assignment_id`) REFERENCES `assistant_assignments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ala_removed_by_fk` FOREIGN KEY (`removed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `assistant_linked_agents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `automation_log`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14065,3 +14094,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1045,'2026_08_20_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1046,'2026_08_20_000002_create_property_third_party_sales_table',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1047,'2026_08_20_000003_add_third_party_flags_to_property_sold_records',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1048,'2026_08_20_000004_backfill_default_property_settings_per_agency',199);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1049,'2026_08_10_000006_create_assistant_linked_agents_table',200);
