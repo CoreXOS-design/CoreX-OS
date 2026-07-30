@@ -57,6 +57,26 @@ class AgencyObserver
             }
         });
 
+        // AT-352 — property settings (statuses, types, categories, mandate types,
+        // condition levels). Without this a brand-new agency opens Properties to
+        // EMPTY required dropdowns and cannot capture a listing at all: the
+        // original sets were one-off migration backfills and nothing ever
+        // provisioned an agency created afterwards.
+        //
+        // Outside the withoutEvents() block above because provisionDefaultsFor()
+        // writes through the query builder, so no model events fire and the
+        // BelongsToAgency agency_id override cannot reach it either.
+        try {
+            \App\Models\PropertySettingItem::provisionDefaultsFor((int) $agency->id);
+        } catch (\Throwable $e) {
+            // Agency creation must not fail because its settings could not be
+            // seeded — the agency is recoverable (the same call is idempotent and
+            // re-runs on the next deploy's backfill); a half-created tenant is not.
+            \Illuminate\Support\Facades\Log::warning(
+                "AT-352 default property settings seed failed for agency #{$agency->id}: {$e->getMessage()}"
+            );
+        }
+
         // Set default_branch_id if branches exist for this agency
         if (!$agency->default_branch_id) {
             $firstBranch = Branch::withoutGlobalScopes()

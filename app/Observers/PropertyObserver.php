@@ -476,6 +476,44 @@ class PropertyObserver
             }
         }
 
+        // AT-350 — "Sold by 3rd Party" convergence. An agent can reach this
+        // outcome two ways: the rich capture form (competitor, price, date,
+        // reason) or simply picking the status in the Lifecycle dropdown and
+        // hitting Save. Both MUST leave the same system state, or we ship two
+        // behaviours for one action — so the bare status change creates the loss
+        // record here. ThirdPartySaleService::ensureOpenRecord is idempotent
+        // (no-op when an open record already exists), which is what lets the rich
+        // path create-then-set-status and land here harmlessly.
+        //
+        // Deliberately keyed off the NEW status only, never the original: the
+        // audit block above consumes and unsets self::$auditOriginals, and a
+        // nested save has already re-synced the model's originals by now. Reading
+        // "what is it now" is both available and self-correcting.
+        //
+        // Spec: .ai/specs/property-sold-by-third-party.md §7
+        if (array_key_exists('status', $property->getChanges())) {
+            try {
+                $svc = app(\App\Services\Properties\ThirdPartySaleService::class);
+
+                if (Property::isSoldByThirdPartyStatus((string) $property->status)) {
+                    $svc->ensureOpenRecord($property);
+                } elseif (! $property->wasRecentlyCreated) {
+                    // Back on the market (or moved to any other status): close the
+                    // open loss record. Never deletes it — the loss history is the
+                    // asset. No-op when there is nothing open, so an ordinary
+                    // active→withdrawn change costs one indexed lookup
+                    // (ptps_property_open_idx). Skipped entirely on create: a
+                    // brand-new listing cannot already have been lost.
+                    $svc->revertOpenRecord($property);
+                }
+            } catch (\Throwable $e) {
+                // The status change itself must never fail because its loss record
+                // could not be written. The banner surfaces "details not captured"
+                // and the agent can add them; a 500 here would lose their edit.
+                Log::warning("AT-350 third-party sale sync failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // Off-market delist (Private Property + agency website). When a listing
         // goes off-market, take it off PP and — for true removals only — the
         // website. P24 is handled per-status by the auto-sync block below
@@ -685,9 +723,19 @@ class PropertyObserver
      * True removals — the listing must come off the agency website too. Sold and
      * rented are deliberately EXCLUDED: agencies showcase sold/rented stock on
      * their websites (see WebsiteSyndicationService::bulkActivateSold).
+     *
+     * AT-350 is the exception to that exception: a property sold BY A COMPETITOR
+     * is removed, not showcased. Leaving it on would put another agency's sale in
+     * our own "recently sold" wall — the single most misleading thing our website
+     * could tell a prospective seller. Checked FIRST because the value contains
+     * "sold" and would otherwise never reach the needle list at all. Spec D3.
      */
     private function isWebsiteRemovalStatus(string $status): bool
     {
+        if (Property::isSoldByThirdPartyStatus($status)) {
+            return true;
+        }
+
         $s = strtolower($status);
         foreach (['withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
             if (str_contains($s, $needle)) {

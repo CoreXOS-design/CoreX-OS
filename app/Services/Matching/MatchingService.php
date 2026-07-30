@@ -91,7 +91,12 @@ class MatchingService
      * (isMatchableStatus), every matching entry point routed through it.
      */
     private const NON_MATCHABLE_STATUSES = [
-        'sold', 'transferred', 'rented', 'let_out',
+        // AT-350 — a property another agency sold is as unavailable to our buyers
+        // as one we sold ourselves. Omitting it would leak exactly what the note
+        // above records leaking for 'Sold': match emails to agents, offering
+        // buyers a house that has already changed hands. The comparison below is
+        // an exact in_array, so the value has to be listed literally.
+        'sold', 'sold_by_3rd_party', 'transferred', 'rented', 'let_out',
         'withdrawn', 'expired', 'cancelled',
         'unavailable', 'archived', 'draft', 'pending',
     ];
@@ -107,7 +112,23 @@ class MatchingService
     public static function isMatchableStatus(?string $status): bool
     {
         $s = strtolower(trim((string) $status));
-        return $s === '' || !in_array($s, self::NON_MATCHABLE_STATUSES, true);
+
+        if ($s === '') {
+            return true;
+        }
+
+        // AT-350 — routed through the model helper rather than trusting the
+        // literal below. The list is an EXACT match on a lowercased string, so it
+        // only ever catches the underscore slug `sold_by_3rd_party`; the stored
+        // value is genuinely mixed-vocabulary (this class's own note above records
+        // 769 capitalised 'Sold' rows leaking for precisely this reason), so
+        // "Sold by 3rd Party" with spaces would sail straight through and keep
+        // offering buyers a house that has already changed hands.
+        if (Property::isSoldByThirdPartyStatus($s)) {
+            return false;
+        }
+
+        return !in_array($s, self::NON_MATCHABLE_STATUSES, true);
     }
 
     /**

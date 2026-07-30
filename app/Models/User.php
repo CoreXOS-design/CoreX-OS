@@ -821,8 +821,15 @@ class User extends Authenticatable
     public function activeAssistantAssignment(): ?AssistantAssignment
     {
         if ($this->assistantAssignmentMemo === null) {
+            // 'assignedAgent' is eager-loaded alongside 'permissions' — the resolver
+            // (AssistantPermissionResolver::allows()/dataScope()) reads $assignment->assignedAgent
+            // via property access on every permission/scope check, and leaving it to lazy-load
+            // mid-query (while OTHER global scopes are already being applied, e.g. BranchScope
+            // calling hasPermission() from inside applyInner() — multi-agent addendum §4) has been
+            // observed to throw "Undefined property" under PHPUnit's strict warning-to-exception
+            // handling. Eager-loading it here removes the lazy-load entirely.
             $this->assistantAssignmentMemo = ($this->is_assistant && static::assistantsEnabledFor($this->agency_id))
-                ? ($this->assistantAssignment()->with('permissions')->first() ?? false)
+                ? ($this->assistantAssignment()->with(['permissions', 'assignedAgent'])->first() ?? false)
                 : false;
         }
 

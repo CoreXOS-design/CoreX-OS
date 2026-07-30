@@ -95,7 +95,7 @@ final class AssistantLinkedAgentAdminCrudTest extends TestCase
 
     public function test_an_owner_cannot_be_linked(): void
     {
-        Role::create(['name' => 'test-owner', 'label' => 'Owner', 'agency_id' => null, 'is_owner' => true]);
+        Role::forceCreate(['name' => 'test-owner', 'label' => 'Owner', 'agency_id' => null, 'is_owner' => true]);
         $owner = $this->makeUser('Owner Person', 'test-owner');
 
         $this->actingAs($this->admin)
