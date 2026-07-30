@@ -389,9 +389,13 @@ class PipelineTimelineService
         $cashPayments = $steps->filter(fn ($s) => $s->condition_key === 'cash'
             && str_contains(strtolower((string) $s->name), 'payment'))->count();
 
+        // Predecessor map (primary follows ∪ AND-gate) — used to keep display-priority ordering
+        // dependency-honest within a group (a step never sorts ahead of an in-group predecessor).
+        $predMap = (new \App\Services\DealV2\DealDependencyResolver())->predecessorMap($steps);
+
         $stage1Groups = $stage1Steps
             ->groupBy(fn (DealStepInstance $s) => $s->condition_key ?: '_general')
-            ->map(function ($group, $key) use ($catalog, $groupMeta, $labelOverride, $cashPayments) {
+            ->map(function ($group, $key) use ($catalog, $groupMeta, $labelOverride, $cashPayments, $predMap) {
                 $label = $labelOverride[$key] ?? ($catalog[$key]['label'] ?? ucfirst(str_replace('_', ' ', (string) $key)));
                 $sub   = ($key === 'cash' && $cashPayments > 1) ? $cashPayments . ' payments' : null;
                 $active = $group->contains(fn ($s) => ! in_array($s->status, ['completed', 'skipped'], true));
@@ -402,7 +406,7 @@ class PipelineTimelineService
                     'icon'     => $groupMeta[$key]['icon'] ?? '📋',
                     'order'    => $groupMeta[$key]['order'] ?? 7,
                     'active'   => $active,
-                    'step_ids' => $group->sortBy('position')->pluck('id')->map(fn ($id) => (int) $id)->all(),
+                    'step_ids' => $this->orderGroupIds($group, $predMap),
                 ];
             })
             ->sortBy('order')->values()->all();
@@ -433,6 +437,18 @@ class PipelineTimelineService
             ->first();
         $grantDate = $grantDate ?? ($gate?->due_date ? Carbon::parse($gate->due_date)->startOfDay() : null);
 
+        // Per-step meta the LIST (and, next, cc5's timeline row-order) reads: the agency-configured
+        // display priority + RAW ISO planned (due) and actual (completion) dates for the variance
+        // report. Distinct keys — never collides with cc5's display-formatted due_str/done_str.
+        $stepMeta = [];
+        foreach ($steps as $s) {
+            $stepMeta[(int) $s->id] = [
+                'display_priority' => $s->display_priority,
+                'due_iso'          => $s->due_date?->toDateString(),
+                'completed_iso'    => ($s->actual_date ?? $s->completed_at)?->toDateString(),
+            ];
+        }
+
         return [
             'empty'     => false,
             'flat'      => $gate === null && empty($stage1Groups), // old-model / non-composable fallback
@@ -452,8 +468,55 @@ class PipelineTimelineService
                 'has'      => ! empty($stage2Segments),
             ],
             'all_ids'   => $steps->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            'step_meta' => $stepMeta,
             'comments'  => $comments,
         ];
+    }
+
+    /**
+     * Order a Stage-1 condition group's step IDs for display (LIST). Existing deals whose steps
+     * predate the display_priority column (all NULL) keep the CURRENT order (sort by position) —
+     * byte-identical, never touched. When the agency has configured priorities:
+     *   1. OUTSTANDING steps first, COMPLETED/skipped steps to the BOTTOM of the group;
+     *   2. within each of those, by in-group dependency DEPTH so a step never sorts ahead of an
+     *      in-group predecessor (priority can't visually jump an unmet dependency);
+     *   3. among concurrent (same-depth) steps, by the agency's display_priority;
+     *   4. position as a stable final tiebreak.
+     */
+    private function orderGroupIds($group, array $predMap): array
+    {
+        $hasPriority = $group->contains(fn (DealStepInstance $s) => $s->display_priority !== null);
+        if (! $hasPriority) {
+            return $group->sortBy('position')->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        $inGroup = $group->pluck('id')->map(fn ($id) => (int) $id)->flip()->all();
+        $memo = [];
+        $depth = function (int $id) use (&$depth, &$memo, $predMap, $inGroup) {
+            if (array_key_exists($id, $memo)) {
+                return $memo[$id];
+            }
+            $memo[$id] = 0; // cycle guard
+            $d = 0;
+            foreach ($predMap[$id] ?? [] as $p) {
+                if (isset($inGroup[(int) $p])) {
+                    $d = max($d, 1 + $depth((int) $p));
+                }
+            }
+            return $memo[$id] = $d;
+        };
+
+        return $group->sort(function (DealStepInstance $a, DealStepInstance $b) use ($depth) {
+            $ca = in_array($a->status, ['completed', 'skipped'], true) ? 1 : 0;
+            $cb = in_array($b->status, ['completed', 'skipped'], true) ? 1 : 0;
+            if ($ca !== $cb) { return $ca <=> $cb; }
+            $da = $depth((int) $a->id); $db = $depth((int) $b->id);
+            if ($da !== $db) { return $da <=> $db; }
+            $pa = $a->display_priority ?? $a->position;
+            $pb = $b->display_priority ?? $b->position;
+            if ($pa !== $pb) { return $pa <=> $pb; }
+            return (int) $a->position <=> (int) $b->position;
+        })->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     /**

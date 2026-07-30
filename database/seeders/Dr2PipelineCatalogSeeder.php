@@ -55,6 +55,7 @@ class Dr2PipelineCatalogSeeder extends Seeder
                         'pipeline_step_id'    => null,
                         'agency_id'           => null,
                         'position'            => (int) ($t['pos'] ?? 0),
+                        'display_priority'    => (int) ($t['display_priority'] ?? $t['pos'] ?? 0),
                         'is_grant_marker'     => ! empty($t['grant_marker']),
                         'step_key'            => $t['key'],
                         'name'                => $t['name'],

@@ -21,6 +21,8 @@ class DealPipelineConditionStep extends Model
         'step_key', 'name', 'follows_key', 'deps_keys', 'days_offset',
         'is_milestone', 'is_suspensive', 'is_anchor', 'completion_type', 'status_trigger',
         'manual_due_option', 'requires_option', 'requires_funds_mode', 'expand',
+        // AT-334 display sort order (agency-configured in the master setup)
+        'display_priority',
     ];
 
     protected $casts = [
@@ -31,6 +33,7 @@ class DealPipelineConditionStep extends Model
         'is_milestone'    => 'boolean',
         'is_suspensive'   => 'boolean',
         'is_anchor'       => 'boolean',
+        'display_priority' => 'integer',
     ];
 
     public function condition(): BelongsTo

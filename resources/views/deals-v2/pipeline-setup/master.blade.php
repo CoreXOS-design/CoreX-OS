@@ -104,10 +104,15 @@
                 </div>
 
                 {{-- Steps --}}
-                <template x-for="(s, si) in g.steps" x-bind:key="si">
-                    <div class="ms-step" x-data="{ open:false, depsOpen:false }">
-                        {{-- Primary row: name · follows · offset · flags-at-a-glance --}}
+                <template x-for="(s, si) in g.steps" x-bind:key="s.step_key">
+                    <div class="ms-step" x-data="{ open:false, depsOpen:false }"
+                         x-on:dragover.prevent x-on:drop.prevent="onDrop(gi, si)"
+                         x-bind:style="dragFrom && dragFrom.gi === gi && dragFrom.si === si ? 'opacity:.5;' : ''">
+                        {{-- Primary row: drag handle · name · follows · offset · flags-at-a-glance --}}
                         <div class="ms-row">
+                            <span draggable="true" x-on:dragstart="dragFrom = { gi: gi, si: si }" x-on:dragend="dragFrom = null"
+                                  title="Drag to reorder — this order is the display priority"
+                                  style="cursor:grab;color:var(--text-muted);user-select:none;padding:0 .25rem;font-size:1rem;line-height:1;">&#x2807;</span>
                             <input type="text" x-model="s.name" class="corex-input ms-name" placeholder="Step name">
 
                             <div class="flex items-center gap-1 ms-follows">
@@ -241,6 +246,17 @@
             completionTypes: @json($completionTypes),
             statusTriggers: @json($statusTriggers),
             saving: false,
+            dragFrom: null,
+            // Drag-to-reorder within a group. The resulting row order IS the display priority
+            // (persisted on save as each step's index within its group).
+            onDrop(gi, si) {
+                const from = this.dragFrom;
+                this.dragFrom = null;
+                if (!from || from.gi !== gi || from.si === si) { return; }
+                const arr = this.groups[gi].steps;
+                const [moved] = arr.splice(from.si, 1);
+                arr.splice(from.si < si ? si - 1 : si, 0, moved);
+            },
             get allSteps() {
                 const out = [];
                 this.groups.forEach(g => g.steps.forEach(s => out.push({ key: s.step_key, name: s.name })));

@@ -23,6 +23,7 @@ class DealStepInstance extends Model
         'name',
         'description',
         'position',
+        'display_priority', // AT-334 — agency-configured display sort order (nullable = fall back to position)
         'is_locked',
         'is_milestone',
         'is_custom',
@@ -80,6 +81,7 @@ class DealStepInstance extends Model
         'notify_admin' => 'boolean',
         'requires_bm_approval' => 'boolean',
         'due_date_manual' => 'boolean',
+        'display_priority' => 'integer',
         'completion_config' => 'array',
         'completion_data' => 'array',
         'due_date' => 'date',

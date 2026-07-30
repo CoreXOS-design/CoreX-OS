@@ -75,6 +75,9 @@ class DealStructureAssembler
                     'pipeline_step_id' => null,          // catalogue-driven, not a template row
                     'name'             => $d['name'],
                     'position'         => $pos += 10,
+                    // Agency-configured display sort order (falls back to pos when un-set). New deals
+                    // inherit it from the master; the read-model sorts each stage group by it.
+                    'display_priority' => (int) ($d['display_priority'] ?? ($pos)),
                     'is_locked'        => false,
                     'is_milestone'     => ! empty($d['milestone']),
                     'is_custom'        => false,

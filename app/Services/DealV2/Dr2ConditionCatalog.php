@@ -115,6 +115,7 @@ class Dr2ConditionCatalog
             'grant_marker' => true,
             'completion'   => $gm['completion'] ?? 'manual_tick',
             'pos'          => (int) ($gm['pos'] ?? 30),
+            'display_priority' => (int) ($gm['display_priority'] ?? $gm['pos'] ?? 30),
         ];
 
         // Resolve the __grant__ sentinel (base steps that start after grant → follow the marker).
@@ -215,6 +216,9 @@ class Dr2ConditionCatalog
                 $row[$k] = $t[$k];
             }
         }
+        // Display priority (agency-configured sort). Defaults to the pos order when un-set, so a
+        // freshly-composed deal always carries an explicit value the read-model can sort by.
+        $row['display_priority'] = (int) ($t['display_priority'] ?? $t['pos'] ?? 999);
         return $row;
     }
 
@@ -279,6 +283,8 @@ class Dr2ConditionCatalog
             'offset'     => (int) $r->days_offset,
             'completion' => $r->completion_type,
             'pos'        => (int) $r->position,
+            // Agency-configured display priority; falls back to the pos order when un-set.
+            'display_priority' => $r->display_priority ?? (int) $r->position,
         ];
         if ($groupKey !== self::BASE_KEY)  { $t['condition'] = $groupKey; }
         if ($r->is_grant_marker)           { $t['grant_marker'] = true; }
@@ -353,12 +359,15 @@ class Dr2ConditionCatalog
                     'status_trigger'      => $t['status_trigger'] ?? null,
                     'manual_due_option'   => $t['manual_due_option'] ?? null,
                     'position'            => (int) ($t['pos'] ?? 0),
+                    'display_priority'    => (int) ($t['display_priority'] ?? $t['pos'] ?? 0),
                     // Procedural markers — preserved, not editable in the UI.
                     'requires_option'     => $t['requires_option'] ?? null,
                     'requires_funds_mode' => $t['requires_funds_mode'] ?? null,
                     'expand'              => $t['expand'] ?? null,
                 ];
             }
+            // Present the editor in the configured display-priority order (drag persists this).
+            usort($steps, fn ($a, $b) => $a['display_priority'] <=> $b['display_priority']);
 
             $groups[] = [
                 'key'          => $key,
@@ -406,12 +415,14 @@ class Dr2ConditionCatalog
                     'updated_at'           => $now,
                 ]);
 
-                foreach ($g['steps'] as $s) {
+                foreach ($g['steps'] as $idx => $s) {
                     \Illuminate\Support\Facades\DB::table('deal_pipeline_condition_steps')->insert([
                         'condition_id'        => $condId,
                         'pipeline_step_id'    => null,
                         'agency_id'           => null,
                         'position'            => (int) ($s['position'] ?? 0),
+                        // Drag order IS the display priority — persist each step's index within its group.
+                        'display_priority'    => (int) $idx,
                         'is_grant_marker'     => ! empty($s['is_grant_marker']),
                         'step_key'            => $s['step_key'],
                         'name'                => $s['name'],
