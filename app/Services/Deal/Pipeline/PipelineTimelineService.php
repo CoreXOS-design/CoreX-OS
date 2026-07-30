@@ -156,6 +156,10 @@ class PipelineTimelineService
                     'state'    => $s->status === 'completed' ? 'done' : ($s->status === 'active' ? 'active' : 'up'),
                     'is_grant' => true,
                     'stage'    => null,
+                    // Planned-vs-actual (display-only): `due` = the actual-aware projected grant date;
+                    // `completed` = the marker's own actual completion, or null while pending.
+                    'due'       => $grantDate?->toDateString(),
+                    'completed' => $s->status === 'completed' ? ($s->actual_date ?? $s->completed_at)?->toDateString() : null,
                 ];
                 continue;
             }
@@ -168,6 +172,12 @@ class PipelineTimelineService
                 'star'      => (bool) $s->is_suspensive,
                 'projected' => $sp['projected'],
                 'stage'     => $stageOf((int) $s->id),
+                // Planned-vs-actual dates (display-only; cc5 renders the variance). `due` = the
+                // planned/milestone end; `completed` = the ACTUAL completion (actual_date, else
+                // completed_at) or null when not yet done; `planned_start` = the effective bar start.
+                'due'           => $s->due_date?->toDateString(),
+                'planned_start' => $sp['start']->toDateString(),
+                'completed'     => ($s->actual_date ?? $s->completed_at)?->toDateString(),
             ];
         }
 
