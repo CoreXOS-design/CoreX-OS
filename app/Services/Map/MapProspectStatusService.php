@@ -116,7 +116,11 @@ final class MapProspectStatusService
             ];
         }
 
-        if ($status === 'sold') {
+        // AT-350 — a sale is a sale for prospecting purposes, whoever wrote the
+        // OTP. Without the second arm a property another agency sold last month
+        // falls through to 'available' and the map invites an agent to go
+        // door-knock a house that has just changed hands.
+        if ($status === 'sold' || Property::isSoldByThirdPartyStatus($status)) {
             $saleDate = $this->resolveSaleDate($property);
             return [
                 'status'      => 'previously_sold',
@@ -191,6 +195,17 @@ final class MapProspectStatusService
             ->first(['registration_date', 'sale_date', 'deal_date']);
         $date = $deal?->registration_date ?? $deal?->sale_date ?? $deal?->deal_date ?? null;
         if ($date) return (string) $date;
+
+        // AT-350 — a third-party sale produces NO deal (that is the point: we
+        // earned nothing), so the deals lookup above can never date it. The loss
+        // record is the only place that date exists.
+        $thirdParty = \DB::table('property_third_party_sales')
+            ->where('property_id', $property->id)
+            ->whereNull('deleted_at')
+            ->whereNotNull('sold_date')
+            ->orderByDesc('sold_date')
+            ->value('sold_date');
+        if ($thirdParty) return (string) $thirdParty;
 
         // Fallback to a property attribute if the column exists.
         try {

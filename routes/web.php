@@ -3008,6 +3008,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
 
+        // Sold by 3rd Party — another agency sold our listing (AT-350).
+        // Spec: .ai/specs/property-sold-by-third-party.md
+        // No extra permission key: an ordinary property write, gated by the
+        // group's access_properties + per-property data scope in the controller.
+        Route::post('/{property}/third-party-sale',         [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'store'])->name('third-party-sale.store');
+        Route::patch('/{property}/third-party-sale',        [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'update'])->name('third-party-sale.update');
+        Route::post('/{property}/third-party-sale/revert',  [\App\Http\Controllers\CoreX\ThirdPartySaleController::class, 'revert'])->name('third-party-sale.revert');
+
+        // Lost to Competitors — the loss-analysis report that makes the loss
+        // record worth keeping (spec §6.6). Read-only.
+        Route::get('/reports/lost-to-competitors', [\App\Http\Controllers\CoreX\LossAnalysisController::class, 'index'])->name('reports.lost-to-competitors');
+
         // Sold Properties Import — super-admin only (AT-24)
         Route::middleware('super_admin')->group(function () {
             Route::get('/import-sold',          [\App\Http\Controllers\CoreX\SoldPropertyImportController::class, 'form'])->name('import-sold');

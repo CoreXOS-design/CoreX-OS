@@ -55,9 +55,23 @@ class Property extends Model
      * is about mandate expiry, not on-market display.
      */
     public const OFF_MARKET_STATUSES = [
-        'sold', 'transferred', 'withdrawn', 'expired',
+        'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
     ];
+
+    /**
+     * AT-350 — the listing sold, but ANOTHER agency sold it (typically under an
+     * open mandate). Off-market and concluded like any sale, but never ours:
+     * excluded from the Sold KPI, the website/agent Sold showcases, the Map
+     * "our sold stock" layer, and from any commission or performance figure.
+     *
+     * Spec: .ai/specs/property-sold-by-third-party.md
+     *
+     * The value is the slug of the 'Sold by 3rd Party' property_status setting
+     * item (the Status dropdown slugs an item's name with
+     * strtolower(str_replace(' ', '_', $name))). Migration 2026_08_20_000001.
+     */
+    public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
@@ -1069,7 +1083,44 @@ class Property extends Model
             return $query;
         }
 
-        foreach ($tokens as $token) {
+        // Field-designator keywords: "unit 14" / "erf 442" name a SPECIFIC column,
+        // so the value token must bind to THAT column only — not roam across all
+        // 11 OR'd address fields the way a bare token does. Without this, "unit 14"
+        // degraded to "(any field has 'unit') AND (any field has '14')", so an
+        // unrelated property (e.g. "Unit 13") matched merely because ITS
+        // street_number/property_number/p24_ref happened to contain "14" — a
+        // false-positive cross-column match with no relevance signal to rank it
+        // below the true "Unit 14" match (AT-274). unit_number is nullable per
+        // PropertyAddressReconciler's UNIT-AS-NUMBER drift (legacy rows where the
+        // unit landed in street_number instead), so street_number is still
+        // consulted for the "unit" keyword — but ONLY when unit_number is empty,
+        // never as a blanket alternative once a row already has a real unit_number.
+        $keywordFields = [
+            'unit' => ['unit_number', 'unit_section_block'],
+            'erf'  => ['erf_number', 'property_number', 'stand_number'],
+        ];
+
+        for ($i = 0, $count = count($tokens); $i < $count; $i++) {
+            $keyword = $keywordFields[strtolower($tokens[$i])] ?? null;
+            $value   = $tokens[$i + 1] ?? null;
+
+            if ($keyword !== null && $value !== null) {
+                $query->where(function ($q) use ($keyword, $value) {
+                    $like = "%{$value}%";
+                    foreach ($keyword as $field) {
+                        $q->orWhere($field, 'like', $like);
+                    }
+                    if (in_array('unit_number', $keyword, true)) {
+                        $q->orWhere(function ($q2) use ($like) {
+                            $q2->whereNull('unit_number')->where('street_number', 'like', $like);
+                        });
+                    }
+                });
+                $i++; // value token consumed by the keyword pairing above
+                continue;
+            }
+
+            $token = $tokens[$i];
             $query->where(function ($q) use ($token) {
                 $like = "%{$token}%";
                 $q->where('address', 'like', $like)
@@ -1082,6 +1133,7 @@ class Property extends Model
                   ->orWhere('unit_number', 'like', $like)
                   ->orWhere('unit_section_block', 'like', $like)
                   ->orWhere('property_number', 'like', $like)
+                  ->orWhere('erf_number', 'like', $like)
                   ->orWhere('p24_ref', 'like', $like);
             });
         }
@@ -1091,10 +1143,11 @@ class Property extends Model
 
     /**
      * The listing is CONCLUDED — the deal is done and it must never be advertised
-     * as available again. Sale side: sold/transferred. Rental side: rented/let_out
-     * (the rental equivalent of "sold", and the pair everyone forgets).
+     * as available again. Sale side: sold/transferred, plus sold_by_3rd_party (the
+     * property is just as gone when a competitor sells it — AT-350). Rental side:
+     * rented/let_out (the rental equivalent of "sold", and the pair everyone forgets).
      */
-    private const CONCLUDED_STATUSES = ['sold', 'transferred', 'rented', 'let_out'];
+    private const CONCLUDED_STATUSES = ['sold', self::STATUS_SOLD_BY_3RD_PARTY, 'transferred', 'rented', 'let_out'];
 
     /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
     private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
@@ -1117,10 +1170,51 @@ class Property extends Model
         return strtolower(trim((string) $this->status));
     }
 
-    /** A concluded listing (sold / transferred / rented / let out). */
+    /** A concluded listing (sold / sold by 3rd party / transferred / rented / let out). */
     public function isConcluded(): bool
     {
         return in_array($this->normalizedStatus(), self::CONCLUDED_STATUSES, true);
+    }
+
+    /**
+     * AT-350 — does this status string mean "another agency sold it"?
+     *
+     * Tolerates the vocabulary the way [[normalizedStatus]] does, in ONE place, so
+     * no caller has to know it varies. `properties.status` is genuinely mixed-case
+     * and mixed-separator in production (the wizard writes lowercase slugs, the P24
+     * sync writes capitalised labels), and Property24ListingMapper::getP24Status
+     * normalises underscores to SPACES before it tests — so a check that only knew
+     * `sold_by_3rd_party` would silently miss `Sold by 3rd Party` and
+     * `sold by 3rd party`. Accepts the "third party" spelling too, so a hand-typed
+     * or imported variant resolves rather than falling through to the generic
+     * `str_contains('sold')` arm — which would badge a competitor's sale as ours.
+     */
+    public static function isSoldByThirdPartyStatus(?string $status): bool
+    {
+        $s = strtolower(str_replace([' ', '-', '•'], ['_', '_', ''], trim((string) $status)));
+
+        return str_contains($s, '3rd_party') || str_contains($s, 'third_party');
+    }
+
+    /** Instance mirror of [[isSoldByThirdPartyStatus]]. */
+    public function isSoldByThirdParty(): bool
+    {
+        return self::isSoldByThirdPartyStatus($this->status);
+    }
+
+    /** Every loss event recorded against this property, newest first (AT-350). */
+    public function thirdPartySales(): HasMany
+    {
+        return $this->hasMany(PropertyThirdPartySale::class)->latest('recorded_at');
+    }
+
+    /**
+     * The loss record matching the property's CURRENT status — i.e. not yet
+     * re-listed. Null once the property goes back on the market.
+     */
+    public function openThirdPartySale(): ?PropertyThirdPartySale
+    {
+        return $this->thirdPartySales()->whereNull('reverted_at')->first();
     }
 
     /**
@@ -1133,6 +1227,12 @@ class Property extends Model
         $status = $this->normalizedStatus();
 
         return match (true) {
+            // AT-350 — MUST precede the 'sold' arm. That arm is an exact-match
+            // in_array, so without this one 'sold_by_3rd_party' falls through
+            // every arm to the default and badges a SOLD property "For Sale" —
+            // the identical bug-class the [[normalizedStatus]] docblock above
+            // describes (60 'Sold' rows badged For Sale).
+            self::isSoldByThirdPartyStatus($status)          => 'Sold by 3rd Party',
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
@@ -2150,6 +2250,16 @@ class Property extends Model
         $adStatus = $this->normalizedStatus();
 
         $statusBadge = match (true) {
+            // AT-350 — MUST precede the 'sold' arm, which is an exact-match
+            // in_array: without this, a property another agency sold falls
+            // through every arm to the default and generates an ad card reading
+            // "FOR SALE" for stock we no longer have. Identical to the bug this
+            // method's own docblock records (60 SOLD properties badged FOR SALE);
+            // the only difference is which literal the exact-match missed.
+            // Defence in depth — AdManagerController already excludes off-market
+            // stock from ad generation, so nothing should reach here; this makes
+            // sure that if anything ever does, it cannot advertise a sold house.
+            self::isSoldByThirdPartyStatus($adStatus)          => 'SOLD',
             in_array($adStatus, ['sold', 'transferred'], true) => 'SOLD',
             // The rental equivalent of SOLD. Without this a tenanted property
             // generates an ad advertising it "TO LET".

@@ -36,6 +36,10 @@
 
         // Concluded — the deal is done. Never advertise these as available.
         'sold'          => ['Sold',       true],
+        // AT-350 — reads plainly "Sold" here on purpose. This is the SELLER-facing
+        // preview; which agency earned the commission is our internal business,
+        // not a banner to put in front of a client.
+        'sold_by_3rd_party' => ['Sold',   true],
         'transferred'   => ['Sold',       true],
         'rented'        => ['Rented',     true],
         'let_out'       => ['Let Out',    true],
