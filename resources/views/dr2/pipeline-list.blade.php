@@ -105,6 +105,28 @@
   #dr2ls .rp--comments .ctag{margin-left:0}
   #dr2ls .rp--comments .cmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 
+  /* Add custom step (restored) */
+  #dr2ls .dr2ls-add{margin-top:14px;padding-top:12px;border-top:1px dashed #d7dee8}
+  #dr2ls .dr2ls-add__toggle{font-size:12px;font-weight:700;color:#2563eb;background:#fff;border:1px solid #cdd8e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
+  #dr2ls .dr2ls-add__toggle:hover{background:#f1f5f9}
+  #dr2ls .dr2ls-add__form{margin-top:10px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 13px}
+  #dr2ls .dr2ls-add__row{display:flex;gap:10px;flex-wrap:wrap}
+  #dr2ls .dr2ls-add__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:700;color:#475569;gap:3px}
+  #dr2ls .dr2ls-add__hintt{font-weight:500;color:#94a3b8}
+  #dr2ls .dr2ls-add__f input,#dr2ls .dr2ls-add__f select{font-family:inherit;font-size:13px;font-weight:400;color:#1e293b;border:1px solid #e2e8f0;border-radius:7px;padding:6px 8px}
+  #dr2ls .dr2ls-add__due{margin-top:11px;border-top:1px solid #eef2f7;padding-top:9px}
+  #dr2ls .dr2ls-add__duehdr{font-size:11.5px;font-weight:700;color:#475569;margin-bottom:5px}
+  #dr2ls .dr2ls-add__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#1e293b;padding:3px 0}
+  #dr2ls .dr2ls-add__radio.is-dim{color:#94a3b8}
+  #dr2ls .dr2ls-add__radio span{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
+  #dr2ls .dr2ls-add__radio input[type=date]{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2ls .dr2ls-add__num{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2ls .dr2ls-add__num:disabled,#dr2ls .dr2ls-add__radio input:disabled{opacity:.45}
+  #dr2ls .dr2ls-add__note{font-size:11px;color:#94a3b8;margin-top:4px}
+  #dr2ls .dr2ls-add__actions{margin-top:11px}
+  #dr2ls .dr2ls-add__submit{font-size:12.5px;font-weight:700;padding:6px 16px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit}
+  #dr2ls .dr2ls-add__submit:hover{background:#1d4ed8}
+
   @media(max-width:1100px){#dr2ls{height:auto}#dr2ls .two{grid-template-columns:1fr}#dr2ls .left{max-height:none}#dr2ls .rpane{min-height:480px}}
 </style>
 
@@ -284,6 +306,44 @@
           @endif
         </div>
       @endif
+
+      {{-- ── Add a custom (ad-hoc) step — restored into the phased list (regression from the rebuild). The
+           step's DUE is EITHER/OR, wired into the existing step fields (Johan): when LINKED to a step it is
+           "+N days after that step completes" (relative, via trigger + days_offset) OR a fixed date. Posts to
+           the existing pipeline.step.add action; renders + behaves like any other step. --}}
+      @unless($locked)
+      @permission('view_deals')
+      <div class="dr2ls-add" x-data="{ open:false, mode:'fixed', link:'' }">
+        <button type="button" class="dr2ls-add__toggle" @click="open=!open" x-text="open ? '× Cancel' : '+ Add custom step'"></button>
+        <form x-show="open" x-cloak method="POST" action="{{ route('deals-dr2.pipeline.step.add', $deal) }}" class="dr2ls-add__form">@csrf<input type="hidden" name="from" value="list">
+          <div class="dr2ls-add__row">
+            <label class="dr2ls-add__f">Step name
+              <input type="text" name="name" required placeholder="e.g. Plans approved">
+            </label>
+            <label class="dr2ls-add__f">Link to step <span class="dr2ls-add__hintt">(what it follows)</span>
+              <select name="link_step_id" x-model="link" @change="if(!link) mode='fixed'">
+                <option value="">— none (standalone, at the end) —</option>
+                @foreach($steps as $r2)<option value="{{ $r2['model']->id }}">{{ $r2['model']->name }}</option>@endforeach
+              </select>
+            </label>
+          </div>
+          <div class="dr2ls-add__due">
+            <div class="dr2ls-add__duehdr">Due date</div>
+            <label class="dr2ls-add__radio" :class="link ? '' : 'is-dim'">
+              <input type="radio" name="due_mode" value="relative" x-model="mode" :disabled="!link">
+              <span>+ <input type="number" name="offset" min="0" max="3650" value="7" :disabled="mode!=='relative' || !link" class="dr2ls-add__num"> days after the linked step completes</span>
+            </label>
+            <label class="dr2ls-add__radio">
+              <input type="radio" name="due_mode" value="fixed" x-model="mode">
+              <span>On a fixed date <input type="date" name="due_date" :disabled="mode!=='fixed'"></span>
+            </label>
+            <div class="dr2ls-add__note" x-show="!link" x-cloak>Pick a linked step to enable “+N days after”. Standalone steps use a fixed date.</div>
+          </div>
+          <div class="dr2ls-add__actions"><button type="submit" class="dr2ls-add__submit">Add step</button></div>
+        </form>
+      </div>
+      @endpermission
+      @endunless
     </div>
 
     {{-- ══════════ RIGHT · ONE tabbed pane — the deal panels + a Comments tab (nothing stacked) ══════════

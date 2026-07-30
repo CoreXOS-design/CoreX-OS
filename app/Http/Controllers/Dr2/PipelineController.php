@@ -385,19 +385,50 @@ class PipelineController extends Controller
     }
 
     /** V1.1 — add a custom step: name + due date + position (relative to an existing step). */
-    public function addStep(Deal $deal, Request $request): RedirectResponse
-    {
+    public function addStep(
+        Deal $deal,
+        Request $request,
+        \App\Services\DealV2\DealDateCascade $cascade,
+        \App\Services\DealV2\DealStepReorderService $reorder
+    ): RedirectResponse {
+        // A custom (ad-hoc) step. Johan's either/or (mirrors the deposit anchor): when the step is LINKED
+        // to another step, its DUE is EITHER "+N days after that step completes" (relative) OR a fixed date.
+        // We reuse the EXISTING step fields + machinery — identical to editFollows(): set
+        // trigger_step_instance_id + days_offset (+ trigger_type=after_step), then let the SAME cascade
+        // compute a relative Due (a fixed Due is due_date_manual → the cascade never clobbers it) and the
+        // SAME reorder place it after its link. No new date logic; no change to any shared date/model file.
         $data = $request->validate([
-            'name'          => ['required', 'string', 'max:255'],
-            'due_date'      => ['nullable', 'date'],
-            'after_step_id' => ['nullable', 'integer'],
+            'name'         => ['required', 'string', 'max:255'],
+            'link_step_id' => ['nullable', 'integer'],           // the step this one follows (trigger/dependency)
+            'due_mode'     => ['nullable', 'in:relative,fixed'],  // relative => +offset days; fixed => due_date
+            'offset'       => ['nullable', 'integer', 'min:0', 'max:3650'],
+            'due_date'     => ['nullable', 'date'],
         ]);
 
-        $after = ! empty($data['after_step_id'])
-            ? DealStepInstance::where('dr1_deal_id', $deal->id)->find($data['after_step_id'])
+        // The link must be a LIVE step of THIS deal (never self can't apply — the step doesn't exist yet).
+        $link = ! empty($data['link_step_id'])
+            ? DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->find($data['link_step_id'])
             : null;
 
-        $this->pipelines->addCustomStep($deal, trim($data['name']), $data['due_date'] ?? null, $after, $request->user()?->id);
+        $isNew    = $cascade->isNewModel($deal);
+        // "relative" only means anything when linked AND on a composable deal (which owns the cascade).
+        $relative = $link && $isNew && (($data['due_mode'] ?? 'fixed') === 'relative');
+        // Fixed Due goes in at creation as a manual Due; relative gets NO manual Due so the cascade fills it.
+        $fixedDue = $relative ? null : ($data['due_date'] ?? null);
+
+        // Create via the existing service ($link also seeds the display position near it).
+        $step = $this->pipelines->addCustomStep($deal, trim($data['name']), $fixedDue, $link, $request->user()?->id);
+
+        // Wire the dependency LINK + anchor exactly as editFollows() does (composable deals only).
+        if ($link && $isNew) {
+            $step->forceFill([
+                'trigger_step_instance_id' => $link->id,
+                'days_offset'              => $relative ? (int) ($data['offset'] ?? 0) : 0,
+                'trigger_type'             => 'after_step',
+            ])->save();
+            $cascade->recompute($deal);        // fills a relative Due; never touches the fixed (manual) Due
+            $reorder->reorderByFollows($deal); // place it right after the step it follows
+        }
 
         return $this->pipelineRedirect($deal)->with('info', 'Step added.');
     }
