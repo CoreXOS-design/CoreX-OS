@@ -55,9 +55,23 @@ class Property extends Model
      * is about mandate expiry, not on-market display.
      */
     public const OFF_MARKET_STATUSES = [
-        'sold', 'transferred', 'withdrawn', 'expired',
+        'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
     ];
+
+    /**
+     * AT-350 — the listing sold, but ANOTHER agency sold it (typically under an
+     * open mandate). Off-market and concluded like any sale, but never ours:
+     * excluded from the Sold KPI, the website/agent Sold showcases, the Map
+     * "our sold stock" layer, and from any commission or performance figure.
+     *
+     * Spec: .ai/specs/property-sold-by-third-party.md
+     *
+     * The value is the slug of the 'Sold by 3rd Party' property_status setting
+     * item (the Status dropdown slugs an item's name with
+     * strtolower(str_replace(' ', '_', $name))). Migration 2026_08_20_000001.
+     */
+    public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
@@ -1129,10 +1143,11 @@ class Property extends Model
 
     /**
      * The listing is CONCLUDED — the deal is done and it must never be advertised
-     * as available again. Sale side: sold/transferred. Rental side: rented/let_out
-     * (the rental equivalent of "sold", and the pair everyone forgets).
+     * as available again. Sale side: sold/transferred, plus sold_by_3rd_party (the
+     * property is just as gone when a competitor sells it — AT-350). Rental side:
+     * rented/let_out (the rental equivalent of "sold", and the pair everyone forgets).
      */
-    private const CONCLUDED_STATUSES = ['sold', 'transferred', 'rented', 'let_out'];
+    private const CONCLUDED_STATUSES = ['sold', self::STATUS_SOLD_BY_3RD_PARTY, 'transferred', 'rented', 'let_out'];
 
     /** Off-market, but not concluded — withdrawn, expired, never published, etc. */
     private const INACTIVE_STATUSES = ['withdrawn', 'cancelled', 'expired', 'unavailable', 'archived', 'draft'];
@@ -1155,10 +1170,51 @@ class Property extends Model
         return strtolower(trim((string) $this->status));
     }
 
-    /** A concluded listing (sold / transferred / rented / let out). */
+    /** A concluded listing (sold / sold by 3rd party / transferred / rented / let out). */
     public function isConcluded(): bool
     {
         return in_array($this->normalizedStatus(), self::CONCLUDED_STATUSES, true);
+    }
+
+    /**
+     * AT-350 — does this status string mean "another agency sold it"?
+     *
+     * Tolerates the vocabulary the way [[normalizedStatus]] does, in ONE place, so
+     * no caller has to know it varies. `properties.status` is genuinely mixed-case
+     * and mixed-separator in production (the wizard writes lowercase slugs, the P24
+     * sync writes capitalised labels), and Property24ListingMapper::getP24Status
+     * normalises underscores to SPACES before it tests — so a check that only knew
+     * `sold_by_3rd_party` would silently miss `Sold by 3rd Party` and
+     * `sold by 3rd party`. Accepts the "third party" spelling too, so a hand-typed
+     * or imported variant resolves rather than falling through to the generic
+     * `str_contains('sold')` arm — which would badge a competitor's sale as ours.
+     */
+    public static function isSoldByThirdPartyStatus(?string $status): bool
+    {
+        $s = strtolower(str_replace([' ', '-', '•'], ['_', '_', ''], trim((string) $status)));
+
+        return str_contains($s, '3rd_party') || str_contains($s, 'third_party');
+    }
+
+    /** Instance mirror of [[isSoldByThirdPartyStatus]]. */
+    public function isSoldByThirdParty(): bool
+    {
+        return self::isSoldByThirdPartyStatus($this->status);
+    }
+
+    /** Every loss event recorded against this property, newest first (AT-350). */
+    public function thirdPartySales(): HasMany
+    {
+        return $this->hasMany(PropertyThirdPartySale::class)->latest('recorded_at');
+    }
+
+    /**
+     * The loss record matching the property's CURRENT status — i.e. not yet
+     * re-listed. Null once the property goes back on the market.
+     */
+    public function openThirdPartySale(): ?PropertyThirdPartySale
+    {
+        return $this->thirdPartySales()->whereNull('reverted_at')->first();
     }
 
     /**
@@ -1171,6 +1227,12 @@ class Property extends Model
         $status = $this->normalizedStatus();
 
         return match (true) {
+            // AT-350 — MUST precede the 'sold' arm. That arm is an exact-match
+            // in_array, so without this one 'sold_by_3rd_party' falls through
+            // every arm to the default and badges a SOLD property "For Sale" —
+            // the identical bug-class the [[normalizedStatus]] docblock above
+            // describes (60 'Sold' rows badged For Sale).
+            self::isSoldByThirdPartyStatus($status)          => 'Sold by 3rd Party',
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which

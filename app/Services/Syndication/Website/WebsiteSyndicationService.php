@@ -93,7 +93,12 @@ class WebsiteSyndicationService
         // "Active" = currently marketable. Statuses vary across data
         // (active / for_sale / for_rent / to_let / on_show / under_offer …), so we
         // exclude the clearly off-market ones rather than whitelist a single value.
-        return $this->bulkEnable($key, fn ($q) => $q->whereNotIn('status', ['draft', 'sold', 'withdrawn']));
+        //
+        // BUILD_STANDARD §6 — sourced from Property::OFF_MARKET_STATUSES rather
+        // than the previous hand-written ['draft','sold','withdrawn'], which
+        // pushed expired, cancelled, archived and transferred stock to agency
+        // websites and would have pushed listings sold by another agency (AT-350).
+        return $this->bulkEnable($key, fn ($q) => $q->whereNotIn('status', Property::OFF_MARKET_STATUSES));
     }
 
     /**
@@ -106,6 +111,10 @@ class WebsiteSyndicationService
      */
     public function bulkActivateSold(AgencyApiKey $key): array
     {
+        // Exact match on 'sold' — deliberately NOT a LIKE/substring. AT-350's
+        // 'sold_by_3rd_party' is another agency's sale, and putting it in our own
+        // "recently sold" wall is the single most misleading thing our website
+        // could tell a prospective seller. Spec D3.
         return $this->bulkEnable($key, fn ($q) => $q->where('status', 'sold'));
     }
 

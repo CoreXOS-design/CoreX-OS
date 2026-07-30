@@ -31,7 +31,12 @@ class ExpireMandates extends Command
             ->whereNotNull('expiry_date')
             ->whereDate('expiry_date', '<', $today)
             ->where(function ($q) {
-                $q->whereNull('status')->orWhereNotIn('status', ['expired', 'sold', 'withdrawn']);
+                // BUILD_STANDARD §6 — single source of truth. Was a hand-written
+                // ['expired','sold','withdrawn'], which silently omitted every
+                // other dead status (archived, cancelled, transferred, let_out,
+                // draft) and would have kept firing MandateExpired at listings
+                // sold by another agency (AT-350).
+                $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             });
 
         $count = 0;
