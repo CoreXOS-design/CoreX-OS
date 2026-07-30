@@ -196,9 +196,34 @@ class Dr2ConditionCatalog
             }
 
             $row = $this->finalizeStep($t);
-            if (! empty($t['manual_due_option'])) {
+
+            // DEPOSIT ANCHOR (bond) — the deposit's timing is configurable per deal, "either/or":
+            //   signed        → Deal Signed + N days (the default; unchanged behaviour)
+            //   fixed         → a specific captured date (deposit_due)
+            //   bond_approved → Bond Approved (bank grants the bond) + N days
+            // The deposit STAYS suspensive in every case (Stage 1, gates grant); this only rewires
+            // its trigger + offset. When it anchors to Bond Approved and lands later, it simply
+            // becomes the furthest suspensive → the existing "Granted = furthest suspensive" wins.
+            if (($t['key'] ?? null) === 'deposit') {
+                $anchor = $opts['deposit_anchor'] ?? 'signed';
+                $offset = (isset($opts['deposit_offset']) && $opts['deposit_offset'] !== null && $opts['deposit_offset'] !== '')
+                    ? max(0, (int) $opts['deposit_offset']) : null;
+                if ($anchor === 'bond_approved') {
+                    $row['follows']    = 'bond_approved';
+                    $row['offset']     = $offset ?? (int) ($row['offset'] ?? 0);
+                    $row['manual_due'] = null;
+                } elseif ($anchor === 'fixed') {
+                    $row['follows']    = 'otp';
+                    $row['manual_due'] = $date($opts['deposit_due'] ?? null);
+                } else { // 'signed' — Deal Signed + N (default)
+                    $row['follows']    = 'otp';
+                    $row['offset']     = $offset ?? (int) ($row['offset'] ?? 0);
+                    $row['manual_due'] = null;
+                }
+            } elseif (! empty($t['manual_due_option'])) {
                 $row['manual_due'] = $date($opts[$t['manual_due_option']] ?? null);
             }
+
             $out[] = $row;
         }
 

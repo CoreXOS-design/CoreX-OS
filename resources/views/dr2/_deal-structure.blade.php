@@ -42,6 +42,8 @@
                 bondDue: {{ \Illuminate\Support\Js::from(old('conditions.bond.bond_due', '')) }},
                 bondDueDirty: {{ old('conditions.bond.bond_due') ? 'true' : 'false' }},
                 depositDue: {{ \Illuminate\Support\Js::from(old('conditions.bond.deposit_due', '')) }},
+                depositAnchor: {{ \Illuminate\Support\Js::from(old('conditions.bond.deposit_anchor', 'signed')) }},
+                depositOffset: {{ (int) old('conditions.bond.deposit_offset', 3) }},
                 fundsMode: {{ \Illuminate\Support\Js::from(old('conditions.cash.funds_mode', 'available')) }},
                 proofDue: {{ \Illuminate\Support\Js::from(old('conditions.cash.proof_due', '')) }},
                 payments: {{ (int) old('conditions.cash.payments', 1) }},
@@ -73,9 +75,23 @@
                     <input type="date" name="conditions[bond][bond_due]" x-model="bondDue" @input="bondDueDirty = true" class="corex-input" style="font-size:.82rem;padding:.2rem .4rem;">
                     <span style="font-size:.7rem;color:var(--text-muted,#9ca3af);">default 30 days from signed</span>
                 </div>
-                <div x-show="deposit" x-cloak style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:var(--text-secondary,#4b5563);">
-                    <span style="min-width:6.5rem;">Deposit due by</span>
-                    <input type="date" name="conditions[bond][deposit_due]" x-model="depositDue" class="corex-input" style="font-size:.82rem;padding:.2rem .4rem;">
+                <div x-show="deposit" x-cloak style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.82rem;color:var(--text-secondary,#4b5563);">
+                    <span style="min-width:6.5rem;">Deposit due</span>
+                    <select name="conditions[bond][deposit_anchor]" x-model="depositAnchor" class="corex-input" style="font-size:.82rem;padding:.2rem .4rem;">
+                        <option value="signed">Deal Signed +</option>
+                        <option value="bond_approved">Bond Approved (bond grant) +</option>
+                        <option value="fixed">a fixed date</option>
+                    </select>
+                    <template x-if="depositAnchor !== 'fixed'">
+                        <span style="display:inline-flex;align-items:center;gap:.3rem;">
+                            <input type="number" min="0" name="conditions[bond][deposit_offset]" x-model.number="depositOffset" class="corex-input" style="width:3.6rem;font-size:.82rem;padding:.2rem .4rem;">
+                            <span style="font-size:.72rem;color:var(--text-muted,#9ca3af);">days</span>
+                        </span>
+                    </template>
+                    <template x-if="depositAnchor === 'fixed'">
+                        <input type="date" name="conditions[bond][deposit_due]" x-model="depositDue" class="corex-input" style="font-size:.82rem;padding:.2rem .4rem;">
+                    </template>
+                    <span x-show="depositAnchor === 'bond_approved'" style="width:100%;font-size:.72rem;color:var(--text-muted,#9ca3af);">Still a suspensive condition — if this lands after Bond Approved it becomes the deal's Granted date.</span>
                 </div>
             </div>
 

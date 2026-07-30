@@ -183,7 +183,18 @@ class PipelineController extends Controller
                 // Bond due defaults to signed + 30 days (Johan), editable (a seller may allow only 14).
                 $opts['bond_due'] = $cleanDate($in[$key]['bond_due'] ?? null) ?? $anchor->copy()->addDays(30)->toDateString();
                 if ($opts['deposit']) {
-                    $opts['deposit_due'] = $cleanDate($in[$key]['deposit_due'] ?? null);
+                    // Deposit anchor (either/or) — Deal Signed + N (default) | fixed date | Bond Approved + N.
+                    // The deposit STAYS suspensive in every case; the anchor only rewires its trigger/offset.
+                    $depositDue = $cleanDate($in[$key]['deposit_due'] ?? null);
+                    $anchorIn   = $in[$key]['deposit_anchor'] ?? null;
+                    // Back-compat: an OLD form (no anchor field) with a date = fixed; without = Deal Signed + default.
+                    $depAnchor = $anchorIn !== null
+                        ? (in_array($anchorIn, ['signed', 'fixed', 'bond_approved'], true) ? $anchorIn : 'signed')
+                        : ($depositDue ? 'fixed' : 'signed');
+                    $opts['deposit_anchor'] = $depAnchor;
+                    $opts['deposit_offset'] = (($in[$key]['deposit_offset'] ?? '') !== '')
+                        ? max(0, (int) $in[$key]['deposit_offset']) : null;
+                    $opts['deposit_due']    = $depAnchor === 'fixed' ? $depositDue : null;
                 }
             }
             if ($key === 'cash') {
