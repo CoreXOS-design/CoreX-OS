@@ -215,11 +215,13 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       {{-- Deal-level DECLINE — visible in the header (not buried in a panel tab). Reuses the canonical
-           accepted_status → 'D' transition (locks the pipeline; re-grantable from the register). --}}
-      @php $accepted = (string) ($deal->accepted_status ?? 'P'); @endphp
-      @if($accepted === 'D')
+           accepted_status -> 'D' transition (locks the pipeline; re-grantable from the register).
+           NB: condition is INLINED into the if/elseif on purpose. This file uses the inline php()
+           directive form throughout; introducing a block-php/endphp pair (the only endphp in the
+           file) corrupts Blade raw-block extraction. Do not add one here. --}}
+      @if((string) ($deal->accepted_status ?? 'P') === 'D')
         <span style="color:#b91c1c;font-size:12.5px;font-weight:700;">● Declined</span>
-      @elseif($accepted !== 'R')
+      @elseif((string) ($deal->accepted_status ?? 'P') !== 'R')
         <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}" style="display:inline;margin:0;"
               onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
           @csrf

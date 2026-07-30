@@ -11,12 +11,14 @@
 
     {{-- Deal-level DECLINE — prominent at the top of the deal panels (the Timeline's own header is
          owned by cc5, so this is the visible non-tab home on the Timeline). Reuses the canonical
-         accepted_status → 'D' transition (locks the pipeline; re-grantable from the register). --}}
-    @php $accepted = (string) ($deal->accepted_status ?? 'P'); @endphp
+         accepted_status -> 'D' transition (locks the pipeline; re-grantable from the register).
+         NB: condition is INLINED into the if/elseif on purpose. This file uses the inline php()
+         directive form (line 6); a block-php/endphp pair (the only endphp here) corrupts Blade
+         raw-block extraction. Do not add one. --}}
     <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:.4rem;">
-        @if($accepted === 'D')
+        @if((string) ($deal->accepted_status ?? 'P') === 'D')
             <span style="color:#b91c1c;font-size:12px;font-weight:700;">● Deal Declined — re-grant from the register</span>
-        @elseif($accepted !== 'R')
+        @elseif((string) ($deal->accepted_status ?? 'P') !== 'R')
             <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}" style="margin:0;"
                   onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
                 @csrf
