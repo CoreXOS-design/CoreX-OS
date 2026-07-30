@@ -944,15 +944,26 @@ class UserManagementController extends Controller
         // house account). Sold/historic stock, the deal register and commissions stay
         // attributed to the departing agent. The transfer is immutably audit-logged.
         $data = $request->validate([
-            'target_user_id'     => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
-            'secondary_handling' => ['required', Rule::in(['promote', 'replace'])],
+            'target_user_id'          => ['required', 'integer', 'different:user', Rule::exists('users', 'id')->where($sameAgencyActive)],
+            'secondary_handling'      => ['required', Rule::in(['promote', 'replace'])],
+            // Opt-in, off by default (AT-118's historic-stays-with-departed-agent
+            // default is unchanged). When checked, sold/withdrawn/expired/draft
+            // stock also transfers to the successor instead of staying with the
+            // departing agent's now-inaccessible account.
+            'transfer_historic_stock' => ['sometimes', 'boolean'],
         ], [
             'target_user_id.required' => 'Nominate a successor — the departing agent\'s contacts, FICA and communications must transfer to an active agent before they can be removed.',
             'target_user_id.exists'   => 'The chosen successor is not a valid active user in this agency.',
         ]);
 
         $target = User::findOrFail($data['target_user_id']);
-        $service->transferForOffboarding($user, $target, $data['secondary_handling'], (int) auth()->id());
+        $service->transferForOffboarding(
+            $user,
+            $target,
+            $data['secondary_handling'],
+            (int) auth()->id(),
+            $request->boolean('transfer_historic_stock')
+        );
 
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();
 

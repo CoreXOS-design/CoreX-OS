@@ -63,9 +63,24 @@ class CommunicationTriageController extends Controller
             throw ValidationException::withMessages(['phone' => 'A phone or email is required to add the contact.']);
         }
 
+        // Dedupe at add time (previously this path created blindly — the one
+        // add-contact entry point with no duplicate check at all). This screen
+        // never blocks the agent (see class docblock), so a match is linked
+        // silently and the pending messages attach to the EXISTING contact
+        // instead of spawning a duplicate. Uses the canonical matcher (mirror
+        // columns + child identifier tables, agency-scoped).
+        $existing = app(\App\Services\ContactDuplicateService::class)
+            ->findDuplicates([
+                'first_name' => $validated['first_name'],
+                'last_name'  => $validated['last_name'] ?? '',
+                'phone'      => $validated['phone'] ?? null,
+                'email'      => $validated['email'] ?? null,
+            ], (int) $agencyId)
+            ->first();
+
         // Reuse the standard contact-creation path (agency_id auto-filled by
         // BelongsToAgency from the acting user).
-        $contact = Contact::create([
+        $contact = $existing ?: Contact::create([
             'agency_id'  => $agencyId,
             'first_name' => $validated['first_name'],
             'last_name'  => $validated['last_name'] ?? '',
@@ -83,7 +98,9 @@ class CommunicationTriageController extends Controller
             $validated['message_external_id'] ?? null,
         );
 
-        $msg = "Contact added. {$result['attached']} message(s) archived.";
+        $msg = $existing
+            ? "Linked to existing contact {$contact->full_name}. {$result['attached']} message(s) archived."
+            : "Contact added. {$result['attached']} message(s) archived.";
         if ($result['alerts'] > 0) {
             $msg .= " Note: this contradicted {$result['alerts']} earlier 'not real estate' flag — a review alert was raised.";
         }

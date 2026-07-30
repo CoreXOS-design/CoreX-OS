@@ -17,6 +17,7 @@ class ProspectingClaim extends Model
         'status',
         'notes',
         'claimed_at',
+        'pitched_at',
         'feedback_at',
         'last_updated_at',
         'released_at',
@@ -26,6 +27,7 @@ class ProspectingClaim extends Model
 
     protected $casts = [
         'claimed_at'      => 'datetime',
+        'pitched_at'      => 'datetime',
         'feedback_at'     => 'datetime',
         'last_updated_at' => 'datetime',
         'released_at'     => 'datetime',
@@ -119,11 +121,29 @@ class ProspectingClaim extends Model
         return $this->feedback_at !== null;
     }
 
+    /**
+     * True for a claim that has fallen out of its 48h no-feedback window and is
+     * eligible to be released back to the pool / silently re-claimed.
+     *
+     * A PITCHED claim (pitched_at set — the agent captured + linked a contact
+     * via "Pitch now") is PERMANENT: it never expires and is never re-claimable
+     * on the timer. The 48h window applies ONLY to a claim-without-pitch.
+     */
     public function isExpired(): bool
     {
+        if ($this->pitched_at !== null) {
+            return false;
+        }
+
         return $this->is_active
             && !$this->feedback_at
             && $this->claimed_at < now()->subHours(48);
+    }
+
+    /** A pitched claim is locked permanently to its agent (no 48h expiry). */
+    public function isPitched(): bool
+    {
+        return $this->pitched_at !== null;
     }
 
     public function needsReminder(): bool

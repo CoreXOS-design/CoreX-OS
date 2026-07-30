@@ -141,6 +141,28 @@ governs WHO sees it.
   contact. Transferred records show the successor as current; historic records keep the departed
   agent's attribution. The transfer event is audit-logged (req 1).
 
+#### 3.4.1 Opt-in full transfer (added 2026-07-30)
+
+Real incident: an agent's account was soft-deleted via Flow B, leaving 31 sold/withdrawn/expired
+stock rows attributed to the now-inaccessible departed account. The successor's mobile "my
+listings" (own-scope) correctly showed nothing for those rows — not a bug, exactly §3.4's
+default — but the business wanted the successor to inherit the FULL book this time, and no
+control existed to do that except a manual DB backfill.
+
+`transferForOffboarding()` now takes an optional `bool $transferHistoricStock = false` param
+(default preserves §3.4 exactly — nothing changes for existing callers). When true, the
+ON-MARKET status filter is skipped entirely: every property still attributed to the departing
+agent (any status) transfers to the successor, same primary/secondary dedup rules as the
+on-market case. Deals/commissions are still untouched regardless — that remains a separate,
+explicit decision via `reassignDeals()`.
+
+Surfaced on the delete modal as an unchecked-by-default checkbox, shown only when the agent has
+historic stock (`AgentDeletionService::preview()` now also returns
+`properties_primary_historic` / `properties_secondary_historic` so the modal can tell the admin
+exactly how many records the checkbox affects). The immutable `comms_access_audit_log` record's
+`stays_with_departed` list drops `sold_historic_stock` when the checkbox was used, so the audit
+trail always reflects what actually happened, not the §3.4 default.
+
 ### 3.5 Audit log = dedicated immutable table
 - New `comms_access_audit_log` (modelled on the immutable `signature_audit_log` /
   `mailbox_credential_reveals` patterns the audit praised). Append-only, no updates, no hard deletes.
