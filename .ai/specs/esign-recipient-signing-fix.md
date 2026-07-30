@@ -247,3 +247,48 @@ Whenever an **"other condition" clause is added to ANY document** (any e-sign do
 - **(a) Render:** ensure condition-initial slots render for **every party incl. the agent** on **ANY** document that has an added other-condition, **regardless of the serve/snapshot path** (fresh render, stored `merged_html`, or any future path). The slot's presence must not depend on which serving branch `show()` happens to take.
 - **(b) Server enforcement:** add a **server-side gate** that **blocks advancing to recipients until every party has initialled every added condition** — do not rely on the client DOM count. This closes the AT-293 floor gap for conditions specifically.
 - **(c) Test:** include an **automated test** asserting **"add condition → agent forced to initial before advance"** (and, ideally, the recipient leg too). Lands in `tests/Feature/Docuperfect/SigningView/` per the pipeline gate. There is currently **zero** test coverage of this gate.
+
+---
+
+## UNIVERSAL SIGNING FLOW — auto-advance (Johan confirmed, 2026-07-30)
+
+> **AUTHORITATIVE. This is THE signing flow for EVERY e-sign document. It lives in the SHARED
+> engine (`SignatureService`), never per-template, so every document — MDF, Addendum, mandate,
+> rental, pack — inherits it identically. Maps to R3 of the R1–R7 conformance matrix
+> (`.ai/investigations/2026-07-30-esign-universality/esign-conformance-audit.md`).**
+
+### The rule
+1. **Clean completion → auto-advance.** A recipient who completes with NO flag and NO
+   change/amendment hands the pen STRAIGHT to the next recipient. There is **NO between-recipient
+   agent-approval gate**.
+2. **Change → agent checkpoint mid-flow (only then).** A flag/strikeout/disclosure-mark amendment
+   raises a **PENDING `DocumentAmendment`**, which parks the document at
+   `STATUS_PENDING_AGENT_APPROVAL` and pulls the agent in to sort it out (the lock +
+   strike-through / counter-initial mechanism) before signing continues. No change = no interruption.
+3. **FINAL agent review always stays (hard).** The LAST recipient completing cleanly does **NOT**
+   auto-complete or file. It holds at `STATUS_PENDING_AGENT_APPROVAL` for the agent's Review &
+   Approve — the agent must eyeball and confirm; filing + recipient completion emails fire ONLY
+   after `approveAndAdvance()` → `completeDocument()`. Wet-ink is exempt (its own review substitutes).
+4. **Agent always sees where it sits** via the template status (`awaiting_seller` = mid-flow clean,
+   `pending_agent_approval` = needs the agent) grouped on My Documents.
+
+### Where it lives (shared engine — the ONLY router)
+- `SignatureService::handlePartyCompletion()` — clean accept (no PENDING amendment) →
+  `advanceToNextParty()`; flag/strikeout (PENDING amendment) → `STATUS_PENDING_AGENT_APPROVAL`.
+- `SignatureService::advanceToNextParty($template, $party, $only, $gateFinalizeForAgentReview)` —
+  advances to the next waiting recipient; when none remain and the doc is fully complete, either
+  `holdForFinalAgentReview()` (electronic) or `completeDocument()` (wet-ink).
+- `SignatureService::holdForFinalAgentReview()` — the final gate (rule 3); no file, no email.
+- Both completion entry points delegate here: `SigningController::completeWeb()` (web/CDS path)
+  **and** `SigningController::complete()` (marker/PDF path). The marker path's former
+  between-co-owner `STATUS_PENDING_AGENT_APPROVAL` gate was **removed** 2026-07-30 so both paths
+  share the one flow.
+
+### Verified on the real flow (QA1, 2026-07-30)
+- Real MDF docs 505 & 509 audit trail: `web_signing_completed` (seller 1) → `clean_accept_advanced`
+  (→ seller 2, **no agent step**) → `web_signing_completed` (seller 2) → `clean_accept_advanced` →
+  `pending_agent_approval` (reason `final_clean_complete`) — held, not filed.
+- Real change pause: st=129 → `pending_agent_approval` (reason `flag_or_strikeout`) with a PENDING
+  amendment.
+- Tests: `tests/Feature/Docuperfect/SigningView/CleanAcceptRoutingTest.php`
+  (clean-advances-no-checkpoint · pending-flag-routes-to-agent · final-clean-holds-for-review).

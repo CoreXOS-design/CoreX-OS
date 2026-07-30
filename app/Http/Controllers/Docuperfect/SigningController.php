@@ -2103,31 +2103,19 @@ class SigningController extends Controller
             $flattener = app(DocumentFlattener::class);
             $flattener->flattenSignerFields($template, $party);
 
-            // Check if ALL requests for this role are now complete before advancing
-            $allRoleComplete = $template->requests()
-                ->where('party_role', $party)
-                ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
-                ->doesntExist();
-
-            if ($allRoleComplete) {
-                // All co-owners for this role have signed — advance
-                $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-            } else {
-                // More co-owners still need to sign — send to the next one
-                $nextCoOwner = $template->requests()
-                    ->where('party_role', $party)
-                    ->where('status', SignatureRequest::STATUS_WAITING)
-                    ->orderBy('signing_order', 'asc')
-                    ->first();
-
-                if ($nextCoOwner) {
-                    // Set status to pending_agent_approval so agent can review
-                    $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
-
-                    // Notify agent about this co-owner completion
-                    $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
-                }
-            }
+            // UNIVERSAL auto-advance (Johan 2026-07-30). Routing is delegated ENTIRELY to
+            // handlePartyCompletion — exactly as the web path (completeWeb) already does — so
+            // BOTH completion paths share ONE flow: a CLEAN completion advances straight to
+            // the next recipient (including the next co-owner of the same role) with NO
+            // between-recipient agent approval; the agent is pulled in ONLY when a
+            // flag/strikeout raised a PENDING amendment; and the FINAL clean completion holds
+            // at pending_agent_approval for the agent's Review & Approve (no auto-file).
+            //
+            // Previously the "more co-owners of this role remain" branch here set
+            // STATUS_PENDING_AGENT_APPROVAL between co-owners — a between-recipient gate that
+            // contradicted the universal flow. Removed: handlePartyCompletion is idempotent
+            // about which co-owner remains and hands the pen on within the group itself.
+            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
 
             $fullyComplete = $this->signatureService->isFullyComplete($template);
 

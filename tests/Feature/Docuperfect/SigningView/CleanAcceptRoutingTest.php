@@ -85,4 +85,38 @@ final class CleanAcceptRoutingTest extends TestCase
             'a pending flag/strikeout MUST route back to the agent checkpoint',
         );
     }
+
+    /**
+     * AT-322 / universal flow (Johan 2026-07-30) — the FINAL clean recipient does
+     * NOT auto-complete or file. It HOLDS at pending_agent_approval so the agent
+     * eyeballs and confirms before filing. Nothing files/emails until the agent
+     * approves via approveAndAdvance().
+     */
+    public function test_final_clean_recipient_holds_for_agent_review_and_does_not_auto_complete(): void
+    {
+        $session  = $this->buildCanonicalTemplate111Session(sellerCount: 2, includeAgent: true);
+        $template = $session['signatureTemplate'];
+        $agent    = $this->recipient($session['recipients'], 'agent', 1);
+        $seller1  = $this->recipient($session['recipients'], 'seller', 1);
+        $seller2  = $this->recipient($session['recipients'], 'seller', 2);
+
+        // Agent + seller_1 already done; seller_2 is the LAST signer, completing cleanly.
+        $agent->update(['status' => SignatureRequest::STATUS_COMPLETED, 'completed_at' => now()]);
+        $seller1->update(['status' => SignatureRequest::STATUS_COMPLETED, 'completed_at' => now()]);
+        $seller2->update(['status' => SignatureRequest::STATUS_COMPLETED, 'completed_at' => now()]);
+
+        app(SignatureService::class)->handlePartyCompletion($template, 'seller', $seller2);
+
+        $template->refresh();
+        $this->assertSame(
+            SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+            $template->status,
+            'the final clean recipient must HOLD at the agent-review gate',
+        );
+        $this->assertNotSame(
+            SignatureTemplate::STATUS_COMPLETED,
+            $template->status,
+            'the document must NOT auto-complete/file before the agent reviews',
+        );
+    }
 }
