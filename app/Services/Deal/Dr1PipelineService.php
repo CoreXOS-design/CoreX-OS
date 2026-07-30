@@ -315,6 +315,15 @@ class Dr1PipelineService
             // Sweep #2 — fire the step's configured status_trigger (positive or negative) onto the deal.
             $this->applyStatusTrigger($step, $userId, $isNegative);
 
+            // Sweep #3 — composable-deal LIFECYCLE. Set-based (not per-step trigger): the deal
+            // grants when EVERY suspensive condition is complete, and registers when EVERY step is
+            // complete. Composable deals carry no status_trigger on their suspensive steps (the old
+            // template model did, on "Bond Approved"), so without this the Granted marker never met
+            // and the deal never left Pending even with all conditions done. Forward-only + idempotent.
+            if (! $isNegative) {
+                $this->syncDealStatus($step->dr1Deal, $userId);
+            }
+
             // AT-229 §17 — trigger-driven supplier work orders. When the configured
             // trigger step (default "Bond Granted") completes POSITIVELY, every pending
             // work order that points at it is sent (PDF + AT-228 filing + email, agents
@@ -422,6 +431,97 @@ class Dr1PipelineService
         $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered', 'D' => 'Declined'][$code] ?? $code;
         $this->logActivity($deal, $step, $userId, 'deal_status_advanced',
             "Deal status → {$label} (pipeline step \"{$step->name}\" completed, trigger \"{$trigger}\")");
+    }
+
+    /**
+     * Composable-deal status LIFECYCLE — the SINGLE set-based mechanism for both flips:
+     *   Pending → GRANTED   when every SUSPENSIVE step is complete (or the deal has none → grants
+     *                       on signing). Also marks the Granted milestone MET and starts Stage 2.
+     *   Granted → REGISTERED when EVERY step in the pipeline is complete.
+     *
+     * Only runs for composable (new-model) deals — those carry a Granted marker; template-model
+     * deals keep their per-step status_trigger flow (applyStatusTrigger), untouched. Forward-only
+     * and idempotent, so it is safe to call after any completion (and to reconcile a deal whose
+     * conditions were completed before this rule existed). A completed OR skipped (N/A) step counts
+     * as done, so an excused step never blocks the flip.
+     */
+    public function syncDealStatus(?Deal $deal, ?int $userId = null): void
+    {
+        if (! $deal) {
+            return;
+        }
+        $steps = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->get();
+        $gate  = $steps->firstWhere('is_grant_marker', true);
+        if (! $gate) {
+            return; // template-model deal — not our concern here
+        }
+
+        $isDone     = fn (DealStepInstance $s) => in_array($s->status, ['completed', 'skipped'], true);
+        $worked     = $steps->where('is_grant_marker', false);        // every real step (the marker is met by convergence)
+        $suspensive = $worked->where('is_suspensive', true);
+
+        $granted    = $suspensive->isEmpty() || $suspensive->every($isDone);
+        if (! $granted) {
+            return; // still Pending — a suspensive condition is outstanding
+        }
+        $registered = $worked->isNotEmpty() && $worked->every($isDone);
+
+        // Mark the Granted milestone MET (idempotent). Grant date = the LATEST actual completion
+        // across the suspensive set (else now), matching the read-model's actual-aware grant date.
+        if ($gate->status !== 'completed') {
+            $grantDate = $suspensive
+                ->map(fn ($s) => $s->actual_date ?? $s->completed_at)
+                ->filter()
+                ->map(fn ($d) => \Carbon\Carbon::parse($d))
+                ->sortByDesc(fn ($c) => $c->getTimestamp())
+                ->first() ?? \Carbon\Carbon::now();
+            $gate->forceFill([
+                'status'          => 'completed',
+                'completed_at'    => $grantDate,
+                'actual_date'     => $grantDate->toDateString(),
+                'completed_by_id' => $userId,
+                'current_rag'     => 'grey',
+            ])->save();
+            $this->logActivity($deal, $gate, $userId, 'step_completed',
+                'Granted — all suspensive conditions met');
+            // Grant unblocks Stage 2 (Transfer & Registration): activate the steps that follow the
+            // marker, exactly as any other completion would.
+            $this->activateDownstreamSteps($gate);
+        }
+
+        // Advance the persisted register status (accepted_status — the truth the DR2 screen reads).
+        $this->advanceAcceptedStatus($deal, 'G', $userId, 'all suspensive conditions complete');
+        if ($registered) {
+            $this->advanceAcceptedStatus($deal, 'R', $userId, 'all pipeline steps complete');
+        }
+    }
+
+    /**
+     * Advance a deal's accepted_status forward-only (P→G→R), stamping granted_at / registration_date
+     * on first reach and honouring the Wave-2 single-grant-per-property guard. Never downgrades or
+     * re-fires. Shared by the composable lifecycle (syncDealStatus) so both flips run identically.
+     */
+    private function advanceAcceptedStatus(Deal $deal, string $code, ?int $userId, string $reason): void
+    {
+        $current = (string) $deal->accepted_status;
+        if ((self::ACCEPTED_STATUS_RANK[$code] ?? 0) <= (self::ACCEPTED_STATUS_RANK[$current] ?? 0)) {
+            return; // forward-only — never downgrade or re-fire
+        }
+        if ($code === 'G') {
+            app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
+        }
+
+        $updates = ['accepted_status' => $code];
+        if ($code === 'G' && empty($deal->granted_at)) {
+            $updates['granted_at'] = now();
+        }
+        if ($code === 'R' && empty($deal->registration_date)) {
+            $updates['registration_date'] = now()->toDateString();
+        }
+        $deal->forceFill($updates)->save();
+
+        $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered'][$code] ?? $code;
+        $this->logActivity($deal, null, $userId, 'deal_status_advanced', "Deal status → {$label} ({$reason})");
     }
 
     /**
