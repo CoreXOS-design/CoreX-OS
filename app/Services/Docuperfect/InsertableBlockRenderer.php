@@ -632,12 +632,21 @@ final class InsertableBlockRenderer
                 && $signingToken !== null;
 
             if ($isMine) {
+                // The CURRENT signer's own un-filled slot renders BLANK — exactly like a
+                // page-break initial box — and opens the SAME draw/type modal on click
+                // (activeMarker._isConditionInitial → applySignature → __corexApplyConditionInitial).
+                // It must NOT pre-render the party's initials token: a pre-filled glyph reads
+                // as "already initialed / locked", and the recipient must ACTIVELY draw or type
+                // their own initial as the legal evidence of consent to the condition (Johan,
+                // 2026-07-30). The empty box below is the drawable target; $token is deliberately
+                // not emitted here.
                 $slots .= '<button type="button" class="btn-add-initial initial-slot initial-active" '
                     . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
                     . 'data-signing-token="' . e($signingToken) . '" '
-                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+                    . 'style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center; '
+                    . 'min-width:64px; min-height:30px; padding:0.35rem 0.6rem; '
                     . 'background:#fff; border:1px dashed #0ea5e9; border-radius:4px; cursor:pointer; font-size:0.75rem;">'
-                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($token) . '</strong>'
+                    . '<span class="condition-initial-blank" style="display:block; min-width:44px; min-height:14px;">&nbsp;</span>'
                     . '<small style="color:#0369a1; font-size:0.65rem; margin-top:1px;">Click to initial</small>'
                     . '</button>';
             } else {

@@ -130,12 +130,11 @@ class CanonicalInkComposer
                 if (trim((string) $value) === '') {
                     continue;
                 }
-                $parts = explode('_', (string) $key, 2);
-                if (count($parts) < 2) {
+                $split = $this->splitCeremonyKey((string) $key);
+                if ($split === null) {
                     continue;
                 }
-                $keyParty  = strtolower($parts[0]);
-                $fieldType = $parts[1];
+                [$keyParty, $fieldType] = $split;
                 // Materialise the match set before mutating — stampCeremonyFilled may
                 // REPLACE an <input> node, and iterating a live query while
                 // restructuring the tree is unsafe.
@@ -204,12 +203,11 @@ class CanonicalInkComposer
                 if (trim((string) $value) === '') {
                     continue;
                 }
-                $parts = explode('_', (string) $key, 2);
-                if (count($parts) < 2) {
+                $split = $this->splitCeremonyKey((string) $key);
+                if ($split === null) {
                     continue;
                 }
-                $keyParty  = strtolower($parts[0]);
-                $fieldType = $parts[1];
+                [$keyParty, $fieldType] = $split;
                 // Materialise before mutating — stampCeremonyFilled may REPLACE an
                 // <input> node with a <span>.
                 $matches = iterator_to_array($xpath->query('//*[@data-marker-party][@data-marker-type="' . $this->xpathLiteral($fieldType) . '"]'));
@@ -243,13 +241,54 @@ class CanonicalInkComposer
      * by bakeInk's un-stamped-span fallback and by applyCeremonyValues so both
      * paths bind ceremony text identically.
      */
+    /**
+     * Known ceremony field types, longest-first so the underscore-bearing "am_pm"
+     * is matched before any shorter type. Mirrors the client's ceremonyTypes list
+     * (external/sign.blade.php).
+     */
+    private const CEREMONY_FIELD_TYPES = ['am_pm', 'location', 'month', 'year', 'time', 'day'];
+
+    /**
+     * Split a ceremony key "{party}_{fieldType}" into [party, fieldType].
+     *
+     * The party segment ITSELF may contain underscores — a 2nd+ same-role recipient
+     * is keyed "seller_2" — and the field type "am_pm" contains one too. A naive
+     * explode('_', $key, 2) therefore mis-parses "seller_2_location" as party
+     * "seller" / type "2_location", so rec 2's captured Location/date never binds to
+     * its span and drops from the agent-review and final document (AT — MDF rec-2
+     * Location dropped, Johan 2026-07-30). Match the known field-type SUFFIX instead;
+     * the party is the remaining prefix.
+     *
+     * @return array{0:string,1:string}|null  [party(lower), fieldType] or null
+     */
+    private function splitCeremonyKey(string $key): ?array
+    {
+        foreach (self::CEREMONY_FIELD_TYPES as $type) {
+            $suffix = '_' . $type;
+            if (str_ends_with($key, $suffix)) {
+                $party = substr($key, 0, -strlen($suffix));
+                if ($party !== '') {
+                    return [strtolower($party), $type];
+                }
+            }
+        }
+        return null;
+    }
+
     private function ceremonyPartyMatches(string $elParty, string $keyParty): bool
     {
         if ($elParty === '' || $keyParty === '') {
             return false;
         }
 
-        return $elParty === $keyParty || str_starts_with($elParty, $keyParty);
+        // EXACT match only. Ceremony keys are "{data-marker-party}_{fieldType}" and the
+        // per-recipient clone re-keys rec 2's marker to its own party ("seller_2"), so
+        // rec 1's key "seller_location" and rec 2's key "seller_2_location" each bind to
+        // their OWN span. The former `str_starts_with($elParty, $keyParty)` prefix match
+        // made key "seller" ALSO match the "seller_2" span — mirroring rec 1's Location
+        // onto rec 2 and blanking/overwriting rec 2's own value on the agent-review and
+        // final document (AT — MDF rec-2 Location dropped, Johan 2026-07-30).
+        return $elParty === $keyParty;
     }
 
     /**

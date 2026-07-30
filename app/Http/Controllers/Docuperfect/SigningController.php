@@ -1772,6 +1772,20 @@ class SigningController extends Controller
             $webData['canonical_version'] = (int) ($webData['canonical_version'] ?? 0) + 1;
         }
 
+        // AT — MDF rec-2 field persistence (Johan 2026-07-30). bakeInk fills only the
+        // CURRENT signer's owned markers; a later-injected per-recipient span (e.g. the
+        // seller_2 clone) can therefore land in the stored canonical BLANK even though
+        // this recipient's value is in ceremony_values — so the agent-review / final
+        // document showed rec 2's Location empty. Re-apply the FULL accumulated
+        // ceremony_values (every recipient's captured place/date/time) onto the canonical
+        // by EXACT data-marker-party, so every recipient's own span is filled and none is
+        // mirrored from another. Idempotent (stampCeremonyFilled re-writes the same value
+        // as a no-op); scoped to ceremony text only — signatures/initials untouched.
+        if (!empty($webData['canonical_html']) && !empty($webData['ceremony_values'])) {
+            $webData['canonical_html'] = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                ->applyCeremonyValues($webData['canonical_html'], $webData['ceremony_values']);
+        }
+
         // Embed this signer's signatures, initials, and ceremony values into
         // merged_html — RETAINED for backward compatibility (pre-canonical docs,
         // any legacy consumer still reading merged_html). Party-aliased; canonical
@@ -1791,6 +1805,15 @@ class SigningController extends Controller
             }
             if (!empty($ceremonyValues)) {
                 $html = $sigController->embedCeremonyValuesIntoHtml($html, $ceremonyValues);
+            }
+            // AT — MDF rec-2 field persistence (Johan 2026-07-30). embedCeremonyValuesIntoHtml
+            // above embeds only THIS signer's values (and its party match could mirror rec 1
+            // onto rec 2's span). Re-apply the FULL accumulated ceremony_values by EXACT
+            // data-marker-party so every recipient's own span on merged_html is filled with
+            // its OWN value — mirroring the canonical re-apply above. Idempotent.
+            if (!empty($webData['ceremony_values'])) {
+                $html = app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+                    ->applyCeremonyValues($html, $webData['ceremony_values']);
             }
             $webData['merged_html'] = $html;
         }

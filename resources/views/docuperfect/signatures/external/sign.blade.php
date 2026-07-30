@@ -1939,6 +1939,24 @@ function externalSign() {
                 }
             }
 
+            // 4b. Checklist-style disclosure marks (MDF / template-123). These are
+            //     `.corex-radio-placeholder` SPANS, not <input type="radio">, so step 4
+            //     above never sees them and "Go to next" would jump PAST the radios —
+            //     the recipient reaches the bottom with marks unfilled and no way for
+            //     "next" to walk them there. Collect every editable-for-this-viewer
+            //     `.corex-disclosure-row` whose answer isn't yet recorded, keyed by
+            //     the SAME data-disclosure-key the selection handler writes, so the
+            //     document-order sort below walks each mark top-to-bottom.
+            if (container) {
+                container.querySelectorAll('.corex-disclosure-row[data-editable="true"]').forEach(row => {
+                    const key = row.getAttribute('data-disclosure-key');
+                    const ans = key ? (this.webDisclosureAnswers[key] || '') : '';
+                    if (('' + ans).trim() === '') {
+                        items.push({ el: row, label: 'Disclosure item' });
+                    }
+                });
+            }
+
             // 5. B3 — Empty recipient-editable text fields (this viewer's only).
             if (container) {
                 container.querySelectorAll('input.field-editable[data-viewer-editable]').forEach(inp => {
