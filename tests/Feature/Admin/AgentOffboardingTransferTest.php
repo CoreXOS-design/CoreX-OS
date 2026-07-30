@@ -161,4 +161,69 @@ final class AgentOffboardingTransferTest extends TestCase
         $this->assertFalse((bool) $departing->fresh()->is_active);
         $this->assertSame($successor->id, (int) $contact->fresh()->agent_id, 'contact transferred to successor');
     }
+
+    /**
+     * Opt-in historic-stock transfer: off by default (covered by
+     * test_transfer_moves_live_set_to_successor_and_leaves_historic above),
+     * but when explicitly requested, sold/withdrawn/expired/draft stock also
+     * moves to the successor instead of staying with the departing agent.
+     */
+    public function test_transfer_historic_stock_opt_in_moves_off_market_properties_too(): void
+    {
+        $admin     = $this->agent();
+        $departing = $this->agent();
+        $successor = $this->agent();
+
+        $onMarket = $this->property($departing, 'active');
+        $sold     = $this->property($departing, 'sold');
+        $withdrawn = $this->property($departing, 'withdrawn');
+
+        app(AgentDeletionService::class)->transferForOffboarding(
+            $departing, $successor, 'promote', $admin->id, transferHistoricStock: true
+        );
+
+        $this->assertSame($successor->id, (int) $onMarket->fresh()->agent_id, 'on-market stock → successor');
+        $this->assertSame($successor->id, (int) $sold->fresh()->agent_id, 'sold stock → successor when opted in');
+        $this->assertSame($successor->id, (int) $withdrawn->fresh()->agent_id, 'withdrawn stock → successor when opted in');
+
+        $log = DB::table('comms_access_audit_log')
+            ->where('event_type', 'ownership_transfer')
+            ->where('subject_user_id', $departing->id)
+            ->latest('id')->first();
+        $detail = json_decode($log->detail, true);
+        $this->assertNotContains('sold_historic_stock', $detail['stays_with_departed'], 'audit no longer claims historic stock stays');
+    }
+
+    public function test_delete_with_historic_stock_checkbox_moves_sold_stock_too(): void
+    {
+        $admin     = $this->agent();
+        $departing = $this->agent();
+        $successor = $this->agent();
+        $sold      = $this->property($departing, 'sold');
+
+        $resp = $this->actingAs($admin)
+            ->from('/admin/users')
+            ->post('/admin/users/' . $departing->id . '/delete', [
+                'qr_reroute_user_id'      => $successor->id,
+                'target_user_id'          => $successor->id,
+                'secondary_handling'      => 'promote',
+                'transfer_historic_stock' => '1',
+            ]);
+
+        $resp->assertRedirect(route('admin.users'));
+        $this->assertSame($successor->id, (int) $sold->fresh()->agent_id, 'checked box moves historic stock via HTTP path too');
+    }
+
+    public function test_preview_reports_historic_property_breakdown(): void
+    {
+        $departing = $this->agent();
+        $this->property($departing, 'active');
+        $this->property($departing, 'sold');
+        $this->property($departing, 'withdrawn');
+
+        $counts = app(AgentDeletionService::class)->preview($departing);
+
+        $this->assertSame(3, $counts['properties_primary']);
+        $this->assertSame(2, $counts['properties_primary_historic'], 'sold + withdrawn are historic, active is not');
+    }
 }

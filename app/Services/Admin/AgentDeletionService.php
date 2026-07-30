@@ -18,6 +18,8 @@ class AgentDeletionService
      * @return array{
      *     properties_primary:int,
      *     properties_secondary:int,
+     *     properties_primary_historic:int,
+     *     properties_secondary_historic:int,
      *     contacts:int,
      *     calendar_events:int,
      *     command_tasks:int,
@@ -29,11 +31,22 @@ class AgentDeletionService
      * `has_any` covers properties/contacts/events/tasks (the records gated by
      * the reassignment dropdown). Deals are tracked separately via `deals` /
      * `has_deals` because they have their own leave-or-move control.
+     *
+     * `properties_*_historic` are the subset of `properties_primary` /
+     * `properties_secondary` sitting in `Property::OFF_MARKET_STATUSES` —
+     * the portion `transferForOffboarding()` leaves attributed to the
+     * departing agent unless the admin opts into `transferHistoricStock`.
+     * Surfaced separately so the delete modal can tell the admin exactly how
+     * many records that opt-in checkbox affects.
      */
     public function preview(User $user): array
     {
+        $offMkt = Property::OFF_MARKET_STATUSES;
+
         $primary   = DB::table('properties')->whereNull('deleted_at')->where('agent_id', $user->id)->count();
         $secondary = DB::table('properties')->whereNull('deleted_at')->where('pp_second_agent_id', $user->id)->count();
+        $primaryHistoric   = DB::table('properties')->whereNull('deleted_at')->whereIn('status', $offMkt)->where('agent_id', $user->id)->count();
+        $secondaryHistoric = DB::table('properties')->whereNull('deleted_at')->whereIn('status', $offMkt)->where('pp_second_agent_id', $user->id)->count();
         $contacts  = DB::table('contacts')->whereNull('deleted_at')->where('created_by_user_id', $user->id)->count();
         $events    = DB::table('calendar_events')->whereNull('deleted_at')->where('user_id', $user->id)->count();
         $tasks     = DB::table('command_tasks')->whereNull('deleted_at')->where('assigned_to', $user->id)->count();
@@ -56,8 +69,10 @@ class AgentDeletionService
         $deals = $dealsV1 + $dealsV2;
 
         return [
-            'properties_primary'   => $primary,
-            'properties_secondary' => $secondary,
+            'properties_primary'            => $primary,
+            'properties_secondary'          => $secondary,
+            'properties_primary_historic'   => $primaryHistoric,
+            'properties_secondary_historic' => $secondaryHistoric,
             'contacts'             => $contacts,
             'calendar_events'      => $events,
             'command_tasks'        => $tasks,
@@ -230,7 +245,8 @@ class AgentDeletionService
      * Transfers to $target:
      *   - Properties: ON-MARKET only (status NOT in Property::OFF_MARKET_STATUSES).
      *     Sold / transferred / withdrawn / expired / let / draft / archived stay
-     *     attributed to the departed agent (their track record).
+     *     attributed to the departed agent (their track record) — UNLESS
+     *     $transferHistoricStock opts into moving those too (see below).
      *   - Contacts: agent_id + second_agent_id + created_by_user_id (so the contact
      *     surface — $contact->agent ?? $contact->createdBy — shows the successor).
      *   - FICA: requested_by + agent_verified_by (the agent-side fields).
@@ -238,23 +254,34 @@ class AgentDeletionService
      * Calendar events + tasks owned by the source are soft-deleted (existing
      * offboarding behaviour). Logs an immutable ownership_transfer audit event.
      *
+     * @param bool $transferHistoricStock Opt-in, off by default. When true, the
+     *     ON-MARKET status filter on properties is skipped entirely — every
+     *     property still attributed to $source (any status) moves to $target,
+     *     same primary/secondary dedup rules as the on-market case. Use when
+     *     the admin explicitly wants the departing agent's FULL book handed
+     *     over, not just their live listings (e.g. the successor is taking
+     *     over the whole portfolio, not merely picking up active work).
+     *     Does NOT affect deals/commissions — those still only move via
+     *     reassignDeals(), independent of this flag.
+     *
      * @return array<string,int>
      */
-    public function transferForOffboarding(User $source, User $target, string $secondaryHandling, int $actorId): array
+    public function transferForOffboarding(User $source, User $target, string $secondaryHandling, int $actorId, bool $transferHistoricStock = false): array
     {
         if ((int) $source->id === (int) $target->id) {
             return ['skipped_same_user' => 1];
         }
 
-        $counts = DB::transaction(function () use ($source, $target, $secondaryHandling) {
+        $counts = DB::transaction(function () use ($source, $target, $secondaryHandling, $transferHistoricStock) {
             $now      = now();
             $offMkt   = Property::OFF_MARKET_STATUSES;
 
-            // ── Properties — ON-MARKET only (status-based split) ──
+            // ── Properties — ON-MARKET only by default (status-based split);
+            //    ALL statuses when $transferHistoricStock is true ──
             $primaryChanged = 0;
             if ($secondaryHandling === 'promote') {
                 $promoted = DB::table('properties')->whereNull('deleted_at')
-                    ->whereNotIn('status', $offMkt)
+                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
                     ->where('agent_id', $source->id)
                     ->whereNotNull('pp_second_agent_id')
                     ->where('pp_second_agent_id', '!=', $source->id)
@@ -266,19 +293,19 @@ class AgentDeletionService
                     $primaryChanged++;
                 }
                 $primaryChanged += DB::table('properties')->whereNull('deleted_at')
-                    ->whereNotIn('status', $offMkt)
+                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
                     ->where('agent_id', $source->id)
                     ->update(['agent_id' => $target->id, 'updated_at' => $now]);
             } else {
                 $primaryChanged = DB::table('properties')->whereNull('deleted_at')
-                    ->whereNotIn('status', $offMkt)
+                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
                     ->where('agent_id', $source->id)
                     ->update(['agent_id' => $target->id, 'updated_at' => $now]);
             }
 
             $secondaryChanged = 0;
             foreach (DB::table('properties')->whereNull('deleted_at')
-                        ->whereNotIn('status', $offMkt)
+                        ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
                         ->where('pp_second_agent_id', $source->id)
                         ->get(['id', 'agent_id']) as $row) {
                 $newSecondary = ((int) $row->agent_id === (int) $target->id) ? null : $target->id;
@@ -288,6 +315,7 @@ class AgentDeletionService
             }
 
             // Properties left with the departed agent (sold/historic) — for the audit detail.
+            // Always zero when $transferHistoricStock moved everything.
             $historicLeft = DB::table('properties')->whereNull('deleted_at')
                 ->whereIn('status', $offMkt)
                 ->where(fn ($q) => $q->where('agent_id', $source->id)->orWhere('pp_second_agent_id', $source->id))
@@ -327,6 +355,7 @@ class AgentDeletionService
                 'properties_primary'    => $primaryChanged,
                 'properties_secondary'  => $secondaryChanged,
                 'properties_historic_left' => $historicLeft,
+                'historic_stock_transferred' => $transferHistoricStock,
                 'contacts_agent'        => $contactsPrimary,
                 'contacts_second_agent' => $contactsSecond,
                 'contacts_created_by'   => $contactsCreated,
@@ -350,7 +379,9 @@ class AgentDeletionService
                 'successor_user'    => $target->name,
                 'secondary_handling' => $secondaryHandling,
                 'transferred'       => $counts,
-                'stays_with_departed' => ['deal_register', 'commissions', 'sold_historic_stock'],
+                'stays_with_departed' => $transferHistoricStock
+                    ? ['deal_register', 'commissions']
+                    : ['deal_register', 'commissions', 'sold_historic_stock'],
             ],
         ]);
 
