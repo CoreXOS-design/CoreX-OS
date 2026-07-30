@@ -168,6 +168,15 @@ class PipelineTimelineService
                 'star'      => (bool) $s->is_suspensive,
                 'projected' => $sp['projected'],
                 'stage'     => $stageOf((int) $s->id),
+                // Completed tiles show BOTH the original planned due date and the actual completion date.
+                // done_str is read straight off $sp['end'] (the exact Carbon value projectedSpan resolved
+                // to actual_date/completed_at) — NOT derived from start+dur, because dur is floored to a
+                // minimum of 1 day for visual legibility (a step completed on/before its own recorded
+                // start collapses to a 0-day real span), which would silently push the DISPLAYED date a
+                // day later than the true completion date.
+                'completed' => $s->status === 'completed',
+                'due_str'   => $s->due_date->format('j M'),
+                'done_str'  => $s->status === 'completed' ? $sp['end']->format('j M') : null,
             ];
         }
 
@@ -254,7 +263,14 @@ class PipelineTimelineService
      */
     private function projectedSpan(DealStepInstance $s): array
     {
-        $end = $s->due_date->copy()->startOfDay();
+        // A COMPLETED step's tile reflects what actually happened, not the projection: end = the actual
+        // completion date, so a step done early shrinks the tile and one done late grows it. Same
+        // actual-date convention already used elsewhere in this class for the grant-date calc: the
+        // user-entered "actually done on" date (actual_date) first, falling back to the completed_at
+        // system timestamp only if that's missing. Not-yet-completed steps are unaffected — end stays
+        // the projected due date.
+        $actual = $s->status === 'completed' ? ($s->actual_date ?? $s->completed_at) : null;
+        $end    = $actual ? Carbon::parse($actual)->startOfDay() : $s->due_date->copy()->startOfDay();
 
         if ($s->planned_start_date) {
             $start     = $s->planned_start_date->copy()->startOfDay();

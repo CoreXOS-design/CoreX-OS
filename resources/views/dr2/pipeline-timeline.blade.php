@@ -408,7 +408,15 @@
               @if(!empty($tile['star']))<span class="star" title="Suspensive condition">★</span>@endif
               @if($projected)<span class="projtag" title="Projected start (due date − offset) — no start date is set. Use “Edit dates” to confirm the real dates.">proj</span>@endif
             </div>
-            <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}{{ $projected ? ' · projected' : '' }}</div>
+            {{-- Completed: show BOTH the original due date and the actual completion date. done_str comes
+                 straight from the model (completed_at/actual_date), not from start+dur, since dur is
+                 floored to a minimum of 1 day for legibility and would misreport the date on a step
+                 completed on/before its own recorded start. Not-yet-completed: unchanged. --}}
+            @if(!empty($tile['completed']))
+              <div class="sub">Due {{ $tile['due_str'] }} · Done {{ $tile['done_str'] }}</div>
+            @else
+              <div class="sub"><span class="d">{{ (int) $tile['dur'] }}d</span> · {{ $dstr($tile['start']) }} → {{ $dstr((int) $tile['start'] + (int) $tile['dur']) }}{{ $projected ? ' · projected' : '' }}</div>
+            @endif
 
             @if($s)
             @include('dr2._pipeline-timeline-actions', ['s' => $s, 'cc' => $cc])
