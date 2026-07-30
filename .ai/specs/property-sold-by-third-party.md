@@ -304,6 +304,49 @@ started generating adverts for tenanted stock — a regression the constant swap
 would otherwise have introduced silently), and `WebsiteSyndicationService`
 keeps its pre-existing gap. Raised for Johan as a separate call.
 
+### §5a — POST-BUILD AUDIT (2026-07-30). Six more sites, found after the feature's own tests were green.
+
+The feature's tests proved the new status behaved correctly on the surfaces the
+feature *touched*. The audit swept the surfaces it did **not** touch but whose
+meaning changed the moment a new value entered `properties.status` and a
+not-ours row entered `property_sold_records`. All six are fixed; each is locked
+by a test.
+
+| # | Site | What it would have done |
+|---|---|---|
+| 1 | `dev-check.ps1` §7 | **Build gate violated.** `Property24ListingMapper.php` is a portal-sync file; it was changed with no test diff in `tests/Feature/Syndication/`. Now covered by `ThirdPartySaleDelistTest` |
+| 2 | `Property::adData()` status badge | Printed **"FOR SALE"** on an agency-branded ad card for a house another agency sold — the *third* instance of the exact-match landmine, alongside `statusBadge()` and `getP24Status()` |
+| 3 | `Api\V1\Website\ListingsController::NEVER_PUBLIC_STATUSES` | Served a competitor's sale to an agency's **public website** via a still-enabled pivot. `PropertyObserver` delists it, but through a **queued job**; this list is the synchronous net for when that job never runs (a stopped worker has stranded thousands of jobs here before) |
+| 4 | `MatchingService::NON_MATCHABLE_STATUSES` | Kept sending buyer-match emails offering a house that had already changed hands — the identical leak the constant's own comment records fixing for 769 `Sold` rows |
+| 5 | `ReportingService::getConversionFunnel()` | Counted a **lost** listing as the agent's **closed deal**, because the funnel keys on `captured_by_user_id` and AT-350 writes comps to `property_sold_records`. It inverted the one number the funnel exists to measure |
+| 6 | `MapProspectStatusService::resolve()` | Fell through to `available`, inviting an agent to door-knock a house sold three weeks earlier. `resolveSaleDate()` also extended: a third-party sale produces **no deal row** by definition, so the loss record is the only place that date exists |
+
+**The single root cause: hand-maintained EXACT-MATCH lists of status literals.**
+Several carry "fix-the-class" comments while *duplicating* a constant instead of
+reading it. A new enum value is invisible to every one of them, and every
+failure is silent. The original sweep (§5) covered the *query* sites
+(`whereNotIn`); these are the *display* and *eligibility* sites.
+
+#### Sub-finding: adding the literal was itself the wrong fix (#4)
+
+The first cut of #4 added `'sold_by_3rd_party'` to the list. Its own test caught
+that this still leaked: `isMatchableStatus()` lowercases but compares **exactly**,
+so it caught the underscore slug and missed the spaced form `Sold by 3rd Party`
+— in a column this very class documents as mixed-vocabulary. Re-fixed to route
+through `Property::isSoldByThirdPartyStatus()`, which tolerates the variants in
+one place.
+
+#### Left alone, deliberately — the SQL-level guards
+
+`NEVER_PUBLIC_STATUSES` (#3) and `OFF_MARKET_STATUSES` compare in **SQL**, where
+the `utf8mb4_unicode_ci` collation gives case-insensitivity but not
+separator-insensitivity. They are correct today because the only writers of this
+status are the settings-item slug and `Property::STATUS_SOLD_BY_3RD_PARTY`, both
+the underscore form. Speculative spellings were **not** added: if an ingress path
+ever writes a different form, every status-based guard in CoreX breaks at once,
+which is a systemic normalisation problem deserving its own ticket rather than a
+one-off patch on the two sites that happened to be audited today.
+
 ### Sites that are already correct — verified, deliberately NOT touched
 
 These use `where('status','sold')` exactly, so the new value is excluded for

@@ -2250,6 +2250,16 @@ class Property extends Model
         $adStatus = $this->normalizedStatus();
 
         $statusBadge = match (true) {
+            // AT-350 — MUST precede the 'sold' arm, which is an exact-match
+            // in_array: without this, a property another agency sold falls
+            // through every arm to the default and generates an ad card reading
+            // "FOR SALE" for stock we no longer have. Identical to the bug this
+            // method's own docblock records (60 SOLD properties badged FOR SALE);
+            // the only difference is which literal the exact-match missed.
+            // Defence in depth — AdManagerController already excludes off-market
+            // stock from ad generation, so nothing should reach here; this makes
+            // sure that if anything ever does, it cannot advertise a sold house.
+            self::isSoldByThirdPartyStatus($adStatus)          => 'SOLD',
             in_array($adStatus, ['sold', 'transferred'], true) => 'SOLD',
             // The rental equivalent of SOLD. Without this a tenanted property
             // generates an ad advertising it "TO LET".
