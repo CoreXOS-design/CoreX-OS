@@ -1821,33 +1821,21 @@ class SignatureController extends Controller
      */
     public function embedCeremonyValuesIntoHtml(string $html, array $ceremonyValues): string
     {
-        $dom = new \DOMDocument();
-        @$dom->loadHTML('<?xml encoding="utf-8"?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR);
-        $xpath = new \DOMXPath($dom);
-
-        foreach ($ceremonyValues as $key => $value) {
-            if (empty($value)) continue;
-
-            // Keys are like "agent_location", "agent_day", etc.
-            $parts = explode('_', $key, 2);
-            if (count($parts) < 2) continue;
-
-            $party = $parts[0];
-            $fieldType = $parts[1];
-
-            $elements = $xpath->query("//*[@data-marker-party][@data-marker-type='{$fieldType}']");
-            foreach ($elements as $el) {
-                $elParty = strtolower($el->getAttribute('data-marker-party'));
-                if ($elParty === $party || str_starts_with($elParty, $party)) {
-                    $el->textContent = $value;
-                    $el->setAttribute('style', ($el->getAttribute('style') ?: '') . 'font-weight:500;');
-                }
-            }
-        }
-
-        $result = $dom->saveHTML();
-        $result = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', $result);
-        return trim($result);
+        // Delegate to the ONE correct ceremony embedder (CanonicalInkComposer::
+        // applyCeremonyValues). This legacy implementation had two defects that are
+        // invisible on a single-recipient document but corrupt a PACK / multi-recipient
+        // doc — and packs render off merged_html (canonical is empty), so THIS method
+        // was the source of truth for them (Johan 2026-07-30):
+        //   1. explode('_', $key, 2) mis-parsed "seller_2_location" as party "seller" /
+        //      type "2_location" (and "am_pm" too), so rec 2's Location + dates never
+        //      embedded — missing on the agent review + final document.
+        //   2. str_starts_with($elParty, $party) let key "seller" ALSO match the
+        //      "seller_2" span, mirroring rec 1's Location onto rec 2 (attribution swap).
+        // applyCeremonyValues uses splitCeremonyKey (field-type suffix) + EXACT
+        // data-marker-party matching, so each recipient's value binds to its OWN span
+        // across every pack document, none mirrored. One implementation, one behaviour.
+        return app(\App\Services\Docuperfect\CanonicalInkComposer::class)
+            ->applyCeremonyValues($html, $ceremonyValues);
     }
 
     /**
