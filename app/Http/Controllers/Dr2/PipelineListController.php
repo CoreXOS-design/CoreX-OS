@@ -86,8 +86,16 @@ class PipelineListController extends Controller
      * Inline Edit-dates — set the step's planned START and END explicitly. Both are pinned (manual
      * flags) so re-projection/activation won't clobber them. End must not precede start. Never touches
      * dependencies. (The board's "Edit due" only sets the due date; this list control sets both.)
+     *
+     * This is currently the Timeline's edge-resize + Set-dates modal endpoint (the List view has no
+     * inline date editor wired up yet) — the ONLY caller today is pipeline-timeline.blade.php's
+     * postDates()/dr2tlSaveDates(). Production-line rule (Johan): a date change re-anchors downstream
+     * steps, same as complete/reopen/N-A already do (PipelineController::reopenStep() etc.). Recompute
+     * runs AFTER the save and is itself guarded (DealDateCascade::recompute() never overwrites a
+     * due_date_manual step — see the final write loop there) — so the just-edited step's manual pin
+     * from above is untouched; only its downstream non-manual successors move.
      */
-    public function editDates(Request $request, Deal $deal, DealStepInstance $step): RedirectResponse
+    public function editDates(Request $request, Deal $deal, DealStepInstance $step, \App\Services\DealV2\DealDateCascade $cascade): RedirectResponse
     {
         abort_unless((int) $step->dr1_deal_id === (int) $deal->id, 404);
         $this->lock->assertStepUnlocked($step, "Edit dates for \"{$step->name}\"");
@@ -104,6 +112,8 @@ class PipelineListController extends Controller
             'due_date_manual'      => true,
             'current_rag'          => $this->pipelines->calculateRag($step, \Carbon\Carbon::parse($data['due_date'])),
         ])->save();
+
+        $cascade->recompute($deal);
 
         return redirect()->route('deals-dr2.pipeline.list', $deal)
             ->with('info', "Dates updated for \"{$step->name}\".");
