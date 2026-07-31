@@ -60,11 +60,12 @@ final class CommsLadderCheck extends Command
             return self::FAILURE;
         }
 
-        // Distinct fixture addresses.
+        // Distinct fixture addresses. Attorney + bond originator + work-order supplier are ALL suppliers (D1).
         $SELLER   = 'seller@laddercheck.test';
         $BUYER    = 'buyer@laddercheck.test';
-        $ATTORNEY = 'attorney@laddercheck.test';
-        $SUPPLIER = 'supplier@laddercheck.test';
+        $ATTORNEY = 'attorney@laddercheck.test'; // supplier bucket (transfer attorney)
+        $BOND     = 'bond@laddercheck.test';     // supplier bucket (bond originator)
+        $SUPPLIER = 'supplier@laddercheck.test'; // supplier bucket (work-order COC)
         $STRANGER = 'stranger@nowhere.test';
 
         DB::beginTransaction();
@@ -82,6 +83,10 @@ final class CommsLadderCheck extends Command
                 'agency_id' => $agencyId, 'name' => 'LadderCheck Attorneys', 'email' => $ATTORNEY,
                 'created_at' => $now, 'updated_at' => $now,
             ]);
+            $bondPid = DB::table('agency_service_providers')->insertGetId([
+                'agency_id' => $agencyId, 'name' => 'LadderCheck Bond Originator', 'email' => $BOND,
+                'created_at' => $now, 'updated_at' => $now,
+            ]);
             $supplierPid = DB::table('agency_service_providers')->insertGetId([
                 'agency_id' => $agencyId, 'name' => 'LadderCheck Supplier', 'email' => $SUPPLIER,
                 'created_at' => $now, 'updated_at' => $now,
@@ -93,8 +98,8 @@ final class CommsLadderCheck extends Command
                 'property_value' => 1000000, 'total_commission' => 50000,
                 'seller_name' => 'Seller LadderCheck', 'buyer_name' => 'Buyer LadderCheck',
                 'property_address' => '1 LadderCheck Road, Testville',
-                'attorney_provider_id' => $attorneyPid, 'accepted_status' => null,
-                'created_at' => $now, 'updated_at' => $now,
+                'attorney_provider_id' => $attorneyPid, 'bond_originator_provider_id' => $bondPid,
+                'accepted_status' => null, 'created_at' => $now, 'updated_at' => $now,
             ]);
 
             DB::table('deal_contacts')->insert([
@@ -137,6 +142,12 @@ final class CommsLadderCheck extends Command
             $t3 = $resolveTier($SUPPLIER, [$SUPPLIER, $SELLER]);
             $this->assert('Ladder T3: supplier+one-side -> HIGH (seller unique to one deal)', $t3['tier'] === $HIGH && (int) $t3['deal_id'] === $dealId, "tier={$t3['tier']} deal=" . var_export($t3['deal_id'], true));
 
+            // D1 — attorney + bond originator are SUPPLIERS too; supplier+one-side behaves identically.
+            $t3a = $resolveTier($ATTORNEY, [$ATTORNEY, $SELLER]);
+            $t3b = $resolveTier($BOND, [$BOND, $SELLER]);
+            $this->assert('D1 all-suppliers-same-tier: attorney+one-side -> HIGH (same as supplier)', $t3a['tier'] === $HIGH && (int) $t3a['deal_id'] === $dealId, "attorney+seller tier={$t3a['tier']}");
+            $this->assert('D1 all-suppliers-same-tier: bond-originator+one-side -> HIGH (same as supplier)', $t3b['tier'] === $HIGH && (int) $t3b['deal_id'] === $dealId, "bond+seller tier={$t3b['tier']}");
+
             $t4 = $resolveTier($SELLER, [$SELLER]);
             $this->assert('Ladder T4: single party -> LOW', $t4['tier'] === $LOW && (int) $t4['deal_id'] === $dealId, "tier={$t4['tier']} deal=" . var_export($t4['deal_id'], true));
 
@@ -146,29 +157,43 @@ final class CommsLadderCheck extends Command
             $none = $resolveTier($STRANGER, [$STRANGER], 'Totally unrelated subject');
             $this->assert('Ladder NO-PARTY: unrelated -> LOW, no deal', $none['tier'] === $LOW && $none['deal_id'] === null, "tier={$none['tier']} deal=" . var_export($none['deal_id'], true));
 
+            // D1 — the supplier bucket spans EVERY provider type; there is no separate "attorney" role.
+            $rbr = new \ReflectionMethod($matcher, 'partyEmailsByRole');
+            $rbr->setAccessible(true);
+            $roles = $rbr->invoke($matcher, $dealId);
+            $sup = $roles['supplier'] ?? [];
+            $this->assert('D1 supplier bucket spans attorney + bond + work-order (principals = seller/buyer only)',
+                array_keys($roles) === ['seller', 'buyer', 'supplier']
+                    && in_array($ATTORNEY, $sup, true) && in_array($BOND, $sup, true) && in_array($SUPPLIER, $sup, true),
+                'roles=[' . implode(',', array_keys($roles)) . '] supplier=[' . implode(',', $sup) . ']');
+
             // ── G1=A GATE ──────────────────────────────────────────────────────
             $this->assert('Gate: seller present -> PARK', $filing->hasKnownParty([$SELLER], $agencyId), 'hasKnownParty([seller])');
             $this->assert('Gate: supplier present -> PARK', $filing->hasKnownParty([$SUPPLIER], $agencyId), 'hasKnownParty([supplier])');
             $this->assert('Gate: party in CC, unknown sender -> PARK', $filing->hasKnownParty([$STRANGER, $SELLER], $agencyId), 'hasKnownParty([stranger, seller])');
             $this->assert('Gate: random only -> DROP', ! $filing->hasKnownParty([$STRANGER, 'nobody@nowhere.test'], $agencyId), 'hasKnownParty([random...]) == false');
 
-            // ── COMPOUNDING WIN ────────────────────────────────────────────────
-            $subject = 'Guarantees for 1 LadderCheck Road Unit 7';
+            // ── COMPOUNDING WIN (D3: address-corroborated auto-file; prefixes stripped) ─────────
+            $subject = 'barnard / du toit transfer';
             $commA = $this->mkComm($agencyId, $SUPPLIER, [$SELLER], $subject);
             $filing->park($commA, $this->msg($SUPPLIER, [$SELLER], $subject), $resolver->resolveSender($SUPPLIER, $agencyId) ?? ['provider' => null, 'contact' => null]);
             $suspA = CommunicationFilingSuspense::where('communication_id', $commA->id)->first();
-            $this->assert('Compounding: first mail parks with a suggestion', $suspA && (int) $suspA->suggested_deal_id === $dealId && $suspA->matched_signal_type === 'subject_exact', 'suggested=' . ($suspA->suggested_deal_id ?? '-') . " signal=" . ($suspA->matched_signal_type ?? '-'));
+            $this->assert('Compounding: first mail parks with a suggestion (subject_exact learned key)', $suspA && (int) $suspA->suggested_deal_id === $dealId && $suspA->matched_signal_type === 'subject_exact', 'suggested=' . ($suspA->suggested_deal_id ?? '-') . " signal=" . ($suspA->matched_signal_type ?? '-'));
 
             $filing->verify($suspA, $dealId, $user);
             $learned = DB::table('communication_learned_refs')->where('agency_id', $agencyId)
-                ->where('signal_type', 'subject_exact')->where('deal_id', $dealId)->where('is_verified', 1)->exists();
-            $this->assert('Compounding: verify learns the subject_exact ref', $learned, 'learned_ref(subject_exact -> deal) exists & verified');
+                ->where('signal_type', 'subject_exact')->where('signal_value', $subject)->where('deal_id', $dealId)->where('is_verified', 1)->exists();
+            $this->assert('Compounding: verify learns the subject_exact ref (prefix-stripped core subject)', $learned, "learned_ref(subject_exact='{$subject}' -> deal) exists & verified");
 
-            $b = $resolveTier($STRANGER, [], $subject);
-            $this->assert('Compounding: identical subject next mail AUTO-files', $b['tier'] === $AUTO && (int) $b['deal_id'] === $dealId, "tier={$b['tier']} deal=" . var_export($b['deal_id'], true));
+            // D3 — a THREADED reply ("Re: …") WITH a party email address on it auto-files (prefix stripped,
+            // address corroborates).
+            $b = $resolveTier($SUPPLIER, [$SELLER], 'Re: ' . $subject);
+            $this->assert('D3 threaded reply "Re:" WITH a party address -> AUTO-files', $b['tier'] === $AUTO && (int) $b['deal_id'] === $dealId, "tier={$b['tier']} deal=" . var_export($b['deal_id'], true));
 
-            $c = $resolveTier($STRANGER, [], 'Re: ' . $subject);
-            $this->assert('Compounding: "Re:" mutation FALLS BACK (not auto)', $c['tier'] !== $AUTO, "tier={$c['tier']} deal=" . var_export($c['deal_id'], true));
+            // D3 — the SAME subject with NO party address on the message does NOT auto-file (subject alone
+            // is never enough — the address is the reliable pin).
+            $c = $resolveTier($STRANGER, [], $subject);
+            $this->assert('D3 subject-only, NO address match -> does NOT auto-file', $c['tier'] !== $AUTO, "tier={$c['tier']} deal=" . var_export($c['deal_id'], true));
 
             // ── SHARED STATE ───────────────────────────────────────────────────
             $ext = 'ladderchk:' . bin2hex(random_bytes(5));

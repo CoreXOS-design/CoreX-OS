@@ -1,72 +1,66 @@
-# Comms Phase 2 — design decisions for Johan's ruling
+# Comms Phase 2 — design decisions (RULED by Johan 2026-07-31, applied)
 
-> **Date:** 2026-07-31 · **Author:** cc2 lane · **Status:** shipped to QA1 (`37e134ae`), awaiting Johan's verify.
-> **Scope:** the 5 judgement calls made while building the confidence ladder + compounding-win in the
-> existing `/corex/comms-suspense` engine. Each is a **conservative default**; every one has a documented
-> alternative so Johan can tune in one read. None changes the shipped flow unless he asks.
-> **Standing check:** `php artisan comms:ladder-check` re-asserts every ladder tier + gate + compounding
-> win + shared-state on disposable, rolled-back data (17/17 PASS today).
-
----
-
-## D1 — "provider + one side" tiering (attorney treated like supplier)  ⭐ Johan please rule
-
-**Johan's spec (tier 3):** "Supplier + one side matches (seller OR buyer) → MEDIUM; promote to HIGH if
-that matched party is unique to a single deal."
-
-**Decision (conservative generalisation):** I treat a **transferring attorney + one side** at the SAME
-tier as **supplier + one side** — i.e. any *provider* (supplier OR attorney) plus exactly one transaction
-side → MEDIUM, promoted to HIGH when that side-party is unique to one deal. Any other 2-role combination
-also → MEDIUM.
-
-- **Why:** an email with the attorney + the seller is at least as deal-identifying as supplier + seller;
-  leaving attorney+one-side at LOW would under-rank a strong signal. It never *auto-files* (that's the
-  learned-ref only), so the risk of the generalisation is purely "suggested a bit more confidently."
-- **Alternative if you want it literal:** restrict the MEDIUM/HIGH "provider + one side" rule to
-  **supplier** only; attorney+one-side then falls to LOW (single strong party). One-line change in
-  `scoreByParties()`.
-
-**Where:** `CorrespondenceMatchService::scoreByParties()`.
+> **Date:** 2026-07-31 · **Author:** cc2 lane · **Status:** RULED + applied on QA1.
+> **Overarching principle (Johan):** the **EMAIL ADDRESS is the primary, reliable matching signal**.
+> Subject and personal names are secondary/fallback and must NEVER auto-file a deal on their own without
+> email-address corroboration.
+> **Rulings:** D1 confirmed (+ clarified: all non-principals are suppliers). D2 confirmed (folds into D1).
+> **D3 CHANGED** (strip prefixes + address-corroborated auto-file). D4 kept. D5 kept.
+> **Standing check:** `php artisan comms:ladder-check` re-asserts every ladder tier + all-suppliers-same-tier
+> + gate + compounding-win (threaded-reply auto-files, subject-only does NOT) + shared-state on disposable,
+> rolled-back data (**20/20 PASS**).
 
 ---
 
-## D2 — the "supplier" bucket includes the bond originator
+## D1 — CONFIRMED (+ clarified): two principals, everyone else is a supplier
 
-**Decision:** the ladder's `supplier` role-bucket = the deal's **work-order suppliers** (COC / electrician
-/ entomologist …) **plus the bond originator** (both are providers who are parties on the deal).
+**Johan's ruling:** buyer and seller are the two **principals**; **every** other party — transferring
+attorney, bond originator, COC company, work-order suppliers — is a **supplier**, all treated identically
+under the same tier logic. Keep the generalization.
 
-- **Why:** the bond originator is a provider party like a supplier; folding it in means a bond-originator
-  email counts toward the ladder instead of being invisible. Johan's tier signals named
-  seller/buyer/transfer-attorney/supplier; the bond originator wasn't listed, so I placed it in the
-  nearest bucket rather than inventing a 5th role.
-- **Alternative:** give the bond originator its own role (a distinct 5th signal), or exclude it entirely.
-  Small change in `partyEmailsByRole()`.
+**Applied:** `partyEmailsByRole()` now returns exactly **three** roles — `seller`, `buyer`, `supplier` —
+where the **supplier bucket spans EVERY provider type** (attorney provider+contact, bond originator
+provider+contact, and all work-order suppliers' firms+contacts). `scoreByParties()` tiers on those three:
+all-three → HIGH · buyer+seller → HIGH · supplier + one side → MEDIUM, promoted to HIGH if that side-party
+is unique to one deal · single party → LOW. (Proven: attorney+one-side and bond+one-side both → HIGH, same
+as a work-order supplier + one-side.)
 
-**Where:** `CorrespondenceMatchService::partyEmailsByRole()` (supplier bucket).
-
----
-
-## D3 — `normalizeSubject` does NOT strip Re:/Fwd: (conservative)
-
-**Johan's spec:** "prefer [CX-D###] plus a normalized subject as backup. If the subject mutates
-(Re:/Fwd:/edited) it must fall back to suspense — never mis-file. Conservative default."
-
-**Decision:** the `subject_exact` key is **lowercase + whitespace-collapse only** — Re:/Fwd:/edits are
-**deliberately kept**, so a mutated subject normalises to a different value → the learned auto-file
-**misses → falls back to suspense as a suggestion** (never mis-files). The immutable `[CX-D]` token stays
-the reliable auto anchor for genuine reply threads.
-
-- **Why:** exactly your "EXACT SAME ref auto-files; a mutation falls back" rule. A reply "Re: X" is treated
-  as a *new* correspondence for the subject-backup (but still auto-files if it carries the token).
-- **Alternative (looser):** strip Re:/Fwd: prefixes so a plain reply "Re: X" also auto-files on the
-  subject alone. Riskier (an unrelated "Re: Update" could collide) — hence not the default. One-line change
-  in `normalizeSubject()`.
-
-**Where:** `CorrespondenceMatchService::normalizeSubject()`.
+**Where:** `CorrespondenceMatchService::partyEmailsByRole()`, `scoreByParties()`.
 
 ---
 
-## D4 — the G1=A gate lives in `EmailArchiveIngestor` (the one change outside the 3 services)  ⭐ Johan please note
+## D2 — CONFIRMED (folds into D1)
+
+The bond originator is a supplier (a non-principal provider party). Now handled by the single supplier
+bucket in D1 alongside the attorney and work-order suppliers. No separate role.
+
+---
+
+## D3 — CHANGED: strip prefixes + normalize, and require ADDRESS corroboration to auto-file
+
+**Johan's ruling:** strip system-added prefixes (Re:/Fwd:/…) and normalize the subject so a threaded reply
+("Re: barnard / du toit") matches the core subject ("barnard / du toit") **and can auto-file** — BUT the
+subject is a **secondary/thread signal**: an auto-file must be **corroborated by a party email address on
+the message**. Subject alone (no address match) **never** auto-files.
+
+**Applied (two changes):**
+1. `normalizeSubject()` now **strips** the Re:/Fwd:/Fw:/Aw:/Wg: prefix stack, then lowercases + collapses
+   whitespace — so a threaded reply matches the learned core subject.
+2. `matchLearned()` gates the **subject-based** learned signals (`subject_exact`, `subject_pattern`) on
+   `dealHasPartyOnMessage($dealId, $addrs)` — at least one party email of the learned deal must be on the
+   message, or it does **not** auto-file (it falls through to the ladder → parks as a suggestion). The
+   `[CX-D]` token, `thread_key`, and `sender_email` are reliable machine/address anchors and need no
+   corroboration.
+
+**Proven:** a "Re: …" reply **with** a party address auto-files; the same subject with **no** party address
+does NOT auto-file (at most a LOW name-fallback suggestion). Net: subject makes the match looser on purpose;
+the **email address is what actually pins the deal** — exactly the overarching principle.
+
+**Where:** `CorrespondenceMatchService::normalizeSubject()`, `matchLearned()`, `dealHasPartyOnMessage()`.
+
+---
+
+## D4 — KEPT (Johan confirmed): the G1=A park-gate in `EmailArchiveIngestor`
 
 **Context:** the build was scoped to "the three correspondence services + the suspense blade." Your G1=A
 ruling ("an inbound email parks iff a recognised party is on it — any address on from/to/cc") is a **park-
@@ -89,7 +83,7 @@ no party still drops (POPIA scope unchanged). `park()` was made null-provider-to
 
 ---
 
-## D5 — tier-4 subject-line name matcher (single unambiguous hit only)
+## D5 — KEPT (conservative): tier-4 subject-line NAME matcher is a weak LOW fallback only
 
 **Johan's spec (tier 4):** "fall back to SUBJECT-LINE name matching — scan subject for names that match any
 names on the agent's deals."
@@ -116,5 +110,4 @@ match, suggest nothing — safer to let the agent pick). Always LOW tier.
 - **Confidence never bypasses suspense** (only a *verified learned-ref* auto-files) — this was already the
   engine's behaviour; Phase 2 preserved it.
 
-*(All five are live on QA1 behind the shipped flow; reverting any one is a localised change in the file
-named. `php artisan comms:ladder-check` guards the behaviour whichever way you rule D1/D3.)*
+*(All rulings are live on QA1. `php artisan comms:ladder-check` (20/20 PASS) guards the behaviour — ladder tiers, all-suppliers-same-tier (D1), threaded-reply-auto-files + subject-only-does-not (D3), the park gate (D4), and shared-state — on disposable rolled-back data.)*

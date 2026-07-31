@@ -55,11 +55,13 @@ class CorrespondenceMatchService
         $addrs = array_values(array_unique(array_filter(array_merge([$sender], $participants))));
 
         // The canonical ref learned on first approval so the rest of the correspondence auto-files:
-        // our own [CX-D] token if present, else the EXACT normalised subject (Re:/Fwd:-stripped).
+        // our own [CX-D] token if present, else the normalised subject (Re:/Fwd:-STRIPPED, D3).
         [$canonType, $canonVal] = $this->canonicalSignal($text, $subject);
 
-        // 1) LEARNED (verified) → silent auto-file.
-        if ($auto = $this->matchLearned($agencyId, $providerId, $text, $subject, $sender, $threadKey)) {
+        // 1) LEARNED (verified) → silent auto-file. Subject-based refs additionally require an EMAIL-ADDRESS
+        //    corroboration ($addrs): a subject alone never auto-files a deal without a party address on the
+        //    message (Johan: the email address is the primary reliable signal; subject is secondary).
+        if ($auto = $this->matchLearned($agencyId, $providerId, $text, $subject, $sender, $threadKey, $addrs)) {
             return $this->result(self::TIER_AUTO, $auto['deal_id'], $auto['signal_type'], $auto['signal_value']);
         }
 
@@ -147,7 +149,7 @@ class CorrespondenceMatchService
         return $id ? (int) $id : null;
     }
 
-    private function matchLearned(int $agencyId, ?int $providerId, string $text, string $subject, string $sender, string $threadKey): ?array
+    private function matchLearned(int $agencyId, ?int $providerId, string $text, string $subject, string $sender, string $threadKey, array $addrs = []): ?array
     {
         $rows = CommunicationLearnedRef::query()->withoutGlobalScopes()
             ->whereNull('deleted_at')
@@ -168,21 +170,31 @@ class CorrespondenceMatchService
         $lowerText  = strtolower($text);
 
         foreach ($rows as $r) {
-            $v   = (string) $r->signal_value;
-            $hit = match ($r->signal_type) {
+            $v          = (string) $r->signal_value;
+            $type       = $r->signal_type;
+            $subjectSig = in_array($type, [CommunicationLearnedRef::SIGNAL_SUBJECT_EXACT, CommunicationLearnedRef::SIGNAL_SUBJECT_PATTERN], true);
+            $hit = match ($type) {
                 CommunicationLearnedRef::SIGNAL_CX_TOKEN     => $token !== null && $token === $v,
                 CommunicationLearnedRef::SIGNAL_THREAD_KEY   => $normThread !== '' && $normThread === $v,
                 CommunicationLearnedRef::SIGNAL_SENDER_EMAIL => $sender !== '' && $sender === $v,
-                // Subject backup: EXACT normalised-subject equality. A Re:/Fwd:/edited subject normalises
-                // to a different value → no hit → falls back to suspense as a suggestion (never mis-files).
+                // Subject backup: normalised-subject equality (D3 strips Re:/Fwd: so a threaded reply matches).
                 CommunicationLearnedRef::SIGNAL_SUBJECT_EXACT => $normSubject !== '' && $normSubject === $v,
                 CommunicationLearnedRef::SIGNAL_EXTERNAL_REF,
                 CommunicationLearnedRef::SIGNAL_SUBJECT_PATTERN => $v !== '' && str_contains($lowerText, $v),
                 default => false,
             };
-            if ($hit && $this->dealValid((int) $r->deal_id, $agencyId)) {
-                return ['deal_id' => (int) $r->deal_id, 'signal_type' => $r->signal_type, 'signal_value' => $v];
+            if (! $hit || ! $this->dealValid((int) $r->deal_id, $agencyId)) {
+                continue;
             }
+            // D3 — a SUBJECT-based ref auto-files ONLY when corroborated by a party EMAIL ADDRESS of that
+            // deal on this message. The subject is a thread signal; the address pins the deal. Without an
+            // address match it does NOT auto-file — it falls through to the ladder (parks as a suggestion).
+            // Token / thread_key / sender_email are reliable machine/address anchors and need no corroboration.
+            if ($subjectSig && ! $this->dealHasPartyOnMessage((int) $r->deal_id, $addrs)) {
+                continue;
+            }
+
+            return ['deal_id' => (int) $r->deal_id, 'signal_type' => $type, 'signal_value' => $v];
         }
 
         return null;
@@ -272,21 +284,45 @@ class CorrespondenceMatchService
     }
 
     /**
-     * The EXACT subject key: lowercase + whitespace-collapse ONLY. Re:/Fwd:/edits are deliberately NOT
-     * stripped, so a mutated subject normalises to a DIFFERENT value → the learned subject_exact auto-file
-     * misses → it falls back to suspense as a suggestion (Johan's conservative default: "if the subject
-     * mutates (Re:/Fwd:/edited) it must fall back — never mis-file"). The [CX-D] token stays the reliable
-     * auto anchor for genuine reply threads.
+     * The normalised subject key (D3): STRIP any stack of system reply/forward prefixes
+     * (Re:/Fwd:/Fw:/Aw:/Wg:) then lowercase + whitespace-collapse — so a threaded reply
+     * "Re: barnard / du toit" matches the core "barnard / du toit". This makes the subject match LOOSER on
+     * purpose; it is safe because a subject-based auto-file additionally requires a party EMAIL ADDRESS on
+     * the message (matchLearned → dealHasPartyOnMessage). Subject is the thread signal; the address pins it.
      */
     private function normalizeSubject(string $subject): string
     {
-        return strtolower(trim((string) preg_replace('/\s+/', ' ', trim($subject))));
+        $s = trim($subject);
+        while (preg_match('/^\s*(re|fwd|fw|aw|wg)\s*:\s*/i', $s)) {
+            $s = preg_replace('/^\s*(re|fwd|fw|aw|wg)\s*:\s*/i', '', $s, 1);
+        }
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', (string) $s)));
+    }
+
+    /** Does any party EMAIL ADDRESS of $dealId appear on this message? The D3 corroboration for a
+     *  subject-based auto-file — the address is the reliable signal that actually pins the deal. */
+    private function dealHasPartyOnMessage(int $dealId, array $addrs): bool
+    {
+        if (empty($addrs)) {
+            return false;
+        }
+        foreach ($this->partyEmailsByRole($dealId) as $emails) {
+            foreach ($emails as $e) {
+                if ($e !== '' && in_array($e, $addrs, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
-     * THE LADDER. Score the agency's candidate deals by which party ROLES (seller / buyer / attorney /
-     * supplier) have an email on this message; return the best {tier, deal_id} or null if no candidate
-     * deal has any party on the mail. Rank HIGH > MEDIUM > LOW, tiebreak by #roles matched.
+     * THE LADDER. Score the agency's candidate deals by which party ROLES have an email on this message —
+     * two principals (seller / buyer) + ONE supplier bucket that spans every other provider (attorney /
+     * bond originator / COC / work-order suppliers), all treated identically (D1). Returns the best
+     * {tier, deal_id} or null if no candidate deal has any party on the mail. Rank HIGH > MEDIUM > LOW,
+     * tiebreak by #roles matched.
      */
     private function scoreByParties(int $agencyId, array $addrs): ?array
     {
@@ -308,15 +344,15 @@ class CorrespondenceMatchService
             $has  = fn ($r) => isset($matched[$r]);
             $side = $has('seller') ? 'seller' : ($has('buyer') ? 'buyer' : null);
 
-            if ($n >= 3 || ($has('seller') && $has('buyer'))) {
-                $tier = self::TIER_HIGH;                             // tiers 1 & 2
-            } elseif ($n === 2 && $side && ($has('attorney') || $has('supplier'))) {
-                $tier = $this->partySideUnique($agencyId, $dealId, $side, $addrs) // tier 3 (+ uniqueness promote)
-                    ? self::TIER_HIGH : self::TIER_MEDIUM;
+            if (($has('seller') && $has('buyer')) || ($n >= 3)) {
+                $tier = self::TIER_HIGH;                             // T1 (all three) & T2 (buyer+seller)
+            } elseif ($n === 2 && $side && $has('supplier')) {
+                $tier = $this->partySideUnique($agencyId, $dealId, $side, $addrs) // T3: supplier + one side
+                    ? self::TIER_HIGH : self::TIER_MEDIUM;           //     → MEDIUM, promote to HIGH if unique
             } elseif ($n === 1) {
-                $tier = self::TIER_LOW;                              // tier 4 (single party)
+                $tier = self::TIER_LOW;                              // T4 (single party)
             } else {
-                $tier = self::TIER_MEDIUM;                           // any other 2-role combo
+                $tier = self::TIER_MEDIUM;                           // defensive fallback
             }
 
             $rank = $tier === self::TIER_HIGH ? 3 : ($tier === self::TIER_MEDIUM ? 2 : 1);
@@ -371,13 +407,17 @@ class CorrespondenceMatchService
             ->pluck('id')->map(fn ($i) => (int) $i)->all();
     }
 
-    /** Role → [lowercased emails] for a deal: seller/buyer (deal_contacts), transfer attorney, and
-     *  suppliers (work-order providers + bond originator). The ladder's per-role signals (G2). */
+    /**
+     * Role → [lowercased emails] for a deal. Only TWO PRINCIPALS — seller, buyer (deal_contacts). EVERY
+     * other party is a SUPPLIER, all treated identically (Johan D1): the supplier bucket spans the transfer
+     * attorney, the bond originator, AND work-order suppliers (COC / electrician / entomologist / …). The
+     * ladder's per-role signals (G2).
+     */
     private function partyEmailsByRole(int $dealId): array
     {
         $deal = Deal::withoutGlobalScopes()->find($dealId);
         if (! $deal) {
-            return ['seller' => [], 'buyer' => [], 'attorney' => [], 'supplier' => []];
+            return ['seller' => [], 'buyer' => [], 'supplier' => []];
         }
         $agencyId = (int) $deal->agency_id;
         $norm = fn ($c) => collect($c)->map(fn ($e) => strtolower(trim((string) $e)))->filter()->unique()->values()->all();
@@ -387,27 +427,27 @@ class CorrespondenceMatchService
             return $cids->isEmpty() ? [] : $norm(Contact::withoutGlobalScopes()->whereIn('id', $cids)->pluck('email'));
         };
 
-        $attorney = [];
-        if ($deal->attorney_provider_id) $attorney[] = AgencyServiceProvider::withoutGlobalScopes()->where('id', $deal->attorney_provider_id)->value('email');
-        if ($deal->attorney_contact_id)  $attorney[] = AgencyServiceProviderContact::withoutGlobalScopes()->where('id', $deal->attorney_contact_id)->value('email');
-
-        $supIds = DealStepWorkOrder::withoutGlobalScopes()->whereNull('deleted_at')
-            ->where('dr1_deal_id', $dealId)->whereNotNull('service_provider_id')->pluck('service_provider_id');
-        if ($deal->bond_originator_provider_id) $supIds->push($deal->bond_originator_provider_id);
-        $supIds = $supIds->unique()->values();
+        // SUPPLIER = every non-principal provider on the deal (D1): transfer attorney + bond originator
+        // (deal columns) ∪ work-order suppliers (COC / electrician / …), firms AND their contacts.
         $supplier = [];
-        if ($supIds->isNotEmpty()) {
-            $supplier = array_merge(
-                AgencyServiceProvider::withoutGlobalScopes()->whereIn('id', $supIds)->pluck('email')->all(),
-                AgencyServiceProviderContact::withoutGlobalScopes()->whereIn('service_provider_id', $supIds)->pluck('email')->all()
+        foreach (['attorney_provider_id', 'bond_originator_provider_id'] as $col) {
+            if ($deal->{$col}) $supplier[] = AgencyServiceProvider::withoutGlobalScopes()->where('id', $deal->{$col})->value('email');
+        }
+        foreach (['attorney_contact_id', 'bond_originator_contact_id'] as $col) {
+            if ($deal->{$col}) $supplier[] = AgencyServiceProviderContact::withoutGlobalScopes()->where('id', $deal->{$col})->value('email');
+        }
+        $woIds = DealStepWorkOrder::withoutGlobalScopes()->whereNull('deleted_at')
+            ->where('dr1_deal_id', $dealId)->whereNotNull('service_provider_id')->pluck('service_provider_id')->unique()->values();
+        if ($woIds->isNotEmpty()) {
+            $supplier = array_merge($supplier,
+                AgencyServiceProvider::withoutGlobalScopes()->whereIn('id', $woIds)->pluck('email')->all(),
+                AgencyServiceProviderContact::withoutGlobalScopes()->whereIn('service_provider_id', $woIds)->pluck('email')->all()
             );
         }
-        if ($deal->bond_originator_contact_id) $supplier[] = AgencyServiceProviderContact::withoutGlobalScopes()->where('id', $deal->bond_originator_contact_id)->value('email');
 
         return [
             'seller'   => $side('seller'),
             'buyer'    => $side('buyer'),
-            'attorney' => $norm($attorney),
             'supplier' => $norm($supplier),
         ];
     }
