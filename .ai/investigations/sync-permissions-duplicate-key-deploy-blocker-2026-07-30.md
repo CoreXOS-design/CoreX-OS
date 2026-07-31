@@ -59,3 +59,21 @@ new role-default key was not merged). Related: [[permission-drift-role-permissio
 - `scripts/deploy.sh` — step 6, the failing `corex:sync-permissions --merge-defaults` call.
 - `app/Console/Commands/SyncPermissions.php` — `mergeRoleDefaults`.
 - `role_permissions` table, unique index `role_perms_role_key_agency_unique`.
+
+## RESOLVED — 2026-07-31, commit `695c99f1` (QA1)
+Confirmed root cause: `RolePermission` uses **SoftDeletes**, and the unique index is
+`(role, permission_key, agency_id)` with **no `deleted_at`** — a soft-deleted row still
+holds the slot. The diff queried live rows only, so a trashed key read as "missing" and
+the plain `insert()` 1062'd on the trashed row. (NULL-agency tuples don't collide — MySQL
+treats NULLs as distinct in a unique index — so only NON-null-agency trashed-only tuples
+trigger it; QA1 had 13.)
+
+Fix in `mergeRoleDefaults`: (1) existence diff now uses `RolePermission::withTrashed()`
+so trashed keys are seen and excluded from "missing" (neither re-inserted nor resurrected);
+(2) write is `RolePermission::insertOrIgnore()` as a defence-in-depth safety net. Purely
+additive — no live or trashed row is dropped/altered.
+
+Verified on QA1: command completes cleanly (exit 0, no 1062), second run a clean no-op,
+`role_permissions` unchanged (live 4087 / trashed 22). Reproduced+fixed under a rolled-back
+txn on `branch_manager/settle_deals/agency 1` (plain insert → 1062; insertOrIgnore → 0 rows,
+no error). Not yet promoted to Staging/production — travels with the next promotion.
