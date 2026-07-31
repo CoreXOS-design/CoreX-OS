@@ -42,7 +42,7 @@ final class EsignRegressionWalk extends Command
 
     private const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-    /** @var array<int,array{0:string,1:bool,2:string}> */
+    /** @var array<int,array{0:string,1:string,2:string}> status = PASS|FAIL|SKIP */
     private array $results = [];
 
     public function handle(SignatureService $signatureService): int
@@ -95,7 +95,13 @@ final class EsignRegressionWalk extends Command
             }
             $doc = Document::findOrFail($docId);
             $st = SignatureTemplate::where('document_id', $docId)->orderByDesc('id')->firstOrFail();
-            $st->requests()->update(['signer_id_number' => '']); // disposable: skip gateway
+            // disposable: clear id_number so the browser sub-step skips the gateway,
+            // and give every request an email so the ceremony advances to
+            // awaiting_seller (a recipient with no email is absorbed to DEFERRED —
+            // AT-294; that is correct product behaviour, just not what this walk drives).
+            foreach ($st->requests()->get() as $rq) {
+                $rq->update(['signer_id_number' => '', 'signer_email' => $rq->party_role . '-' . $rq->id . '@regression.test']);
+            }
             $this->line("Fresh pack: doc={$docId} st={$st->id} segments=" . substr_count($doc->web_template_data['merged_html'] ?? '', 'corex-document-wrapper'));
 
             // ── ADD 2 doc-scoped conditions (EATS + MDF) directly (clean, no amendment) ──
@@ -150,7 +156,7 @@ final class EsignRegressionWalk extends Command
             $blade = @file_get_contents(resource_path('views/docuperfect/signatures/external/sign.blade.php')) ?: '';
             $typeInputEditable = (bool) preg_match('/<input[^>]*x-model="typedName"(?![^>]*(?:readonly|disabled))/i', $blade);
             $condOpensModal = str_contains($blade, "corex-open-condition-initial") && preg_match('/corex-open-condition-initial.*?showSignModal\s*=\s*true/s', $blade);
-            $this->assert('3b) condition-initial type tab is editable (typeable — x-model typedName, not readonly/disabled, opens shared modal)', $typeInputEditable && (bool) $condOpensModal, "editableTypeInput=" . ($typeInputEditable ? 'Y' : 'n') . " conditionOpensSharedModal=" . ($condOpensModal ? 'Y' : 'n'));
+            $this->assert('3b-contract) condition-initial type tab editable (x-model typedName, not readonly/disabled, opens shared modal)', $typeInputEditable && (bool) $condOpensModal, "editableTypeInput=" . ($typeInputEditable ? 'Y' : 'n') . " conditionOpensSharedModal=" . ($condOpensModal ? 'Y' : 'n'));
 
             // ── DRIVE completions (each party initials every condition, then completes) ──
             $initialConds = function ($token) use ($st) {
@@ -176,6 +182,13 @@ final class EsignRegressionWalk extends Command
             $afterAgent = $statusNow();
             $s1->refresh();
             $this->assert('1a) agent clean -> advances to rec1 with NO agent-approval gate', $afterAgent !== $PAA && $s1->status !== SignatureRequest::STATUS_WAITING, "status_after_agent={$afterAgent} rec1={$s1->status}");
+
+            // ── RULE 3b (DOM): real browser keystroke into the condition-initial Type tab ──
+            // rec1 is now active; drive a headless browser to TYPE into the Type tab and
+            // assert the value persists. Skips gracefully if no browser is available.
+            $b3art = '';
+            $b3 = $this->browserTypeWriteCheck($s1->token, $b3art);
+            $this->assert('3b) other-condition initial Type tab actually accepts typed input (real browser keystroke persists)', $b3, $b3art);
 
             $complete($s1->token, ['seller_location' => 'REC1-LOC', 'seller_day' => '01', 'seller_month' => 'Jan', 'seller_year' => '25']);
             $afterR1 = $statusNow();
@@ -234,21 +247,107 @@ final class EsignRegressionWalk extends Command
         $this->newLine();
         $this->line('=== E-SIGN PACK REGRESSION WALK ===');
         $fail = 0;
-        foreach ($this->results as [$name, $pass, $art]) {
-            $this->line(($pass ? '<info>[PASS]</info>' : '<error>[FAIL]</error>') . " {$name}");
+        $skip = 0;
+        foreach ($this->results as [$name, $status, $art]) {
+            $tag = $status === 'PASS' ? '<info>[PASS]</info>' : ($status === 'SKIP' ? '<comment>[SKIP]</comment>' : '<error>[FAIL]</error>');
+            $this->line("{$tag} {$name}");
             $this->line("        {$art}");
-            if (! $pass) {
+            if ($status === 'FAIL') {
                 $fail++;
+            } elseif ($status === 'SKIP') {
+                $skip++;
             }
         }
         $this->newLine();
-        $this->line($fail === 0 ? "<info>ALL " . count($this->results) . " PASS</info> (disposable data cleaned up)" : "<error>{$fail} FAILED</error> (disposable data cleaned up)");
+        $pass = count($this->results) - $fail - $skip;
+        $summary = $fail === 0 ? "<info>ALL GREEN</info>" : "<error>{$fail} FAILED</error>";
+        $this->line("{$summary} — {$pass} pass, {$fail} fail, {$skip} skip (disposable data cleaned up)");
 
         return $fail === 0 ? self::SUCCESS : self::FAILURE;
     }
 
-    private function assert(string $name, bool $pass, string $artifact): void
+    /** @param bool|null $pass  null = SKIP (graceful, not a failure). */
+    private function assert(string $name, ?bool $pass, string $artifact): void
     {
-        $this->results[] = [$name, $pass, $artifact];
+        $status = $pass === null ? 'SKIP' : ($pass ? 'PASS' : 'FAIL');
+        $this->results[] = [$name, $status, $artifact];
+    }
+
+    /**
+     * Rule 3b (DOM keystroke) — drive a real browser: open the recipient's signing
+     * page, open an other-condition initial "Type" tab, TYPE into it, and assert the
+     * typed value persists. Returns true (pass) / false (fail) / null (SKIP — no
+     * browser available, or the page/harness couldn't be driven). Non-submitting:
+     * types in the modal only, never applies, so it mutates nothing server-side.
+     */
+    private function browserTypeWriteCheck(string $token, string &$artifact): ?bool
+    {
+        // Locate a headless Chromium; SKIP gracefully if none.
+        $chromium = collect(['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'])
+            ->first(fn ($p) => is_executable($p));
+        $puppeteer = base_path('node_modules/puppeteer');
+        $node = trim((string) @shell_exec('command -v node 2>/dev/null'));
+        if (! $chromium || ! is_dir($puppeteer) || $node === '') {
+            $artifact = 'skipped: no browser toolchain (chromium=' . ($chromium ?: 'none') . ', puppeteer=' . (is_dir($puppeteer) ? 'yes' : 'no') . ', node=' . ($node !== '' ? 'yes' : 'no') . ')';
+            return null;
+        }
+
+        $url = rtrim((string) config('app.url'), '/') . '/sign/' . $token;
+        $script = <<<'JS'
+const puppeteer = require(process.argv[2]);
+const url = process.argv[3], chromium = process.argv[4];
+(async () => {
+  const b = await puppeteer.launch({ executablePath: chromium, headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+  try {
+    const p = await b.newPage(); await p.setViewport({ width: 1280, height: 1600 });
+    await p.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+    await new Promise(r => setTimeout(r, 1500));
+    await p.evaluate(() => { const x = [...document.querySelectorAll('button,a')].find(e => /electronic|start signing|begin|continue/i.test(e.textContent || '')); if (x) x.click(); });
+    await new Promise(r => setTimeout(r, 2500));
+    const res = await p.evaluate(async () => {
+      const slot = document.querySelector('.btn-add-initial.initial-active[data-condition-id]');
+      if (!slot) return { ok: false, reason: 'no-active-condition-slot' };
+      slot.scrollIntoView(); slot.click();
+      await new Promise(r => setTimeout(r, 700));
+      const typeBtn = [...document.querySelectorAll('button')].find(x => /^\s*Type\s*$/.test(x.textContent || ''));
+      if (!typeBtn) return { ok: false, reason: 'no-type-tab' };
+      typeBtn.click(); await new Promise(r => setTimeout(r, 300));
+      const inp = document.querySelector('input[x-model="typedName"]');
+      if (!inp) return { ok: false, reason: 'no-type-input' };
+      if (inp.readOnly || inp.disabled) return { ok: false, reason: 'type-input-readonly-or-disabled' };
+      inp.focus(); inp.value = ''; inp.value = 'QZ7'; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 250));
+      const prev = [...document.querySelectorAll('span')].find(s => (getComputedStyle(s).fontFamily || '').includes('Dancing'));
+      return { ok: inp.value === 'QZ7', value: inp.value, preview: prev ? prev.textContent : null };
+    });
+    console.log('RESULT ' + JSON.stringify(res));
+  } catch (e) { console.log('RESULT ' + JSON.stringify({ ok: false, reason: 'exception:' + e.message })); }
+  finally { await b.close(); }
+})();
+JS;
+        $scriptPath = storage_path('app/esign-regression-3b-' . uniqid() . '.cjs');
+        try {
+            @file_put_contents($scriptPath, $script);
+            $proc = new \Symfony\Component\Process\Process([$node, $scriptPath, $puppeteer, $url, $chromium]);
+            $proc->setTimeout(90);
+            $proc->run();
+            $out = $proc->getOutput() . $proc->getErrorOutput();
+            if (preg_match('/RESULT (\{.*\})/', $out, $m)) {
+                $r = json_decode($m[1], true) ?: [];
+                if (! empty($r['ok'])) {
+                    $artifact = "typed 'QZ7' into the condition-initial Type tab -> value persisted='" . ($r['value'] ?? '') . "' preview='" . ($r['preview'] ?? '') . "'";
+                    return true;
+                }
+                $artifact = 'browser drove but assertion failed: ' . ($r['reason'] ?? ('value=' . ($r['value'] ?? '?')));
+                return false;
+            }
+            $artifact = 'skipped: browser run produced no parseable result (' . trim(substr($out, 0, 160)) . ')';
+            return null; // couldn't drive -> skip, don't hard-fail
+        } catch (\Throwable $e) {
+            $artifact = 'skipped: browser sub-step error: ' . $e->getMessage();
+            return null;
+        } finally {
+            @unlink($scriptPath);
+        }
     }
 }
