@@ -70,8 +70,13 @@ class AttorneyCorrespondenceResolver
     }
 
     /**
-     * Non-declined, non-deleted deals this firm is linked to (transfer attorney OR
-     * bond originator). Used for the MEDIUM "single active deal" suggestion.
+     * Non-declined, non-deleted deals this provider is linked to. AT-231 = transfer
+     * attorney OR bond originator (a deal-level column). COMMS PHASE 1 widening =
+     * ALSO any deal this provider is a SUPPLIER on via a work order (COC / electrician /
+     * entomologist / …), resolved through `deal_step_work_orders.service_provider_id`.
+     * So a supplier's inbound email parks with its deal SUGGESTED, exactly like an
+     * attorney's — reusing the same suspense/linking engine, no new infrastructure.
+     * Used for the MEDIUM "single active deal" suggestion.
      */
     public function activeDealsForFirm(int $providerId, int $agencyId): Collection
     {
@@ -79,9 +84,19 @@ class AttorneyCorrespondenceResolver
             ->withoutGlobalScopes()
             ->whereNull('deleted_at')
             ->where('agency_id', $agencyId)
-            ->where(function ($q) use ($providerId) {
+            ->where(function ($q) use ($providerId, $agencyId) {
+                // Attorney / bond originator on the deal itself (AT-231, unchanged)…
                 $q->where('attorney_provider_id', $providerId)
-                  ->orWhere('bond_originator_provider_id', $providerId);
+                  ->orWhere('bond_originator_provider_id', $providerId)
+                  // …OR a supplier on one of the deal's work orders (Phase 1).
+                  ->orWhereIn('id', function ($sub) use ($providerId, $agencyId) {
+                      $sub->from('deal_step_work_orders')
+                          ->select('dr1_deal_id')
+                          ->where('agency_id', $agencyId)
+                          ->where('service_provider_id', $providerId)
+                          ->whereNull('deleted_at')
+                          ->whereNotNull('dr1_deal_id');
+                  });
             })
             // Declined deals are dead correspondence targets; everything else (incl.
             // granted/registered — final accounts still arrive) stays eligible.

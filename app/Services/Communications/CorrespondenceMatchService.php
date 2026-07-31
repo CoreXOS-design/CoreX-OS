@@ -212,6 +212,21 @@ class CorrespondenceMatchService
                 $emails[] = AgencyServiceProviderContact::withoutGlobalScopes()->where('id', $deal->{$col})->value('email');
             }
         }
+        // COMMS PHASE 1 — suppliers on this deal's work orders (COC / electrician / …) are deal
+        // parties too, so a token-bearing supplier reply corroborates to HIGH (not just MEDIUM).
+        $woProviderIds = \App\Models\DealV2\DealStepWorkOrder::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('dr1_deal_id', $dealId)
+            ->whereNotNull('service_provider_id')
+            ->pluck('service_provider_id')->unique()->values();
+        if ($woProviderIds->isNotEmpty()) {
+            foreach (AgencyServiceProvider::withoutGlobalScopes()->whereIn('id', $woProviderIds)->pluck('email') as $e) {
+                $emails[] = $e;
+            }
+            foreach (AgencyServiceProviderContact::withoutGlobalScopes()->whereIn('service_provider_id', $woProviderIds)->pluck('email') as $e) {
+                $emails[] = $e;
+            }
+        }
         if ($deal->property) {
             foreach ($deal->property->contacts as $c) {
                 $emails[] = $c->email;
