@@ -27,6 +27,12 @@
         @endif
     </div>
 
+    {{-- Removed-step RESTORE (regression from the rebuild) — the Timeline's step canvas is cc5's
+         (pipeline-timeline.blade.php, off-limits) and _pipeline-timeline-actions is per-TILE, so this
+         deal-level collapsible lives here in the deal-panels area (alongside Decline). View-only;
+         $removedSteps is already in parent scope from BuildsPipelineContext. --}}
+    @include('dr2._removed-steps', ['deal' => $deal, 'removedSteps' => $removedSteps ?? collect(), 'locked' => $locked, 'from' => 'timeline'])
+
     <div class="dr2-tabbar" role="tablist" aria-label="Deal context">
         <button type="button" class="dr2-tab" :class="tab==='structure' ? 'corex-tab-active' : ''" @click="tab='structure'" role="tab" :aria-selected="tab==='structure'">Deal Structure</button>
         <button type="button" class="dr2-tab" :class="tab==='wo' ? 'corex-tab-active' : ''" @click="tab='wo'" role="tab" :aria-selected="tab==='wo'" style="{{ $woAtt ? 'color:#b91c1c;font-weight:700;' : '' }}" title="{{ $woAtt ? 'A work order is waiting for a supplier' : '' }}">Supplier Work Orders{!! $woAtt ? ' <span aria-hidden=&quot;true&quot; style=&quot;color:#dc2626&quot;>&#9679;</span>' : '' !!}</button>

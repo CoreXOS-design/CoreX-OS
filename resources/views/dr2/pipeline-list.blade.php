@@ -34,6 +34,10 @@
   #dr2ls .dr2ls-sortbar .sopt{font-size:11.5px;font-weight:600;color:#475569;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:4px 11px;cursor:pointer;font-family:inherit}
   #dr2ls .dr2ls-sortbar .sopt:hover{background:#f1f5f9}
   #dr2ls .dr2ls-sortbar .sopt.is-on{background:#2563eb;border-color:#2563eb;color:#fff}
+  #dr2ls .dr2ls-sortbar .dr2ls-hide{display:inline-flex;align-items:center;gap:5px;margin-left:auto;font-size:11.5px;font-weight:600;color:#475569;cursor:pointer}
+  #dr2ls .dr2ls-sortbar .dr2ls-hide input{cursor:pointer}
+  /* Hide-completed (#3): when armed, completed rows collapse out of every phase group. */
+  #dr2ls-list.hide-done .dr2-lrow[data-status="completed"]{display:none}
   /* In due-date mode, drag-reorder is disabled (the order is date-driven, not manual). */
   #dr2ls.sort-due .dr2-tile__grip{opacity:.3;cursor:not-allowed}
 
@@ -202,7 +206,9 @@
           $dt = $dt ?? $m->due_date;
       }
       $due = $dt ? \Illuminate\Support\Carbon::parse($dt)->format('Ymd') : '99999999';
-      return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-topo="'.$topo.'" data-due="'.$due.'"';
+      // data-status drives the "Hide completed" toggle (#3) — CSS hides completed rows when on.
+      $status = $m ? (string) $m->status : '';
+      return 'data-id="'.(int) $id.'" data-pos="'.$pos.'" data-topo="'.$topo.'" data-due="'.$due.'" data-status="'.$status.'"';
     })
 
 <div id="dr2ls" data-reorder="{{ route('deals-dr2.pipeline.reorder', $deal) }}" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
@@ -246,10 +252,18 @@
              the Stage1→GRANTED→Stage2 grouping intact. "by step / sequence" = the drag-reorder order
              (position); "by due date" = ascending due. Sequence is the default so drag-reorder (#2) takes
              effect; the choice is remembered per browser. --}}
+        @php($completedCount = $steps->filter(fn ($r) => $r['model']->status === 'completed')->count())
         <div class="dr2ls-sortbar" id="dr2ls-sortbar">
           <span class="sl">Sort:</span>
           <button type="button" class="sopt" data-sort="seq">by step / sequence</button>
           <button type="button" class="sopt" data-sort="due">by due date</button>
+          {{-- Hide-completed toggle (#3) — restored from the old board. Pure view: a CSS class hides
+               completed rows. Only offered when there ARE completed steps to hide; remembered per browser. --}}
+          @if($completedCount > 0)
+          <label class="dr2ls-hide" title="Hide completed steps from the list">
+            <input type="checkbox" id="dr2ls-hide-done"> Hide completed ({{ $completedCount }})
+          </label>
+          @endif
         </div>
         @unless($locked)<div class="lhint" id="dr2ls-drag-hint">Grab a card's <b>⠿</b> to reorder (display only — never changes dependencies or dates). Use <b>Sequence</b> to change which step a step follows.</div>@endunless
 
@@ -358,6 +372,11 @@
       </div>
       @endpermission
       @endunless
+
+      {{-- Removed-step RESTORE (regression from the rebuild) — deal-level collapsible at the foot of the
+           phased column, exactly as the old board had it. View-only; the data ($removedSteps) is already
+           passed by BuildsPipelineContext. --}}
+      @include('dr2._removed-steps', ['deal' => $deal, 'removedSteps' => $removedSteps, 'locked' => $locked, 'from' => 'list'])
     </div>
 
     {{-- ══════════ RIGHT · ONE tabbed pane — the deal panels + a Comments tab (nothing stacked) ══════════
@@ -504,6 +523,17 @@
   }
   const sortbar=document.getElementById('dr2ls-sortbar');
   if(sortbar) sortbar.querySelectorAll('.sopt').forEach(b=>b.addEventListener('click',()=>applySort(b.dataset.sort)));
+
+  // ── Hide-completed toggle (#3) — restored from the old board. Pure view: toggles a class that CSS-hides
+  //    completed rows. Persisted per browser. Only wired when the checkbox exists (there are completed steps).
+  const HIDE_KEY='dr2_hide_completed';
+  const hideCb=document.getElementById('dr2ls-hide-done');
+  if(hideCb){
+    const applyHide=(on)=>{ list.classList.toggle('hide-done', !!on); try{ localStorage.setItem(HIDE_KEY, on?'1':'0'); }catch(e){} };
+    hideCb.checked=(function(){ try{ return localStorage.getItem(HIDE_KEY)==='1'; }catch(e){ return false; } })();
+    applyHide(hideCb.checked);
+    hideCb.addEventListener('change',()=>applyHide(hideCb.checked));
+  }
 
   // Grab-to-reorder (position ONLY) — the grip lives inside each tile; active in "seq" mode only.
   function persist(){const order=rows().map(r=>parseInt(r.dataset.id)).filter(n=>!isNaN(n));
