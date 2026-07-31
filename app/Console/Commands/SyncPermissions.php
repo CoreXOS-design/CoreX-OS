@@ -253,14 +253,24 @@ class SyncPermissions extends Command
             }
 
             // Diff: which expected keys does this (role, agency) NOT yet have?
-            $scopedQuery = fn () => RolePermission::where('role', $roleName)
+            //
+            // withTrashed() is load-bearing: the unique index
+            // role_perms_role_key_agency_unique is (role, permission_key, agency_id)
+            // with NO deleted_at column, so a SOFT-DELETED row still occupies the
+            // unique slot. Counting only live rows made the diff treat a trashed key
+            // as "missing"; the plain insert below then 1062'd on the trashed row —
+            // the collision that aborted staging/prod deploys at this step. Seeing
+            // trashed rows here means we neither re-insert a present key nor resurrect
+            // an intentionally-removed (soft-deleted) grant.
+            $existingKeys = RolePermission::withTrashed()
+                ->where('role', $roleName)
                 ->when(
                     $role->agency_id,
                     fn ($q) => $q->where('agency_id', $role->agency_id),
                     fn ($q) => $q->whereNull('agency_id')
-                );
-
-            $existingKeys = $scopedQuery()->pluck('permission_key')->all();
+                )
+                ->pluck('permission_key')
+                ->all();
 
             $missingKeys = array_diff($expectedKeys, $existingKeys);
 
@@ -269,35 +279,10 @@ class SyncPermissions extends Command
                 continue;
             }
 
-            // A "missing" key can mean two different things: never granted (needs
-            // a fresh INSERT), or previously granted-then-revoked and still
-            // sitting soft-deleted (needs a RESTORE). The unique index on
-            // (role, permission_key, agency_id) does not know about deleted_at,
-            // so blindly inserting the second case duplicate-key errors and kills
-            // the whole batch — that's what a stale/soft-deleted row did here.
-            // SyncPermissions::handle() already restores soft-deleted
-            // CoreXPermission rows the same way (see Step 1 above); this mirrors
-            // that for RolePermission.
-            $trashedByKey = $scopedQuery()->onlyTrashed()
-                ->whereIn('permission_key', $missingKeys)
-                ->get()
-                ->keyBy('permission_key');
-
-            $restored = 0;
-            $freshKeys = [];
-            foreach ($missingKeys as $key) {
-                if ($trashedByKey->has($key)) {
-                    $trashedByKey[$key]->restore();
-                    $restored++;
-                } else {
-                    $freshKeys[] = $key;
-                }
-            }
-
             $defaultScope = $scopeDefault[$roleName] ?? 'own';
             $rows         = [];
 
-            foreach ($freshKeys as $key) {
+            foreach ($missingKeys as $key) {
                 $scope = null;
                 if (in_array($key, $viewKeys, true)) {
                     $module = explode('.', $key)[0];
@@ -314,15 +299,21 @@ class SyncPermissions extends Command
                 ];
             }
 
+            // insertOrIgnore: additive + idempotent — new rows are inserted; any that
+            // still collide on role_perms_role_key_agency_unique (e.g. a race, or a
+            // trashed row) are SKIPPED, never updated or deleted. Defence-in-depth
+            // alongside the withTrashed diff so this step can never 1062-abort a deploy
+            // and existing rows (live OR trashed) are left exactly as they are. The
+            // count reflects rows ACTUALLY inserted, not attempted.
+            $insertedForRole = 0;
             foreach (array_chunk($rows, 500) as $chunk) {
-                RolePermission::insert($chunk);
+                $insertedForRole += RolePermission::insertOrIgnore($chunk);
             }
 
-            $totalInserted += count($rows);
-            $summaryParts = [];
-            if (count($rows))  { $summaryParts[] = '+' . count($rows) . ' permission(s)'; }
-            if ($restored)     { $summaryParts[] = $restored . ' restored'; }
-            $perRoleSummary[$label] = implode(', ', $summaryParts);
+            $totalInserted += $insertedForRole;
+            $perRoleSummary[$label] = $insertedForRole > 0
+                ? '+' . $insertedForRole . ' permission(s)'
+                : 'up to date (defaults already present)';
         }
 
         $this->info("Merge complete — {$totalInserted} new row(s) inserted.");
