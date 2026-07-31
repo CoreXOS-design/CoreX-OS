@@ -26,6 +26,8 @@ class CommunicationLearnedRef extends Model
     const SIGNAL_SUBJECT_PATTERN = 'subject_pattern'; // a captured recurring subject pattern
     const SIGNAL_EXTERNAL_REF    = 'external_ref';    // the attorney's own matter ref (difficult route)
     const SIGNAL_SENDER_EMAIL    = 'sender_email';    // fall back: this sender → this deal
+    const SIGNAL_SUBJECT_EXACT   = 'subject_exact';   // Phase 2: the EXACT normalised subject (Re:/Fwd:-stripped).
+                                                      // Backup ref when no [CX-D] token; mutated subject => miss => suspense.
 
     protected $fillable = [
         'agency_id', 'deal_id', 'attorney_provider_id', 'attorney_provider_contact_id',

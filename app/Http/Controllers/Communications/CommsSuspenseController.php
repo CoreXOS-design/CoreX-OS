@@ -59,7 +59,21 @@ class CommsSuspenseController extends Controller
             ->limit(10)
             ->get();
 
-        return view('corex.communications.comms-suspense', ['items' => $items, 'recent' => $recent]);
+        // Phase 2 (Johan) — the reselect DROPDOWN shows ONLY this agent's deals (own/branch/all by role —
+        // BM/admin see wider) via the same visibleTo scope the search uses. "An agent on the comms is on the
+        // deal by definition." Bounded; deals beyond this fall back to the "search all deals…" picker.
+        $agentDeals = Deal::query()->visibleTo($user)
+            ->orderByDesc('id')->limit(500)
+            ->get(['id', 'deal_no', 'property_address'])
+            ->map(fn ($d) => [
+                'id'    => (int) $d->id,
+                'label' => trim(($d->deal_no ? "#{$d->deal_no}" : "Deal {$d->id}")
+                    . ($d->property_address ? ' · ' . $d->property_address : '')),
+            ]);
+
+        return view('corex.communications.comms-suspense', [
+            'items' => $items, 'recent' => $recent, 'agentDeals' => $agentDeals,
+        ]);
     }
 
     /** Confirm-to-deal: file the correspondence + learn the reference (first-verify). */

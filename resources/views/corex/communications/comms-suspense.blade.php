@@ -63,27 +63,39 @@
                         @endif
                     </div>
 
-                    {{-- actions --}}
-                    <div class="flex flex-col items-stretch gap-2 shrink-0" style="min-width:210px;">
-                        @if($s->suggested_deal_id && $s->suggestedDeal)
-                            <div class="text-[11px] text-right" style="color:var(--text-muted, #6b7280);">Suggested:
+                    {{-- actions — Phase 2 (Johan): the suggestion is shown as DEAL NUMBER + PROPERTY, pre-
+                         selected in a DROPDOWN of THIS agent's deals; the agent can reselect before filing.
+                         The dropdown is agent-scoped (visibleTo); "search all deals…" covers anything beyond it. --}}
+                    <div class="flex flex-col items-stretch gap-2 shrink-0" style="min-width:240px;">
+                        @php($sugId = (int) ($s->suggested_deal_id ?? 0))
+                        @php($inList = $agentDeals->firstWhere('id', $sugId))
+                        @if($sugId && $s->suggestedDeal)
+                            <div class="text-[11px] text-right" style="color:var(--text-muted, #6b7280);">Suggested
                                 <span style="color:var(--text-primary, #111827);">{{ $s->suggestedDeal->deal_no ? '#'.$s->suggestedDeal->deal_no : 'Deal '.$s->suggestedDeal->id }}</span>
-                                @if($s->suggestedDeal->property_address) · {{ \Illuminate\Support\Str::limit($s->suggestedDeal->property_address, 26) }} @endif
+                                @if($s->suggestedDeal->property_address)<span style="color:var(--text-secondary, #374151);"> · {{ \Illuminate\Support\Str::limit($s->suggestedDeal->property_address, 30) }}</span>@endif
                             </div>
-                            <form method="POST" action="{{ route('corex.comms-suspense.verify', $s) }}">
-                                @csrf
-                                <input type="hidden" name="deal_id" value="{{ $s->suggested_deal_id }}">
-                                <button type="submit" class="w-full text-xs font-semibold px-3 py-2 rounded" style="background:var(--brand-default, #0b2a4a); color:#fff;">Confirm &amp; file</button>
-                            </form>
                         @endif
+                        <form method="POST" action="{{ route('corex.comms-suspense.verify', $s) }}" class="flex flex-col gap-2">
+                            @csrf
+                            <select name="deal_id" class="w-full text-xs px-2 py-2 rounded" style="background:var(--surface, #fff); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #111827);">
+                                <option value="">— pick a deal —</option>
+                                @if($sugId && ! $inList && $s->suggestedDeal)
+                                    <option value="{{ $sugId }}" selected>{{ $s->suggestedDeal->deal_no ? '#'.$s->suggestedDeal->deal_no : 'Deal '.$sugId }}{{ $s->suggestedDeal->property_address ? ' · '.\Illuminate\Support\Str::limit($s->suggestedDeal->property_address, 40) : '' }}</option>
+                                @endif
+                                @foreach($agentDeals as $d)
+                                    <option value="{{ $d['id'] }}" {{ $d['id'] === $sugId ? 'selected' : '' }}>{{ $d['label'] }}</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="w-full text-xs font-semibold px-3 py-2 rounded" style="background:var(--brand-default, #0b2a4a); color:#fff;">Confirm &amp; file</button>
+                        </form>
                         <button type="button" @click="open('{{ route('corex.comms-suspense.verify', $s) }}')"
-                                class="w-full text-xs px-3 py-2 rounded" style="background:var(--surface-2, #f3f4f6); color:var(--text-primary, #111827); border:1px solid var(--border, #e5e7eb);">
-                            {{ $s->suggested_deal_id ? 'File to a different deal…' : 'Link to a deal…' }}
+                                class="w-full text-[11px] px-3 py-1.5 rounded" style="background:var(--surface-2, #f3f4f6); color:var(--text-secondary, #374151); border:1px solid var(--border, #e5e7eb);">
+                            Search all deals…
                         </button>
                         <form method="POST" action="{{ route('corex.comms-suspense.dismiss', $s) }}"
                               onsubmit="return confirm('Reject this email? It will not be filed to any deal.');">
                             @csrf
-                            <button type="submit" class="w-full text-xs px-3 py-2 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Reject</button>
+                            <button type="submit" class="w-full text-[11px] px-3 py-1.5 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Reject</button>
                         </form>
                     </div>
                 </div>

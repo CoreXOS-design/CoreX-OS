@@ -7,6 +7,7 @@ use App\Models\Communications\CommunicationAttachment;
 use App\Models\Communications\CommunicationFilingSuspense;
 use App\Models\Communications\CommunicationLearnedRef;
 use App\Models\Communications\CommunicationLink;
+use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\AgencyServiceProviderContact;
@@ -51,14 +52,49 @@ class CorrespondenceFilingService
      *
      * @param array $attorney {provider, contact}
      */
+    /**
+     * G1=A park gate (Johan): an inbound email qualifies for comms-suspense iff AT LEAST ONE recognised
+     * party is on it — a buyer/seller (a deal-party Contact) or a supplier/attorney (a provider) — matched
+     * against ANY address on the mail (from/to/cc), not just the sender. Mail with no tie to any party
+     * stays dropped by the existing POPIA gate. Pure read; the ingestor calls this before parking.
+     */
+    public function hasKnownParty(array $addresses, int $agencyId): bool
+    {
+        $addrs = collect($addresses)->map(fn ($a) => strtolower(trim((string) $a)))
+            ->filter(fn ($a) => $a !== '' && str_contains($a, '@'))->unique()->values()->all();
+        if (empty($addrs)) {
+            return false;
+        }
+
+        // A supplier / attorney (provider firm or person) anywhere on the mail.
+        if (AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)
+                ->whereIn(DB::raw('LOWER(TRIM(email))'), $addrs)->exists()
+            || AgencyServiceProviderContact::withoutGlobalScopes()->where('agency_id', $agencyId)
+                ->whereIn(DB::raw('LOWER(TRIM(email))'), $addrs)->exists()) {
+            return true;
+        }
+
+        // A buyer/seller — a Contact that is a transaction party on some deal.
+        $contactIds = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)
+            ->whereIn(DB::raw('LOWER(TRIM(email))'), $addrs)->pluck('id');
+
+        return $contactIds->isNotEmpty()
+            && DB::table('deal_contacts')->whereIn('contact_id', $contactIds)
+                ->whereIn('role', ['seller', 'buyer'])->exists();
+    }
+
     public function park(Communication $comm, array $msg, array $attorney): string
     {
         $agencyId = (int) $comm->agency_id;
         $provider = $attorney['provider'] ?? null;
         $contact  = $attorney['contact'] ?? null;
 
-        // Provenance: link the attorney firm (+ person) to the parked comm.
-        $this->linkModel($comm, $provider, CommunicationLink::METHOD_DETERMINISTIC, 100);
+        // Provenance: link the provider firm (+ person) when the SENDER is a known provider. A comm
+        // parked only because a PARTY is on to/cc (Johan G1=A) has no provider sender — it still parks
+        // and gets a ladder suggestion; there is simply no provider link to write.
+        if ($provider) {
+            $this->linkModel($comm, $provider, CommunicationLink::METHOD_DETERMINISTIC, 100);
+        }
         if ($contact) {
             $this->linkModel($comm, $contact, CommunicationLink::METHOD_DETERMINISTIC, 100);
         }
@@ -115,6 +151,13 @@ class CorrespondenceFilingService
         $deal = $this->findDeal($dealId, $agencyId);
         if (! $deal) {
             throw new \DomainException('That deal no longer exists — pick another to file this correspondence.');
+        }
+
+        // Shared-state (Johan's addendum): one email = one suspense row for ALL recipients. Guard against a
+        // double-approve race (two people confirming the same pending row at once) — first approval wins;
+        // a row already resolved just no-ops instead of re-filing.
+        if ($suspense->status !== CommunicationFilingSuspense::STATUS_PENDING) {
+            return;
         }
 
         $comm = Communication::withoutGlobalScopes()->findOrFail($suspense->communication_id);

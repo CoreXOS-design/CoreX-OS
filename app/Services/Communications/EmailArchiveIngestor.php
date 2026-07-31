@@ -71,14 +71,19 @@ class EmailArchiveIngestor
         $contact = $counterpart !== '' ? $this->resolver->resolve($counterpart, $agencyId) : null;
 
         if (! $contact) {
-            // AT-231 — before discarding, try the attorney-correspondence path: an
-            // inbound email from a KNOWN attorney-firm sender is PARKED (stored +
-            // resolved to a deal), not dropped. POPIA scope: ONLY a known attorney
-            // sender parks; every other unknown sender still drops (unchanged).
-            if ($direction === Communication::DIRECTION_INBOUND && $counterpart !== ''
-                && ($attorney = $this->correspondence->resolveSender($counterpart, $agencyId))) {
+            // AT-231 + Phase-2 G1=A (Johan) — before discarding, try the correspondence path. An inbound
+            // email PARKS to comms-suspense iff a RECOGNISED PARTY is on it: the SENDER is a known provider
+            // (attorney/supplier), OR any address on the mail (from/to/cc) is a party/supplier
+            // (hasKnownParty). Mail with no tie to any party/supplier still drops (POPIA scope, unchanged).
+            $attorney = ($direction === Communication::DIRECTION_INBOUND && $counterpart !== '')
+                ? $this->correspondence->resolveSender($counterpart, $agencyId)
+                : null;
+            $partyAddrs = array_merge([$counterpart], $msg['participants'] ?? []);
+            if ($direction === Communication::DIRECTION_INBOUND
+                && ($attorney !== null || $this->correspondence->hasKnownParty($partyAddrs, $agencyId))) {
                 $stored = $this->storage->store($agencyId, 'email', (string) ($msg['raw'] ?? ''));
                 $common = $this->buildCommon($mailbox, $msg, $externalId, $direction, $stored, $attachments);
+                $attorney = $attorney ?? ['provider' => null, 'contact' => null];
 
                 return DB::transaction(function () use ($common, $attachments, $agencyId, $msg, $attorney) {
                     $communication = Communication::create($common);
