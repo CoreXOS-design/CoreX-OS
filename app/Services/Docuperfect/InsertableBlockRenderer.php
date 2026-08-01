@@ -604,7 +604,11 @@ final class InsertableBlockRenderer
         ?string $signingToken,
         ?string $currentPartyKey
     ): string {
-        $parties = $doc->parties_json ?? [];
+        // Enumerate DISTINCT signing identities: checkpoint pseudo-roles
+        // (supervisor_final) collapse onto their base identity so an authorising
+        // practitioner gets exactly ONE per-condition initial slot, never a phantom
+        // second one. Same authority as the per-page initials.
+        $parties = $doc->enumeratedSigningParties();
         if (! is_array($parties) || empty($parties)) {
             return '';
         }

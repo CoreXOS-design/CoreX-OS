@@ -1903,7 +1903,14 @@ class ESignWizardController extends Controller
             $viewData['recipients_by_role'] = $recipientsByRole;
             $viewData['is_candidate_flow'] = $isCandidateFlow;
             if ($isCandidateFlow) {
-                $viewData['supervisor_name'] = 'Authorised Practitioner (shared queue)';
+                // The authorising practitioner is drawn from the shared authorisation
+                // queue at sign time, so no specific person/designation is known at
+                // document creation — a neutral role label renders until the claiming
+                // practitioner's DESIGNATION + name are stamped when their ink bakes
+                // (CanonicalInkComposer). The authoriser binds by ROLE-IDENTITY, never
+                // this label, so a placeholder here can never mis-bind their marks.
+                $viewData['authorising_designation'] = 'Authorising Practitioner';
+                $viewData['authorising_identity']    = 'supervisor';
             }
             $fullHtml = view($template->blade_view, $viewData)->render();
 

@@ -66,6 +66,18 @@ final class EsignRegressionWalk extends Command
         }
         auth()->login($agent);
 
+        // ── AUTHORISING-PRACTITIONER PARITY (candidate flow) ─────────────────────
+        // Self-contained (no wizard pack required) so it guards the authorising-party
+        // engine on every environment. Johan 2026-08: the authoriser is a FULL-PARITY
+        // signer — one identity across the supervisor / supervisor_final routing
+        // checkpoints, designation-labelled, bound by ROLE-IDENTITY not a placeholder
+        // name — and the final baked document must carry EVERY authoriser mark.
+        try {
+            $this->assertAuthoriserParity();
+        } catch (\Throwable $e) {
+            $this->assert('AUTHORISER-PARITY block executed cleanly', false, $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+        }
+
         $docId = null;
         $flowId = null;
         try {
@@ -352,6 +364,14 @@ final class EsignRegressionWalk extends Command
                 $s2SignedBlock && $onAllDocs,
                 'signedBlock=' . ($s2SignedBlock ? 'Y' : 'n') . ' "Signed by Rec Two" segments=[' . implode(',', array_keys($signedBySegs)) . ']',
             );
+
+            // ── RULE 9 (COMPLETENESS — the bank/attorney reject guard) ──────────────
+            // A bank or conveyancer COUNTS the marks: every signature slot in the final
+            // approved document must be filled, for EVERY party. One empty slot for any
+            // party = the whole document is rejected for re-signing. Assert doc-type /
+            // role-agnostically that the approved canonical has NO empty signature slot.
+            [$ok9, $art9] = $this->assertNoEmptySignatureSlot($doc->web_template_data['canonical_html'] ?? '');
+            $this->assert('9) COMPLETENESS: final approved doc has no empty signature slot for any party (bank-reject guard)', $ok9, $art9);
         } catch (\Throwable $e) {
             $this->error('HARNESS ERROR: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
         } finally {
@@ -397,6 +417,140 @@ final class EsignRegressionWalk extends Command
     {
         $status = $pass === null ? 'SKIP' : ($pass ? 'PASS' : 'FAIL');
         $this->results[] = [$name, $status, $artifact];
+    }
+
+    /**
+     * COMPLETENESS guard, doc-type / role-agnostic: every signature slot in a final
+     * baked/approved artifact must be filled (baked ink / data-signed). A bank or
+     * conveyancer counts these and rejects the whole document if ANY party's slot is
+     * empty. Returns [ok, artifact] naming the empty slots' owners.
+     *
+     * @return array{0:bool,1:string}
+     */
+    private function assertNoEmptySignatureSlot(string $canonical): array
+    {
+        if (trim($canonical) === '') {
+            return [false, 'empty canonical'];
+        }
+        $dom = new \DOMDocument();
+        @$dom->loadHTML('<?xml encoding="utf-8"?>' . $canonical, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $xp = new \DOMXPath($dom);
+        $total = 0;
+        $empty = [];
+        foreach ($xp->query('//*[@data-marker-type="signature"]') as $el) {
+            if (! $el instanceof \DOMElement) {
+                continue;
+            }
+            $total++;
+            $filled = $el->getAttribute('data-signed') === 'true' || $xp->query('.//img', $el)->length > 0;
+            if (! $filled) {
+                $empty[] = $el->getAttribute('data-name')
+                    ?: ($el->getAttribute('data-recipient-identity') ?: ($el->getAttribute('data-marker-party') ?: '?'));
+            }
+        }
+        return [$total > 0 && $empty === [], "signature slots=$total empty=" . count($empty) . ($empty ? ' for: ' . implode(', ', array_unique($empty)) : '')];
+    }
+
+    /**
+     * AUTHORISING-PRACTITIONER PARITY — the candidate-flow engine guard (Johan 2026-08).
+     * Self-contained: constructs the engine primitives directly (no wizard pack), so it
+     * runs and guards on any environment. Asserts the five properties the fix guarantees:
+     *   (a) supervisor_final collapses onto the ONE authoriser identity (no phantom 2nd
+     *       initial box / signature surface) — SignatureTemplate::enumeratedSigningParties;
+     *   (b) the authoriser's parity signature block is IDENTITY-stamped, carries NO
+     *       placeholder data-name, and is DESIGNATION-labelled (not "Supervisor");
+     *   (c) the authoriser's marks are OWNED + baked at either routing checkpoint
+     *       (a supervisor_final signer bakes the supervisor-identity markers — foldIdentity);
+     *   (d) co-recipient isolation is preserved (seller_2 is never grabbed by the fold);
+     *   (e) COMPLETENESS — every authoriser slot is filled after the bake.
+     */
+    private function assertAuthoriserParity(): void
+    {
+        // (a) enumeration collapse
+        $t = new SignatureTemplate();
+        $t->parties_json = [
+            ['role' => 'agent', 'role_label' => 'agent', 'name' => 'Cand'],
+            ['role' => 'seller', 'role_label' => 'seller', 'name' => 'Rec One'],
+            ['role' => 'seller_2', 'role_label' => 'seller', 'name' => 'Rec Two'],
+            ['role' => 'supervisor', 'role_label' => 'supervisor', 'name' => 'Authorised Practitioner'],
+            ['role' => 'supervisor_final', 'role_label' => 'supervisor', 'name' => 'Authorised Practitioner'],
+        ];
+        $roles = array_column($t->enumeratedSigningParties(), 'role');
+        $this->assert(
+            'AUTH-a) authoriser enumerated ONCE — supervisor_final collapses to base identity, co-sellers kept',
+            $roles === ['agent', 'seller', 'seller_2', 'supervisor'],
+            '[' . implode(',', $roles) . ']',
+        );
+
+        // (b) parity block: identity-stamped, no placeholder name, designation label
+        $block = view('docuperfect.web-templates.components.signature-block', [
+            'is_candidate_flow' => true,
+            'authorising_designation' => 'Authorising Practitioner',
+            'authorising_identity' => 'supervisor',
+            'signing_parties' => ['owner_party', 'agent'],
+            'document_context' => 'sales',
+            'recipients_by_role' => ['seller' => [['name' => 'Rec One']], 'agent' => [['name' => 'Cand']]],
+        ])->render();
+        $authFrag = preg_match('/Thus authorised and signed by the.*?<\/div>\s*<\/div>\s*<\/div>/s', $block, $mm) ? $mm[0] : '';
+        $sigStamped = (bool) preg_match('/data-marker-type="signature"[^>]*data-recipient-identity="supervisor"|data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $authFrag);
+        $noPlaceholderName = $authFrag !== '' && ! str_contains($authFrag, 'data-name=');
+        $designationLabel = str_contains($authFrag, 'Authorising Practitioner') && ! str_contains($block, 'Supervising Practitioner');
+        $this->assert(
+            'AUTH-b) authoriser parity block is identity-stamped, has NO placeholder name, and is designation-labelled',
+            $sigStamped && $noPlaceholderName && $designationLabel,
+            'idStamped=' . ($sigStamped ? 'Y' : 'n') . ' noPlaceholderName=' . ($noPlaceholderName ? 'Y' : 'n') . ' designationLabel=' . ($designationLabel ? 'Y' : 'n'),
+        );
+
+        // (c)+(d)+(e) bake ownership across the checkpoint fold + isolation + completeness
+        $canon = '<div class="corex-document-wrapper">'
+            . '<span class="sig-field" data-marker-party="supervisor" data-recipient-identity="supervisor" data-marker-type="location"></span>'
+            . '<div class="sig-cell-line" data-marker-party="supervisor" data-recipient-identity="supervisor" data-marker-type="signature" data-marker-index="supervisor-0"></div>'
+            . '<div class="corex-page-initials" data-marker-party="supervisor" data-recipient-identity="supervisor" data-marker-type="initial" data-marker-index="0-3"></div>'
+            . '<div class="sig-cell-line" data-marker-party="seller" data-recipient-identity="seller_2" data-marker-type="signature" data-marker-index="seller2-0"></div>'
+            . '</div>';
+        $composer = app(\App\Services\Docuperfect\CanonicalInkComposer::class);
+
+        $sup = new SignatureRequest();
+        $sup->party_role = 'supervisor_final';
+        $sup->role_index = 1;
+        $sup->signer_name = 'Retha Kelly';
+        $baked = $composer->bakeInk($canon, $sup, ['sig-0' => self::PNG], ['init-0' => self::PNG], ['supervisor_location' => 'DURBAN'], false);
+
+        $sigBaked = (bool) preg_match('/data-marker-type="signature"[^>]*data-recipient-identity="supervisor"[^>]*data-signed="true"|data-recipient-identity="supervisor"[^>]*data-marker-type="signature"[^>]*data-signed="true"/', $baked);
+        $initBaked = (bool) preg_match('/data-marker-type="initial"[^>]*data-signed="true"/', $baked);
+        $ceremonyFilled = str_contains($baked, 'DURBAN');
+        $sellerNotGrabbed = ! (bool) preg_match('/data-recipient-identity="seller_2"[^>]*data-signed="true"/', $baked);
+        $this->assert(
+            'AUTH-c) supervisor_final signer OWNS + bakes the supervisor-identity marks (signature + initial + ceremony) via the checkpoint fold',
+            $sigBaked && $initBaked && $ceremonyFilled,
+            'sig=' . ($sigBaked ? 'Y' : 'n') . ' init=' . ($initBaked ? 'Y' : 'n') . ' ceremony=' . ($ceremonyFilled ? 'Y' : 'n'),
+        );
+        $this->assert(
+            'AUTH-d) co-recipient isolation preserved — the authoriser fold never grabs seller_2',
+            $sellerNotGrabbed,
+            'seller_2 untouched=' . ($sellerNotGrabbed ? 'Y' : 'n'),
+        );
+
+        // seller_1 must not grab seller_2 or the authoriser (existing isolation intact under fold)
+        $s1 = new SignatureRequest();
+        $s1->party_role = 'seller';
+        $s1->role_index = 1;
+        $s1->signer_name = 'Rec One';
+        $baked2 = $composer->bakeInk($canon, $s1, ['sig-0' => self::PNG], [], [], false);
+        $s1Clean = ! (bool) preg_match('/data-recipient-identity="seller_2"[^>]*data-signed="true"/', $baked2)
+            && ! (bool) preg_match('/data-recipient-identity="supervisor"[^>]*data-marker-type="signature"[^>]*data-signed="true"/', $baked2);
+        $this->assert('AUTH-d2) seller_1 signer bakes neither seller_2 nor the authoriser marks', $s1Clean, 'clean=' . ($s1Clean ? 'Y' : 'n'));
+
+        // (e) completeness — no authoriser signature slot left empty
+        [$ok, $art] = $this->assertNoEmptySignatureSlot($baked);
+        // restrict the count to authoriser slots for a targeted artifact
+        $need = preg_match_all('/data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $canon);
+        $got  = preg_match_all('/data-recipient-identity="supervisor"[^>]*data-marker-type="signature"[^>]*data-signed="true"/', $baked);
+        $this->assert(
+            'AUTH-e) COMPLETENESS — every authoriser signature slot filled after bake (no phantom, no missing)',
+            $need > 0 && $got === $need,
+            "authoriserSigSlots=$need baked=$got | overall: $art",
+        );
     }
 
     /**

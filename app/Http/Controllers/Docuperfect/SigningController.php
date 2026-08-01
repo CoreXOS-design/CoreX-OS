@@ -496,7 +496,13 @@ class SigningController extends Controller
                 ->toArray();
         }
 
-        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+        // Per-page initials enumerate DISTINCT signing identities: checkpoint
+        // pseudo-roles (supervisor_final) collapse onto their base identity so an
+        // authorising practitioner gets exactly ONE initial box, not two. Single
+        // authority (SignatureTemplate::enumeratedSigningParties) shared with the
+        // internal agent view — the two must never diverge (they did: this external
+        // view previously skipped the dedup the internal view applied).
+        $signingParties = collect($template->enumeratedSigningParties())->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
         ])->values()->toArray();
@@ -1504,7 +1510,18 @@ class SigningController extends Controller
         $nonEmpty = static fn ($v): bool => is_array($v) ? $v !== [] : trim((string) $v) !== '';
         $capturedAnyMark = collect((array) $request->input('signatures', []))->contains($nonEmpty)
             || collect((array) $request->input('initials', []))->contains($nonEmpty);
-        if (!$capturedAnyMark) {
+        // The authorising practitioner signs their FULL parity set ONCE — at the
+        // initial-review checkpoint right after the candidate (Johan 2026-08). The
+        // post-external `supervisor_final` checkpoint is the completion/distribution
+        // act and produces NO fresh mark, so the "captured ≥1 mark" floor must not
+        // block it — GATED on the base authoriser signing having actually completed,
+        // so this can never become an empty-completion hole.
+        $isAuthoriserFinalSignoff = $signingRequest->party_role === 'supervisor_final'
+            && $template->requests()
+                ->where('party_role', 'supervisor')
+                ->where('status', SignatureRequest::STATUS_COMPLETED)
+                ->exists();
+        if (!$capturedAnyMark && !$isAuthoriserFinalSignoff) {
             return response()->json([
                 'ok'    => false,
                 'error' => 'Please sign the document before submitting — no signature was captured.',

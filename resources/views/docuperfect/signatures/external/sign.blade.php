@@ -1786,8 +1786,13 @@ function externalSign() {
                     // canonical key, "seller_2" stays), so each recipient's value binds to
                     // THEIR identity across every pack doc.
                     const ceremonyKeyParty = fieldIdentity ? fieldIdentity.replace(/_1$/, '') : rawParty;
+                    // Fold through the checkpoint family so the authorising practitioner's
+                    // 'supervisor'-identity ceremony fields are editable by their signing
+                    // request ('supervisor_1' / 'supervisor_final_1' both fold to
+                    // 'supervisor'). Index-preserving for everyone else — seller_1 and
+                    // seller_2 never bleed onto each other.
                     const isMine = fieldIdentity !== ''
-                        ? (fieldIdentity === myIdentity)
+                        ? (self._foldIdentity(fieldIdentity) === self._foldIdentity(myIdentity))
                         : self.isMyWebSigBlock(rawParty);
 
                     if (!isMine) {
@@ -3032,9 +3037,14 @@ function externalSign() {
             const ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
             const acquiringTerms = ['acquiring_party', 'lessee', 'buyer', 'tenant', 'purchaser'];
             const agentTerms = ['agent', 'property_practitioner'];
+            // Checkpoint family: the authorising practitioner's two routing checkpoints
+            // are one signer, so a supervisor_final signer matches a 'supervisor' block
+            // (fallback path — identity binding via _foldIdentity is the primary key).
+            const authTerms = ['supervisor', 'supervisor_final'];
             if (ownerTerms.includes(myRoleBase) && ownerTerms.includes(roleBase)) return true;
             if (acquiringTerms.includes(myRoleBase) && acquiringTerms.includes(roleBase)) return true;
             if (agentTerms.includes(myRoleBase) && agentTerms.includes(roleBase)) return true;
+            if (authTerms.includes(myRoleBase) && authTerms.includes(roleBase)) return true;
             return false;
         },
 
@@ -3045,6 +3055,28 @@ function externalSign() {
          */
         _normalizeInkName(name) {
             return (name || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
+        },
+
+        /**
+         * Fold a role-identity for OWNERSHIP comparison — the verbatim mirror of
+         * CanonicalInkComposer::foldIdentity (PHP). Checkpoint-family roles
+         * (supervisor / supervisor_final) are ONE human across routing checkpoints
+         * and fold to the base 'supervisor' (index dropped). Every other role is
+         * index-preserving ('seller'/'seller_1' → 'seller_1', 'seller_2' → 'seller_2')
+         * so two same-role recipients never bleed onto each other. Keep in exact sync
+         * with SignatureTemplate::CHECKPOINT_ROLE_ALIASES.
+         */
+        _foldIdentity(rid) {
+            rid = (rid || '').toString().toLowerCase().trim();
+            if (rid === '') return '';
+            const ALIASES = { 'supervisor_final': 'supervisor' }; // mirror CHECKPOINT_ROLE_ALIASES
+            const BASES = Object.values(ALIASES);
+            const m = rid.match(/^(.*)_(\d+)$/);
+            let role, idx;
+            if (m) { role = m[1]; idx = m[2]; } else { role = rid; idx = '1'; }
+            const base = ALIASES[role] || role;
+            if (BASES.includes(base)) return base; // singleton checkpoint family
+            return base + '_' + idx;
         },
 
         /**
@@ -3072,7 +3104,10 @@ function externalSign() {
             const markerIdentity = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
             if (markerIdentity !== '') {
                 const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
-                return myIdentity !== '' && markerIdentity === myIdentity;
+                // Fold the checkpoint family (supervisor / supervisor_final → supervisor)
+                // so an authorising practitioner owns their identity-stamped markers at
+                // either routing checkpoint; index-preserving for co-recipients.
+                return myIdentity !== '' && this._foldIdentity(markerIdentity) === this._foldIdentity(myIdentity);
             }
             return this.isMyWebSigBlock((el.dataset.markerParty || '').toLowerCase());
         },
@@ -3110,15 +3145,18 @@ function externalSign() {
         _isMyInitialBox(el) {
             const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
             const explicitIdent = (el.getAttribute('data-recipient-identity') || '').toLowerCase();
-            if (explicitIdent) return myIdentity !== '' && explicitIdent === myIdentity;
+            if (explicitIdent) return myIdentity !== '' && this._foldIdentity(explicitIdent) === this._foldIdentity(myIdentity);
             const myName = this._normalizeInkName(this.signerName);
             const markerName = this._normalizeInkName(el.getAttribute('data-name'));
             if (markerName !== '' && myName !== '') return markerName === myName;
             const party = (el.dataset.markerParty || '').toLowerCase();
             // No identity to scope by \u2192 bare-role fallback (safe on single-recipient docs).
             if (myIdentity === '' || party === '') return this.isMyWebSigBlock(party);
+            // Fold both sides through the checkpoint family: the authoriser's page-initial
+            // box (data-marker-party="supervisor" \u2192 boxIdentity "supervisor_1") is owned by
+            // either 'supervisor_1' / 'supervisor_final_1'. seller_2 stays distinct.
             const boxIdentity = /_\d+$/.test(party) ? party : party + '_1';
-            return boxIdentity === myIdentity;
+            return this._foldIdentity(boxIdentity) === this._foldIdentity(myIdentity);
         },
 
         // \u00A719 Part A \u2014 shared disclosure logic (single source; agent +

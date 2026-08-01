@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Docuperfect;
 
 use App\Models\Docuperfect\SignatureRequest;
+use App\Models\Docuperfect\SignatureTemplate;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -321,6 +322,41 @@ class CanonicalInkComposer
     }
 
     /**
+     * Fold a role-identity for OWNERSHIP comparison (signature / initial markers).
+     * Distinct from normaliseIdentity (which maps ceremony spans to the bare-role
+     * ceremony key). This answers "are these two identities the same signer?":
+     *
+     *  - CHECKPOINT-family roles ([[SignatureTemplate::CHECKPOINT_ROLE_ALIASES]]) are
+     *    ONE human across routing checkpoints, so 'supervisor', 'supervisor_1' and
+     *    'supervisor_final_1' all fold to the base 'supervisor' (index dropped —
+     *    singleton).
+     *  - Every OTHER role is index-preserving: 'seller' / 'seller_1' → 'seller_1',
+     *    'seller_2' → 'seller_2'. Two same-role recipients stay strictly separate,
+     *    so an authoriser fold never bleeds co-signers onto each other.
+     *
+     * Mirrored verbatim by _foldIdentity() in external/sign.blade.php.
+     */
+    private function foldIdentity(string $rid): string
+    {
+        $rid = strtolower(trim($rid));
+        if ($rid === '') {
+            return '';
+        }
+        if (preg_match('/^(.*)_(\d+)$/', $rid, $m)) {
+            $role = $m[1];
+            $idx  = $m[2];
+        } else {
+            $role = $rid;
+            $idx  = '1';
+        }
+        $base = SignatureTemplate::CHECKPOINT_ROLE_ALIASES[$role] ?? $role;
+        if (in_array($base, array_values(SignatureTemplate::CHECKPOINT_ROLE_ALIASES), true)) {
+            return $base; // singleton checkpoint family — one identity across checkpoints
+        }
+        return $base . '_' . $idx;
+    }
+
+    /**
      * Write a ceremony text value into its span. Idempotent: the emphasis style is
      * added only once, so repeated re-renders (applyCeremonyValues runs on every
      * PDF assembly) never accrete duplicate `font-weight:500;` declarations.
@@ -402,10 +438,16 @@ class CanonicalInkComposer
         if ($markerName !== '' && $signerName !== '') {
             return $markerName === $signerName;
         }
-        // 2) Identity stamp (role-block-cloned markers).
+        // 2) Identity stamp (role-block-cloned markers). Fold through the checkpoint
+        //    family so an authorising practitioner's 'supervisor'-identity markers are
+        //    owned by BOTH their pre-external 'supervisor' and post-external
+        //    'supervisor_final' signing requests (one human, two routing checkpoints).
+        //    Non-checkpoint identities keep their per-recipient index, so seller_1 and
+        //    seller_2 stay strictly isolated (foldIdentity is index-preserving there).
         $markerIdentity = strtolower($el->getAttribute('data-recipient-identity'));
         if ($markerIdentity !== '') {
-            return $signerIdentity !== '' && $markerIdentity === $signerIdentity;
+            return $signerIdentity !== ''
+                && $this->foldIdentity($markerIdentity) === $this->foldIdentity($signerIdentity);
         }
         // 3) Sole-of-role party fallback.
         if (! $signerIsSoleOfRole) {

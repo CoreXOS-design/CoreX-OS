@@ -198,27 +198,41 @@
         </div>
     @endforeach
 
-    {{-- Supervisor Signature Zone — only renders for candidate practitioner flows --}}
+    {{-- Authorising-practitioner signature zone — candidate practitioner flows only.
+         The authorising party (a full-status Property Practitioner / Principal, resolved
+         from the shared authorisation queue at sign time) is a FULL-PARITY signer: this
+         sig-party-block mirrors every other party's block, and the per-page initials row
+         carries their box too (SignatureTemplate::enumeratedSigningParties). Bound by
+         ROLE-IDENTITY (data-recipient-identity), never a name — the authoriser is the one
+         signer whose person is unknown at document creation, so a name key cannot match
+         the claiming practitioner; identity binds instead. Label is DESIGNATION-driven,
+         not a hardcoded "Supervisor" string. --}}
     @if(!empty($is_candidate_flow))
-        @php $supervisorDisplayName = $supervisor_name ?? 'Supervisor'; @endphp
+        @php
+            // Base checkpoint-family identity: both the pre-external 'supervisor'
+            // authorisation and the post-external 'supervisor_final' signoff are the
+            // same human and fold onto this identity (CHECKPOINT_ROLE_ALIASES).
+            $authIdentity = $authorising_identity ?? 'supervisor';
+            $authLabel    = $authorising_designation ?? 'Authorising Practitioner';
+        @endphp
         <div class="sig-party-block">
             <p class="sig-text">
-                Thus authorised and signed by the Supervising Practitioner ({{ $supervisorDisplayName }}) at
-                <span class="sig-field" data-marker-party="supervisor" data-marker-type="location"></span>
+                Thus authorised and signed by the {{ $authLabel }} at
+                <span class="sig-field" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="location"></span>
                 on this
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-marker-type="day"></span>
+                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="day"></span>
                 day of
-                <span class="sig-field sig-field-medium" data-marker-party="supervisor" data-marker-type="month"></span>
-                20<span class="sig-field sig-field-year" data-marker-party="supervisor" data-marker-type="year"></span>
+                <span class="sig-field sig-field-medium" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="month"></span>
+                20<span class="sig-field sig-field-year" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="year"></span>
                 at
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-marker-type="time"></span>
+                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="time"></span>
                 am / pm.
             </p>
 
             <div class="sig-row-adaptive cols-1">
                 <div class="sig-cell">
-                    <div class="sig-cell-line" data-marker-party="supervisor" data-marker-type="signature" data-marker-index="supervisor-0" data-name="{{ $supervisorDisplayName }}"></div>
-                    <div class="sig-cell-label">{{ $supervisorDisplayName }}<br><em style="font-size:8pt;">Supervising Practitioner</em></div>
+                    <div class="sig-cell-line" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="signature" data-marker-index="supervisor-0"></div>
+                    <div class="sig-cell-label">{{ $authLabel }}</div>
                 </div>
             </div>
         </div>

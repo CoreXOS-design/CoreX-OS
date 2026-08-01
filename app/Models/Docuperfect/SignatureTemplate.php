@@ -177,6 +177,70 @@ class SignatureTemplate extends Model
     public const GROUP_ORDER_MANDATE = [['seller'], ['agent']];
 
     /**
+     * Ceremony CHECKPOINT pseudo-roles — a party_role that is the SAME human as a
+     * base role, signing at a later ROUTING checkpoint rather than being a second
+     * person. `supervisor_final` is the authorising practitioner's post-external-
+     * parties signoff; it is the same identity as `supervisor` (their initial
+     * authorisation). Maps a checkpoint role → its base signing identity.
+     *
+     * This governs RENDERING/ENUMERATION identity ONLY (per-page initials, per-
+     * condition initials, parity signature blocks). The routing signature_requests
+     * rows are unaffected. Without the collapse, one human renders a phantom SECOND
+     * initial box / signature surface (the candidate-flow "two Authorised
+     * Practitioner initials" defect). Generalises to any future checkpoint role.
+     */
+    public const CHECKPOINT_ROLE_ALIASES = [
+        'supervisor_final' => 'supervisor',
+    ];
+
+    /**
+     * Neutral DISPLAY label for a checkpoint-family base identity — used wherever a
+     * party label would otherwise leak the internal "supervisor" role token into the
+     * UI (e.g. the per-page initials placeholder). The authorising party is named by
+     * DESIGNATION (Johan 2026-08); the specific designation binds at sign time, so
+     * this neutral role label renders until then, never the raw "Supervisor" string.
+     */
+    public const CHECKPOINT_DISPLAY_LABELS = [
+        'supervisor' => 'Authorising Practitioner',
+    ];
+
+    /**
+     * The distinct SIGNING IDENTITIES for surface enumeration — parties_json with
+     * checkpoint pseudo-roles ([[CHECKPOINT_ROLE_ALIASES]]) collapsed onto their
+     * base identity and deduped by the resulting role. Same-role recipients that
+     * are genuinely different people (seller / seller_2) carry distinct roles and
+     * are preserved; only checkpoint aliases collapse. Every consumer that lays out
+     * per-party marks (per-page initials, per-condition initials, parity signature
+     * blocks) MUST enumerate through this so an authorising practitioner appears
+     * exactly ONCE, never twice, never zero.
+     *
+     * @return array<int, array<string, mixed>> parties_json entries, role rewritten to base
+     */
+    public function enumeratedSigningParties(): array
+    {
+        $seen = [];
+        $out  = [];
+        foreach ($this->parties_json ?? [] as $party) {
+            $role = (string) ($party['role'] ?? '');
+            if ($role === '') {
+                continue;
+            }
+            $base = self::CHECKPOINT_ROLE_ALIASES[strtolower($role)] ?? $role;
+            if (isset($seen[$base])) {
+                continue; // a checkpoint pseudo-role folded onto an already-seen identity
+            }
+            $seen[$base]   = true;
+            $party['role'] = $base;
+            // Never surface the raw "supervisor" token as a party label.
+            if (isset(self::CHECKPOINT_DISPLAY_LABELS[$base])) {
+                $party['role_label'] = self::CHECKPOINT_DISPLAY_LABELS[$base];
+            }
+            $out[]         = $party;
+        }
+        return $out;
+    }
+
+    /**
      * The group a party signs in for THIS ceremony, or null when the ceremony has no group plan.
      *
      * Null is the default and the safe answer: an ungrouped party is a group of one and reaches the

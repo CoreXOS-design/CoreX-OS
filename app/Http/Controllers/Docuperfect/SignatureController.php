@@ -1034,14 +1034,14 @@ class SignatureController extends Controller
         // Pass wizard flow ID so the sign page can include it in the webSignComplete request
         $esignFlowId = session('esign_wizard_flow_id');
 
-        // Build signing parties for client-side pagination initials
-        // Deduplicate supervisor/supervisor_final — same person, one initial block
-        $signingParties = collect($template->parties_json ?? [])->filter(function ($p) {
-            return ($p['role'] ?? '') !== 'supervisor_final';
-        })->map(fn($p) => [
+        // Build signing parties for client-side pagination initials via the single
+        // shared authority: checkpoint pseudo-roles (supervisor_final) collapse onto
+        // their base identity + dedup, so an authorising practitioner gets exactly
+        // ONE initial block. Same authority as the external signing view.
+        $signingParties = collect($template->enumeratedSigningParties())->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
-        ])->unique('role')->values()->toArray();
+        ])->values()->toArray();
 
         return view('docuperfect.signatures.sign', [
             'document' => $document,
