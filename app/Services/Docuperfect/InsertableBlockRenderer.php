@@ -615,11 +615,16 @@ final class InsertableBlockRenderer
             $existing = $byParty[$partyKey] ?? null;
 
             if ($existing) {
-                // FILLED — render the party's REAL adopted initial ink (the same
-                // drawn initial they use for page initials), resolved from
-                // signed_initials. Falls back to a typed token only when the
-                // party has no adopted initial on file.
-                $ink   = $this->resolveAdoptedInitial($doc, $partyKey);
+                // FILLED — render the ink the party ACTUALLY DREW FOR THIS CONDITION,
+                // resolved per-condition from signed_initials['{party}']['condition_{id}'].
+                // NEVER the party's adopted page-initial: resolving one stored mark and
+                // stamping it on every document's condition block rendered an initial where
+                // the party did not sign — a legal exposure (Johan 2026-08: the AGENT's
+                // "27" was mirrored onto all three docs' condition blocks because he had no
+                // per-condition ink, so the render fell back to his adopted page-initial).
+                // Falls back to a typed-letters token ONLY when this exact per-condition ink
+                // is absent — a clearly-typed placeholder, never a mirrored drawn signature.
+                $ink   = $this->resolveConditionInitial($doc, $partyKey, (int) $c->id);
                 $inner = $ink !== null
                     ? '<img src="' . $ink . '" class="corex-ink corex-ink--initial condition-initial-ink" alt="Initial" '
                         . 'style="height:26px; max-height:26px; width:auto; object-fit:contain; vertical-align:middle;">'
@@ -683,14 +688,16 @@ final class InsertableBlockRenderer
     }
 
     /**
-     * The party's REAL adopted initial ink (data-URI), resolved from the
-     * document's captured `signed_initials` — the SAME drawn initial the party
-     * uses for page initials. This is how a per-condition initial prints as ink:
-     * the ConditionInitial record proves party X initialed condition Y; the
-     * render shows X's adopted initial against Y. Returns null when the party
-     * has no captured initial (caller falls back to a typed token).
+     * The ink THIS party drew FOR THIS CONDITION (data-URI), resolved per-condition
+     * from `signed_initials['{party}']['condition_{id}']` — the exact key
+     * initialCondition (AT-300) writes when the party draws/types the initial on that
+     * condition. Per-condition AND per-identity: it NEVER falls back to the party's
+     * adopted page-initial or any other mark, so a condition initial only ever renders
+     * what was actually signed at that condition. Returns null when this exact
+     * per-condition ink is absent (caller shows a typed-letters token, never a mirrored
+     * drawn mark).
      */
-    private function resolveAdoptedInitial(SignatureTemplate $doc, string $partyKey): ?string
+    private function resolveConditionInitial(SignatureTemplate $doc, string $partyKey, int $conditionId): ?string
     {
         $wtd    = $doc->document?->web_template_data ?? [];
         $signed = $wtd['signed_initials'] ?? [];
@@ -711,12 +718,11 @@ final class InsertableBlockRenderer
         if (! is_array($group)) {
             return null;
         }
-        // A party's initial is one mark used everywhere — take their first
-        // captured image (init-0), the representative adopted initial.
-        foreach ($group as $img) {
-            if (is_string($img) && str_starts_with(trim($img), 'data:image')) {
-                return $img;
-            }
+        // ONLY the ink drawn for THIS condition — keyed condition_{id}. No first-image /
+        // adopted-initial fallback (that is exactly the cross-document mirror bug).
+        $img = $group['condition_' . $conditionId] ?? null;
+        if (is_string($img) && str_starts_with(trim($img), 'data:image')) {
+            return $img;
         }
         return null;
     }
