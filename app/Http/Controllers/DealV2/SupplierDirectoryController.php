@@ -23,7 +23,7 @@ class SupplierDirectoryController extends Controller
     // offers the SAME supplier-type list as this directory add-form — incl. the attorney types.
     public const SPECIALTIES = [
         'electrician', 'entomologist', 'plumber', 'gas', 'electric_fence',
-        'transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'other',
+        'transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency', 'other',
     ];
 
     /** deal_v2_contacts provider roles (the roles a provider can fill on a deal). */

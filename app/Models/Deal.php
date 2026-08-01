@@ -100,6 +100,8 @@ class Deal extends Model
         'attorney_contact_id',
         'bond_originator_provider_id',
         'bond_originator_contact_id',
+        'external_agency_provider_id',
+        'external_agency_contact_id',
         'seller_name',
         'buyer_name',
         'attorney_name',

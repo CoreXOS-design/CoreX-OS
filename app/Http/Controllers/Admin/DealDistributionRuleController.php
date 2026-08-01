@@ -22,7 +22,7 @@ class DealDistributionRuleController extends Controller
     public const PARTY_ROLES = [
         'seller', 'co_seller', 'buyer', 'co_buyer',
         'conveyancer', 'transfer_attorney', 'bond_attorney', 'bond_originator', 'originator',
-        'electrician_coc', 'entomologist', 'service_provider', 'other',
+        'electrician_coc', 'entomologist', 'service_provider', 'external_agency', 'other',
     ];
 
     public function index()

@@ -475,6 +475,9 @@ class DealRegisterController extends Controller
             'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'bond_originator_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
             'bond_originator_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
+            // Note 2 — external agency = firm + contact, same searchable-supplier pattern.
+            'external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -615,6 +618,8 @@ class DealRegisterController extends Controller
             'attorney_contact_id'  => ! empty($data['attorney_contact_id']) ? (int) $data['attorney_contact_id'] : null,
             'bond_originator_provider_id' => ! empty($data['bond_originator_provider_id']) ? (int) $data['bond_originator_provider_id'] : null,
             'bond_originator_contact_id'  => ! empty($data['bond_originator_contact_id']) ? (int) $data['bond_originator_contact_id'] : null,
+            'external_agency_provider_id' => ! empty($data['external_agency_provider_id']) ? (int) $data['external_agency_provider_id'] : null,
+            'external_agency_contact_id'  => ! empty($data['external_agency_contact_id']) ? (int) $data['external_agency_contact_id'] : null,
             'accepted_status'  => $data['accepted_status'] ?? null,
             'commission_status' => $data['commission_status'] ?? null,
             'registration_date' => $data['registration_date'] ?? null,
@@ -1094,7 +1099,7 @@ class DealRegisterController extends Controller
         }
 
         // AT-228 — the same picker serves the transferring attorney and the bond originator.
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
         $firms = AgencyServiceProvider::query()
@@ -1152,7 +1157,7 @@ class DealRegisterController extends Controller
         $userId = $request->user()->id;
 
         // AT-228 — same inline-create serves attorney + bond originator (specialty from the picker).
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
         $firm = AgencyServiceProvider::query()
