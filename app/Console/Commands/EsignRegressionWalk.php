@@ -201,31 +201,44 @@ final class EsignRegressionWalk extends Command
 
             // ── RULE 4: per-recipient location across ALL docs, correct attribution ──
             $doc->refresh();
-            $locs = function (string $party) use ($doc) {
+            // Collect location values grouped by RECIPIENT IDENTITY (the real rendered
+            // field identity), not data-marker-party — a looped block (EATS) emits both
+            // sellers' spans with data-marker-party="seller", differing only by
+            // data-recipient-identity. Normalise the base recipient's "_1" suffix to match
+            // the canonical key ("seller_1" -> "seller").
+            $locsByIdentity = function () use ($doc) {
                 $c = $doc->web_template_data['canonical_html'] ?? ($doc->web_template_data['merged_html'] ?? '');
-                $o = [];
-                if (preg_match_all('/<span[^>]*data-marker-party="' . preg_quote($party, '/') . '"[^>]*data-marker-type="location"[^>]*>(.*?)<\/span>/is', $c, $m)) {
-                    foreach ($m[1] as $v) {
-                        $o[] = trim(strip_tags($v));
+                $out = ['seller' => [], 'seller_2' => []];
+                if (preg_match_all('/<span([^>]*data-marker-type="location"[^>]*)>(.*?)<\/span>/is', $c, $m, PREG_SET_ORDER)) {
+                    foreach ($m as $x) {
+                        preg_match('/data-marker-party="([^"]*)"/', $x[1], $p);
+                        preg_match('/data-recipient-identity="([^"]*)"/', $x[1], $r);
+                        $rid = strtolower($r[1] ?? '');
+                        $identity = $rid !== '' ? preg_replace('/_1$/', '', $rid) : strtolower($p[1] ?? '');
+                        if ($identity === 'seller' || $identity === 'seller_2') {
+                            $out[$identity][] = trim(strip_tags($x[2]));
+                        }
                     }
                 }
-                return $o;
+                return $out;
             };
-            $sl = $locs('seller');
-            $s2l = $locs('seller_2');
-            $ok4 = count($sl) > 0 && (new Collection($sl))->every(fn ($v) => $v === 'REC1-LOC')
-                && count($s2l) > 0 && (new Collection($s2l))->every(fn ($v) => $v === 'REC2-LOC')
-                && ! in_array('REC2-LOC', $sl, true) && ! in_array('REC1-LOC', $s2l, true);
-            $this->assert('4) per-recipient location correct across all pack docs (rec1!=rec2, no swap, none missing)', $ok4, "seller=[" . implode('|', $sl) . "] seller_2=[" . implode('|', $s2l) . "]");
+            $assertLoc = function (string $label) use ($locsByIdentity) {
+                $by = $locsByIdentity();
+                $sl = $by['seller'];
+                $s2l = $by['seller_2'];
+                $ok = count($sl) > 0 && (new Collection($sl))->every(fn ($v) => $v === 'REC1-LOC')
+                    && count($s2l) > 0 && (new Collection($s2l))->every(fn ($v) => $v === 'REC2-LOC')
+                    && ! in_array('REC2-LOC', $sl, true) && ! in_array('REC1-LOC', $s2l, true);
+                return [$ok, "seller-identity=[" . implode('|', $sl) . "] seller_2-identity=[" . implode('|', $s2l) . "]"];
+            };
+            [$ok4, $art4] = $assertLoc('signed');
+            $this->assert('4) per-recipient location bound by IDENTITY across all pack docs (rec1!=rec2, no swap, incl EATS looped span)', $ok4, $art4);
 
             // ── RULE 4b: approve as agent -> final APPROVED doc keeps each recipient's values ──
             $signatureService->approveAndAdvance($st->fresh());
             $doc->refresh();
-            $sl2 = $locs('seller');
-            $s2l2 = $locs('seller_2');
-            $ok4b = count($sl2) > 0 && (new Collection($sl2))->every(fn ($v) => $v === 'REC1-LOC')
-                && count($s2l2) > 0 && (new Collection($s2l2))->every(fn ($v) => $v === 'REC2-LOC');
-            $this->assert('4b) final APPROVED doc keeps each recipient location across all docs', $ok4b, "approved seller=[" . implode('|', $sl2) . "] seller_2=[" . implode('|', $s2l2) . "] finalStatus=" . $st->fresh()->status);
+            [$ok4b, $art4b] = $assertLoc('approved');
+            $this->assert('4b) final APPROVED doc keeps each recipient location (by identity) across all docs', $ok4b, $art4b . " finalStatus=" . $st->fresh()->status);
         } catch (\Throwable $e) {
             $this->error('HARNESS ERROR: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
         } finally {

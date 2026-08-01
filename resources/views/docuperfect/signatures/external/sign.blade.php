@@ -1777,6 +1777,15 @@ function externalSign() {
                     // the party-role check only for un-stamped single-block templates.
                     const fieldIdentity = (el.dataset.recipientIdentity || '').toLowerCase();
                     const myIdentity = (this.currentRoleIdentity || '').toLowerCase();
+                    // Ceremony key is per-IDENTITY, not per marker-party (Johan 2026-08). On a
+                    // LOOPED block (EATS shared signature-block, one per seller) BOTH sellers'
+                    // Location/date spans carry data-marker-party="seller" and differ only by
+                    // data-recipient-identity — so keying by rawParty collided the 2nd seller
+                    // onto the 1st (his Location/date never persisted). Key by the span's own
+                    // recipient-identity when present ("seller_1"->"seller" to match the
+                    // canonical key, "seller_2" stays), so each recipient's value binds to
+                    // THEIR identity across every pack doc.
+                    const ceremonyKeyParty = fieldIdentity ? fieldIdentity.replace(/_1$/, '') : rawParty;
                     const isMine = fieldIdentity !== ''
                         ? (fieldIdentity === myIdentity)
                         : self.isMyWebSigBlock(rawParty);
@@ -1793,6 +1802,7 @@ function externalSign() {
                     const input = document.createElement('input');
                     input.type = 'text';
                     input.setAttribute('data-marker-party', el.dataset.markerParty);
+                    input.setAttribute('data-recipient-identity', el.dataset.recipientIdentity || '');
                     input.setAttribute('data-marker-type', fieldType);
                     input.setAttribute('data-ceremony-field', 'true');
                     input.value = prefills[fieldType] || '';
@@ -1806,13 +1816,13 @@ function externalSign() {
                         'min-height:14pt;';
 
                     input.addEventListener('input', () => {
-                        self.webCeremonyValues[rawParty + '_' + fieldType] = input.value;
+                        self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = input.value;
                         self.updateIncompleteCount();
                     });
 
                     // Store prefilled value
                     if (prefills[fieldType]) {
-                        self.webCeremonyValues[rawParty + '_' + fieldType] = prefills[fieldType];
+                        self.webCeremonyValues[ceremonyKeyParty + '_' + fieldType] = prefills[fieldType];
                     }
 
                     el.replaceWith(input);

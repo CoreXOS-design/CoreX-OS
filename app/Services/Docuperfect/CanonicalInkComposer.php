@@ -143,8 +143,7 @@ class CanonicalInkComposer
                     if (! $el instanceof \DOMElement) {
                         continue;
                     }
-                    $ownedByParty = $el->getAttribute('data-recipient-identity') === ''
-                        && $this->ceremonyPartyMatches(strtolower($el->getAttribute('data-marker-party')), $keyParty);
+                    $ownedByParty = $this->ceremonySpanMatches($el, $keyParty);
                     if ($ownsMarker($el) || $ownedByParty) {
                         $this->stampCeremonyFilled($el, (string) $value);
                     }
@@ -215,7 +214,7 @@ class CanonicalInkComposer
                     if (! $el instanceof \DOMElement) {
                         continue;
                     }
-                    if (! $this->ceremonyPartyMatches(strtolower($el->getAttribute('data-marker-party')), $keyParty)) {
+                    if (! $this->ceremonySpanMatches($el, $keyParty)) {
                         continue;
                     }
                     $this->stampCeremonyFilled($el, (string) $value);
@@ -289,6 +288,36 @@ class CanonicalInkComposer
         // onto rec 2 and blanking/overwriting rec 2's own value on the agent-review and
         // final document (AT — MDF rec-2 Location dropped, Johan 2026-07-30).
         return $elParty === $keyParty;
+    }
+
+    /**
+     * Identity-aware ceremony match (Johan 2026-08). A per-recipient LOOPED block (the
+     * EATS shared signature-block expanded per seller) emits BOTH sellers' Location/date
+     * spans with the SAME `data-marker-party="seller"`, differing ONLY by
+     * `data-recipient-identity` ("seller_1" vs "seller_2"). Matching by marker-party alone
+     * bound both from `seller_location` — so the 2nd seller's own Location/date never
+     * landed (blank on every doc). Bind by IDENTITY when the span carries one; fall back
+     * to the exact marker-party match only for un-stamped (single-recipient) spans.
+     */
+    private function ceremonySpanMatches(\DOMElement $el, string $keyParty): bool
+    {
+        $rid = strtolower(trim($el->getAttribute('data-recipient-identity')));
+        if ($rid !== '') {
+            return $this->normaliseIdentity($rid) === $keyParty;
+        }
+        return $this->ceremonyPartyMatches(strtolower($el->getAttribute('data-marker-party')), $keyParty);
+    }
+
+    /**
+     * Map a span's `data-recipient-identity` to the canonical ceremony-key identity.
+     * The loop stamps the base recipient as "{role}_1" but the ceremony key uses the
+     * bare role for role_index 1 (SignatureRequest::canonicalPartyKey: role_index 1 =
+     * role, N>1 = role_N). Strip only the "_1" suffix so "seller_1" -> "seller",
+     * "seller_2" -> "seller_2".
+     */
+    private function normaliseIdentity(string $rid): string
+    {
+        return preg_replace('/_1$/', '', $rid) ?? $rid;
     }
 
     /**
