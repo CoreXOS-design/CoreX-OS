@@ -1731,6 +1731,16 @@ class ESignWizardController extends Controller
                 }
                 $segRecipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
                 $tplData['recipients_by_role'] = $segRecipientsByRole;
+                // Candidate flow — every pack segment gets the authorising-practitioner
+                // parity block too (single-doc path sets this at ~1904; the pack loop
+                // must mirror it or a candidate PACK renders NO authoriser surface and
+                // the authoriser's marks land nowhere). Neutral until the claiming
+                // practitioner's designation binds at sign time; bound by role-identity.
+                $tplData['is_candidate_flow'] = $isCandidateFlow;
+                if ($isCandidateFlow) {
+                    $tplData['authorising_designation'] = 'Authorising Practitioner';
+                    $tplData['authorising_identity']    = 'supervisor';
+                }
 
                 $segParties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
                 foreach ($recipients as $r) {
