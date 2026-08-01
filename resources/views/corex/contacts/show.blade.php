@@ -179,14 +179,17 @@
                             return null;
                         }
                     },
-                    // AT-323 — post-send "Did it send?" confirmation. WhatsApp is client-side
-                    // (opens the app); CoreX can't confirm delivery, so we ask. "No" flags the
-                    // just-recorded send not_delivered instead of leaving a false "sent".
+                    // AT-323 — post-send did-it-send confirmation. WhatsApp is client-side
+                    // (opens the app); CoreX can't confirm delivery, so we ask. A No answer flags
+                    // the just-recorded send not_delivered instead of leaving a false sent.
+                    // NOTE: no literal double-quote characters in comments here — this x-data
+                    // sits inside a double-quoted HTML attribute; a stray one closes it early
+                    // and leaks the rest of the JS onto the page as visible text.
                     sentConfirm: { open: false, communicationId: null },
                     async confirmSent(didSend) {
                         const commId = this.sentConfirm.communicationId;
                         this.sentConfirm.open = false;
-                        if (didSend || !commId) return; // "Yes" (or no id) → leave it recorded as sent
+                        if (didSend || !commId) return; // Yes (or no id) → leave it recorded as sent
                         try {
                             const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/not-delivered', {
                                 method: 'POST',
