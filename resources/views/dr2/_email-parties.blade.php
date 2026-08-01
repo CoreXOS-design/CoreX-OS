@@ -5,7 +5,7 @@
     is never pushed off-screen (Johan missed "send docs" because it sat at the bottom
     of the Documents card). NO logic change — same permission gate, same
     $distParties / $sentDist view-model, same compose routes.
-    @include('dr2._email-parties', ['deal' => $deal]).
+    include('dr2._email-parties', ['deal' => $deal]).
 --}}
 @if(auth()->user()?->hasPermission('deals_v2.distribute_documents'))
     @php

@@ -213,6 +213,6 @@
         </div>
     </div>
 
-    {{-- The reusable feedback modal (rendered @once per page). --}}
+    {{-- The reusable feedback modal (rendered once per page). --}}
     @include('command-center.calendar._event-feedback-modal')
 </div>

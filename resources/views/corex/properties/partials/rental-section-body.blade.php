@@ -3,7 +3,7 @@
     each custom section. Rendered inside an Alpine `rentalImages()` component.
     Spec: .ai/specs/rental-images.md
 
-    Required @include vars (all are JS expressions evaluated by Alpine):
+    Required include vars (all are JS expressions evaluated by Alpine):
       $section  — section param literal, e.g. "'in_inspection'" or "'custom'"
       $cid      — custom-id expression, e.g. "null" or "sec.id"
       $key      — unique key expression, e.g. "'in_inspection'" or "sec.id"

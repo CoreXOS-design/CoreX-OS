@@ -14,7 +14,7 @@
     AFTER SAVE: dispatches window 'corex:feedback-saved' { eventId } so the host
                 surface can flip its badge in place (no reload needed).
 
-    Wrapped in @once so a page may include it via several partials safely.
+    Wrapped in once so a page may include it via several partials safely.
 
     EXTENSIBILITY: this is the first "summon an event action from anywhere"
     component. A future action (reschedule, cancel, open linked pack) follows the

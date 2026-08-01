@@ -1,7 +1,7 @@
 {{--
     Signature Block — legal standard layout (SA property documents)
 
-    Usage: @include('docuperfect.web-templates.components.signature-block', [
+    Usage: include('docuperfect.web-templates.components.signature-block', [
         'parties' => ['Lessor', 'Lessee', 'Agent'],
     ])
 

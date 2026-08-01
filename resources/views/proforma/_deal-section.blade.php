@@ -1,6 +1,6 @@
 {{--
     Proforma Invoices section for the DR2 deal view.
-    @include('proforma._deal-section', ['deal' => $deal])
+    include('proforma._deal-section', ['deal' => $deal])
     View-model computed inline (mirrors dr2/_deal-documents). Generation is granted-onward
     only; the button hides when the deal is not eligible, and the endpoint re-checks.
 --}}

@@ -1,5 +1,5 @@
 {{--
-    DR2 deal documents (AT-226) — reusable partial. @include('dr2._deal-documents', ['deal' => $deal])
+    DR2 deal documents (AT-226) — reusable partial. include('dr2._deal-documents', ['deal' => $deal])
     on the DR2 deal view (m1's dr2/pipeline.blade or the deal detail). Optionally pass
     ['stepId' => $s->id] to scope an upload to a pipeline step (gas CoC → gas step).
 

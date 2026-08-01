@@ -219,8 +219,8 @@
      the feed otherwise had nothing but the literal "STEP" tag with no indication of WHICH step.
      Computed HERE, unconditionally, BEFORE the $board['empty'] branch below: the truly-empty board
      shape (no pipeline steps at all — AT-... regression on deal 185) carries no 'comments' key at all,
-     and the @push('scripts') block below (which reads $commentsResolved) renders regardless of which
-     branch fired, so this must never live only inside the @else. --}}
+     and the push('scripts') block below (which reads $commentsResolved) renders regardless of which
+     branch fired, so this must never live only inside the else. --}}
 @php($stepLabel = function ($target) use ($rowById) {
       if ($target === 'deal' || $target === null) return 'Deal';
       return $rowById->has((int) $target) ? $rowById[(int) $target]['model']->name : 'Deal';

@@ -4,7 +4,7 @@
      analytics). Carries id="appScroll" on <main> (the scroll container that
      menu/dropdown + tour positioning anchor to — without it, inline panels and
      popovers mis-anchor when the page scrolls or elements shift), plus the
-     correct @stack('head') → agency-brand ordering and matching font loading,
+     correct stack('head') → agency-brand ordering and matching font loading,
      so this page renders at the same full-width column and chrome as the rest
      of the module. Previously extended layouts.corex-app, leaving it
      inconsistent with its siblings. --}}

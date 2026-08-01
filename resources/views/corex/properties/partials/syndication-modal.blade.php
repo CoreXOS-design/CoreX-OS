@@ -9,7 +9,7 @@
     can never drift apart.
 
     Requires on the page-root scope: syn, synStep, synLoading, synError.
-    Requires once per page: @include('corex.properties.partials.syndication-scripts')
+    Requires once per page: include('corex.properties.partials.syndication-scripts')
 --}}
 <template x-teleport="body">
 <div x-show="syn" x-cloak

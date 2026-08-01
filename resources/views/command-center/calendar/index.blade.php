@@ -925,17 +925,17 @@
                             <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                         @endforeach
                     </select>
-                    {{-- CAL-3-HOTFIX — the @php block + <script id="classConfigMap">
+                    {{-- CAL-3-HOTFIX — the php block + <script id="classConfigMap">
                          that lived here was a duplicate of the live copy at the
                          live form's category select (L~1897 below). Both elements
                          carried the same DOM id; document.getElementById
                          ('classConfigMap') from calendarPage's Alpine readers
                          (propertySearch.getClassConfig L~3327 + contactSearch.add
                          L~3396) returns the FIRST DOM match — and a duplicate
-                         inside this dead @if(false) block was the wrong element
+                         inside this dead if(false) block was the wrong element
                          for the live form's auto-populate + Capture-Feedback
                          flows. The live copy below is the single source of truth;
-                         this duplicate is removed. Full cleanup of the @if(false)
+                         this duplicate is removed. Full cleanup of the if(false)
                          dead block is a separate task. --}}
                 </div>
 
@@ -1787,7 +1787,7 @@
             </select>
             {{-- CAL-3 — class config map for the LIVE create form. Mirrors
                  the version inside the deprecated DEAD form below (which
-                 sits inside @if(false) and so never renders). Without this
+                 sits inside if(false) and so never renders). Without this
                  the Alpine helpers propertySearch.getClassConfig() (L~3303)
                  and contactSearch.add() (L~3372) read null from the DOM
                  and fall back to {actor_role:'both', multi:true} for every

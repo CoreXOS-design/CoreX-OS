@@ -6,7 +6,7 @@
        · Timeline — included from _pipeline-context-tabs (the deal-panels area). pipeline-timeline.blade.php
                     is cc5's and must not be touched, and _pipeline-timeline-actions is a PER-TILE partial
                     so a deal-level list cannot live there.
-     Gated exactly as the old board had it: @unless($locked) + @permission('view_deals').
+     Gated exactly as the old board had it: unless($locked) + permission('view_deals').
      Posts to the existing pipeline.step.restore action; `from` returns the agent to the view they acted on.
      Expects in scope: $deal, $removedSteps (Collection), $locked, $from ('list'|'timeline').
      Renders NOTHING when there are no removed steps. --}}

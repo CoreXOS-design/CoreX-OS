@@ -1858,7 +1858,7 @@
         {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating
              CoreX, what they looked at, when their access dies.
 
-             Deliberately NOT wrapped in @permission. This block is already inside
+             Deliberately NOT wrapped in permission. This block is already inside
              the owner-only section (same as Dev Settings above), and a permission
              key would be GRANTABLE — one mis-click in the Role Manager and an
              agency admin can see which of their competitors are trialling us.

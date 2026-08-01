@@ -1,7 +1,7 @@
 {{--
     AT-334 — Deal Structure tab. Pick the deal's suspensive conditions → the pipeline
     assembles on the left (base spine + each condition's steps + the movable Granted
-    marker, with follows-based dates). @include('dr2._deal-structure', [...]).
+    marker, with follows-based dates). include('dr2._deal-structure', [...]).
     Restructure (change conditions after build) is a later phase.
 --}}
 <div class="corex-card" style="padding:1rem;" data-tour="dr2-deal-structure">
