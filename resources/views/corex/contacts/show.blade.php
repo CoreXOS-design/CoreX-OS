@@ -172,12 +172,34 @@
                             else this.emailCount = data.count;
                             this.lastContactedLabel = data.last_contacted;
                             this.lastContactedRelative = data.last_contacted_relative;
+                            return data; // AT-323 — carries communication_id for the send-confirm modal
                         } catch (e) {
                             // Network blip: keep the optimistic bump; the archive
                             // remains the source of truth on next page load.
+                            return null;
                         }
                     },
-                    sendWa() {
+                    // AT-323 — post-send "Did it send?" confirmation. WhatsApp is client-side
+                    // (opens the app); CoreX can't confirm delivery, so we ask. "No" flags the
+                    // just-recorded send not_delivered instead of leaving a false "sent".
+                    sentConfirm: { open: false, communicationId: null },
+                    async confirmSent(didSend) {
+                        const commId = this.sentConfirm.communicationId;
+                        this.sentConfirm.open = false;
+                        if (didSend || !commId) return; // "Yes" (or no id) → leave it recorded as sent
+                        try {
+                            const res = await fetch('{{ url('corex/contacts/'.$contact->id.'/communications') }}/' + commId + '/not-delivered', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                body: JSON.stringify({ reason: 'Agent reported WhatsApp did not send (not signed in / failed).' })
+                            });
+                            const d = await res.json();
+                            if (d && typeof d.count === 'number') this.waCount = d.count;
+                        } catch (e) {
+                            // keep the optimistic state; the archive reconciles on next load
+                        }
+                    },
+                    async sendWa() {
                         // Contact-details Phase 1 fix — this used to strip digits and
                         // blindly replace a leading '0' with South Africa's '27', so a
                         // USA (or any non-ZA) number could never resolve on WhatsApp: a
@@ -192,8 +214,12 @@
                         const target = this.waNumbers.find(p => p.id === this.selectedPhoneId) ?? this.waNumbers[0];
                         if (!target) { alert('This contact has no phone number.'); return; }
                         window.location.href = 'whatsapp://send?phone=' + target.deeplink + '&text=' + encodeURIComponent(this.waMessage);
-                        this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
                         this.showWa = false;
+                        // AT-323 — record the send, then ask the agent if it actually went through.
+                        const data = await this.increment('whatsapp', { body: this.waMessage, contactPhoneId: target.id });
+                        if (data && data.communication_id) {
+                            this.sentConfirm = { open: true, communicationId: data.communication_id };
+                        }
                     },
                     sendEmail() {
                         const target = this.emailAddresses.find(e => e.id === this.selectedEmailId) ?? this.emailAddresses[0];
@@ -203,6 +229,23 @@
                         this.showEmail = false;
                     }
                  }" class="space-y-3">
+
+                {{-- AT-323 — post-send "Did it send?" confirmation. WhatsApp opens the agent's app;
+                     CoreX can't confirm delivery. "No, it didn't" flags the send not_delivered so a
+                     failed/not-signed-in send is never recorded as a false "sent". --}}
+                <div x-show="sentConfirm.open" x-cloak @keydown.escape.window="confirmSent(true)"
+                     class="fixed inset-0 z-50 flex items-center justify-center px-4" style="background:rgba(0,0,0,0.45);">
+                    <div class="w-full max-w-sm rounded-lg p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);" @click.outside="confirmSent(true)">
+                        <div class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">Did WhatsApp actually send?</div>
+                        <p class="text-xs mb-4" style="color:var(--text-muted,#6b7280);">CoreX opened WhatsApp on your device but can't confirm it went. If you weren't signed into WhatsApp&nbsp;Web (or it didn't send), tell us so this isn't recorded as sent.</p>
+                        <div class="flex gap-2">
+                            <button type="button" @click="confirmSent(true)"
+                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:var(--brand-default,#0b2a4a); color:#fff;">Yes, it sent</button>
+                            <button type="button" @click="confirmSent(false)"
+                                    class="flex-1 text-sm font-semibold px-3 py-2 rounded" style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">No, it didn't</button>
+                        </div>
+                    </div>
+                </div>
 
                 {{-- 3 boxes in a row --}}
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
