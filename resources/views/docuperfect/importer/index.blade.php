@@ -155,7 +155,7 @@
                             console.warn('Mammoth warnings:', data.warnings);
                         }
 
-                        // AT-262 — zero-field guard. Never say "ready" when we found
+                        // AT-262 — zero-field guard. Never say ready when we found
                         // nothing. Warn, teach the accepted markers, and let the author
                         // decide: go back and mark the document, or continue anyway (a
                         // document with no fill-ins is a legitimate template).
