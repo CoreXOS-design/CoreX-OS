@@ -72,10 +72,10 @@ class ScanPropertyNotifications extends Command
                     }
 
                     // property.mandate_expiring
-                    if (($property->mandate_expires_at ?? null)) {
+                    if (($property->expiry_date ?? null)) {
                         $eff2 = $prefs->effective($agent, 'property.mandate_expiring');
                         if ($eff2 && $eff2['enabled'] && $eff2['threshold']) {
-                            $daysOut = now()->diffInDays($property->mandate_expires_at, false);
+                            $daysOut = now()->diffInDays($property->expiry_date, false);
                             if ($daysOut >= 0 && $daysOut <= (int) $eff2['threshold']) {
                                 $label = trim((string) ($property->address ?? '')) ?: "Property #{$property->id}";
                                 // Whole days for copy — never a raw float. 0 days reads as "today".
@@ -85,11 +85,11 @@ class ScanPropertyNotifications extends Command
                                     : "in {$whole} day" . ($whole === 1 ? '' : 's');
                                 $dispatcher->fire($agent, 'property.mandate_expiring', $property, [
                                     'title' => "{$label} — mandate expires {$when}",
-                                    'body'  => "Mandate expiring on " . $property->mandate_expires_at->format('Y-m-d') . '.',
+                                    'body'  => "Mandate expiring on " . $property->expiry_date->format('Y-m-d') . '.',
                                     'subject_label' => $label,
                                     'action_url' => "/properties/{$property->id}",
                                     'severity' => $daysOut <= 3 ? 'overdue' : 'warning',
-                                    'threshold_hit_at' => $property->mandate_expires_at->copy()->startOfDay(),
+                                    'threshold_hit_at' => $property->expiry_date->copy()->startOfDay(),
                                 ]);
                             }
                         }
