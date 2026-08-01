@@ -55,8 +55,31 @@ special one-off hardcoded block excluded from the parity machinery and bound by 
 - `CanonicalInkComposer`: `foldIdentity()` + ownership via fold (server bake).
 - `external/sign.blade.php`: `_foldIdentity()` mirror; applied in `_isMyMarker`, `_isMyInitialBox`,
   `makeFieldsInteractive`, `isMyWebSigBlock`.
-- `EsignRegressionWalk`: first-class COMPLETENESS assertion (bank-reject guard) + self-contained
+- `SigningController::completeWeb`: single-authoriser-signing semantics — the post-external
+  `supervisor_final` completion touch is exempt from BOTH the "captured ≥1 mark" floor AND the
+  per-condition initial gate (it places no fresh mark), gated on the base `supervisor` request
+  having COMPLETED (never an empty-completion hole).
+- `ESignWizardController` (pack loop): the authoriser parity block now renders on candidate PACK
+  segments too — is_candidate_flow / authorising_designation were passed only on the single-doc
+  path, so a candidate pack rendered NO authoriser surface and their marks landed nowhere.
+- `EsignRegressionWalk`: first-class COMPLETENESS assertion scoped to the document's ACTUAL signers
+  (bank-reject guard — an unused-role template block is not a required slot) + self-contained
   authoriser-parity guard.
+
+## Proof — live end-to-end candidate ceremony (QA1, disposable)
+Drove a real candidate pack (candidate #26 → authoriser #43 full parity → seller → supervisor_final)
+through the actual controllers: document reaches `completed`, and the final canonical carries the
+authoriser's identity-stamped signature + ceremony (AUTHLOC) + name — single authoriser signing
+completes end-to-end, no fresh mark required at supervisor_final.
+
+## RESIDUAL GAP (flagged, not built — needs Johan's scope call)
+Full parity holds on pack segments that use the shared `signature-block` component (the mandate
+segment). Pack segments whose imported template does NOT use that component (e.g. a Mandatory
+Disclosure / Addendum) render no authoriser block, so the authoriser has no surface THERE. If those
+segments are ones the authoriser must also sign for true "same places" parity, the robust fix is a
+COMPOSE-TIME authoriser-surface injector (like SigningSurfaceResolver, which injects missing
+recipient surfaces) so the authoriser gets a parity block on ANY candidate document/segment
+regardless of template. Recommend as the next step on the e-sign enhancement ticket.
 
 ## Proof (disposable, corex_dev3)
 - Engine proof (14/14): enumeration collapse; parity block identity-stamped / no placeholder /
