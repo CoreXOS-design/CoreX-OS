@@ -1774,6 +1774,25 @@ class CalendarController extends Controller
 
     public function complete(Request $request, CalendarEvent $calendarEvent)
     {
+        // AT-335 — recurring scope: "this" completes only the clicked occurrence
+        // (an exception child, series untouched); "all" completes the whole
+        // series (today's previous behaviour, now reachable only as an explicit
+        // choice). No "future" — pre-emptively marking unoccurred events done
+        // is not a real intent the way rescheduling/removing a future block is.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->completeOccurrence($calendarEvent, $occ, $request->user());
+            } else {
+                $svc->completeAll($calendarEvent);
+            }
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event completed.');
+        }
+
         // Deal step bridge: if this calendar event is linked to a DealStepInstance,
         // complete the deal step instead (observer will cascade to calendar event)
         if ($calendarEvent->source_type === \App\Models\DealV2\DealStepInstance::class && $calendarEvent->source_id) {
@@ -1807,8 +1826,24 @@ class CalendarController extends Controller
             : back()->with('success', 'Event completed.');
     }
 
-    public function dismiss(CalendarEvent $calendarEvent)
+    public function dismiss(Request $request, CalendarEvent $calendarEvent)
     {
+        // AT-335 — same this/all recurring-scope gate as complete() above; dismiss
+        // shares the identical gap (no scope prompt) and the identical fix shape.
+        $scope = $request->input('recur_scope');
+        $occ   = $request->input('occurrence_date');
+        if ($calendarEvent->is_recurring && in_array($scope, ['this', 'all'], true)) {
+            $svc = app(\App\Services\CommandCenter\Calendar\RecurrenceEditService::class);
+            if ($scope === 'this' && $occ) {
+                $svc->dismissOccurrence($calendarEvent, $occ, $request->user());
+            } else {
+                $svc->dismissAll($calendarEvent);
+            }
+            return $request->wantsJson()
+                ? response()->json(['ok' => true])
+                : back()->with('success', 'Event dismissed.');
+        }
+
         $calendarEvent->markDismissed();
         return back()->with('success', 'Event dismissed.');
     }

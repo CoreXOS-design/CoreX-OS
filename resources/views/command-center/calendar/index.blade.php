@@ -2347,7 +2347,10 @@
             </button>
         </template>
         <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
-            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
+            {{-- AT-335 — a recurring event needs a this/all scope decision first;
+                 intercept the native submit and hand off to the scope modal instead. --}}
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST"
+                  @submit="if (panelData.is_recurring) { $event.preventDefault(); openRecurScopeModal('complete'); }">
                 @csrf
                 <template x-if="panelData.metadata && panelData.metadata.deal_ref">
                     <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
@@ -2555,20 +2558,25 @@
     <div class="absolute inset-0 bg-black/50" @click="recurScopeModalOpen = false"></div>
     <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);"
-            x-text="recurScopeMode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'"></h3>
+            x-text="({delete:'Delete recurring event',complete:'Complete recurring event',dismiss:'Dismiss recurring event'})[recurScopeMode] || 'Edit recurring event'"></h3>
         <p class="text-xs mb-4" style="color: var(--text-muted);"
-           x-text="'This event repeats. Apply the ' + (recurScopeMode === 'delete' ? 'deletion' : 'change') + ' to:'"></p>
+           x-text="'This event repeats. Apply the ' + (({delete:'deletion',complete:'completion',dismiss:'dismissal'})[recurScopeMode] || 'change') + ' to:'"></p>
         <div class="space-y-2 mb-4">
             <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
                    style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
                 <input type="radio" name="recurScopeChoice" value="this" x-model="recurScopeChoice">
                 This event only
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
-                   style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
-                <input type="radio" name="recurScopeChoice" value="future" x-model="recurScopeChoice">
-                This and following events
-            </label>
+            {{-- "This and following" is deliberately NOT offered for complete/dismiss —
+                 pre-emptively marking occurrences that haven't happened yet as done isn't
+                 a real intent the way rescheduling/removing a future block is (Johan). --}}
+            <template x-if="recurScopeMode !== 'complete' && recurScopeMode !== 'dismiss'">
+                <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
+                       style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
+                    <input type="radio" name="recurScopeChoice" value="future" x-model="recurScopeChoice">
+                    This and following events
+                </label>
+            </template>
             <label class="flex items-center gap-2 text-sm cursor-pointer px-3 py-2 rounded"
                    style="color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);">
                 <input type="radio" name="recurScopeChoice" value="all" x-model="recurScopeChoice">
@@ -2581,7 +2589,7 @@
             <button type="button" @click="confirmRecurScope()"
                     class="text-xs font-medium px-3 py-1.5 rounded text-white"
                     :style="recurScopeMode === 'delete' ? 'background:#ef4444;' : 'background: var(--brand-button);'"
-                    x-text="recurScopeMode === 'delete' ? 'Delete' : 'Save'"></button>
+                    x-text="({delete:'Delete',complete:'Complete',dismiss:'Dismiss'})[recurScopeMode] || 'Save'"></button>
         </div>
     </div>
 </div>
@@ -2922,10 +2930,14 @@ function calendarPage() {
                 recurFreq: '', recurInterval: 1, recurEndType: 'never', recurUntil: '', recurCount: 10, recurScope: '', occurrenceDate: '',
                 // AT-178 reminder keys. Defaults: popup ON, email OFF, 60 min (Johan).
                 sendReminder: true, reminderOffset: 60, reminderPopup: true, reminderEmail: false },
-        // Recurring edit/delete scope modal state.
+        // Recurring edit/delete/complete/dismiss scope modal state.
         recurScopeModalOpen: false,
-        recurScopeMode: 'edit',        // 'edit' | 'delete'
+        recurScopeMode: 'edit',        // 'edit' | 'delete' | 'complete' | 'dismiss'
         recurScopeChoice: 'this',
+        // AT-335 — a reason captured via the "…with Reason" flow, held here while the
+        // scope modal is open for a recurring event, then merged into the eventual
+        // complete/dismiss request body. Null for the plain (no-reason) paths.
+        pendingReasonPayload: null,
         editIsRecurring: false,        // the event being edited is a recurring series/occurrence
         editOccurrenceDate: '',        // the clicked occurrence's date (Y-m-d)
         // One-off (non-recurring) delete confirm.
@@ -4008,6 +4020,19 @@ function calendarPage() {
             ];
         },
         async submitReasonPicker() {
+            const reasonPayload = {
+                completion_reason_code: this.reasonPickerCode,
+                completion_reason: this.reasonPickerNotes || this.reasonPickerCode,
+            };
+            // AT-335 — a recurring event needs a this/all scope decision first. Stash
+            // the reason so confirmRecurScope() can merge it into the eventual request,
+            // then hand off to the scope modal instead of posting directly.
+            if (this.panelData && this.panelData.is_recurring) {
+                this.pendingReasonPayload = reasonPayload;
+                this.reasonPickerOpen = false;
+                this.openRecurScopeModal(this.reasonPickerAction); // 'complete' | 'dismiss'
+                return;
+            }
             this.reasonPickerSaving = true;
             const endpoint = this.reasonPickerAction === 'dismiss'
                 ? '/corex/command-center/calendar/' + this.reasonPickerEventId + '/dismiss'
@@ -4020,10 +4045,7 @@ function calendarPage() {
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({
-                    completion_reason_code: this.reasonPickerCode,
-                    completion_reason: this.reasonPickerNotes || this.reasonPickerCode,
-                }),
+                body: JSON.stringify(reasonPayload),
             });
             this.reasonPickerSaving = false;
             if (r.ok) {
@@ -4092,6 +4114,11 @@ function calendarPage() {
         // AT-164 cockpit — mark the panel's event complete without opening the slide-over.
         completeFromContext() {
             if (!this.panelData || !this.panelData.id) return;
+            // AT-335 — a recurring event needs a this/all scope decision first.
+            if (this.panelData.is_recurring) {
+                this.openRecurScopeModal('complete');
+                return;
+            }
             const fd = new FormData();
             fd.append('_token', document.querySelector('meta[name="csrf-token"]').content);
             fetch('/corex/command-center/calendar/' + this.panelData.id + '/complete', {
@@ -4188,6 +4215,29 @@ function calendarPage() {
                         window.location.reload();
                     }
                 }).catch(err => console.warn('Recurring delete failed:', err));
+                return;
+            }
+            // AT-335 — Complete/Dismiss: "this" completes/dismisses only the clicked
+            // occurrence (an exception child, series untouched); "all" applies to the
+            // whole series ("future" is not offered — see the modal template). Merges
+            // in a reason payload if the "…with Reason" flow stashed one.
+            if (this.recurScopeMode === 'complete' || this.recurScopeMode === 'dismiss') {
+                const parentId = this.panelData.recurrence_parent_id || this.panelData.id;
+                const occ = this.panelData.occurrence_date || '';
+                const body = Object.assign({ recur_scope: scope, occurrence_date: occ }, this.pendingReasonPayload || {});
+                fetch('/corex/command-center/calendar/' + parentId + '/' + this.recurScopeMode, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token },
+                    body: JSON.stringify(body),
+                    credentials: 'same-origin',
+                }).then(r => {
+                    if (r.ok) {
+                        this.pendingReasonPayload = null;
+                        this.recurScopeModalOpen = false;
+                        this.panelOpen = false;
+                        window.location.reload();
+                    }
+                }).catch(err => console.warn('Recurring ' + this.recurScopeMode + ' failed:', err));
                 return;
             }
             // Edit: stamp the hidden fields and re-submit the form.
