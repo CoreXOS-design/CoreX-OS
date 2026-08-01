@@ -309,8 +309,19 @@ class SignaturePdfService
             // Step 2 (Johan) — the print-from-approved artifact carries NO interactive
             // chrome: strip every add-condition control + any screen-only guidance
             // (the "one condition at a time" hint) before paginating, so they can never
-            // reach the PDF regardless of what the served canonical held.
-            . 'c.querySelectorAll(".btn-add-condition,.condition-add-guidance,[data-screen-only]").forEach(function(e){e.remove();});'
+            // reach the PDF regardless of what the served canonical held. Bug 3 extends
+            // this to the disclosure "Propose change" pill (client-injected on interactive
+            // screens) and the per-condition initial affordance (the active signer's
+            // clickable box + other parties' "pending" placeholders) — all editor chrome,
+            // never legal content. The FILLED per-condition ink is a separate
+            // .condition-initial.initial-filled node and is left untouched.
+            . 'c.querySelectorAll(".btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn,.btn-add-initial.initial-active,.initial-slot.initial-pending").forEach(function(e){e.remove();});'
+            // Bug 3 — flatten any residual Other-Conditions "editing panel" so it prints
+            // as plain document content. Fresh bakes already render the static block flat
+            // (InsertableBlockRenderer CONTEXT_PDF_RENDER); this catches canonicals that
+            // were baked before that fix (the peach panel: coloured left rule + tinted
+            // background + uppercase block label). Universal — no per-template CSS.
+            . 'c.querySelectorAll(".insertable-block").forEach(function(e){e.style.background="transparent";e.style.border="none";e.style.borderLeft="none";e.style.padding="0";e.style.margin="4pt 0 0";var h=e.querySelector(".block-header");if(h){h.style.display="none";}});'
             . 'if(c.querySelector(".corex-a4-page")){c.dataset.paginated="true";}'
             . 'paginateDocument(c,' . $partiesJson . ');restoreStoredInitials(c,' . $storedJson . ');'
             . 'try{restoreStoredDisclosure(c,' . $disclosureJson . ');}catch(e){}}catch(e){}}'

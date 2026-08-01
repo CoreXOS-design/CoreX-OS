@@ -356,20 +356,39 @@ final class InsertableBlockRenderer
                 . '+ Add condition</button>';
         }
 
-        if ($context === self::CONTEXT_PDF_RENDER) {
+        // The STATIC / print-from-approved form (CONTEXT_PDF_RENDER) is the FINAL
+        // legal artifact. The peach "editing affordance" chrome — coloured panel,
+        // left rule, and the uppercase block label — must never reach the printed
+        // PDF or the approved on-screen document: Other Conditions there is plain
+        // document content, not an editor. The interactive surfaces (agent
+        // preparation, recipient signing) KEEP the affordance so a party can still
+        // see where to add a condition. This makes universal the flatten that
+        // per-template CSS (templates 120 / 123) already carried, so EATS /
+        // template-111 — which lacked that CSS and printed the peach panel —
+        // render clean too. (Bug 3 — universal, not per-template.)
+        $isStaticForm = $context === self::CONTEXT_PDF_RENDER;
+        if ($isStaticForm) {
             $addButton = '';
         }
 
+        $containerStyle = $isStaticForm
+            ? 'margin: 4pt 0 0; padding: 0;'
+            : 'margin: 1rem 0; padding: 0.9rem 1rem; '
+                . 'border-left: 3px solid ' . $color . '; '
+                . 'background: color-mix(in srgb, ' . $color . ' 5%, transparent);';
+
+        $header = $isStaticForm
+            ? ''
+            : '<div class="block-header" style="margin-bottom: 0.6rem;">'
+                . '<strong style="color:' . $color . '; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.78rem;">'
+                . e($label)
+                . '</strong>'
+                . '</div>';
+
         return '<div class="insertable-block" data-block-id="' . e($blockId) . '" '
             . 'data-purpose="' . e($purpose) . '" data-auto-number="' . ($autoNumber ? '1' : '0') . '" '
-            . 'style="margin: 1rem 0; padding: 0.9rem 1rem; '
-            . 'border-left: 3px solid ' . $color . '; '
-            . 'background: color-mix(in srgb, ' . $color . ' 5%, transparent);">'
-            . '<div class="block-header" style="margin-bottom: 0.6rem;">'
-            . '<strong style="color:' . $color . '; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.78rem;">'
-            . e($label)
-            . '</strong>'
-            . '</div>'
+            . 'style="' . $containerStyle . '">'
+            . $header
             . $itemsHtml
             . $addButton
             . '</div>';

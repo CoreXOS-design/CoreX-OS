@@ -239,6 +239,42 @@ final class EsignRegressionWalk extends Command
             $doc->refresh();
             [$ok4b, $art4b] = $assertLoc('approved');
             $this->assert('4b) final APPROVED doc keeps each recipient location (by identity) across all docs', $ok4b, $art4b . " finalStatus=" . $st->fresh()->status);
+
+            // ── RULE 6 (Bug 3): final/approved render carries NO editing chrome, no peach panel ──
+            // The print-from-approved artifact must read as a plain legal document: the
+            // Other-Conditions "editing panel" (tinted background + coloured left rule +
+            // uppercase block-header) and every add/propose/initial affordance are stripped
+            // universally — no per-template CSS. Asserted on BOTH the baked canonical (the
+            // stored truth every surface serves) AND the SignaturePdfService print pipeline.
+            $cAppr   = $doc->web_template_data['canonical_html'] ?? '';
+            $pdfHtml = app(\App\Services\Docuperfect\SignaturePdfService::class)->buildInjectedRenderHtml($st->fresh());
+
+            // (i) the baked canonical BODY is clean content — blocks present (they hold the
+            //     clauses) but flattened: no peach panel, no header, no editor chrome.
+            $peachInBody  = (bool) preg_match('/<div class="insertable-block"[^>]*style="[^"]*(?:color-mix|border-left:\s*3px)/i', $cAppr);
+            $headerInBody = str_contains($cAppr, 'class="block-header"');
+            $chromeInBody = str_contains($cAppr, 'btn-add-condition')
+                || str_contains($cAppr, 'corex-propose-btn')
+                || str_contains($cAppr, 'initial-active');
+            $blocksPresent = str_contains($cAppr, 'class="insertable-block"');
+            $cleanCanonical = $blocksPresent && ! $peachInBody && ! $headerInBody && ! $chromeInBody;
+
+            // (ii) the PDF pipeline additionally strips this chrome at print time (defence in
+            //      depth for canonicals baked before the fix): the boot script must carry the
+            //      propose/initial removals + the insertable-block flatten.
+            $pdfStripsChrome = str_contains($pdfHtml, '.corex-propose-btn')
+                && str_contains($pdfHtml, '.btn-add-initial.initial-active')
+                && str_contains($pdfHtml, 'querySelectorAll(".insertable-block")');
+
+            $this->assert(
+                '6) approved canonical + PDF render carry no editing chrome / no peach Other-Conditions panel (universal, every doc)',
+                $cleanCanonical && $pdfStripsChrome,
+                'canonical: hasBlocks=' . ($blocksPresent ? 'Y' : 'n')
+                    . ' peachPanel=' . ($peachInBody ? 'Y' : 'n')
+                    . ' blockHeader=' . ($headerInBody ? 'Y' : 'n')
+                    . ' editChrome=' . ($chromeInBody ? 'Y' : 'n')
+                    . ' | pdfBootStrips=' . ($pdfStripsChrome ? 'Y' : 'n'),
+            );
         } catch (\Throwable $e) {
             $this->error('HARNESS ERROR: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
         } finally {
