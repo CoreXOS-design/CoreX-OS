@@ -780,6 +780,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // thinking; the agent authorises. Gated on the deals-v2 distribute permission.
     Route::get('/{deal}/distribute',  [\App\Http\Controllers\Dr2\DealDistributionController::class, 'compose'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.compose');
     Route::post('/{deal}/distribute', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'send'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.send');
+    // Feature 2 — ad-hoc distribution to a free-text email (agency-gated in the controller).
+    Route::post('/{deal}/distribute-adhoc', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'sendAdhoc'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.adhoc');
     // AT-334 quick win — inline email capture for a linked party with no email on file.
     Route::post('/{deal}/parties/{role}/email', [\App\Http\Controllers\Dr2\DealDistributionController::class, 'savePartyEmail'])->whereNumber('deal')->middleware('permission:deals_v2.distribute_documents')->name('distribute.party-email');
     // AT-229 — OPTIONAL pipeline-step work order: auto-filled auth form → PDF → supplier.
@@ -1124,6 +1126,8 @@ Route::middleware(['auth'])->group(function () {
     // WS4 (§8.1) — Deal document distribution matrix (stage × doc-type × party role).
     Route::get('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.index');
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
+    // Feature 2 — toggle the agency-level ad-hoc distribution switch.
+    Route::post('/admin/settings/deal-distribution-rules/adhoc-toggle', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'toggleAdhoc'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.adhoc-toggle');
     Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
 
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).

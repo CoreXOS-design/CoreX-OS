@@ -86,6 +86,50 @@ class DealDistributionController extends Controller
     }
 
     /**
+     * Feature 2 — AD-HOC distribution: send selected documents to a FREE-TEXT email address
+     * (ad-hoc doc distribution to any party when needed). Gated by BOTH the distribute permission
+     * AND the agency-level on/off switch (agencies.adhoc_document_distribution_enabled, default off).
+     * Unlike send(), the recipient is client-supplied BY DESIGN — validated as an email; nothing is
+     * re-resolved server-side. Email-only (a free-text address has no WhatsApp identity).
+     */
+    public function sendAdhoc(Deal $deal, Request $request, Dr2DistributionSendService $sender)
+    {
+        $this->guard($request);
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($deal->agency_id);
+        abort_unless((bool) ($agency?->adhoc_document_distribution_enabled), 403,
+            'Ad-hoc document distribution is switched off for this agency.');
+
+        $data = $request->validate([
+            'adhoc_email'    => ['required', 'email', 'max:255'],
+            'adhoc_name'     => ['nullable', 'string', 'max:255'],
+            'document_ids'   => ['required', 'array', 'min:1'],
+            'document_ids.*' => ['integer'],
+            'delivery_mode'  => ['required', 'in:secure_link,direct_attachment'],
+            'channel'        => ['required', 'in:email'],
+            'message'        => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        $email     = trim($data['adhoc_email']);
+        $recipient = [
+            'type' => 'adhoc', 'id' => null, 'contact_id' => null,
+            'name' => (trim((string) ($data['adhoc_name'] ?? '')) ?: $email), 'email' => $email, 'phone' => null,
+        ];
+
+        try {
+            $result = $sender->sendToParty(
+                $deal, 'adhoc', $recipient, $data['document_ids'],
+                $data['delivery_mode'], $data['channel'], $data['message'] ?? null, $request->user(),
+            );
+        } catch (\DomainException $e) {
+            return back()->with('error', $e->getMessage())->withInput();
+        }
+
+        $parts = ($result['parts'] ?? 1) > 1 ? " in {$result['parts']} parts" : '';
+        return redirect()->route('deals-dr2.pipeline', $deal)
+            ->with('success', "Sent {$result['rows']} document(s) to {$email} via {$result['channel']}{$parts}.");
+    }
+
+    /**
      * AT-334 quick win — inline email capture for a party that is linked but has
      * NO email on file. Saves STRAIGHT to the underlying record so the row flips to
      * "Send to <party>" without navigating away. The target record is re-resolved

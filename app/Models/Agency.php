@@ -176,6 +176,7 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        'adhoc_document_distribution_enabled', // Feature 2 — ad-hoc "Send docs to any email" on/off (default off)
         'show_prospected_badge',
         'properties_sort_mode',
         'properties_status_priority',
@@ -340,6 +341,7 @@ class Agency extends Model
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
         'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
+        'adhoc_document_distribution_enabled' => 'boolean', // Feature 2 — ad-hoc distribution on/off
         'maintenance_started_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'ai_voice_enabled' => 'boolean',

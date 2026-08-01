@@ -15,6 +15,10 @@
         // Feature 1 — the bond attorney is appointed by the bank AFTER the bond is granted, so its
         // capture affordance only opens once the deal is Granted (G) or Registered (R).
         $granted      = in_array((string) ($deal->accepted_status ?? 'P'), ['G', 'R'], true);
+        // Feature 2 — ad-hoc "Send docs to any email": agency-gated (default off). Only compute the
+        // document corpus when the switch is on.
+        $adhocEnabled = (bool) optional(\App\Models\Agency::withoutGlobalScopes()->find($deal->agency_id))->adhoc_document_distribution_enabled;
+        $adhocDocs    = $adhocEnabled ? app(\App\Services\DealV2\Dr2DistributionComposer::class)->documentCorpus($deal) : collect();
         $sentDist = $deal->deal_v2_id
             ? \App\Models\DealV2\DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $deal->deal_v2_id)->with('document')->latest()->take(12)->get()
             : collect();
@@ -163,6 +167,56 @@
                     @endif
                 @endforeach
             </div>
+
+            {{-- Feature 2 — ad-hoc "Send docs to any email". Shown only when the agency switch is ON.
+                 Free-text recipient + document picker → deals-dr2.distribute.adhoc (re-gated server-side). --}}
+            @if($adhocEnabled && $canEditDeal)
+                <div x-data="{ open:false, email:'' }" style="margin-top:.7rem;border-top:1px dashed var(--border,#e5e7eb);padding-top:.6rem;">
+                    <button type="button" @click="open=true" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">✉ Send documents to any email…</button>
+                    <div x-show="open" x-cloak @keydown.escape.window="open=false"
+                         style="position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(2,10,20,.45);padding:1rem;"
+                         @click.self="open=false">
+                        <div style="background:var(--surface,#fff);border:1px solid var(--border,rgba(0,0,0,.1));border-radius:12px;max-width:520px;width:100%;padding:1.15rem;box-shadow:0 12px 40px rgba(2,10,20,.35);max-height:88vh;overflow:auto;">
+                            <h4 style="margin:0 0 .3rem;font-size:.95rem;font-weight:700;color:var(--text-primary,#111827);">Send documents to any email</h4>
+                            <p style="margin:0 0 .7rem;font-size:.78rem;color:var(--text-muted,#6b7280);">Ad-hoc distribution — enter any recipient and pick the documents to send by email.</p>
+                            <form method="POST" action="{{ route('deals-dr2.distribute.adhoc', $deal) }}">
+                                @csrf
+                                <input type="hidden" name="channel" value="email">
+                                <label style="display:block;font-size:.78rem;font-weight:600;margin-bottom:.5rem;">Recipient email *
+                                    <input type="email" name="adhoc_email" x-model="email" required placeholder="name@example.com" class="corex-input" style="width:100%;font-size:.85rem;margin-top:.2rem;">
+                                </label>
+                                <label style="display:block;font-size:.78rem;font-weight:600;margin-bottom:.5rem;">Recipient name (optional)
+                                    <input type="text" name="adhoc_name" class="corex-input" style="width:100%;font-size:.85rem;margin-top:.2rem;">
+                                </label>
+                                <label style="display:block;font-size:.78rem;font-weight:600;margin-bottom:.35rem;">Delivery
+                                    <select name="delivery_mode" class="corex-input" style="width:100%;font-size:.85rem;margin-top:.2rem;">
+                                        <option value="direct_attachment">Attachment</option>
+                                        <option value="secure_link">Secure link (OTP)</option>
+                                    </select>
+                                </label>
+                                <div style="font-size:.78rem;font-weight:600;margin:.5rem 0 .3rem;">Documents *</div>
+                                <div style="max-height:9rem;overflow:auto;border:1px solid var(--border,#e5e7eb);border-radius:6px;padding:.35rem .5rem;">
+                                    @forelse($adhocDocs as $doc)
+                                        <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;padding:.15rem 0;cursor:pointer;">
+                                            <input type="checkbox" name="document_ids[]" value="{{ $doc->id }}">
+                                            <span>{{ $doc->original_name ?? ('Document #'.$doc->id) }}</span>
+                                        </label>
+                                    @empty
+                                        <span style="font-size:.78rem;color:var(--text-muted,#9ca3af);">No documents on this deal yet.</span>
+                                    @endforelse
+                                </div>
+                                <label style="display:block;font-size:.78rem;font-weight:600;margin:.5rem 0;">Message (optional)
+                                    <textarea name="message" rows="2" class="corex-input" style="width:100%;font-size:.82rem;margin-top:.2rem;"></textarea>
+                                </label>
+                                <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.3rem;">
+                                    <button type="button" @click="open=false" class="corex-btn-outline" style="font-size:.8rem;padding:.35rem .8rem;">Cancel</button>
+                                    <button type="submit" class="corex-btn-primary" style="font-size:.8rem;padding:.35rem .9rem;" :disabled="!email.trim()">Send documents</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            @endif
         </div>
 
         @if($sentDist->isNotEmpty())
