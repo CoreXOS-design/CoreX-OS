@@ -810,8 +810,14 @@ class PrivatePropertyListingMapper
         if ($lifecycle === \App\Services\Syndication\ListingLifecycle::UNDER_OFFER) {
             return 'PendingOffer'; // still advertised, just flagged
         }
+        // AT-282 (Johan ruling 2026-08-01) — full P24 parity: a SOLD listing stays ON Private Property
+        // as 'Sold' (showcase sold stock), NOT removed. PP's read-back models 'Sold'. The off-market PP
+        // delist is skipped for sold in DesyndicatePropertyFromPortalsJob so this status is not overwritten.
+        if ($lifecycle === \App\Services\Syndication\ListingLifecycle::SOLD) {
+            return 'Sold';
+        }
         if (in_array($lifecycle, \App\Services\Syndication\ListingLifecycle::OFF_MARKET, true)) {
-            return 'Inactive';     // off the market (incl. sold) — never re-advertise
+            return 'Inactive';     // other off-market (withdrawn/expired/cancelled/rented/…) — de-list
         }
 
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
