@@ -370,8 +370,13 @@ final class EsignRegressionWalk extends Command
             // approved document must be filled, for EVERY party. One empty slot for any
             // party = the whole document is rejected for re-signing. Assert doc-type /
             // role-agnostically that the approved canonical has NO empty signature slot.
-            [$ok9, $art9] = $this->assertNoEmptySignatureSlot($doc->web_template_data['canonical_html'] ?? '');
-            $this->assert('9) COMPLETENESS: final approved doc has no empty signature slot for any party (bank-reject guard)', $ok9, $art9);
+            $signers9 = $st->fresh()->requests()->get()->map(fn ($r) => [
+                'fold' => $this->foldId((string) $r->role_identity),
+                'name' => (string) $r->signer_name,
+                'base' => (string) preg_replace('/_\d+$/', '', (string) $r->party_role),
+            ])->all();
+            [$ok9, $art9] = $this->assertNoEmptySignatureSlot($doc->web_template_data['canonical_html'] ?? '', $signers9);
+            $this->assert('9) COMPLETENESS: final approved doc has no empty signature slot for any ACTUAL party (bank-reject guard)', $ok9, $art9);
         } catch (\Throwable $e) {
             $this->error('HARNESS ERROR: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
         } finally {
@@ -419,36 +424,74 @@ final class EsignRegressionWalk extends Command
         $this->results[] = [$name, $status, $artifact];
     }
 
+    /** Fold a role-identity for ownership comparison — mirror of CanonicalInkComposer::foldIdentity. */
+    private function foldId(string $rid): string
+    {
+        $rid = strtolower(trim($rid));
+        if ($rid === '') {
+            return '';
+        }
+        if (preg_match('/^(.*)_(\d+)$/', $rid, $m)) {
+            $role = $m[1];
+            $idx  = $m[2];
+        } else {
+            $role = $rid;
+            $idx  = '1';
+        }
+        $base = SignatureTemplate::CHECKPOINT_ROLE_ALIASES[$role] ?? $role;
+        if (in_array($base, array_values(SignatureTemplate::CHECKPOINT_ROLE_ALIASES), true)) {
+            return $base;
+        }
+        return $base . '_' . $idx;
+    }
+
     /**
-     * COMPLETENESS guard, doc-type / role-agnostic: every signature slot in a final
-     * baked/approved artifact must be filled (baked ink / data-signed). A bank or
+     * COMPLETENESS guard, doc-type / role-agnostic: every REQUIRED signature slot in a
+     * final baked/approved artifact must be filled (baked ink / data-signed). A bank or
      * conveyancer counts these and rejects the whole document if ANY party's slot is
-     * empty. Returns [ok, artifact] naming the empty slots' owners.
+     * empty. "Required" is scoped to the document's ACTUAL signers — a template block
+     * for a role with no recipient on this send (e.g. a buyer/co_signer block in a
+     * seller-only mandate) is NOT a required slot for any party and is excluded.
      *
+     * @param array<int,array{fold:string,name:string,base:string}> $signers actual signers
      * @return array{0:bool,1:string}
      */
-    private function assertNoEmptySignatureSlot(string $canonical): array
+    private function assertNoEmptySignatureSlot(string $canonical, array $signers): array
     {
         if (trim($canonical) === '') {
             return [false, 'empty canonical'];
         }
+        $folds = array_filter(array_column($signers, 'fold'));
+        $names = array_filter(array_map(fn ($n) => strtolower(trim((string) preg_replace('/\s+/', ' ', $n))), array_column($signers, 'name')));
+        $bases = array_filter(array_column($signers, 'base'));
+
         $dom = new \DOMDocument();
         @$dom->loadHTML('<?xml encoding="utf-8"?>' . $canonical, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
         $xp = new \DOMXPath($dom);
-        $total = 0;
+        $required = 0;
         $empty = [];
         foreach ($xp->query('//*[@data-marker-type="signature"]') as $el) {
             if (! $el instanceof \DOMElement) {
                 continue;
             }
-            $total++;
+            $name  = strtolower(trim((string) preg_replace('/\s+/', ' ', $el->getAttribute('data-name'))));
+            $rid   = $el->getAttribute('data-recipient-identity');
+            $party = strtolower($el->getAttribute('data-marker-party'));
+            $partyBase = (string) preg_replace('/_\d+$/', '', $party);
+            // Attribute the slot to an ACTUAL signer, else it is an unused template block.
+            $isSignerSlot = ($name !== '' && in_array($name, $names, true))
+                || ($rid !== '' && in_array($this->foldId($rid), $folds, true))
+                || ($rid === '' && $name === '' && $partyBase !== '' && in_array($partyBase, $bases, true));
+            if (! $isSignerSlot) {
+                continue;
+            }
+            $required++;
             $filled = $el->getAttribute('data-signed') === 'true' || $xp->query('.//img', $el)->length > 0;
             if (! $filled) {
-                $empty[] = $el->getAttribute('data-name')
-                    ?: ($el->getAttribute('data-recipient-identity') ?: ($el->getAttribute('data-marker-party') ?: '?'));
+                $empty[] = $name ?: ($rid ?: ($party ?: '?'));
             }
         }
-        return [$total > 0 && $empty === [], "signature slots=$total empty=" . count($empty) . ($empty ? ' for: ' . implode(', ', array_unique($empty)) : '')];
+        return [$required > 0 && $empty === [], "required slots=$required empty=" . count($empty) . ($empty ? ' for: ' . implode(', ', array_unique($empty)) : '')];
     }
 
     /**
@@ -542,7 +585,9 @@ final class EsignRegressionWalk extends Command
         $this->assert('AUTH-d2) seller_1 signer bakes neither seller_2 nor the authoriser marks', $s1Clean, 'clean=' . ($s1Clean ? 'Y' : 'n'));
 
         // (e) completeness — no authoriser signature slot left empty
-        [$ok, $art] = $this->assertNoEmptySignatureSlot($baked);
+        [$ok, $art] = $this->assertNoEmptySignatureSlot($baked, [
+            ['fold' => 'supervisor', 'name' => 'Retha Kelly', 'base' => 'supervisor'],
+        ]);
         // restrict the count to authoriser slots for a targeted artifact
         $need = preg_match_all('/data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $canon);
         $got  = preg_match_all('/data-recipient-identity="supervisor"[^>]*data-marker-type="signature"[^>]*data-signed="true"/', $baked);
