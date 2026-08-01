@@ -1561,7 +1561,13 @@ class SigningController extends Controller
             ->whereNull('superseded_at')
             ->whereNull('deleted_at')
             ->pluck('id');
-        if ($liveConditionIds->isNotEmpty()) {
+        // The authoriser's single signing (initial-review checkpoint) already
+        // initialled every condition; the `supervisor_final` completion touch places
+        // no fresh mark, so it is exempt from the per-condition initial gate — the SAME
+        // rationale as the capture floor above, gated identically on the base authoriser
+        // signing having completed. (Re-initialling the authoriser on conditions ADDED
+        // after their signing is the PARKED amendment follow-up.)
+        if ($liveConditionIds->isNotEmpty() && !$isAuthoriserFinalSignoff) {
             $mineInitialedIds = ConditionInitial::query()
                 ->where('initialable_type', DocumentCondition::class)
                 ->whereIn('initialable_id', $liveConditionIds)
