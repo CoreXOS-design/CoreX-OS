@@ -1301,6 +1301,9 @@ class ContactController extends Controller
             'count'                   => $contact->outboundCommCount($data['channel']),
             'last_contacted'          => $last->format('d M Y H:i'),
             'last_contacted_relative' => $last->diffForHumans(),
+            // AT-323 — the provisional row's id, so the post-send "Did it send? Yes/No"
+            // confirmation can flag THIS send not-delivered (never a false "sent") on "No".
+            'communication_id'        => $communication->id ?? null,
         ]);
     }
 
@@ -1321,6 +1324,16 @@ class ContactController extends Controller
         $data = $request->validate(['reason' => 'nullable|string|max:500']);
 
         $service->markNotDelivered($communication, $contact, auth()->id(), $data['reason'] ?? null);
+
+        // AT-323 — the post-send confirmation modal calls this over fetch(); answer JSON so the
+        // tile can update the count in place. The existing form-post callers still get the redirect.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'count'   => $contact->outboundCommCount($communication->channel),
+                'message' => 'Recorded as not sent — this contact is no longer counted as reached by that send.',
+            ]);
+        }
 
         return back()->with('success', 'Marked as could not send. The contact is no longer counted as reached by this send.');
     }

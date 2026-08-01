@@ -5,39 +5,52 @@ namespace App\Console\Commands\Communications;
 use App\Models\Agency;
 use App\Models\Communications\Communication;
 use App\Models\Communications\CommunicationLink;
+use App\Models\Contact;
 use App\Models\Scopes\AgencyScope;
+use App\Services\Communications\CommunicationSendStatusService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Prune orphaned provisional outbound communications (AT-59).
+ * Resolve stale UNRECONCILED provisional outbound communications (AT-59 / AT-323).
  *
  * A provisional row is created when an agent clicks WhatsApp/Email; ingestion
- * normally reconciles it within minutes/hours. But if the agent edits the
- * message before sending (breaking the text hash) AND it falls outside the
- * reconcile window, the provisional row never matches its real send — leaving an
- * orphan that would otherwise double-count. This command soft-purges provisional
- * rows older than the agency's configured prune age. No hard deletes.
+ * normally reconciles it (promotes it to a confirmed archive record) within
+ * minutes/hours once the real Sent message is captured. If it is still
+ * unreconciled past the agency's prune age, the send almost certainly never
+ * actually happened (e.g. the agent was not signed into WhatsApp Web — the
+ * AT-323 defect) or the message was edited before sending.
  *
- * Mirrors communications:prune-pending (the inbound grace-buffer pruner).
+ * AT-323 part (B): instead of SILENTLY SOFT-PURGING such a row (which showed a
+ * false "sent" for days then made it vanish), we now FLAG it not_delivered —
+ * the honest terminal state. It is excluded from the tile counts / last-contacted
+ * (same as a purge) but STAYS ON RECORD as a "could not send" audit fact and
+ * carries the existing resend affordance. This is the backstop for the post-send
+ * confirmation modal (covers an agent who closes the tab without answering it).
+ * Reuses CommunicationSendStatusService::markNotDelivered — nothing is deleted.
  */
 class PruneProvisionalComms extends Command
 {
     protected $signature = 'communications:prune-provisional';
 
-    protected $description = 'Soft-purge unreconciled provisional outbound communications past their prune age.';
+    protected $description = 'Flag unreconciled provisional outbound communications past their prune age as not_delivered (AT-323).';
 
-    public function handle(): int
+    public function handle(CommunicationSendStatusService $sendStatus): int
     {
         $pruneHoursByAgency = [];
-        $pruned = 0;
+        $flagged = 0;
 
         Communication::query()
             ->withoutGlobalScope(AgencyScope::class)
             ->whereNotNull('provisional_at')
             ->whereNull('purged_at')
+            // Skip rows already resolved to not_delivered so the sweep is idempotent.
+            ->where(function ($q) {
+                $q->whereNull('send_status')
+                  ->orWhere('send_status', '!=', Communication::SEND_STATUS_NOT_DELIVERED);
+            })
             ->orderBy('id')
-            ->chunkById(500, function ($rows) use (&$pruneHoursByAgency, &$pruned) {
+            ->chunkById(500, function ($rows) use (&$pruneHoursByAgency, &$flagged, $sendStatus) {
                 foreach ($rows as $comm) {
                     $agencyId = (int) $comm->agency_id;
 
@@ -54,26 +67,47 @@ class PruneProvisionalComms extends Command
                         continue; // still within the reconcile window
                     }
 
-                    DB::transaction(function () use ($comm, $agencyId) {
-                        $comm->update([
-                            'purged_at'     => now(),
-                            'purged_reason' => 'provisional_unreconciled',
-                        ]);
-                        $comm->delete(); // soft — drops out of derived tile counts
+                    // Resolve the contact this provisional was linked to (comms-tile quick-send +
+                    // outreach both link a Contact). Distribution rows (Property/DealV2 only, no
+                    // Contact) get a direct flag with no last-contacted recompute.
+                    $contact = $this->resolveContact($comm, $agencyId);
 
-                        CommunicationLink::query()
-                            ->withoutGlobalScope(AgencyScope::class)
-                            ->where('agency_id', $agencyId)
-                            ->where('communication_id', $comm->id)
-                            ->delete(); // soft
-                    });
+                    if ($contact) {
+                        $sendStatus->markNotDelivered(
+                            $comm, $contact, null,
+                            'Unconfirmed send — never reconciled; auto-flagged not delivered (AT-323).'
+                        );
+                    } else {
+                        DB::transaction(function () use ($comm) {
+                            $comm->forceFill([
+                                'send_status'                => Communication::SEND_STATUS_NOT_DELIVERED,
+                                'send_status_set_by_user_id' => null,
+                                'send_status_set_at'         => now(),
+                            ])->save();
+                        });
+                    }
 
-                    $pruned++;
+                    $flagged++;
                 }
             });
 
-        $this->info("Pruned {$pruned} unreconciled provisional communication(s).");
+        $this->info("Flagged {$flagged} unreconciled provisional communication(s) as not_delivered.");
 
         return self::SUCCESS;
+    }
+
+    /** The Contact this provisional communication was linked to, if any. */
+    private function resolveContact(Communication $comm, int $agencyId): ?Contact
+    {
+        $contactId = CommunicationLink::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('communication_id', $comm->id)
+            ->where('linkable_type', Contact::class)
+            ->value('linkable_id');
+
+        return $contactId
+            ? Contact::withoutGlobalScope(AgencyScope::class)->find($contactId)
+            : null;
     }
 }
