@@ -41,6 +41,13 @@ final class EsignRegressionWalk extends Command
     protected $description = 'Fresh-pack e-sign regression walk: asserts auto-advance, final gate, blank/typeable condition initials, per-recipient field persistence, and condition doc-scoping.';
 
     private const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    // Distinct valid 1x1 PNGs used to simulate the agent drawing a DIFFERENT initial
+    // on each condition — so a per-condition capture bug (mirroring one mark onto every
+    // condition, Bug 1 / the agent's "27") shows up as two IDENTICAL md5s. Both differ
+    // from self::PNG (the adopted page-break initial), proving the render never falls
+    // back to the page-initial.
+    private const PNG_A = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYPgPAAEEAQDkukubAAAAAElFTkSuQmCC';
+    private const PNG_B = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 
     /** @var array<int,array{0:string,1:string,2:string}> status = PASS|FAIL|SKIP */
     private array $results = [];
@@ -115,8 +122,8 @@ final class EsignRegressionWalk extends Command
             $ordered = array_keys($keyPos); // by position: EATS, MDF, Addendum B
             $agencyId = $st->creator?->effectiveAgencyId();
             $mkCond = fn ($key, $content) => DocumentCondition::create(['signature_template_id' => $st->id, 'agency_id' => $agencyId, 'block_id' => 'other_conditions__' . $key, 'block_purpose' => 'other_conditions', 'condition_number' => 1, 'content' => $content, 'is_locked' => false, 'is_override' => false]);
-            $mkCond($ordered[0] ?? 'na', 'EATS-ONLY CONDITION ZZZ');
-            $mkCond($ordered[1] ?? 'nb', 'MDF-ONLY CONDITION YYY');
+            $cEats = $mkCond($ordered[0] ?? 'na', 'EATS-ONLY CONDITION ZZZ');
+            $cMdf  = $mkCond($ordered[1] ?? 'nb', 'MDF-ONLY CONDITION YYY');
 
             // ── RULE 5: condition renders ONLY on its own doc ──
             $disp = app(CanonicalDocumentRenderer::class)->forDisplay($st);
@@ -159,14 +166,17 @@ final class EsignRegressionWalk extends Command
             $this->assert('3b-contract) condition-initial type tab editable (x-model typedName, not readonly/disabled, opens shared modal)', $typeInputEditable && (bool) $condOpensModal, "editableTypeInput=" . ($typeInputEditable ? 'Y' : 'n') . " conditionOpensSharedModal=" . ($condOpensModal ? 'Y' : 'n'));
 
             // ── DRIVE completions (each party initials every condition, then completes) ──
-            $initialConds = function ($token) use ($st) {
+            // $inkFor(condition) lets a caller draw DISTINCT ink per condition (extension a);
+            // default is the shared self::PNG (proof-of-consent rows for the other parties).
+            $initialConds = function ($token, ?callable $inkFor = null) use ($st) {
                 foreach (DocumentCondition::where('signature_template_id', $st->id)->whereNull('deleted_at')->whereNull('superseded_at')->get() as $c) {
-                    $r = Request::create('/x', 'POST', ['initial_image' => self::PNG]);
+                    $ink = $inkFor ? ($inkFor($c) ?? self::PNG) : self::PNG;
+                    $r = Request::create('/x', 'POST', ['initial_image' => $ink]);
                     app(SigningController::class)->initialCondition($r, $token, $c->id);
                 }
             };
-            $complete = function ($token, $ceremony) use ($initialConds) {
-                $initialConds($token);
+            $complete = function ($token, $ceremony, ?callable $inkFor = null) use ($initialConds) {
+                $initialConds($token, $inkFor);
                 $payload = ['consented' => true, 'consent_timestamp' => now()->toIso8601String(), 'signatures' => ['s-0' => self::PNG], 'initials' => ['i-0' => self::PNG], 'field_values' => ['x' => 'x'], 'ceremony_values' => $ceremony, 'disclosure_answers' => []];
                 $resp = app(SigningController::class)->completeWeb(Request::create('/x', 'POST', $payload), $token);
                 if ($resp->getStatusCode() !== 200) {
@@ -178,7 +188,9 @@ final class EsignRegressionWalk extends Command
             $PAA = SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL;
 
             $agentReq = $st->requests()->where('party_role', 'agent')->firstOrFail();
-            $complete($agentReq->token, ['agent_location' => 'AGENT-LOC', 'agent_day' => '03', 'agent_month' => 'Mar', 'agent_year' => '25']);
+            // extension (a): the agent draws DISTINCT ink per condition (A on EATS, B on MDF).
+            $agentInk = fn ($c) => $c->id === $cEats->id ? self::PNG_A : ($c->id === $cMdf->id ? self::PNG_B : self::PNG);
+            $complete($agentReq->token, ['agent_location' => 'AGENT-LOC', 'agent_day' => '03', 'agent_month' => 'Mar', 'agent_year' => '25'], $agentInk);
             $afterAgent = $statusNow();
             $s1->refresh();
             $this->assert('1a) agent clean -> advances to rec1 with NO agent-approval gate', $afterAgent !== $PAA && $s1->status !== SignatureRequest::STATUS_WAITING, "status_after_agent={$afterAgent} rec1={$s1->status}");
@@ -194,6 +206,16 @@ final class EsignRegressionWalk extends Command
             $afterR1 = $statusNow();
             $s2 = $st->requests()->where('party_role', 'seller')->where('role_index', 2)->firstOrFail();
             $this->assert('1b) rec1 clean -> advances to rec2 with NO agent-approval gate', $afterR1 !== $PAA && $s2->status !== SignatureRequest::STATUS_WAITING, "status_after_rec1={$afterR1} rec2={$s2->status}");
+
+            // ── RULE 8b (extension b, DOM): seller_2 can fill a ceremony location field ──
+            // rec2 is now active — drive a headless browser to TYPE into seller_2's own
+            // ceremony location input (the looped EATS block emits a seller_2-identity field)
+            // and assert it persists. Proves the identity-scoped looped field is DOM-fillable
+            // by seller_2 (the Rule-4 binding proven service-level, here proven in the browser).
+            // Skips gracefully if no browser toolchain / the page can't be driven.
+            $b8art = '';
+            $b8 = $this->browserSeller2CeremonyFill($s2->token, $b8art);
+            $this->assert('8b) seller_2 fills own ceremony location field on the signing page (real browser keystroke persists)', $b8, $b8art);
 
             $complete($s2->token, ['seller_2_location' => 'REC2-LOC', 'seller_2_day' => '02', 'seller_2_month' => 'Feb', 'seller_2_year' => '26']);
             $afterR2 = $statusNow();
@@ -274,6 +296,61 @@ final class EsignRegressionWalk extends Command
                     . ' blockHeader=' . ($headerInBody ? 'Y' : 'n')
                     . ' editChrome=' . ($chromeInBody ? 'Y' : 'n')
                     . ' | pdfBootStrips=' . ($pdfStripsChrome ? 'Y' : 'n'),
+            );
+
+            // ── RULE 7 (extension a): agent per-condition initial captured DISTINCT per document ──
+            // The agent drew A on the EATS condition and B on the MDF condition. In the APPROVED
+            // artifact each condition must carry the ink drawn FOR THAT condition — distinct across
+            // the two documents, exactly what was drawn, and NEVER the agent's adopted page-break
+            // initial (self::PNG). A per-condition capture regression (mirroring one mark, Bug 1 /
+            // the agent's "27") would collapse both to one identical md5.
+            $agentSigned = $doc->web_template_data['signed_initials']['agent'] ?? [];
+            $inkEats = $agentSigned['condition_' . $cEats->id] ?? null;
+            $inkMdf  = $agentSigned['condition_' . $cMdf->id] ?? null;
+            // Cross-check the on-screen render resolves the SAME per-condition ink (never the page-initial).
+            $renderInk = function ($c) use ($st) {
+                $c = DocumentCondition::with('initials')->find($c->id);
+                $m = new \ReflectionMethod(InsertableBlockRenderer::class, 'renderInitialSlotsForCondition');
+                $m->setAccessible(true);
+                $h = (string) $m->invoke(app(InsertableBlockRenderer::class), $c, $st->fresh(), InsertableBlockRenderer::CONTEXT_PDF_RENDER, null, null);
+                return preg_match('/data-party-key="agent"[^>]*>\s*<img[^>]*src="([^"]+)"/is', $h, $im) ? $im[1] : null;
+            };
+            $rEats = $renderInk($cEats);
+            $rMdf  = $renderInk($cMdf);
+            $distinctPerDoc = $inkEats !== null && $inkMdf !== null && $inkEats !== $inkMdf;
+            $equalsDrawn    = $inkEats === self::PNG_A && $inkMdf === self::PNG_B;
+            $notPageInitial = $inkEats !== self::PNG && $inkMdf !== self::PNG;
+            $renderMatches  = $rEats === self::PNG_A && $rMdf === self::PNG_B;
+            $this->assert(
+                '7) agent per-condition initial captured distinct per document, equals the drawn ink, never the adopted page-initial',
+                $distinctPerDoc && $equalsDrawn && $notPageInitial && $renderMatches,
+                'EATS=' . ($inkEats === null ? 'NULL' : substr(md5($inkEats), 0, 8))
+                    . ' MDF=' . ($inkMdf === null ? 'NULL' : substr(md5($inkMdf), 0, 8))
+                    . ' distinct=' . ($distinctPerDoc ? 'Y' : 'n')
+                    . ' equalsDrawn=' . ($equalsDrawn ? 'Y' : 'n')
+                    . ' notPageInitial=' . ($notPageInitial ? 'Y' : 'n')
+                    . ' renderResolvesSame=' . ($renderMatches ? 'Y' : 'n'),
+            );
+            // ── RULE 8a (extension b): seller_2's "Signed by <name>" attribution renders on ALL pack docs ──
+            // Every document seller_2 signs must carry their completed signature block + a
+            // "Signed by Rec Two" label — on EATS, MDF and Addendum B, not just the first.
+            $cAppr2 = $doc->web_template_data['canonical_html'] ?? '';
+            $segAt = function (int $pos) use ($cAppr2) {
+                $t = ['EATS' => stripos($cAppr2, 'EXCLUSIVE AUTHORITY'), 'MDF' => stripos($cAppr2, 'IMMOVABLE PROPERTY'), 'ADB' => stripos($cAppr2, 'ADDENDUM B')];
+                asort($t);
+                $r = '?';
+                foreach ($t as $l => $p) { if ($p !== false && $pos >= $p) { $r = $l; } }
+                return $r;
+            };
+            $signedBySegs = [];
+            $off = 0;
+            while (($p = stripos($cAppr2, 'Signed by Rec Two', $off)) !== false) { $signedBySegs[$segAt($p)] = true; $off = $p + 1; }
+            $s2SignedBlock = (bool) preg_match('/data-name="Rec Two"[^>]*data-signed="true"/i', $cAppr2);
+            $onAllDocs = isset($signedBySegs['EATS']) && isset($signedBySegs['MDF']) && isset($signedBySegs['ADB']);
+            $this->assert(
+                '8a) seller_2 "Signed by <name>" + completed signature renders on ALL pack docs (EATS + MDF + Addendum B)',
+                $s2SignedBlock && $onAllDocs,
+                'signedBlock=' . ($s2SignedBlock ? 'Y' : 'n') . ' "Signed by Rec Two" segments=[' . implode(',', array_keys($signedBySegs)) . ']',
             );
         } catch (\Throwable $e) {
             $this->error('HARNESS ERROR: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
@@ -392,6 +469,81 @@ JS;
             }
             $artifact = 'skipped: browser run produced no parseable result (' . trim(substr($out, 0, 160)) . ')';
             return null; // couldn't drive -> skip, don't hard-fail
+        } catch (\Throwable $e) {
+            $artifact = 'skipped: browser sub-step error: ' . $e->getMessage();
+            return null;
+        } finally {
+            @unlink($scriptPath);
+        }
+    }
+
+    /**
+     * Rule 8b (DOM keystroke) — drive a real browser as seller_2 (rec2): open their
+     * signing page, start signing, TYPE into seller_2's OWN ceremony location input
+     * (the looped EATS block emits a seller_2-identity field) and assert the value
+     * persists. Returns true (pass) / false (fail) / null (SKIP — no browser, or the
+     * page/field couldn't be driven). Non-submitting: types in the field only, never
+     * posts, so it mutates nothing server-side (the harness completes rec2 for real
+     * afterwards via completeWeb).
+     */
+    private function browserSeller2CeremonyFill(string $token, string &$artifact): ?bool
+    {
+        $chromium = collect(['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'])
+            ->first(fn ($p) => is_executable($p));
+        $puppeteer = base_path('node_modules/puppeteer');
+        $node = trim((string) @shell_exec('command -v node 2>/dev/null'));
+        if (! $chromium || ! is_dir($puppeteer) || $node === '') {
+            $artifact = 'skipped: no browser toolchain (chromium=' . ($chromium ?: 'none') . ', puppeteer=' . (is_dir($puppeteer) ? 'yes' : 'no') . ', node=' . ($node !== '' ? 'yes' : 'no') . ')';
+            return null;
+        }
+
+        $url = rtrim((string) config('app.url'), '/') . '/sign/' . $token;
+        $script = <<<'JS'
+const puppeteer = require(process.argv[2]);
+const url = process.argv[3], chromium = process.argv[4];
+(async () => {
+  const b = await puppeteer.launch({ executablePath: chromium, headless: 'new', args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'] });
+  try {
+    const p = await b.newPage(); await p.setViewport({ width: 1280, height: 1600 });
+    await p.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+    await new Promise(r => setTimeout(r, 1500));
+    await p.evaluate(() => { const x = [...document.querySelectorAll('button,a')].find(e => /electronic|start signing|begin|continue/i.test(e.textContent || '')); if (x) x.click(); });
+    await new Promise(r => setTimeout(r, 2500));
+    const res = await p.evaluate(async () => {
+      // seller_2's OWN ceremony fields are rendered as editable inputs (data-ceremony-field);
+      // other parties' stay read-only spans. Find seller_2's location input.
+      const inputs = [...document.querySelectorAll('input[data-ceremony-field="true"][data-marker-type="location"]')];
+      if (!inputs.length) return { ok: false, reason: 'no-ceremony-location-input-for-seller_2' };
+      const inp = inputs[0];
+      const identity = inp.getAttribute('data-recipient-identity') || inp.getAttribute('data-marker-party') || '';
+      inp.scrollIntoView(); inp.focus();
+      inp.value = ''; inp.value = 'EATSLOC2'; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 250));
+      return { ok: inp.value === 'EATSLOC2', value: inp.value, identity, count: inputs.length };
+    });
+    console.log('RESULT ' + JSON.stringify(res));
+  } catch (e) { console.log('RESULT ' + JSON.stringify({ ok: false, reason: 'exception:' + e.message })); }
+  finally { await b.close(); }
+})();
+JS;
+        $scriptPath = storage_path('app/esign-regression-8b-' . uniqid() . '.cjs');
+        try {
+            @file_put_contents($scriptPath, $script);
+            $proc = new \Symfony\Component\Process\Process([$node, $scriptPath, $puppeteer, $url, $chromium]);
+            $proc->setTimeout(90);
+            $proc->run();
+            $out = $proc->getOutput() . $proc->getErrorOutput();
+            if (preg_match('/RESULT (\{.*\})/', $out, $m)) {
+                $r = json_decode($m[1], true) ?: [];
+                if (! empty($r['ok'])) {
+                    $artifact = "typed 'EATSLOC2' into seller_2's ceremony location field -> persisted='" . ($r['value'] ?? '') . "' identity='" . ($r['identity'] ?? '') . "' locationInputs=" . ($r['count'] ?? '?');
+                    return true;
+                }
+                $artifact = 'browser drove but assertion failed: ' . ($r['reason'] ?? ('value=' . ($r['value'] ?? '?')));
+                return false;
+            }
+            $artifact = 'skipped: browser run produced no parseable result (' . trim(substr($out, 0, 160)) . ')';
+            return null;
         } catch (\Throwable $e) {
             $artifact = 'skipped: browser sub-step error: ' . $e->getMessage();
             return null;
