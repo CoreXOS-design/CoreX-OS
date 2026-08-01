@@ -12,6 +12,9 @@
         $distParties  = app(\App\Services\DealV2\Dr2DistributionComposer::class)->parties($deal);
         $anySendable  = collect($distParties)->contains(fn ($p) => $p['sendable']);
         $canEditDeal  = auth()->user()?->hasPermission('create_deals');
+        // Feature 1 — the bond attorney is appointed by the bank AFTER the bond is granted, so its
+        // capture affordance only opens once the deal is Granted (G) or Registered (R).
+        $granted      = in_array((string) ($deal->accepted_status ?? 'P'), ['G', 'R'], true);
         $sentDist = $deal->deal_v2_id
             ? \App\Models\DealV2\DealDocumentDistribution::withoutGlobalScopes()->where('deal_id', $deal->deal_v2_id)->with('document')->latest()->take(12)->get()
             : collect();
@@ -84,6 +87,74 @@
                         <a x-show="fixed['{{ $p['role'] }}']" x-cloak :href="composeUrls['{{ $p['role'] }}']" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">
                             Send to {{ $p['label'] }}
                         </a>
+                    @elseif($p['role'] === 'bond_attorney')
+                        {{-- Feature 1 — bond attorney is captured HERE (not on deal setup): the bank appoints
+                             it after grant. Grant-gated: before grant, a muted note; after grant, a searchable
+                             capture field (search a bond-attorney firm/contact, or add a new one inline) that
+                             saves to the deal. Required before the deal can be Registered (enforced server-side). --}}
+                        <div style="grid-column:1 / -1;">
+                        @if(! $granted)
+                            <span style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;gap:.4rem;align-items:center;">
+                                <span>Bond Attorney — appointed by the bank after the bond is granted.</span>
+                            </span>
+                        @elseif($canEditDeal)
+                            <div x-data="{
+                                    q:'', results:[], provId:'', contactId:'', busy:false, addOpen:false,
+                                    nFirm:'', nEmail:'', nErr:'',
+                                    async search(){
+                                        if(this.q.trim().length<2){ this.results=[]; return; }
+                                        try{ const r=await fetch('{{ route('deals-dr2.attorney.search') }}?specialty=bond_attorney&q='+encodeURIComponent(this.q.trim()), {headers:{Accept:'application/json'}}); const j=await r.json(); this.results=(j&&j.results)||[]; }catch(e){ this.results=[]; }
+                                    },
+                                    pick(row){ this.q=row.label; this.provId=row.provider_id||''; this.contactId=row.contact_id||''; this.results=[]; },
+                                    async saveNew(){
+                                        if(!this.nFirm.trim()){ this.nErr='A firm is required.'; return; }
+                                        this.busy=true; this.nErr='';
+                                        try{
+                                            const r=await fetch('{{ route('deals-dr2.attorney.inline') }}?specialty=bond_attorney', {method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body:JSON.stringify({specialty:'bond_attorney', firm:this.nFirm.trim(), email:this.nEmail.trim()||null})});
+                                            const j=await r.json();
+                                            if(r.ok && j.provider_id){ this.q=j.label||this.nFirm; this.provId=j.provider_id; this.contactId=j.contact_id||''; this.addOpen=false; }
+                                            else { this.nErr=(j.message||'Could not save.'); }
+                                        }catch(e){ this.nErr='Could not save.'; }
+                                        this.busy=false;
+                                    }
+                                 }"
+                                 style="border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:.6rem .7rem;background:color-mix(in srgb,#f59e0b 5%,var(--surface,#fff));">
+                                <div style="font-size:.75rem;font-weight:600;color:#92400e;margin-bottom:.35rem;">Capture bond attorney <span style="font-weight:400;color:#b45309;">— appointed by the bank after grant · required before registration</span></div>
+                                <form method="POST" action="{{ route('deals-dr2.pipeline.bond-attorney', $deal) }}" style="margin:0;">
+                                    @csrf
+                                    <input type="hidden" name="bond_attorney_provider_id" :value="provId">
+                                    <input type="hidden" name="bond_attorney_contact_id" :value="contactId">
+                                    <div style="position:relative;">
+                                        <input type="text" x-model="q" @input.debounce.220ms="search()" @focus="search()" autocomplete="off"
+                                               placeholder="Search a bond attorney firm or contact…" class="corex-input" style="width:100%;font-size:.8rem;">
+                                        <div x-show="results.length" x-cloak style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:14rem;overflow:auto;">
+                                            <template x-for="(row,i) in results" :key="i">
+                                                <div @click="pick(row)" style="padding:.5rem .7rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">
+                                                    <div style="font-weight:600;color:#0b2a4a;font-size:.8rem;" x-text="row.firm + (row.attorney ? ' — ' + row.attorney : '')"></div>
+                                                    <div x-show="row.contact || row.email" style="font-size:.72rem;color:#6b7280;" x-text="[row.contact ? 'via '+row.contact : '', row.email].filter(Boolean).join(' · ')"></div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem;">
+                                        <button type="submit" class="corex-btn-primary" style="font-size:.78rem;padding:.3rem .8rem;" :disabled="!provId">Capture bond attorney</button>
+                                        <button type="button" class="corex-btn-outline" style="font-size:.75rem;padding:.28rem .7rem;" @click="addOpen=!addOpen" x-text="addOpen ? '× Cancel' : '+ Add a new bond attorney'"></button>
+                                        <span x-show="provId" x-cloak style="font-size:.72rem;color:#047857;">✓ selected</span>
+                                    </div>
+                                    <div x-show="addOpen" x-cloak style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:flex-end;">
+                                        <input type="text" x-model="nFirm" placeholder="Firm *" class="corex-input" style="font-size:.78rem;flex:1 1 10rem;">
+                                        <input type="email" x-model="nEmail" placeholder="Email" class="corex-input" style="font-size:.78rem;flex:1 1 10rem;">
+                                        <button type="button" class="corex-btn-primary" style="font-size:.75rem;padding:.28rem .7rem;" @click="saveNew()" :disabled="busy" x-text="busy ? 'Saving…' : 'Save'"></button>
+                                        <span x-show="nErr" x-cloak x-text="nErr" style="font-size:.72rem;color:#b91c1c;width:100%;"></span>
+                                    </div>
+                                </form>
+                            </div>
+                        @else
+                            <span style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;">
+                                <span>Bond Attorney — not captured yet.</span>
+                            </span>
+                        @endif
+                        </div>
                     @else
                         <span style="font-size:.72rem;padding:.3rem .6rem;color:#9ca3af;border:1px dashed var(--border,#ddd);border-radius:8px;display:inline-flex;gap:.4rem;align-items:center;">
                             <span>{{ $p['label'] }} — {{ $p['note'] ?? 'not linked yet' }}</span>

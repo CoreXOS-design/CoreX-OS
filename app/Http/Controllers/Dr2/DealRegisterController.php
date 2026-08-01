@@ -1099,7 +1099,7 @@ class DealRegisterController extends Controller
         }
 
         // AT-228 — the same picker serves the transferring attorney and the bond originator.
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency', 'bond_attorney'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
         $firms = AgencyServiceProvider::query()
@@ -1157,7 +1157,7 @@ class DealRegisterController extends Controller
         $userId = $request->user()->id;
 
         // AT-228 — same inline-create serves attorney + bond originator (specialty from the picker).
-        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency'], true)
+        $specialty = in_array($request->input('specialty'), ['transfer_attorney', 'bond_originator', 'external_agency', 'bond_attorney'], true)
             ? $request->input('specialty') : 'transfer_attorney';
 
         $firm = AgencyServiceProvider::query()

@@ -27,6 +27,7 @@ class Dr2DistributionComposer
         'transfer_attorney' => 'Transferring Attorney',
         'bond_originator'   => 'Bond Originator',
         'external_agency'   => 'External Agency',
+        'bond_attorney'     => 'Bond Attorney',
     ];
 
     public function __construct(private DocumentDistributionMatrix $matrix) {}
@@ -74,6 +75,7 @@ class Dr2DistributionComposer
             'transfer_attorney' => $this->providerRecipient($deal->attorney_provider_id, $deal->attorney_contact_id),
             'bond_originator'   => $this->providerRecipient($deal->bond_originator_provider_id, $deal->bond_originator_contact_id),
             'external_agency'   => $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id),
+            'bond_attorney'     => $this->providerRecipient($deal->bond_attorney_provider_id, $deal->bond_attorney_contact_id),
             default             => [],
         };
     }

@@ -296,6 +296,9 @@ class PipelineController extends Controller
         // surface it to the user instead of silently swallowing it.
         try {
             $this->pipelines->completeStep($step, $request->user()?->id, $completion);
+        } catch (\App\Exceptions\Deal\BondAttorneyRequiredException $e) {
+            return back()->with('error',
+                'Capture the bond attorney (Email Parties → Bond Attorney) before this deal can be registered.');
         } catch (\App\Exceptions\Deal\DuplicateGrantException $e) {
             $other = $e->existingGrantedDeal;
             return back()->with('error', sprintf(
@@ -356,6 +359,34 @@ class PipelineController extends Controller
 
         return $this->pipelineRedirect($deal)
             ->with('info', 'Deal declined — the pipeline is now locked (read-only). It stays re-grantable from the register.');
+    }
+
+    /**
+     * Feature 1 — capture the BOND ATTORNEY on the deal (firm + working contact), from Email
+     * Parties. The bank appoints the bond attorney only AFTER the bond is granted, so it is never
+     * a deal-setup field; the "Capture Bond Attorney" step activates at grant and prompts here.
+     * Storage mirrors the transferring-attorney / bond-originator / external-agency scalar pairs.
+     * Once captured, the bond attorney becomes an emailable Email-Parties recipient + doc-copy party,
+     * and the deal's registration gate (see Dr1PipelineService) is satisfied.
+     */
+    public function captureBondAttorney(Deal $deal, Request $request): RedirectResponse
+    {
+        abort_unless($request->user()?->hasPermission('view_deals'), 403);
+        if ($this->lock->isLocked($deal)) {
+            return $this->pipelineRedirect($deal)->with('error', 'This pipeline is locked.');
+        }
+
+        $data = $request->validate([
+            'bond_attorney_provider_id' => ['required', 'integer', 'exists:agency_service_providers,id'],
+            'bond_attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
+        ]);
+
+        $deal->bond_attorney_provider_id = (int) $data['bond_attorney_provider_id'];
+        $deal->bond_attorney_contact_id  = ! empty($data['bond_attorney_contact_id']) ? (int) $data['bond_attorney_contact_id'] : null;
+        $deal->save();
+
+        return $this->pipelineRedirect($deal)
+            ->with('info', 'Bond attorney captured — they can now be emailed from Email Parties and receive document copies.');
     }
 
     /**

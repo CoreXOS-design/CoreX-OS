@@ -737,6 +737,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     Route::post('/{deal}/pipeline/steps/{step}/complete', [\App\Http\Controllers\Dr2\PipelineController::class, 'completeStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.complete');
     // Manual "Decline deal" — the canonical accepted_status → 'D' transition (locks the pipeline; re-grant from the register).
     Route::post('/{deal}/pipeline/decline',               [\App\Http\Controllers\Dr2\PipelineController::class, 'declineDeal'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.decline');
+    // Feature 1 — capture the BOND ATTORNEY (appointed by the bank post-grant) on Email Parties.
+    Route::post('/{deal}/pipeline/bond-attorney',         [\App\Http\Controllers\Dr2\PipelineController::class, 'captureBondAttorney'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.bond-attorney');
     // AT-334 P1 — reopen a completed step (composable deals): clears actual_date, back to not_started, re-cascades.
     Route::post('/{deal}/pipeline/steps/{step}/reopen',   [\App\Http\Controllers\Dr2\PipelineController::class, 'reopenStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reopen');
     // V1.1 — per-step operations (all agency-scoped, audited; soft deletes)

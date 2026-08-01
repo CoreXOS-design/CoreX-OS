@@ -288,6 +288,14 @@ class Dr1PipelineService
         // kill a deal, it may never resurrect one.
         $this->lock->assertStepUnlocked($step, "Complete step \"{$step->name}\"");
 
+        // Feature 1 (enforce-at-grant) — the "Capture Bond Attorney" step cannot be ticked complete
+        // until the bond attorney is captured on the deal (Email Parties). Blocks the "step done"
+        // without a captured attorney; the R-gate in advanceAcceptedStatus is the backstop.
+        if ($step->condition_key === 'bond' && $step->name === 'Capture Bond Attorney'
+            && empty($step->dr1Deal?->bond_attorney_provider_id)) {
+            throw new \App\Exceptions\Deal\BondAttorneyRequiredException($step->dr1Deal);
+        }
+
         DB::transaction(function () use ($step, $userId, $completionData) {
             $step->update([
                 'status'          => 'completed',
@@ -419,6 +427,11 @@ class Dr1PipelineService
             app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
         }
 
+        // Feature 1 (enforce-at-grant) — block reaching Registered without a captured bond attorney.
+        if ($code === 'R') {
+            $this->assertBondAttorneyForRegistration($deal);
+        }
+
         $updates = ['accepted_status' => $code];
         if ($code === 'G' && empty($deal->granted_at)) {
             $updates['granted_at'] = now();
@@ -516,6 +529,11 @@ class Dr1PipelineService
             app(\App\Services\Deal\DealPropertyStatusService::class)->assertCanGrant($deal);
         }
 
+        // Feature 1 (enforce-at-grant) — block reaching Registered without a captured bond attorney.
+        if ($code === 'R') {
+            $this->assertBondAttorneyForRegistration($deal);
+        }
+
         $updates = ['accepted_status' => $code];
         if ($code === 'G' && empty($deal->granted_at)) {
             $updates['granted_at'] = now();
@@ -527,6 +545,29 @@ class Dr1PipelineService
 
         $label = ['P' => 'Pending', 'G' => 'Granted', 'R' => 'Registered'][$code] ?? $code;
         $this->logActivity($deal, null, $userId, 'deal_status_advanced', "Deal status → {$label} ({$reason})");
+    }
+
+    /**
+     * Feature 1 (enforce-at-grant) — a bonded deal whose pipeline carries the "Capture Bond Attorney"
+     * step cannot reach Registered until the bond attorney is captured on the deal (Email Parties).
+     * Scoped to pipelines that actually contain the step, so legacy/pre-feature deals are never gated.
+     * Throws inside completeStep()'s transaction → the completion / status advance rolls back and the
+     * controller surfaces the block to the agent.
+     */
+    private function assertBondAttorneyForRegistration(Deal $deal): void
+    {
+        if (! empty($deal->bond_attorney_provider_id)) {
+            return;
+        }
+        $needs = \App\Models\DealV2\DealStepInstance::where('dr1_deal_id', $deal->id)
+            ->where('condition_key', 'bond')
+            ->where('name', 'Capture Bond Attorney')
+            ->whereNull('deleted_at')
+            ->where('status', '!=', 'skipped')
+            ->exists();
+        if ($needs) {
+            throw new \App\Exceptions\Deal\BondAttorneyRequiredException($deal);
+        }
     }
 
     /**

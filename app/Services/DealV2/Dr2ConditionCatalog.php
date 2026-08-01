@@ -518,6 +518,12 @@ class Dr2ConditionCatalog
                         ['key' => 'bond_approved', 'name' => 'Bond Approved',              'follows' => 'bond_app', 'offset' => 21, 'milestone' => true, 'suspensive' => true, 'completion' => 'date_input', 'condition' => 'bond', 'manual_due_option' => 'bond_due', 'pos' => 21],
                         ['key' => 'guarantees',    'name' => 'Guarantees Issued',          'follows' => 'bond_approved', 'offset' => 10, 'completion' => 'text_input', 'condition' => 'bond', 'pos' => 48],
                         ['key' => 'deposit',       'name' => 'Deposit Paid',               'follows' => 'otp',      'offset' => 3,  'suspensive' => true, 'completion' => 'amount_input', 'condition' => 'bond', 'manual_due_option' => 'deposit_due', 'requires_option' => 'deposit', 'pos' => 19],
+                        // Feature 1 — POST-GRANT capture step: the bank appoints the bond attorney only after
+                        // the bond is granted, so this activates on the grant marker (follows __grant__) — never
+                        // suspensive (it does not gate Granted). Enforced-at-grant: the deal cannot reach
+                        // Registered until the bond attorney is captured (Dr1PipelineService R-gate). Captured on
+                        // Email Parties → deals.bond_attorney_provider_id.
+                        ['key' => 'bond_attorney', 'name' => 'Capture Bond Attorney',       'follows' => '__grant__', 'offset' => 0,  'completion' => 'manual_tick', 'condition' => 'bond', 'pos' => 45],
                     ],
                 ],
                 'cash' => [
