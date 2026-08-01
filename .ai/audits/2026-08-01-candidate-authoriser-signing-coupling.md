@@ -72,14 +72,19 @@ through the actual controllers: document reaches `completed`, and the final cano
 authoriser's identity-stamped signature + ceremony (AUTHLOC) + name — single authoriser signing
 completes end-to-end, no fresh mark required at supervisor_final.
 
-## RESIDUAL GAP (flagged, not built — needs Johan's scope call)
-Full parity holds on pack segments that use the shared `signature-block` component (the mandate
-segment). Pack segments whose imported template does NOT use that component (e.g. a Mandatory
-Disclosure / Addendum) render no authoriser block, so the authoriser has no surface THERE. If those
-segments are ones the authoriser must also sign for true "same places" parity, the robust fix is a
-COMPOSE-TIME authoriser-surface injector (like SigningSurfaceResolver, which injects missing
-recipient surfaces) so the authoriser gets a parity block on ANY candidate document/segment
-regardless of template. Recommend as the next step on the e-sign enhancement ticket.
+## Compose-time authoriser-surface injector — BUILT (Johan-authorised 2026-08)
+Closed the imported-template gap: on ANY candidate document/segment, the authoriser gets exactly ONE
+full-parity signature surface regardless of how the template was authored.
+- `CandidateAuthoriserSurfaceInjector` — compose-time pass over the merged body (same pattern as
+  `SigningSurfaceResolver`), wired into BOTH the pack loop and the single-doc path (candidate flows
+  only). IDEMPOTENT (component segments already carrying an authoriser surface are skipped);
+  PARITY-SCOPED (injects only into segments where another party already signs; pure-info attachments
+  get nothing); IDENTITY-STAMPED + DESIGNATION-LABELLED (matches the component block exactly).
+  Per-page initials were already universal (client pagination over enumeratedSigningParties).
+- Harness AUTH-f guards the non-component / imported-segment case.
+- Proven end-to-end (QA1, disposable): the candidate pack (mandate + Mandatory Disclosure + Addendum)
+  now yields 3 authoriser surfaces — 1 from the component + 2 injected on the non-component segments —
+  ALL baked, and the document completes.
 
 ## Proof (disposable, corex_dev3)
 - Engine proof (14/14): enumeration collapse; parity block identity-stamped / no placeholder /
