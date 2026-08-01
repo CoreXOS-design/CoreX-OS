@@ -62,7 +62,7 @@
     // packing keeps overlapping events side by side instead of one hiding another.
     $layoutDayColumn = function ($events, int $gridStart, int $gridCount) {
         $gridMinutes = max(1, $gridCount * 60);
-        $items = collect($events)->filter()->map(function ($e) use ($gridStart, $gridMinutes) {
+        $toItem = function ($e) use ($gridStart, $gridMinutes) {
             $startMin = ($e->event_date->hour - $gridStart) * 60 + $e->event_date->minute;
             $endDt = ($e->end_date && $e->end_date->gt($e->event_date))
                 ? $e->end_date
@@ -74,11 +74,21 @@
             $s  = max(0, min($startMin, $gridMinutes));
             $en = max($s + 30, min($endMin, $gridMinutes)); // 30-min floor keeps short events clickable
             return ['e' => $e, 's' => $s, 'en' => $en, 'lane' => 0, 'lanes' => 1];
-        })->sortBy('s')->values()->all();
+        };
 
-        // Cluster-based lane packing: within each run of overlapping events,
-        // greedily assign the first free lane; the whole cluster shares the
-        // lane count so widths line up.
+        // AT-335 — completed/dismissed tiles never compete for a lane: they're
+        // excluded from the clustering input below and always render full-width
+        // (lane 0 of 1), so a done event overlapping an active one no longer gets
+        // squeezed to a fractional-width lane — visually indistinguishable from a
+        // live clash before this fix, just dimmed/struck through.
+        $isDone = fn ($e) => in_array($e->status, ['completed', 'dismissed'], true);
+        $filtered = collect($events)->filter();
+        $doneItems = $filtered->filter($isDone)->map($toItem)->values()->all();
+        $items = $filtered->reject($isDone)->map($toItem)->sortBy('s')->values()->all();
+
+        // Cluster-based lane packing: within each run of overlapping ACTIVE
+        // events, greedily assign the first free lane; the whole cluster shares
+        // the lane count so widths line up.
         $i = 0; $n = count($items);
         while ($i < $n) {
             $clusterEnd = $items[$i]['en'];
@@ -97,7 +107,7 @@
             for ($k = $i; $k < $j; $k++) { $items[$k]['lanes'] = $laneCount; }
             $i = $j;
         }
-        return $items;
+        return array_merge($items, $doneItems);
     };
 @endphp
 

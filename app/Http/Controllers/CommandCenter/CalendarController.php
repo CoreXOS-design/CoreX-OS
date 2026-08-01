@@ -2228,28 +2228,16 @@ class CalendarController extends Controller
             }
         }
 
-        // Conflict markers: mark events that overlap another appointment-type event for this user.
-        // Single sweep — no additional queries.
-        // Markers/reminders (occupies_time=false) never count as conflicts —
-        // reads the explicit flag (decoupled from actor_role). A category with no
-        // settings row is treated as an appointment (unchanged behaviour).
-        $nonOccupyingClasses = CalendarEventClassSetting::withoutGlobalScopes()
-            ->where('occupies_time', false)->pluck('event_class')->toArray();
-        $appointments = $result->filter(fn($e) => !in_array($e->category, $nonOccupyingClasses))
-            ->sortBy('event_date')->values();
-        $conflictIds = [];
-        for ($i = 0; $i < $appointments->count(); $i++) {
-            for ($j = $i + 1; $j < $appointments->count(); $j++) {
-                $a = $appointments[$i];
-                $b = $appointments[$j];
-                if ($b->event_date < ($a->end_date ?? $a->event_date)) {
-                    $conflictIds[$a->id] = true;
-                    $conflictIds[$b->id] = true;
-                } else {
-                    break; // sorted, no further overlaps for $i
-                }
-            }
-        }
+        // AT-335 — the $event->has_conflict sweep that used to live here was removed:
+        // it never checked status (would have flagged completed/dismissed events as
+        // conflicting, same bug as the lane-packing fix elsewhere in this ticket) AND
+        // was dead — nothing read $event->has_conflict anywhere in the app. The real,
+        // live conflict badges (self-conflict warning, attendee badge, invitations
+        // banner) all go through ConflictDetectionService::checkUserConflicts(), which
+        // already excludes completed/dismissed correctly. If a grid-level conflict
+        // badge is wanted later, wire it to that service rather than reintroducing a
+        // second, independent detector here.
+
         // Unacknowledged decline markers (batch lookup)
         $unackDeclines = [];
         if (!empty($eventIds)) {
@@ -2264,7 +2252,6 @@ class CalendarController extends Controller
         }
 
         foreach ($result as $event) {
-            $event->has_conflict = isset($conflictIds[$event->id]);
             $event->has_unack_decline = isset($unackDeclines[$event->id]);
             $event->unack_decline_count = $unackDeclines[$event->id] ?? 0;
             // AT-164 Gate 6 — authoritative layer classification, computed ONCE at the
