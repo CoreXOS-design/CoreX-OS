@@ -403,3 +403,109 @@ The integration treats PP errors as opaque strings stored in `pp_last_error`. Co
 - ~~**`pp_listing_feed_ref` for T2870133** — null. Video push blocked.~~ **RESOLVED 2026-05-18.** Was NOT blocked on PP — the Event Feed parser was broken (wrong envelope path, mis-spelled `LisitngEventFeedData` child, inverted `ListingFeedRef`/`OfficeFeedRef` roles). Fixed in `ProcessPrivatePropertyEventFeed`. PP has emitted multiple `Activated` events for property 16 (`ListingFeedRef="16"`); the corrected job populates `pp_listing_feed_ref="16"` on the next run for any Active listing.
 - **`PP_WEBHOOK_SECRET`** — must be obtained by registering `https://corex.hfcoastal.co.za/api/pp/webhook` in the PP Admin Portal.
 - **Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).
+
+---
+
+## 18. Undocumented subsystems (added 2026-08-01 — Rev 4.6→4.7 investigation)
+
+Two services and their scheduled jobs existed in the codebase but were missing from this
+spec until now:
+
+- **`App\Services\PrivateProperty\PpLeadService`** — buyer-enquiry lead ingestion via
+  `ListingLeadDetailsFeed`, mirrors `P24LeadService` one-for-one into `portal_leads`
+  (`portal='pp'`). Scheduled every 5 min via `App\Jobs\PrivateProperty\PullPpLeadsJob`
+  (`routes/console.php`, name `pp-leads-pull`). **Gated per-agency** by
+  `agencies.pp_lead_pull_enabled` (default OFF — AT-199). Cursor: `Cache` key
+  `pp.leads.cursor.agency.{id}`, 7-day default lookback on first run. Dedup: PP `LeadId`,
+  strict.
+- **`App\Services\PrivateProperty\PpStatsService`** — nightly per-listing engagement
+  snapshot via `ListingPerformanceStats` (Views, Messages, TelLeads, Alerts), upserted into
+  `property_portal_metrics` (`portal='pp'`) — the same table P24 writes to,
+  portal-discriminated. Scheduled daily 04:30 via
+  `App\Jobs\PrivateProperty\PullPpStatsJob` (name `pp-stats-pull`). **Gated per-agency** by
+  `agencies.pp_stats_pull_enabled` (default OFF, seeded ON for agency 1/HFC — AT-201). PP
+  gives no historical backfill; the series accumulates from switch-on. Read by
+  `PropertyIntelligenceService::getPortalPerformance()` /
+  `::getPortalEngagementSeries()`, surfaced via `SellerLinkController` (seller-facing link)
+  and `Api\V1\ClientSellerInsightsController` (mobile), and the property Intelligence tab
+  (`resources/views/corex/properties/intelligence/_portal-leads.blade.php`).
+
+Also present, unaffected by the changes below: `App\Console\Commands\SyncPpLocations`
+(`GetCountries/Provinces/Cities/Suburbs` → `pp_provinces`/`pp_cities`/`pp_suburbs`) and
+`App\Console\Commands\BulkSyndicatePP` (`pp:bulk-syndicate`, sequential bulk `UpdateListing`
+push, mirrors `p24:bulk-syndicate`).
+
+## 19. PP Agency Feed Service Rev 4.6 → 4.7 (SOAP shim reimplementation)
+
+Private Property is re-implementing the Agency Feed Service behind a shim (WSDL contract
+unchanged for core flows). Full investigation:
+`.ai/investigations/pp-rev47-shim-investigation-2026-08-01.md` (if not present, see chat
+history 2026-08-01 — file was not committed as part of the investigation-only pass).
+Sandbox not yet available as of this writing; production targeted August 2026.
+
+Full changelog and per-change risk assessment live in the investigation above. Two items
+were approved by Johan for immediate, PP-timeline-independent hardening (both are gaps in
+**our own** fault-tolerance, not reactions to PP's change, so they don't need to wait on
+the sandbox):
+
+### 19.1 `is_whatsapp` derived from `LeadType` (was hardcoded `false`)
+
+**Problem:** `PpLeadService::processLead()` stored PP's `LeadType` string verbatim into
+`portal_leads.lead_type` but always wrote `is_whatsapp = false`, unlike
+`P24LeadService::processLead()` which derives the flag from the payload. Under Rev 4.7,
+`LeadType` explicitly carries `EmailLead` / `WhatsAppLead` — once `pp_lead_pull_enabled`
+is on for an agency and PP starts sending `WhatsAppLead`, those leads would be permanently
+mis-flagged (missed by any `is_whatsapp=true` filter, missing the "/ WhatsApp" UI suffix in
+`resources/views/corex/portal-leads/index.blade.php`).
+
+**Fix:** derive `is_whatsapp` via a case-insensitive `str_contains` check on the resolved
+lead-type string (`stripos($leadType, 'whatsapp') !== false`) rather than an exact-match
+against `'WhatsAppLead'` — tolerant of PP's exact casing/spelling either side of the
+cutover, consistent with the tolerant-mapping posture used everywhere else in this
+integration (§C1 of the investigation).
+
+**Pillar:** Contact (no new column — reuses existing `portal_leads.is_whatsapp`, already
+present for the P24/website paths).
+
+**Files:** `app/Services/PrivateProperty/PpLeadService.php`,
+`tests/Feature/Leads/PpLeadServiceTest.php`.
+
+### 19.2 Event-feed consecutive-failure escalation
+
+**Problem:** `ProcessPrivatePropertyEventFeed::drainFeed()` treats any SOAP fault on
+`GetListingEventFeedByBranch` identically: log to the `private_property` channel and
+return. No retry within the run, no reset, no distinction between a transient blip and a
+persistent failure, and no escalation path — a stuck cursor (exactly what Rev 4.7's
+continuationKey invalidation will cause on every branch, once) fails the same way silently
+every 15 minutes forever. This job is the **authoritative** source for listing
+activations/deactivations/image-error detection (§10) — a silent multi-hour outage here is
+a real business impact (agents' listings stop activating on PP, nobody told).
+
+**Fix:** track a per-cursor-key consecutive-failure streak in the existing
+`pp_event_feed_settings` key/value store (`PpEventFeedSetting`) — `{cursorKey}:fail_streak`
+(count) and `{cursorKey}:fail_since` (ISO timestamp of the first failure in the current
+streak). Reset to zero on the next successful call. Once the streak reaches
+`FAIL_STREAK_ALERT_THRESHOLD = 3` (≈45 min at the 15-min schedule — long enough to absorb a
+transient network blip, short enough that an agent doesn't lose most of a working day
+before anyone is told), escalate via the default `Log::critical()` channel (unscoped, not
+`private_property` — mirrors `App\Console\Commands\QueueHealthcheck`'s established
+"loud detector, no fixer" pattern, so it reaches whatever log-based monitoring already
+watches for CRITICAL-level lines) in addition to the existing per-failure
+`private_property`-channel error log. This is deliberately the same lightweight
+detector shape already used for the queue-worker healthcheck, not the richer
+`NotificationDispatcher`/owner-alert pattern from `PermissionLockdownAlarm` (AT-265) — that
+richer pattern is scoped to platform-wide security lockdowns; a single-integration
+scheduled-job stall is proportionate to the simpler, already-established convention. A
+future enhancement to page an owner directly (AT-265-style) is a deliberate deferral, not
+an oversight — raise with Johan if the log-only signal proves insufficient in practice.
+
+**Does NOT attempt** to distinguish "stale continuationKey" from any other SOAP fault type
+— that requires knowing PP's actual fault text/code for an invalidated key post-Rev-4.7,
+which is one of the open questions sent to PP (see the investigation §F.1). This fix only
+ensures a persistent fault of *any* kind is no longer silent.
+
+**Pillar:** Property (no new column — reuses `pp_event_feed_settings`, already the
+integration's dedicated state store).
+
+**Files:** `app/Jobs/ProcessPrivatePropertyEventFeed.php`,
+`tests/Feature/Syndication/PrivatePropertyEventFeedTest.php`.
