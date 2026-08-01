@@ -702,7 +702,7 @@ class PropertyController extends Controller
             'condition_level_id' => 'nullable|integer|exists:property_setting_items,id',
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
-            'status'           => 'nullable|string|max:100',
+            'status'           => ['nullable', 'string', 'max:100', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',
@@ -1080,7 +1080,7 @@ class PropertyController extends Controller
             'condition_level_id' => 'nullable|integer|exists:property_setting_items,id',
             'mandate_type'     => 'nullable|string|max:50',
             'listing_type'     => 'nullable|string|in:sale,rental',
-            'status'           => 'nullable|string|max:100',
+            'status'           => ['nullable', 'string', 'max:100', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             'status_label'     => 'nullable|string|max:50',
             'features'         => 'nullable|array',
             'features.*'       => 'string|max:100',

@@ -227,7 +227,7 @@ class MobilePropertyController extends Controller
             'title'         => "{$req}|string|max:255",
             'property_type' => "{$req}|string|max:100",
             'listing_type'  => "{$req}|string|in:sale,rental",
-            'status'        => "{$req}|string|max:50",
+            'status'        => [$req, 'string', 'max:50', new \App\Rules\AllowedPropertyStatus()], // AT-307 membership
             'price'         => "{$req}|integer|min:0",
 
             // ── Property24 location (the spine of suburb/city/province) ──

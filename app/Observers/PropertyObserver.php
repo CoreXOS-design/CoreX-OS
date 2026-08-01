@@ -102,6 +102,25 @@ class PropertyObserver
 
     public function saving(Property $property): void
     {
+        // AT-307 — server-side status-vocabulary guard (the ONE chokepoint every
+        // write path passes through: mobile API, imports, jobs, console, crafted
+        // requests). Reject a DIRTY, non-empty status that is not in the agency's
+        // vocabulary (Property::systemStatuses ∪ the settings-defined property_status
+        // list). Case-insensitive, so capitalised 'Sold'/'Rented'/'Active' pass;
+        // dirty-only, so a legacy row's unrelated save (e.g. a price edit) is never
+        // blocked. Web/mobile requests already 422 via the AllowedPropertyStatus rule
+        // before reaching here — this backstops the non-request paths (fail loud, never
+        // silently persist drift). saving() fires BEFORE creating(), so agency_id may
+        // not be auto-filled yet on an insert; resolve it from the acting user.
+        if ($property->isDirty('status') && filled($property->status)) {
+            $agencyId = $property->agency_id ?? optional(auth()->user())->effectiveAgencyId();
+            if (! Property::isAllowedStatus((string) $property->status, $agencyId ? (int) $agencyId : null)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'status' => "Refusing to persist out-of-vocabulary property status '{$property->status}'.",
+                ]);
+            }
+        }
+
         // AT-321 — the app layer records this Eloquent write richly (saved()/
         // created()), so suppress the unbypassable DB trigger for it to avoid a
         // duplicate backstop row. Fires before BOTH insert and update; released at

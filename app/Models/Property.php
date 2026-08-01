@@ -1092,6 +1092,83 @@ class Property extends Model
         return strtolower(trim((string) $this->status));
     }
 
+    // ── AT-307 — server-side status-vocabulary guard ────────────────────────────
+    // properties.status is a free-text VARCHAR; the UI already picks from the
+    // settings-defined list, but non-UI paths (mobile API, imports, jobs, crafted
+    // requests) could persist any string (the 2903 mobile-withdraw class). These
+    // helpers are the ONE vocabulary, DERIVED from Settings so they never drift.
+
+    /** Per-agency memo of allowedStatuses() within a process (imports save many). */
+    private static array $allowedStatusCache = [];
+
+    /**
+     * The states CoreX code itself writes — lifecycle jobs (ExpireMandates→expired),
+     * deal listeners (under_offer/sold), importers (sold), the P24 sync (Active/Sold/
+     * Rented), publish/archive/clone (active/archived/draft). Built from the model's
+     * OWN existing status vocabularies so it can never drift from them; the four
+     * on-market pickers (active/for_sale/to_let/under_offer) that live in no other
+     * const are added explicitly. Always valid, for every agency.
+     */
+    public static function systemStatuses(): array
+    {
+        return array_values(array_unique(array_map('strtolower', array_merge(
+            self::OFF_MARKET_STATUSES,
+            self::CONCLUDED_STATUSES,
+            self::INACTIVE_STATUSES,
+            ['active', 'for_sale', 'to_let', 'under_offer'],
+        ))));
+    }
+
+    /**
+     * The full write-side vocabulary for an agency: systemStatuses() ∪ the agency's
+     * ACTIVE settings-defined property_status items (PropertySettingItem
+     * group='property_status'), each normalised to its stored form the same way the
+     * edit form maps a picker name → status (lower, spaces→underscores). DERIVES
+     * from Settings — a status an agency activates is accepted automatically; one it
+     * de-activates falls back to systemStatuses() (so lifecycle states never break).
+     */
+    public static function allowedStatuses(?int $agencyId): array
+    {
+        $key = $agencyId ?: 0;
+        if (isset(self::$allowedStatusCache[$key])) {
+            return self::$allowedStatusCache[$key];
+        }
+
+        $governance = [];
+        if ($agencyId) {
+            $governance = PropertySettingItem::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('group', PropertySettingItem::GROUP_STATUS)
+                ->where('active', true)
+                ->whereNull('deleted_at')
+                ->pluck('name')
+                ->map(fn ($n) => strtolower(str_replace(' ', '_', trim((string) $n))))
+                ->filter()
+                ->all();
+        }
+
+        return self::$allowedStatusCache[$key] = array_values(array_unique(
+            array_merge(self::systemStatuses(), $governance)
+        ));
+    }
+
+    /** Case-insensitive membership test. Empty/null is not out-of-vocab (nullable / DB default). */
+    public static function isAllowedStatus(?string $status, ?int $agencyId): bool
+    {
+        $status = strtolower(trim((string) $status));
+        if ($status === '') {
+            return true;
+        }
+
+        return in_array($status, self::allowedStatuses($agencyId), true);
+    }
+
+    /** Test/maintenance hook — drop the per-agency vocabulary memo. */
+    public static function clearAllowedStatusCache(): void
+    {
+        self::$allowedStatusCache = [];
+    }
+
     /** A concluded listing (sold / transferred / rented / let out). */
     public function isConcluded(): bool
     {
