@@ -1814,6 +1814,17 @@ class ESignWizardController extends Controller
             // segment is signable by the actual recipients.
             $mergedHtml = $this->normalizePackMarkerParties($mergedHtml, $recipients);
 
+            // Candidate flow — guarantee the authorising practitioner a full-parity
+            // signature surface on EVERY signing segment, even imported segments that
+            // do NOT render the shared mandate signature-block component (a Mandatory
+            // Disclosure / Addendum). Idempotent: component segments already carrying an
+            // authoriser surface are skipped. Without this the authoriser's ink binds to
+            // nothing on such segments and drops from the final document.
+            if ($isCandidateFlow) {
+                $mergedHtml = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class)
+                    ->inject($mergedHtml, 'supervisor', 'Authorising Practitioner');
+            }
+
             // §20 — stamp each segment's .corex-document-wrapper with an
             // instance-stable docKey so the client keys disclosure rows
             // intrinsically per document (disclosure_<docKey>_<n>). One
@@ -1985,6 +1996,15 @@ class ESignWizardController extends Controller
             // existing normaliser for now (retired in a follow-up).
             $bodyHtml = app(\App\Services\Docuperfect\SigningSurfaceResolver::class)
                 ->resolve($bodyHtml, $recipients, $user->name, $isSalesContext);
+
+            // Candidate flow — same authoriser-surface guarantee as the pack path:
+            // an imported single document that omits the mandate signature-block
+            // component still yields exactly one full-parity authoriser surface
+            // (idempotent where the component already rendered one).
+            if ($isCandidateFlow) {
+                $bodyHtml = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class)
+                    ->inject($bodyHtml, 'supervisor', 'Authorising Practitioner');
+            }
 
             // §20 — stamp the document's .corex-document-wrapper with an
             // instance-stable docKey (same scheme as the pack path) so a

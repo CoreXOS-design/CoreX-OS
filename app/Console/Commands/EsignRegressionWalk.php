@@ -596,6 +596,32 @@ final class EsignRegressionWalk extends Command
             $need > 0 && $got === $need,
             "authoriserSigSlots=$need baked=$got | overall: $art",
         );
+
+        // (f) COMPOSE-TIME INJECTOR — an imported segment authored WITHOUT the mandate
+        // signature-block component must still yield exactly ONE full-parity authoriser
+        // surface; a component segment is never double-injected; a pure-info segment gets
+        // nothing. Guards the Monday-import gap (imported disclosure/addendum leaving the
+        // authoriser nowhere to sign).
+        $inj = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class);
+        $authSig = fn ($h) => preg_match_all('/data-marker-type="signature"[^>]*data-recipient-identity="supervisor"|data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $h);
+        $nonComp = '<div class="corex-document-wrapper"><h1>Mandatory Disclosure</h1><div class="sig-section"><div class="sig-cell-line" data-marker-party="seller" data-marker-type="signature" data-name="E2E Seller"></div></div></div>';
+        $comp = '<div class="corex-document-wrapper"><div class="sig-party-block"><div class="sig-cell-line" data-marker-party="supervisor" data-recipient-identity="supervisor" data-marker-type="signature"></div></div><div class="sig-cell-line" data-marker-party="seller" data-marker-type="signature" data-name="Rec One"></div></div>';
+        $info = '<div class="corex-document-wrapper"><h1>Info</h1><p>No signing.</p></div>';
+        $oNon = $inj->inject($nonComp);
+        $oCmp = $inj->inject($comp);
+        $oInf = $inj->inject($info);
+        $oPack = $inj->inject($comp . $nonComp . $info);
+        $injOk = $authSig($oNon) === 1                         // non-component → exactly one, designation-labelled
+            && str_contains($oNon, 'Authorising Practitioner') && ! str_contains($oNon, 'data-name="supervisor"')
+            && $authSig($oCmp) === 1 && ! str_contains($oCmp, 'data-authoriser-injected')   // idempotent
+            && $authSig($oInf) === 0                            // info page untouched
+            && $authSig($oPack) === 2 && substr_count($oPack, 'data-authoriser-injected') === 1; // pack: 1 kept + 1 injected
+        $this->assert(
+            'AUTH-f) compose-time injector: non-component segment gets exactly ONE authoriser surface, component idempotent, info untouched',
+            $injOk,
+            'nonComp=' . $authSig($oNon) . ' comp=' . $authSig($oCmp) . ' info=' . $authSig($oInf)
+                . ' packSurfaces=' . $authSig($oPack) . ' packInjected=' . substr_count($oPack, 'data-authoriser-injected'),
+        );
     }
 
     /**
