@@ -468,6 +468,8 @@ class Property extends Model
         'rental_upload_keys'      => 'array',
         'gallery_expected_count'  => 'integer',
         'gallery_stored_count'    => 'integer',
+        'ad_generated_count'      => 'integer',
+        'ad_last_generated_at'    => 'datetime',
         'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',

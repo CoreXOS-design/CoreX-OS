@@ -250,6 +250,88 @@ link, no invented facts, optional emojis). Each call is budget-gated + cost-logg
 unavailable (no key / budget), the ad image still renders; the row shows the reason instead of
 copy. Batch capped at 50 properties.
 
+### 10b.1 "N selected" showing 0 (fixed) + an ad-generated counter/badge per property
+
+> Status: LIVE · 2026-08-02
+
+**Bug — the agent-group "N selected" summary always read 0, even with real
+selections.** `resources/views/tools/_ad-manager-property-card.blade.php:10`'s
+checkbox bound `x-model="selected"` (no `.number` modifier). Per Alpine's
+checkbox-array binding, a manually-ticked checkbox pushes the DOM `value`
+attribute as a **string** (`"42"`), while every property id elsewhere on the
+page (`p.id`, `agentProperties()`, `selectAllForAgent()`/`selectAllEverything()`
+which push `p.id` directly in JS) is a genuine **number**. `agentSelectedCount()`
+compares them with `ids.includes(s)` — strict equality — so a manually-checked
+property was never found, and the per-agent header always showed 0 selected.
+The overall footer count (`selected.length`) was unaffected — `.length` doesn't
+care about element type — which is why that count looked right while the
+per-agent one didn't, the tell that pointed at a type mismatch rather than a
+wrong-array bug. The SAME mismatch silently broke two other things sharing the
+same array: the selected-card highlight border (`selected.includes(p.id)`,
+same partial, line 5) and `skipAgent()` (line ~320, filtered `selected` by the
+same string ids that were never actually removed). **Fix: one word** —
+`x-model="selected"` → `x-model.number="selected"` — matching the existing
+convention already used elsewhere in this codebase (`drive.blade.php`,
+`command-center/feedback/index.blade.php` both already use `x-model.number`
+on an id checkbox for exactly this reason).
+
+**New feature — an ad-generated counter + last-generated date, per property,
+shown on that property's own card in this tool's selection grid.** Two new
+`properties` columns (additive, defaulted/nullable, no backfill — a property
+simply starts at 0/null, which is honest: CoreX has no historical record of
+past Ad Manager runs before this shipped):
+- `ad_generated_count` (`unsignedInteger`, default `0`)
+- `ad_last_generated_at` (`timestamp`, nullable)
+
+**Stamped only for properties an asset was ACTUALLY generated for** — not
+every id in the request. `AdManagerController::markAdsGenerated(array $ids)`
+does one bulk `Property::whereIn('id', $ids)->update([...])` call, called from
+BOTH `generate()` (the custom-template/pre-built path) and `generateBrochures()`
+(the Printable Brochure path), each keyed on `array_column($results, 'id')` —
+the ids that survived the per-property `canAdvertise()` scope check and made
+it into the response, never the raw request input. A property skipped by the
+scope check (outside the user's data scope) is never counted, verified by a
+dedicated test. One query per batch, not one increment per property — a
+50-property batch costs the same one UPDATE as a 1-property generate.
+
+**Same-pillar, no domain event needed.** This is Property acting on Property
+(the Ad Manager reads and writes back to the same record, same tool, same
+request) — no other pillar (Contact, Deal, Agent, Mandate, FICA) reacts to it,
+so it doesn't need the domain-events pattern (`.ai/specs/corex-domain-events-
+spec.md`), which exists specifically for cross-pillar reactivity (CLAUDE.md
+non-negotiable #9). Confirmed by precedent: the existing `p24_stats_synced_at`
+column (the direct precedent this migration is modelled on) is also a plain
+same-pillar timestamp, stamped with a direct write, no event involved.
+
+**UI — a small badge in the thumbnail's top-right corner** (`_ad-manager-
+property-card.blade.php`), shown only when `ad_generated_count > 0` (a
+property with zero ads generated shows no badge at all, not a "0"). Top-right
+was chosen deliberately over the literally-requested "top-left" because that
+corner is already occupied by the selection checkbox chip — stacking two
+elements there would collide; top-right was empty and reads cleanly. Hovering
+shows the last-generated date via a title tooltip (`formatAdDate()`).
+
+**Acceptance criteria**
+- [x] Manually ticking one or more properties inside an agent group updates
+      that group's own "N selected" count correctly (was stuck at 0).
+- [x] The selected-card highlight border lights up for a manually-ticked card
+      (same root cause, same fix).
+- [x] "Skip" on an agent group actually removes that agent's manually-ticked
+      properties from the selection (same root cause, same fix).
+- [x] `generate()` (custom-template and pre-built paths) increments
+      `ad_generated_count` and stamps `ad_last_generated_at` for every
+      property an asset was generated for.
+- [x] `generateBrochures()` does the same for the Printable Brochure path.
+- [x] Calling generate twice increments the counter to 2, not resetting to 1.
+- [x] A property skipped by `canAdvertise()`'s scope check is never counted,
+      even when it was in the original request alongside a property that WAS
+      generated.
+- [x] The badge shows only when the count is greater than 0; a property with
+      no Ad Manager history shows no badge.
+- [x] Verified end-to-end via Tinker through the real `generate()` endpoint
+      (not just the model/migration in isolation): count 0→1, timestamp
+      stamped, `index()`'s payload shape carries both new fields correctly.
+
 ---
 
 ## 10e. Same-origin image resolution (html2canvas + cross-host storage)
@@ -1680,3 +1762,21 @@ template builder" this was asked for.
   no-`variants`-key fallback.
 - `tests/Unit/Properties/PropertyAdTemplateVariantTest.php` — same cases,
   server-side.
+
+### "N selected" counter fix + ad-generated counter/badge (§10b.1)
+- `database/migrations/2026_08_20_000005_add_ad_generated_tracking_to_properties.php` —
+  additive `ad_generated_count` (default 0) + `ad_last_generated_at` (nullable) on
+  `properties`; `database/schema/mysql-schema.sql` re-dumped in the same change.
+- `app/Models/Property.php` — both columns added to `$casts` (integer / datetime).
+- `app/Http/Controllers/Tools/AdManagerController.php` — new private
+  `markAdsGenerated(array $propertyIds)`, called from both `generate()` and
+  `generateBrochures()` after their result loops; `index()`'s per-property
+  payload gains `ad_generated_count`/`ad_last_generated_at`.
+- `resources/views/tools/_ad-manager-property-card.blade.php` — checkbox
+  `x-model="selected"` → `x-model.number="selected"` (the one-word fix); new
+  top-right ad-count badge, shown only when `ad_generated_count > 0`.
+- `resources/views/tools/ad-manager.blade.php` — new `formatAdDate(iso)`
+  helper for the badge's tooltip.
+- `tests/Feature/Tools/AdManagerGeneratedCounterTest.php` — counter stamped on
+  generate (pre-built + brochure paths), increments across repeated calls, a
+  scope-skipped property is never counted.

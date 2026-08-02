@@ -306,6 +306,12 @@ function adManager() {
         agentProperties(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
         agentSelectedCount(agentId) { const ids = this.agentProperties(agentId).map(p => p.id); return this.selected.filter(s => ids.includes(s)).length; },
 
+        /** "Last generated" tooltip on a property card's ad-count badge. */
+        formatAdDate(iso) {
+            if (!iso) return 'never';
+            return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        },
+
         toggleAgent(id) {
             if (this.openAgents.includes(id)) { this.openAgents = this.openAgents.filter(a => a !== id); }
             else { this.openAgents.push(id); this.skippedAgents = this.skippedAgents.filter(a => a !== id); }

@@ -11,6 +11,7 @@ use App\Services\MarketingCopyService;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Bulk Ad Manager (Tools → Ad Manager). Spec: .ai/specs/ad-manager.md §10b.
@@ -175,6 +176,11 @@ class AdManagerController extends Controller
                 'agent_id'   => (int) $p->agent_id,
                 'agent_name' => $p->agent?->name ?? 'Unassigned',
                 'thumb'      => $imgs[0] ?? null,
+                // Ad Manager card badge — how many ads this tool has generated
+                // for this property, and when. Not a general "ads ever made"
+                // count (the single-property generator doesn't stamp this).
+                'ad_generated_count'   => (int) $p->ad_generated_count,
+                'ad_last_generated_at' => $p->ad_last_generated_at?->toIso8601String(),
             ];
         })->values();
 
@@ -354,7 +360,34 @@ class AdManagerController extends Controller
             ], 403);
         }
 
+        $this->markAdsGenerated(array_column($results, 'id'));
+
         return response()->json(['ok' => true, 'results' => $results]);
+    }
+
+    /**
+     * Ad Manager card counter — "how many ads have been created for this
+     * property, and when was the last one?", shown as a badge on the
+     * property's card in this tool's own selection grid. Stamped only for the
+     * property ids that actually made it into `$results` — a property that
+     * failed `canAdvertise()` and was skipped never got an asset generated
+     * for it, so it must not be counted. A single bulk UPDATE, not an
+     * increment-per-model-instance loop, so a 50-property batch costs one
+     * query, not fifty. Same-pillar bookkeeping (Property acting on
+     * Property, no other module reacts to it) — does not need the domain-
+     * events pattern (.ai/specs/corex-domain-events-spec.md), which exists
+     * for cross-pillar reactivity.
+     */
+    private function markAdsGenerated(array $propertyIds): void
+    {
+        if (empty($propertyIds)) {
+            return;
+        }
+
+        Property::whereIn('id', $propertyIds)->update([
+            'ad_generated_count'   => DB::raw('ad_generated_count + 1'),
+            'ad_last_generated_at' => now(),
+        ]);
     }
 
     /**
@@ -398,6 +431,8 @@ class AdManagerController extends Controller
                 'error' => 'None of the selected properties are yours to advertise.',
             ], 403);
         }
+
+        $this->markAdsGenerated(array_column($results, 'id'));
 
         return response()->json(['ok' => true, 'results' => $results]);
     }
