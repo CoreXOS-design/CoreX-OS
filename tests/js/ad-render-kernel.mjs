@@ -344,6 +344,67 @@ ok('applies to Agent 2 as well as Agent 1',
 ok('an unrelated image field ignores removeBackground even if somehow set (scoped to Agent Image only)',
     !K.contentHtml(el({ field: 'image_1', removeBackground: true }), { image_1: '/storage/p/1.jpg' }, {}).includes('stripBackground'));
 
+// REGRESSION #3 (property 3080, agent Elize Reichel): two hard-edged white
+// discs at the ear/earring positions and a pale block near the collar were
+// left completely untouched — genuine backdrop colour, but never reached by
+// the border-seeded flood fill because they were fully enclosed pockets (a
+// hoop earring, a lapel gap). _fillEnclosedHoles() sweeps these up in a
+// second pass, gated on two things: (a) the pocket must never touch any
+// frame border — anything that does is exactly the "shirt/garment" case
+// regressions #1/#2 already protect, so it's left strictly alone; (b) the
+// pocket must be at least HOLE_MIN_PX (30, at the real 500px working
+// resolution) — an eye catch-light is ALSO an enclosed near-white pocket but
+// measured 19px and under on a real photo, so the size floor is what keeps
+// this from eating a specular highlight while still catching a 46-851px
+// earring/clothing hole.
+function makeHoleFrame(w, h, bg, subjectRect, holeRect) {
+    const frame = makeFrame(w, h, bg, subjectRect, null);
+    if (holeRect) paintRect(frame, w, holeRect, bg);
+    return frame;
+}
+
+const holeSubject = { x: 5, y: 5, w: 30, h: 30, color: [40, 90, 160] };
+
+// A 6x6 = 36px enclosed hole — above the 30px floor, should be filled.
+const earringFrame = makeHoleFrame(W, H, white, holeSubject, { x: 15, y: 15, w: 6, h: 6 });
+K.floodFillTransparent(earringFrame, W, H);
+K.fillEnclosedHoles(earringFrame, W, H);
+ok('a 36px enclosed backdrop-coloured hole (earring-sized) is filled', alphaAt(earringFrame, W, 17, 17) === 0);
+
+// A 3x3 = 9px enclosed hole — well under the floor, simulating an eye
+// catch-light; must survive.
+const catchlightFrame = makeHoleFrame(W, H, white, holeSubject, { x: 18, y: 18, w: 3, h: 3 });
+K.floodFillTransparent(catchlightFrame, W, H);
+K.fillEnclosedHoles(catchlightFrame, W, H);
+ok('a 9px enclosed backdrop-coloured pocket (catch-light-sized) is NOT filled — stays below the safety floor',
+    alphaAt(catchlightFrame, W, 19, 19) === 255);
+
+// A large backdrop-coloured patch that DOES touch the border — must never be
+// filled by this pass, even though it is far bigger than the size floor; this
+// is what keeps regressions #1/#2 (the eaten shirt) from coming back via a
+// second code path.
+const borderTouchFrame = makeFrame(W, H2, white, head, null);
+paintRect(borderTouchFrame, W, { x: 5, y: 34, w: 30, h: 6 }, garmentColor);
+K.floodFillTransparent(borderTouchFrame, W, H2);
+K.fillEnclosedHoles(borderTouchFrame, W, H2);
+ok('a border-touching patch is never touched by the enclosed-holes pass, garment stays intact',
+    alphaAt(borderTouchFrame, W, 10, 37) === 255 && alphaAt(borderTouchFrame, W, 20, 38) === 255);
+
+// _featherAlpha(): a hard 0/255 edge should soften to an intermediate value
+// right at the boundary, without changing fully-interior or fully-exterior
+// pixels.
+const featherFrame = makeFrame(W, H, white, holeSubject, null);
+K.floodFillTransparent(featherFrame, W, H);
+const beforeEdge = alphaAt(featherFrame, W, 5, 20); // first column of the subject — right at its edge
+K.featherAlpha(featherFrame, W, H);
+const afterEdge = alphaAt(featherFrame, W, 5, 20);
+const afterInterior = alphaAt(featherFrame, W, 20, 20); // deep inside the subject
+const afterOutside = alphaAt(featherFrame, W, 0, 0); // deep in the backdrop
+ok('featherAlpha() softens a hard edge pixel to an intermediate alpha (not a binary 0/255 jump)',
+    beforeEdge === 255 && afterEdge > 0 && afterEdge < 255, 'before=' + beforeEdge + ' after=' + afterEdge);
+ok('featherAlpha() leaves a fully-interior subject pixel opaque', afterInterior === 255);
+ok('featherAlpha() leaves a fully-exterior backdrop pixel transparent', afterOutside === 0);
+
 section('Templates saved BEFORE any of this still render unchanged');
 
 ok('a legacy Agent Image (no shapeType at all, old borderRadius:50 baked in) still renders circular',
