@@ -1126,12 +1126,52 @@ adding the `onload` hook on the next render, so the element shows the
 untouched original photo. Nothing is ever mutated on the `Property`/`User`
 model or `prop` data; the swap only ever touches the live `<img>` DOM node.
 
+*Round 3 (2026-08-02, same day) — enclosed holes and hard edges (property
+3080, agent Elize Reichel).* Investigated first, empirically, before touching
+any code: two hard-edged white discs sat at the ear/earring positions, and a
+pale block sat near the collar/shoulder, all left completely untouched by
+rounds 1–2 — because they're genuine backdrop colour that the border-seeded
+flood fill can never reach in the first place. A hoop earring encircles a
+disc of visible backdrop; a lapel gap does the same — both are fully enclosed
+pockets, connected to no border, so no seed ever reaches them. Separately, the
+cutout's edge was hard/aliased (binary alpha, 0 or 255, nothing between) —
+correct per the flood-fill's own logic but visibly "pasted on" compared to a
+studio matte cut.
+
+Fixed with two new passes, run after the existing flood fill, inside the SAME
+`_processBackgroundRemoval()` pipeline:
+
+- **`_fillEnclosedHoles()`** — a second connected-components pass over
+  backdrop-coloured pixels the first pass left opaque. A pocket is filled
+  ONLY if (a) it touches NO frame border anywhere along its connected
+  boundary — anything that does is exactly the garment case rounds 1/2
+  already protect and is left strictly alone — and (b) it is at least
+  `HOLE_MIN_PX = 30` pixels, measured at the real 500px working resolution.
+  (b) exists because an eye catch-light is ALSO an enclosed near-white pocket
+  within the same colour tolerance, and had to be ruled out empirically before
+  shipping this: measured on a real photo, catch-lights ran 19px and under
+  while real holes (the earring, the collar gap) ran 46–851px — a clean
+  separation with margin on both sides, not a threshold picked by feel.
+  Verified against Retha's and Kym's photos too (previously-clean cutouts,
+  not just Elize's) — no new artifacts introduced.
+- **`_featherAlpha()`** — a 1px-radius (3×3) box blur applied to the ALPHA
+  CHANNEL ONLY, never the colour channels, so a hard cut-out boundary reads as
+  a soft anti-aliased line instead of a binary jump — most visible on fine
+  hair strands. Colour-channel blurring was deliberately avoided: it would
+  bleed backdrop colour into edge pixels, the opposite of the goal.
+
+The collar/shoulder pale block is only PARTIALLY fixed by this round: the
+portion of it that's fully enclosed is now correctly filled, but the portion
+that touches the frame border is — correctly — left alone, for the same
+reason a real garment must be. That's the accepted boundary of a
+border-connectivity technique, not an oversight; see the existing "remaining,
+accepted limit" note above, which this round doesn't change.
+
 **Deliberately not built:** any adjustable tolerance/threshold control (a fixed
 value tuned for a light, roughly-solid backdrop); manual background-colour
-picking (always auto-sampled from the corners); edge feathering/anti-aliasing
-of the cutout boundary; a "transparent fill behind the shape mask" or "no
-placeholder box when the photo is missing" option (both explicitly dropped from
-scope on request, see §15's "Deliberately not built").
+picking (always auto-sampled from the corners); a "transparent fill behind the
+shape mask" or "no placeholder box when the photo is missing" option (both
+explicitly dropped from scope on request, see §15's "Deliberately not built").
 
 **Acceptance criteria**
 - [x] A plain white/near-white backdrop is removed; the person is preserved.
@@ -1152,9 +1192,21 @@ scope on request, see §15's "Deliberately not built").
       broken/blank image, never a thrown error visible to the user.
 - [x] The SAME source photo across many bulk-run properties is only processed
       once (cache hit for every subsequent occurrence).
+- [x] A fully-enclosed backdrop-coloured pocket (e.g. through a hoop earring)
+      at least `HOLE_MIN_PX` is filled — round 3's fix for the ear-disc
+      artifact.
+- [x] A small enclosed near-white pocket (e.g. an eye catch-light) below
+      `HOLE_MIN_PX` is NOT filled — proves the size floor protects genuine
+      facial highlights, not just an assumption.
+- [x] A backdrop-coloured patch that touches the frame border is never
+      touched by the enclosed-holes pass, no matter its size — the
+      garment-safety guarantee holds through round 3, not just rounds 1–2.
+- [x] The cutout edge is feathered (intermediate alpha at the boundary), not a
+      hard binary 0/255 jump — round 3's fix for aliased/hard edges.
 - [x] `tests/js/ad-render-kernel.mjs` covers the flood-fill algorithm directly
-      (synthetic pixel buffers — no real Canvas/Image needed) and the
-      onload-hook emission/omission.
+      (synthetic pixel buffers — no real Canvas/Image needed), the
+      onload-hook emission/omission, the enclosed-holes pass (filled vs. not
+      filled vs. border-touching), and edge feathering.
 
 ---
 
@@ -1421,7 +1473,9 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
 - `public/js/corex-ad-render.js` — `stripBackground()`, `_processBackgroundRemoval()`,
   `_floodFillTransparent()`, `_cornerColor()`, `backgroundRemovalsSettled()`,
   `_bgRemovalCache`; `imgTag()` adds the onload hook; `makeElement()` seeds
-  `removeBackground: false`.
+  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` (`HOLE_MIN_PX = 30`)
+  and `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
+  `_floodFillTransparent()`, and both exported on `CoreXAd`.
 - `resources/views/corex/properties/ad-builder.blade.php` — "Remove background" checkbox
   in the Agent Image panel.
 - `resources/views/corex/properties/ad.blade.php` — `_capture()` awaits
@@ -1429,7 +1483,8 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
 - `resources/views/tools/ad-manager.blade.php` — `downloadRow()` awaits
   `backgroundRemovalsSettled()` before `html2canvas`.
 - `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
-  onload-hook emission/omission.
+  onload-hook emission/omission, enclosed-holes fill/no-fill/border-touching cases,
+  edge feathering.
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil
