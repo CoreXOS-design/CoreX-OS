@@ -391,7 +391,12 @@ function adManager() {
             // capture could grab the un-stripped original.
             try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(res => setTimeout(res, 60));
+            let restoreImages = () => {};
             try {
+                // html2canvas has known gaps in its object-fit support — pre-bake the
+                // SAME cover/contain crop onto an offscreen canvas so there is nothing
+                // left for it to get wrong (a real ad hit this with an Agent Image).
+                try { restoreImages = await CoreXAd.prepareImagesForCapture(el); } catch (_) {}
                 const c = await html2canvas(el, { width: r.cw, height: r.ch, scale: 2, useCORS: true, backgroundColor: '#071325', logging: false });
                 const a = document.createElement('a');
                 a.download = 'ad-' + r.id + '.png';
@@ -400,6 +405,7 @@ function adManager() {
             } catch (e) {
                 window.showToast ? window.showToast('Download failed: ' + (e?.message || 'unknown'), 'error') : alert('Download failed.');
             } finally {
+                restoreImages();
                 el.style.transform = saved;
                 this.fitCanvases();
             }

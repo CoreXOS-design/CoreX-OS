@@ -1107,17 +1107,71 @@ its OWN `cfg` was already resolving correctly via the old fallback; this fix
 protects every OTHER custom template that started from a real preset and was
 then resized, which this bug would have silently mis-sized.)
 
-**Investigated, not conclusively resolved — the Agent Image "stretch".** The
-saved element is `agent_avatar`, `w:180 h:200`, `shapeType:"rectangle"`
-(so no clip-path/circle masking is in play at all — a plain sharp rectangle),
-`objectFit:"cover"` (crops, does not distort), `removeBackground:true`. Nothing
-in `frameStyle()`/`imgTag()`/`stripBackground()` was found to alter this
-element's aspect ratio. Two live possibilities, neither confirmed without a
-real browser: (a) what looked like "stretching" was actually the zoom/clip
-glitch above happening to the whole canvas including this element, now fixed
-by the same veil; (b) a background-removal cutout artifact (§15.1, itself
-fixed twice already this session) being described informally as "stretched"
-rather than a true geometric distortion. Flagged rather than patched blind.
+**§16.1 — the Agent Image "stretch", root-caused and fixed.** A follow-up
+investigation (`MODE:INVESTIGATION` — no code changed until Johan confirmed
+the diagnosis, per the Conductor & Lane Intake Protocol) traced every line
+touching this element's geometry in both the live preview and the
+`html2canvas` capture and found **no code path in this app that treats them
+differently** — same DOM,
+same `cfg`, same `frameStyle()`/`imgTag()` output either way (§12's whole
+premise — one kernel, no drift — held up under scrutiny). The remaining
+candidate: **`html2canvas` 1.4.1 has long-documented gaps in its CSS
+`object-fit` support** — it can rasterise an `<img>` at its raw intrinsic
+aspect ratio stretched to fill the box instead of correctly cropping it the
+way the live browser (correctly) does, exactly the "enlarged/stretched, breaks
+past the frame" symptom reported. Every image field uses precisely the
+pattern this class of `html2canvas` bug targets: `overflow:hidden` on the
+frame (`frameStyle()`) + `width:100%;height:100%;object-fit:cover|contain` on
+the child `<img>` (`imgTag()`).
+
+**Fix: pre-bake the crop, don't fight the rasteriser.** Same principle
+already established for the printable brochure's location pin (§10c — "an
+inline SVG's point gets clipped in dompdf; a raster sizes predictably") —
+when a rendering engine has a known gap in a CSS feature, don't rely on it;
+pre-compute the correct pixels yourself. New kernel function
+`prepareImagesForCapture(root)` walks every `<img>` inside the capture root,
+and for each one whose `object-fit` is `cover` or `contain` (`fill` is left
+alone — it's supposed to stretch), draws the SAME crop `object-fit` would
+onto an offscreen `<canvas>` sized to the element's own box (geometry
+factored into a pure, unit-tested `objectFitRect(fitVal, boxW, boxH, natW,
+natH)` — cover picks `Math.max` scale and crops, contain picks `Math.min`
+and letterboxes transparently), then swaps the `<img>`'s `src` to that
+pre-cropped PNG data URL. By the time `html2canvas` captures it, the image
+genuinely **is** the right shape — there is nothing left for its object-fit
+handling to get wrong, regardless of the exact nature of the underlying gap.
+`img.decode()` is awaited before capture so the swapped src is actually
+painted-ready; a same-origin/CORS failure on any one image is caught and that
+image is simply left as-is (never a thrown error, never breaks the ad).
+
+**A restore function is mandatory and always called in `finally`** — the live
+preview, the "change photo" overlay, and "reset to original" all still read
+the ORIGINAL `<img src>`/`data-orig-src` outside the capture window; the swap
+is real but strictly temporary, exactly mirroring how the capture veil
+(above) restores the wrapper's transform.
+
+**Fixed the class, not the instance (BUILD_STANDARD §6).** The same
+`html2canvas` gap can hit ANY image field, and a grep of every `html2canvas(`
+call site found **three**, not one — the single-property generator
+(`ad.blade.php` `_capture()`, already covered above), the Ad Builder's own
+"Export for Marketing" (`ad-builder.blade.php` `capture()`), and the bulk Ad
+Manager (`tools/ad-manager.blade.php` `downloadRow()`). All three now call
+`prepareImagesForCapture()` immediately before their `html2canvas()` call.
+The Ad Builder's `capture()` was ALSO missing the `backgroundRemovalsSettled()`
+await every other capture path already had (§15.1) — a sibling gap, fixed
+alongside it.
+
+**§16.2 — the dead platform-selector for a custom template, fixed.** The
+Facebook/Instagram/Story/WhatsApp/Custom buttons (`ad.blade.php`) stayed fully
+clickable and visually "active" for a custom template even though `cfg`'s
+custom-template branch never reads `platform` at all — clicking them is a
+complete no-op, yet "Facebook 1200×628" showing highlighted while the actual
+export renders the template's own (possibly totally different, e.g. square)
+saved size is exactly what read as "the size I picked isn't what exported."
+The platform row is now hidden entirely (`x-if="template !== 'custom'"`) for
+a custom template, replaced with a plain, honest, read-only line — the
+template's actual `cfg.w`×`cfg.h` — plus a direct **"Change in Ad Builder →"**
+link (new `_customTemplateId`, set alongside `_customLayout` in
+`selectCustomTemplate()`) to the one place that size can actually be changed.
 
 **Built — custom template picker previews (the separate feature ask).**
 Custom (agency-built) template cards showed only a letter avatar
@@ -1163,9 +1217,17 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
       pre-built template's — both use `.tpl-card`/`.tpl-thumb` and the same
       `fitThumbs()` responsive scaling, only the reference-frame contain-fit
       differs.
-- [ ] Agent Image "stretch" — NOT closed; needs the two fixes above verified
-      live against the actual reported template, or a screenshot, to know
-      whether anything further is needed.
+- [x] Every `html2canvas()` call site (single-property generator, Ad Builder
+      export, bulk Ad Manager) pre-bakes the object-fit crop before capturing,
+      via `CoreXAd.prepareImagesForCapture()`; each restores the original
+      `<img src>` in `finally` so the live preview/"change photo"/"reset to
+      original" paths are never affected.
+- [x] `objectFitRect()`'s cover/contain geometry is unit-tested directly
+      (`tests/js/ad-render-kernel.mjs`) — crop vs letterbox, centring on both
+      axes, matching-aspect no-op, and the zero-size/zero-natural-size guard.
+- [x] A custom template's platform-size row is hidden (not just inert) and
+      replaced with the template's real size + a link to change it in the Ad
+      Builder.
 
 ---
 
@@ -1271,3 +1333,19 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
   (`try/finally` in `_capture()`); `get cfg()` always trusts the custom template's own
   `canvasW`/`canvasH`; `customThumbStyle(tpl)` + live `CoreXAd.renderLayout()` mount per
   custom-template picker card, replacing the letter-avatar thumb; `@keyframes ad-spin`.
+
+### Agent Image "stretch" root-cause fix + dead platform-selector fix (§16.1, §16.2)
+- `public/js/corex-ad-render.js` — `objectFitRect()` (pure crop geometry, unit-tested),
+  `prepareImagesForCapture()` (pre-bakes the crop onto an offscreen canvas, swaps `<img
+  src>`, returns a restore function).
+- `resources/views/corex/properties/ad.blade.php` — `_capture()` calls
+  `prepareImagesForCapture()` before `html2canvas()`; platform-selector row hidden for
+  `template === 'custom'`, replaced with a read-only size + "Change in Ad Builder →" link;
+  new `_customTemplateId` (set in `selectCustomTemplate()`, cleared in `selectTemplate()`).
+- `resources/views/corex/properties/ad-builder.blade.php` — `capture()` gains the SAME
+  `backgroundRemovalsSettled()` await and `prepareImagesForCapture()` call the other two
+  capture paths already had (a sibling gap, BUILD_STANDARD §6).
+- `resources/views/tools/ad-manager.blade.php` — `downloadRow()` calls
+  `prepareImagesForCapture()` before `html2canvas()`.
+- `tests/js/ad-render-kernel.mjs` — `objectFitRect()` cover/contain/matching-aspect/
+  zero-size coverage.
