@@ -100,6 +100,7 @@
         baths:            { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '3' },
         garages:          { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
         parking:          { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
+        garages_or_parking: { w: 80, h: 36, fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
         size_m2:          { w: 120, h: 36,  fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '450 m²' },
         reference:        { w: 160, h: 28,  fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.08, padding: 4, preview: 'REF 12345' },
         address:          { w: 360, h: 32,  fontSize: 13, fontWeight: '500', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '12 Marine Drive' },
@@ -156,6 +157,7 @@
         { type: 'baths',         group: 'property', label: 'Baths',        iconBg: '#0369a1' },
         { type: 'garages',       group: 'property', label: 'Garages',      iconBg: '#0369a1' },
         { type: 'parking',       group: 'property', label: 'Parking',      iconBg: '#0369a1' },
+        { type: 'garages_or_parking', group: 'property', label: 'Garages / Parking', iconBg: '#0369a1' },
         { type: 'size_m2',       group: 'property', label: 'Size m²',      iconBg: '#065f46' },
         { type: 'reference',     group: 'property', label: 'Reference',    iconBg: '#475569' },
         { type: 'address',       group: 'property', label: 'Address',      iconBg: '#475569' },
@@ -190,7 +192,7 @@
      * (a key into ICONS, or null/undefined) and `el.iconSize` (px) are the new
      * per-element properties this powers. Spec: .ai/specs/ad-manager.md §14.
      */
-    var NUMERIC_FEATURE_FIELDS = ['beds', 'baths', 'garages', 'parking'];
+    var NUMERIC_FEATURE_FIELDS = ['beds', 'baths', 'garages', 'parking', 'garages_or_parking'];
 
     // "Parking" does not pluralise in CoreX copy — matches the printable brochure.
     var FEATURE_LABELS = {
@@ -420,6 +422,21 @@
         return (field !== 'parking' && num === 1) ? meta.singular : meta.plural;
     }
 
+    /**
+     * "garages_or_parking" — a single combined field for bulk ad runs, where one
+     * template covers many properties and a fixed "Garages" field prints blank on
+     * a listing that only has parking bays (and vice versa). Prefers garages;
+     * falls back to parking ONLY when garages is absent/zero. Never both at once
+     * — this is a single-value field, not a second "features" list.
+     */
+    function resolveGaragesOrParking(prop) {
+        var g = parseFloat(prop.garages);
+        if (!isNaN(g) && g > 0) return { field: 'garages', num: g };
+        var p = parseFloat(prop.parking);
+        if (!isNaN(p) && p > 0) return { field: 'parking', num: p };
+        return null;
+    }
+
     /* ── Value resolution ───────────────────────────────────────────────── */
 
     /**
@@ -444,6 +461,20 @@
                 : all.filter(function (x) { return el.selectedFeatures.indexOf(x) !== -1; });
             if (chosen.length) return chosen.join('  ·  ');
             return prop.features || el.preview || el.label || '';
+        }
+
+        // Garages / Parking (combined) — resolves to whichever the property
+        // actually has (garages preferred), in EITHER display mode, since the
+        // value itself (not just its formatting) depends on the property.
+        if (f === 'garages_or_parking') {
+            var gp = resolveGaragesOrParking(prop);
+            if (!gp) {
+                if (!opts.placeholders) return '';
+                // Builder preview with no real data: "defaults to garages" per spec.
+                gp = { field: 'garages', num: parseFloat(el.preview) || 0 };
+            }
+            if (el.numberFormat === 'label') return formatFeatureNumber(gp.num) + ' ' + featureWord(gp.field, gp.num);
+            return formatFeatureNumber(gp.num);
         }
 
         // Beds/Baths/Garages/Parking in "Number + Label" mode — e.g. "1 Bedroom" /
@@ -737,6 +768,7 @@
         textValue: textValue,
         formatFeatureNumber: formatFeatureNumber,
         featureWord: featureWord,
+        resolveGaragesOrParking: resolveGaragesOrParking,
         iconHtml: iconHtml,
         imageSrc: imageSrc,
         baseImageSrc: baseImageSrc,
