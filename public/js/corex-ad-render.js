@@ -109,13 +109,13 @@
         agent_email:      { w: 300, h: 30,  fontSize: 12, fontWeight: '400', color: 'rgba(255,255,255,0.55)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6 },
         agent_phone:      { w: 220, h: 30,  fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '082 000 0000' },
         agent_designation:{ w: 260, h: 28,  fontSize: 11, fontWeight: '500', color: '#00b4d8', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.1, padding: 6 },
-        agent_avatar:     { w: 80,  h: 80,  objectFit: 'cover', borderRadius: 50 },
+        agent_avatar:     { w: 80,  h: 80,  objectFit: 'cover', borderRadius: 16, shapeType: 'circle' },
         // Agent 2 — the co-listing agent, for building dual-agent templates.
         agent_2_name:        { w: 280, h: 40, fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.06, padding: 6, preview: 'CO-AGENT NAME' },
         agent_2_email:       { w: 300, h: 30, fontSize: 12, fontWeight: '400', color: 'rgba(255,255,255,0.55)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: 'co.agent@agency.co.za' },
         agent_2_phone:       { w: 220, h: 30, fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '082 000 0000' },
         agent_2_designation: { w: 260, h: 28, fontSize: 11, fontWeight: '500', color: '#00b4d8', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.1, padding: 6, preview: 'PROPERTY PRACTITIONER' },
-        agent_2_avatar:      { w: 80,  h: 80, objectFit: 'cover', borderRadius: 50 },
+        agent_2_avatar:      { w: 80,  h: 80, objectFit: 'cover', borderRadius: 16, shapeType: 'circle' },
         agency_name:      { w: 280, h: 32,  fontSize: 15, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.06, padding: 6 },
         website:          { w: 260, h: 26,  fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.12, padding: 4, preview: 'WWW.AGENCY.CO.ZA' },
         logo:             { w: 180, h: 56,  fontSize: 28, color: '#ffffff', padding: 0 },
@@ -166,12 +166,12 @@
         { type: 'agent_email',       group: 'agent', label: 'Agent 1 · Email',       iconBg: '#7c3aed' },
         { type: 'agent_phone',       group: 'agent', label: 'Agent 1 · Phone',       iconBg: '#7c3aed' },
         { type: 'agent_designation', group: 'agent', label: 'Agent 1 · Designation', iconBg: '#7c3aed' },
-        { type: 'agent_avatar',      group: 'agent', label: 'Agent 1 · Avatar',      iconBg: '#7c3aed' },
+        { type: 'agent_avatar',      group: 'agent', label: 'Agent 1 · Image',      iconBg: '#7c3aed' },
         { type: 'agent_2_name',        group: 'agent', label: 'Agent 2 · Name',        iconBg: '#9333ea' },
         { type: 'agent_2_email',       group: 'agent', label: 'Agent 2 · Email',       iconBg: '#9333ea' },
         { type: 'agent_2_phone',       group: 'agent', label: 'Agent 2 · Phone',       iconBg: '#9333ea' },
         { type: 'agent_2_designation', group: 'agent', label: 'Agent 2 · Designation', iconBg: '#9333ea' },
-        { type: 'agent_2_avatar',      group: 'agent', label: 'Agent 2 · Avatar',      iconBg: '#9333ea' },
+        { type: 'agent_2_avatar',      group: 'agent', label: 'Agent 2 · Image',      iconBg: '#9333ea' },
         { type: 'logo',        group: 'branding', label: 'CoreX / Agency Logo', iconBg: '#00b4d8' },
         { type: 'agency_logo', group: 'branding', label: 'Agency Logo (image)', iconBg: '#00b4d8' },
         { type: 'agency_name', group: 'branding', label: 'Agency Name',         iconBg: '#0b2a4a' },
@@ -264,6 +264,23 @@
     function isImageField(f) { return IMAGE_FIELDS.indexOf(f) !== -1; }
     function isTextField(f)  { return NON_TEXT_FIELDS.indexOf(f) === -1; }
     function isAgent2(f)     { return String(f).indexOf('agent_2') === 0; }
+    function isAgentAvatarField(f) { return f === 'agent_avatar' || f === 'agent_2_avatar'; }
+
+    /**
+     * Shape mask for an Agent Image element — mirrors the decorative `shape`
+     * element's own SHAPES/SHAPE_CLIPS list (reuses `el.shapeType`, same property
+     * name, applied here to a PHOTO instead of a fill colour). Legacy elements
+     * (no `shapeType` at all — every avatar saved before this feature) fall
+     * through to the caller's existing `el.borderRadius` handling, so nothing
+     * about an already-saved template changes.
+     */
+    function avatarShapeCss(shapeType, borderRadius) {
+        if (SHAPE_CLIPS[shapeType]) return 'border-radius:0;clip-path:' + SHAPE_CLIPS[shapeType] + ';';
+        if (shapeType === 'circle') return 'border-radius:50%;';
+        if (shapeType === 'pill')   return 'border-radius:9999px;';
+        if (shapeType === 'rounded') return 'border-radius:' + def(borderRadius, 16) + 'px;';
+        return 'border-radius:0;'; // 'rectangle'
+    }
 
     /** A clip-path cuts its own box-shadow away, so those shapes cannot carry one. */
     function isClipShape(el) { return el.field === 'shape' && !!SHAPE_CLIPS[el.shapeType]; }
@@ -291,15 +308,21 @@
      */
     function frameStyle(el, opts) {
         opts = opts || {};
-        // A shape owns its geometry on the INNER node — the frame must stay square
-        // or it rounds a rectangle's corners and draws a box around a clip shape.
-        var radius = el.field === 'shape' ? 0 : (el.borderRadius || 0);
         var s = 'position:absolute;'
               + 'left:' + el.x + 'px;top:' + el.y + 'px;'
               + 'width:' + el.w + 'px;height:' + el.h + 'px;'
               + 'z-index:' + (el.zIndex || 1) + ';'
-              + 'overflow:hidden;'
-              + 'border-radius:' + radius + 'px;';
+              + 'overflow:hidden;';
+
+        if (isAgentAvatarField(el.field) && el.shapeType) {
+            // An Agent Image with a chosen shape mask (circle/rounded/pill/hexagon/…).
+            s += avatarShapeCss(el.shapeType, el.borderRadius);
+        } else {
+            // A shape owns its geometry on the INNER node — the frame must stay square
+            // or it rounds a rectangle's corners and draws a box around a clip shape.
+            var radius = el.field === 'shape' ? 0 : (el.borderRadius || 0);
+            s += 'border-radius:' + radius + 'px;';
+        }
 
         if (el.hidden && !opts.showHidden) s += 'display:none;';
         if (el.rotation) s += 'transform:rotate(' + el.rotation + 'deg);';
@@ -756,6 +779,8 @@
         isImageField: isImageField,
         isTextField: isTextField,
         isAgent2: isAgent2,
+        isAgentAvatarField: isAgentAvatarField,
+        avatarShapeCss: avatarShapeCss,
         isClipShape: isClipShape,
         canShadow: canShadow,
         fontStack: fontStack,

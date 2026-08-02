@@ -167,7 +167,30 @@ ok('the field carries an icon like any other numeric feature field',
 ok('is a real draggable builder field, in the numeric-feature set',
     !!K.FIELD_DEFAULTS.garages_or_parking && K.NUMERIC_FEATURE_FIELDS.includes('garages_or_parking'));
 
+section('Agent Image — renamed from "Avatar", + shape picker (mirrors the Shape element)');
+
+ok('the catalogue label reads "Agent 1 / 2 · Image", not "Avatar"',
+    K.FIELDS.find((f) => f.type === 'agent_avatar').label === 'Agent 1 · Image' &&
+    K.FIELDS.find((f) => f.type === 'agent_2_avatar').label === 'Agent 2 · Image');
+ok('a brand-new Agent Image element defaults to a circle (same look as before this change)',
+    K.frameStyle(K.makeElement('agent_avatar', 0, 0, 1)).includes('border-radius:50%'));
+ok('picking "rounded" uses el.borderRadius as a real corner radius, not a giant forced circle',
+    K.frameStyle(el({ field: 'agent_avatar', shapeType: 'rounded', borderRadius: 20 })).includes('border-radius:20px'));
+ok('picking a clip-path shape (e.g. hexagon) masks the PHOTO, same geometry as the decorative Shape element',
+    K.frameStyle(el({ field: 'agent_avatar', shapeType: 'hexagon' })).includes(K.SHAPE_CLIPS.hexagon));
+ok('a clip-path shape zeroes the border-radius (clip-path and border-radius fighting would look wrong)',
+    K.frameStyle(el({ field: 'agent_avatar', shapeType: 'hexagon' })).includes('border-radius:0'));
+ok('"pill" and "circle" are distinct — pill is not hard-coded to 50%',
+    K.avatarShapeCss('pill') === 'border-radius:9999px;' && K.avatarShapeCss('circle') === 'border-radius:50%;');
+ok('the shape picker applies to Agent 2 as well as Agent 1',
+    K.frameStyle(el({ field: 'agent_2_avatar', shapeType: 'star' })).includes(K.SHAPE_CLIPS.star));
+ok('isAgentAvatarField() does not falsely match an unrelated image field',
+    !K.isAgentAvatarField('image_1') && !K.isAgentAvatarField('agency_logo'));
+
 section('Templates saved BEFORE any of this still render unchanged');
+
+ok('a legacy Agent Image (no shapeType at all, old borderRadius:50 baked in) still renders circular',
+    K.frameStyle({ id: 9, field: 'agent_avatar', x: 0, y: 0, w: 80, h: 80, zIndex: 1, objectFit: 'cover', borderRadius: 50 }).includes('border-radius:50px'));
 
 const legacyShape = { id: 1, field: 'shape', x: 0, y: 0, w: 100, h: 100, zIndex: 1, bg: '#00b4d8', opacity: 1, borderRadius: 50 };
 ok('a legacy shape (no shapeType) still reads borderRadius as a %',

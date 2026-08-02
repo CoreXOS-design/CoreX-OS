@@ -687,10 +687,38 @@
                                     <option value="fill">Fill</option>
                                 </select>
                             </div>
-                            <div class="pp-row">
-                                <label>Border Radius (px)</label>
-                                <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
+                            {{-- Agent Image gets the shape picker below instead of a plain radius. --}}
+                            <template x-if="sel.field !== 'agent_avatar' && sel.field !== 'agent_2_avatar'">
+                                <div class="pp-row">
+                                    <label>Border Radius (px)</label>
+                                    <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    {{-- Agent Image — shape mask (circle/rounded/square/pill/hexagon/…),
+                         mirrors the Shape element's own picker (§13, same CoreXAd.SHAPES list
+                         and CoreXAd.shapeCss() swatch preview — applied to a photo, not a fill). --}}
+                    <template x-if="sel.field === 'agent_avatar' || sel.field === 'agent_2_avatar'">
+                        <div>
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Shape</label>
+                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;">
+                                    <template x-for="s in CoreXAd.SHAPES" :key="s.type">
+                                        <button type="button" @click="mutate('shapeType', s.type)" :title="s.label"
+                                                :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:' + (sel.shapeType === s.type ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (sel.shapeType === s.type ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'">
+                                            <span :style="CoreXAd.shapeCss({ shapeType: s.type, bg: '#9fb4c9', opacity: 1, borderRadius: 9 })"></span>
+                                        </button>
+                                    </template>
+                                </div>
                             </div>
+                            <template x-if="sel.shapeType === 'rounded'">
+                                <div class="pp-row">
+                                    <label>Corner radius (px)</label>
+                                    <input type="number" min="0" :value="sel.borderRadius ?? 16" @input="mutate('borderRadius', +$event.target.value)">
+                                </div>
+                            </template>
                         </div>
                     </template>
 
