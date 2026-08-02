@@ -102,6 +102,7 @@
         parking:          { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
         garages_or_parking: { w: 80, h: 36, fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
         size_m2:          { w: 120, h: 36,  fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '450 m²' },
+        size_or_land:     { w: 150, h: 36,  fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '450 M²' },
         reference:        { w: 160, h: 28,  fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.08, padding: 4, preview: 'REF 12345' },
         address:          { w: 360, h: 32,  fontSize: 13, fontWeight: '500', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '12 Marine Drive' },
         status_badge:     { w: 200, h: 40,  fontSize: 16, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'center', letterSpacing: 0.08, padding: 8, bgColor: '#e63946', bgOpacity: 1, borderRadius: 6, preview: 'FOR SALE' },
@@ -159,6 +160,7 @@
         { type: 'parking',       group: 'property', label: 'Parking',      iconBg: '#0369a1' },
         { type: 'garages_or_parking', group: 'property', label: 'Garages / Parking', iconBg: '#0369a1' },
         { type: 'size_m2',       group: 'property', label: 'Size m²',      iconBg: '#065f46' },
+        { type: 'size_or_land',  group: 'property', label: 'Size / Land Size', iconBg: '#065f46' },
         { type: 'reference',     group: 'property', label: 'Reference',    iconBg: '#475569' },
         { type: 'address',       group: 'property', label: 'Address',      iconBg: '#475569' },
         { type: 'status_badge',  group: 'property', label: 'Status Badge', iconBg: '#e63946' },
@@ -460,6 +462,27 @@
         return null;
     }
 
+    /**
+     * "size_or_land" — same combined-field idea as garages_or_parking, for the
+     * same reason: a fixed "Size m²" field prints blank (or, before the
+     * placeholder-leak fix above, a FABRICATED "450 m²") on vacant land, which
+     * has no floor size at all — only a stand/erf size. Prefers the floor size;
+     * falls back to the land/erf size ONLY when the floor size is absent/zero.
+     */
+    function resolveSizeOrLand(prop) {
+        var floor = parseFloat(prop.floor_size_m2);
+        if (!isNaN(floor) && floor > 0) return { kind: 'floor', num: floor };
+        var land = parseFloat(prop.land_size_m2);
+        if (!isNaN(land) && land > 0) return { kind: 'land', num: land };
+        return null;
+    }
+
+    /** "1250" → "1,250" — matches PHP's number_format() thousands separator
+     *  already used for the plain Size m² field, so the two never disagree. */
+    function formatSizeNumber(num) {
+        return Math.round(num).toLocaleString('en-US');
+    }
+
     /* ── Value resolution ───────────────────────────────────────────────── */
 
     /**
@@ -500,6 +523,17 @@
             return formatFeatureNumber(gp.num);
         }
 
+        // Size / Land Size (combined) — floor size if the property has one,
+        // else the erf/land size, else hidden. "Erf" suffix disambiguates when
+        // what's shown is land, not floor, so a buyer never mistakes one for
+        // the other.
+        if (f === 'size_or_land') {
+            var sl = resolveSizeOrLand(prop);
+            if (!sl) return opts.placeholders ? (el.preview || '450 M²') : '';
+            var sizeStr = formatSizeNumber(sl.num) + ' M²';
+            return sl.kind === 'land' ? sizeStr + ' Erf' : sizeStr;
+        }
+
         // Beds/Baths/Garages/Parking in "Number + Label" mode — e.g. "1 Bedroom" /
         // "3 Bedrooms". Default ('number' or unset — legacy elements have no
         // numberFormat at all) falls straight through to the raw-number path below.
@@ -517,7 +551,16 @@
         var v = prop[f];
         if (v !== undefined && v !== null && v !== '') return v;
 
-        if (isAgent2(f) && !opts.placeholders) return '';
+        // No real value. The BUILDER designs against a property that may lack
+        // this field, so it falls back to the preview/label copy for a nicer
+        // design-time look — the GENERATOR must never fabricate data onto a
+        // REAL ad. Before this, ANY field with no data (a missing phone number,
+        // reference, address, size…) rendered its design-time PREVIEW TEXT on
+        // the actual generated ad as if it were real — e.g. a property with no
+        // floor size (vacant land) showed a fabricated "450 m²" that was never
+        // this property's size. Generalises the rule already applied to Agent 2
+        // and every numeric feature field above to every text field.
+        if (!opts.placeholders) return '';
         return el.preview || el.label || '';
     }
 
@@ -1024,6 +1067,8 @@
         formatFeatureNumber: formatFeatureNumber,
         featureWord: featureWord,
         resolveGaragesOrParking: resolveGaragesOrParking,
+        resolveSizeOrLand: resolveSizeOrLand,
+        formatSizeNumber: formatSizeNumber,
         iconHtml: iconHtml,
         imageSrc: imageSrc,
         baseImageSrc: baseImageSrc,

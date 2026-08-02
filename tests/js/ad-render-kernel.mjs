@@ -167,6 +167,52 @@ ok('the field carries an icon like any other numeric feature field',
 ok('is a real draggable builder field, in the numeric-feature set',
     !!K.FIELD_DEFAULTS.garages_or_parking && K.NUMERIC_FEATURE_FIELDS.includes('garages_or_parking'));
 
+section('"Size / Land Size" combined field — vacant land has no floor size, only an erf size');
+
+const withFloor = { floor_size_m2: '450', land_size_m2: '1200' };  // has both — floor wins
+const landOnly1  = { floor_size_m2: '0', land_size_m2: '850' };    // vacant land, explicit 0
+const landOnly2  = { floor_size_m2: '', land_size_m2: '2500' };    // vacant land, absent
+const neitherSize = { floor_size_m2: '0', land_size_m2: '' };      // has neither
+
+ok('floor size present and > 0 → floor wins over land',
+    K.resolveSizeOrLand(withFloor).kind === 'floor' && K.resolveSizeOrLand(withFloor).num === 450);
+ok('floor size explicitly "0" (vacant land) → falls back to land/erf size', K.resolveSizeOrLand(landOnly1).kind === 'land');
+ok('floor size absent/empty string → falls back to land/erf size', K.resolveSizeOrLand(landOnly2).kind === 'land');
+ok('neither present → resolves to null (hidden, not "0 M²")', K.resolveSizeOrLand(neitherSize) === null);
+
+const sl = (o) => el({ field: 'size_or_land', ...o });
+ok('shows the floor size, formatted with a thousands separator, no "Erf" suffix',
+    K.textValue(sl({}), withFloor, {}) === '450 M²');
+ok('vacant land shows the erf/land size instead, WITH the "Erf" suffix — never confused for floor size',
+    K.textValue(sl({}), landOnly1, {}) === '850 M² Erf');
+ok('a large erf size gets the same thousands separator as the plain Size m² field (number_format parity)',
+    K.textValue(sl({}), landOnly2, {}) === '2,500 M² Erf');
+ok('a listing with neither renders EMPTY on the generator (never a fabricated "450 M²")',
+    K.textValue(sl({}), neitherSize, {}) === '');
+ok('the BUILDER preview (no real property yet) still shows a placeholder',
+    K.textValue(sl({}), {}, { placeholders: true }) === '450 M²');
+ok('formatSizeNumber() matches PHP\'s number_format() thousands-separator convention',
+    K.formatSizeNumber(1250) === '1,250' && K.formatSizeNumber(450) === '450');
+
+section('Placeholder-leak fix — a missing field must NEVER fabricate its design-time preview on a real ad');
+
+// This was a real, pre-existing bug found while investigating the size-field
+// report: the GENERIC textValue() fallback returned el.preview on ANY field
+// with no real data, regardless of opts.placeholders — so a property missing
+// (say) a floor size, phone number, reference, or address rendered that
+// field's PREVIEW TEXT on the actual generated ad as if it were real data.
+const emptyProp = {};
+ok('a missing generic text field (e.g. reference) renders EMPTY on the generator, not its preview',
+    K.textValue(el({ field: 'reference' }), emptyProp, {}) === '');
+ok('...but the BUILDER still shows the preview, so designing against an incomplete property still looks right',
+    K.textValue(el({ field: 'reference' }), emptyProp, { placeholders: true }) === 'REF 12345');
+ok('a missing address never fabricates the placeholder street address onto a real ad',
+    K.textValue(el({ field: 'address' }), emptyProp, {}) === '');
+ok('a missing agent phone never fabricates a placeholder phone number onto a real ad',
+    K.textValue(el({ field: 'agent_phone' }), emptyProp, {}) === '');
+ok('a field WITH real data is completely unaffected by the fix',
+    K.textValue(el({ field: 'title' }), { title: 'SEASIDE VILLA' }, {}) === 'SEASIDE VILLA');
+
 section('Agent Image — renamed from "Avatar", + shape picker (mirrors the Shape element)');
 
 ok('the catalogue label reads "Agent 1 / 2 · Image", not "Avatar"',

@@ -2311,6 +2311,13 @@ class Property extends Model
             'garages'           => (string) ($garages ?? ''),
             'parking'           => $parking > 0 ? (string) $parking : '',
             'size_m2'           => $size,
+            // Raw (unformatted) floor/land size for the "Size / Land Size" combined
+            // field — it does its own formatting client-side so it can pick either
+            // number and format it identically. Vacant land has no floor size at
+            // all, only an erf size — this is the same "prefer X, fall back to Y"
+            // shape as garages_or_parking, for the same reason.
+            'floor_size_m2'     => (string) ($this->size_m2 ?? ''),
+            'land_size_m2'      => (string) ($this->erf_size_m2 ?? ''),
             'reference'         => $this->external_id ?: ('REF ' . $this->id),
             'address'           => $this->address ?: null,
             'status_badge'      => $statusBadge,
