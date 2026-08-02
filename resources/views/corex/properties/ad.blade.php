@@ -311,7 +311,7 @@
                         <div class="tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; position:relative; background:#071325;">
                             <div class="tpl-thumb-inner" style="position:absolute;top:0;left:0;width:1200px;height:628px;transform-origin:top left;transform:scale(0.2667);">
                                 <div :style="customThumbStyle(tpl)"
-                                     x-init="$nextTick(() => CoreXAd.renderLayout(tpl.layout_json, propertyData, $el, { placeholders: true, paintBackground: true }))"></div>
+                                     x-init="$nextTick(() => CoreXAd.renderLayout(resolvedTemplateLayout(tpl), propertyData, $el, { placeholders: true, paintBackground: true }))"></div>
                             </div>
                         </div>
                         <div style="padding:18px 20px 22px;">
@@ -324,7 +324,7 @@
                                     <span style="font-size:10px;color:var(--chrome-text-mute);flex-shrink:0;" title="Only the creator (or a manager) can edit this">view only</span>
                                 </template>
                             </div>
-                            <div style="font-size:12px;color:var(--chrome-text-soft);line-height:1.6;margin-top:5px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
+                            <div style="font-size:12px;color:var(--chrome-text-soft);line-height:1.6;margin-top:5px;" x-text="(resolvedTemplateLayout(tpl).elements?.length || 0) + ' elements · ' + (resolvedTemplateLayout(tpl).canvasW || 1200) + '×' + (resolvedTemplateLayout(tpl).canvasH || 628)"></div>
                             <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--brand-button,#00b4d8);">
                                 Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                             </div>
@@ -644,8 +644,18 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
          * size/ratio (square, story-tall, etc.), so it's contained + letterboxed
          * within that reference frame rather than stretched to fill it.
          */
+        /**
+         * §18 — resolve the design that will ACTUALLY generate for THIS
+         * property (its own type may have a custom variant) rather than
+         * always the template's Default — same resolution generate() and
+         * the Ad Manager's picker thumbnails use.
+         */
+        resolvedTemplateLayout(tpl) {
+            return CoreXAd.resolveTemplateLayout(tpl.layout_json, this.propertyData?.property_type_raw);
+        },
+
         customThumbStyle(tpl) {
-            const lj = tpl.layout_json || {};
+            const lj = this.resolvedTemplateLayout(tpl);
             const cw = lj.canvasW || 1200, ch = lj.canvasH || 628;
             const REF_W = 1200, REF_H = 628; // same reference frame fitThumbs() scales
             const scale = Math.min(REF_W / cw, REF_H / ch);
@@ -704,7 +714,9 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         selectTemplate(t) { this.template = t; this._customLayout = null; this._customTemplateId = null; this.step = 'generate'; this.$nextTick(() => this.applyAgent()); },
         selectCustomTemplate(tpl) {
             this.template = 'custom';
-            this._customLayout = tpl.layout_json;
+            // §18 — resolve THIS property's design (its type may have a custom
+            // variant) once, at selection time, rather than always the Default.
+            this._customLayout = this.resolvedTemplateLayout(tpl);
             this._customTemplateId = tpl.id;
             this.step = 'generate';
             this.$nextTick(() => this.applyAgent());

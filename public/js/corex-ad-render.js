@@ -1026,39 +1026,55 @@
     }
 
     /**
-     * §18 — Property-type conditional visibility. An element can carry
-     * `el.visibleFor`, an array of exact `property_setting_items` (group
-     * 'property_type') names it should show for — e.g. a Bedrooms icon block
-     * scoped to ['House', 'Townhouse'] and a Land Size block scoped to
-     * ['Vacant Land / Plot'] can occupy the SAME spot in one template, so one
-     * design adapts per property instead of needing a separate template per
-     * property type.
+     * §18 — Property-type template variants. A saved template's layout_json
+     * can carry `variants`: { [exact property_setting_items name]: { canvasW,
+     * canvasH, canvasBg, canvasBgMode, canvasBgFrom, canvasBgTo,
+     * canvasBgAngle, canvasPreset, elements } } — a FULL alternate design
+     * (its own canvas + its own element set), not per-element toggles. The
+     * fields at the top level of layout_json (outside `variants`) ARE the
+     * Default design, used for any property type with no variant of its own.
      *
-     * `el.visibleFor` absent/null/empty → ALWAYS visible. This is the
-     * required default for every template saved before this feature existed —
-     * none of them carry this key, and none may lose an element because of it.
-     *
-     * `prop.property_type_raw` absent/blank (property has no type set, or the
-     * Ad Builder has no property loaded at all — the common design-time case)
-     * → ALWAYS visible too. Hiding on missing type information would silently
-     * drop a real element from a real ad the moment an agent forgot to
-     * classify a listing; showing a possibly-irrelevant element is the safer
-     * failure than hiding a possibly-relevant one.
-     *
-     * Matching is case-insensitive/trimmed against the exact configured name
-     * (the same string the property's own "Property Type" dropdown shows) —
-     * not a hardcoded taxonomy, so it stays correct for any agency's own
+     * This resolves ONE concrete layout to actually render, given a real
+     * property's raw type string — the one place that decision gets made, so
+     * the three render surfaces (generator, bulk manager, Ad Builder picker
+     * previews) never each re-implement the matching rule. Matching is
+     * case-insensitive/trimmed against the exact configured name (the same
+     * string the property's own "Property Type" dropdown shows) — not a
+     * hardcoded taxonomy, so it stays correct for any agency's own
      * customised property-type list.
+     *
+     * No match (blank property type, no variants at all, or a type nobody
+     * made custom) → the Default design. This is also what a property with
+     * no type classified gets — never a broken/empty render over missing
+     * classification data.
      */
-    function elementVisibleForProperty(el, prop) {
-        var list = el && el.visibleFor;
-        if (!list || !list.length) return true;
-        var t = ((prop && prop.property_type_raw) || '').trim().toLowerCase();
-        if (!t) return true;
-        for (var i = 0; i < list.length; i++) {
-            if (String(list[i]).trim().toLowerCase() === t) return true;
+    function resolveTemplateLayout(layoutJson, propertyTypeRaw) {
+        var base = layoutJson || {};
+        var variants = base.variants;
+        var t = (propertyTypeRaw || '').trim().toLowerCase();
+
+        if (variants && t) {
+            for (var key in variants) {
+                if (Object.prototype.hasOwnProperty.call(variants, key) && key.trim().toLowerCase() === t) {
+                    var v = variants[key];
+                    return {
+                        canvasW: v.canvasW, canvasH: v.canvasH,
+                        canvasBg: v.canvasBg, canvasBgMode: v.canvasBgMode,
+                        canvasBgFrom: v.canvasBgFrom, canvasBgTo: v.canvasBgTo, canvasBgAngle: v.canvasBgAngle,
+                        canvasPreset: v.canvasPreset,
+                        elements: v.elements || [],
+                    };
+                }
+            }
         }
-        return false;
+
+        return {
+            canvasW: base.canvasW, canvasH: base.canvasH,
+            canvasBg: base.canvasBg, canvasBgMode: base.canvasBgMode,
+            canvasBgFrom: base.canvasBgFrom, canvasBgTo: base.canvasBgTo, canvasBgAngle: base.canvasBgAngle,
+            canvasPreset: base.canvasPreset,
+            elements: base.elements || [],
+        };
     }
 
     /**
@@ -1076,7 +1092,6 @@
 
         (layout.elements || []).forEach(function (el) {
             if (el.hidden) return;                       // hidden in the builder = absent from the ad
-            if (!elementVisibleForProperty(el, prop)) return; // §18 — wrong property type for this element
             var div = document.createElement('div');
             div.style.cssText = frameStyle(el, opts);
             div.innerHTML = contentHtml(el, prop, opts);
@@ -1188,7 +1203,7 @@
         cornerColor: _cornerColor,
         fillEnclosedHoles: _fillEnclosedHoles,
         featherAlpha: _featherAlpha,
-        elementVisibleForProperty: elementVisibleForProperty,
+        resolveTemplateLayout: resolveTemplateLayout,
         isClipShape: isClipShape,
         canShadow: canShadow,
         fontStack: fontStack,

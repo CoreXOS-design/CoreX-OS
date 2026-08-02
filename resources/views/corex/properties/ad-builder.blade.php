@@ -116,6 +116,27 @@
         }
         .ab-zoom { font-size: 11px; font-weight: 700; color: var(--chrome-text-soft); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
 
+        /* ─── §18 — "Design for" property-type variant bar ─── */
+        #varbar {
+            flex-shrink: 0; min-height: 38px;
+            background: var(--chrome-surface); border-bottom: 1px solid var(--chrome-border);
+            display: flex; align-items: center; gap: 6px; padding: 5px 14px; flex-wrap: wrap;
+        }
+        .var-label { font-size: 11px; font-weight: 700; color: var(--chrome-text-mute); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 2px; flex-shrink: 0; }
+        .var-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 26px; padding: 0 10px; border-radius: 13px;
+            border: 1.5px solid var(--chrome-border); background: var(--chrome-surface-2); color: var(--chrome-text-soft);
+            font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.1s;
+        }
+        .var-pill:hover { background: var(--chrome-hover); color: var(--chrome-text); }
+        .var-pill.on { background: color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent); color: var(--brand-button,#00b4d8); border-color: color-mix(in srgb, var(--brand-button,#00b4d8) 40%, transparent); }
+        .var-pill.custom:not(.on) { border-color: color-mix(in srgb, #19c37d 45%, transparent); color: #19c37d; }
+        .var-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, #19c37d 22%, transparent); color: #19c37d; }
+        .var-pill.on .var-badge { background: color-mix(in srgb, var(--brand-button,#00b4d8) 22%, transparent); color: var(--brand-button,#00b4d8); }
+        .var-revert { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--chrome-text-mute); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 4px; }
+        .var-revert:hover { color: #e63946; }
+
         /* ─── 3-COLUMN LAYOUT ─── */
         #workspace { flex: 1; display: flex; overflow: hidden; }
 
@@ -468,6 +489,36 @@
     </div>
 </div>
 
+{{-- ═══ §18 — "Design for" property-type variant bar ═══
+     One template, different property types: a house needs Bedrooms/
+     Bathrooms; a vacant land listing only has a stand size. Default is the
+     design used by any type with no custom design of its own. Clicking a
+     type that's still "Default" gives it its own — a clone of the current
+     Default, ready to edit independently — every OTHER type keeps using
+     Default automatically. --}}
+<template x-if="propertyTypeOptions.length > 0">
+    <div id="varbar">
+        <span class="var-label">Design for</span>
+        <button type="button" class="var-pill" :class="{ on: activeVariantType === null }"
+                @click="switchVariant(null)" title="The design every property type uses, unless it has its own custom design below">
+            Default
+        </button>
+        <template x-for="pt in propertyTypeOptions" :key="pt">
+            <button type="button" class="var-pill" :class="{ on: activeVariantType === pt, custom: !!variants[pt] }"
+                    @click="variants[pt] ? switchVariant(pt) : makeCustomVariant(pt)"
+                    :title="variants[pt] ? ('Editing a custom design for ' + pt) : ('Currently uses the Default design — click to give ' + pt + ' its own custom design, starting as a copy of Default')">
+                <span x-text="pt"></span>
+                <span class="var-badge" x-show="!!variants[pt]">Custom</span>
+            </button>
+        </template>
+        <template x-if="activeVariantType !== null">
+            <button type="button" class="var-revert" @click="revertVariant(activeVariantType)">
+                Revert to Default
+            </button>
+        </template>
+    </div>
+</template>
+
 {{-- ═══ WORKSPACE ═══ --}}
 <div id="workspace">
 
@@ -500,7 +551,7 @@
 
                     {{-- Elements. frameStyle() + contentHtml() come from the shared kernel,
                          so what you see here is literally what the generator renders. --}}
-                    <template x-for="el in visibleElements" :key="el.id">
+                    <template x-for="el in elements" :key="el.id">
                         <div class="canvas-el"
                              :class="{ selected: !previewMode && !capturing && isSelected(el), locked: el.locked }"
                              :style="CoreXAd.frameStyle(el)"
@@ -673,29 +724,6 @@
                         <label>Opacity — <span x-text="Math.round((sel.elOpacity ?? 1) * 100) + '%'"></span></label>
                         <input type="range" min="0" max="1" step="0.01" :value="sel.elOpacity ?? 1" @input="mutate('elOpacity', +$event.target.value)">
                     </div>
-
-                    {{-- §18 — per-element property-type visibility. Universal (applies to
-                         every element type): lets one template look different for a House
-                         vs a Vacant Land, e.g. a Bedrooms icon block scoped to "House" and a
-                         Land Size block scoped to "Vacant Land / Plot" occupying the same
-                         spot. All ticked (the default) = always shows, unaffected. --}}
-                    <template x-if="propertyTypeOptions.length > 0">
-                        <div>
-                            <div class="pp-row" style="align-items:flex-start;">
-                                <label>Show for property type</label>
-                                <div style="display:flex;flex-direction:column;gap:5px;max-height:170px;overflow-y:auto;width:100%;">
-                                    <template x-for="pt in propertyTypeOptions" :key="pt">
-                                        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--chrome-text);cursor:pointer;font-weight:500;">
-                                            <input type="checkbox" :checked="isVisibleForType(sel, pt)" @change="toggleVisibleForType(pt)" style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
-                                            <span x-text="pt"></span>
-                                        </label>
-                                    </template>
-                                </div>
-                            </div>
-                            <div class="pp-hint" x-show="sel.visibleFor != null && sel.visibleFor.length < propertyTypeOptions.length">Hidden entirely when generating an ad for a property whose type isn't ticked above. Design a different region per property type by placing another element in the same spot, scoped to the other type(s).</div>
-                            <hr class="pp-sep">
-                        </div>
-                    </template>
 
                     {{-- Image fields --}}
                     <template x-if="CoreXAd.isImageField(sel.field)">
@@ -1255,10 +1283,23 @@ function builder() {
         propertyData:  @json($propertyData ?? null),
         propertyId:    @json($property?->id ?? null),
         propertyAdUrl: @json($property ? route('corex.properties.ad', $property) : null),
-        // §18 — the agency's own Property Type names, for the per-element
-        // "Show for property type" checklist.
+        // §18 — the agency's own Property Type names, for the "Design for"
+        // property-type picker.
         propertyTypeOptions: @json($propertyTypeOptions ?? []),
         returnMarketingPropertyId: new URLSearchParams(window.location.search).get('return_marketing') || null,
+
+        // ── §18 — property-type variants ───────────────────────────────────
+        // A template can carry a FULL alternate design per property type — its
+        // own canvas + its own elements, not per-element toggles — e.g. a
+        // house needs Bedrooms/Bathrooms, a vacant land listing only has a
+        // stand size. `elements`/`canvasW`/etc above are always the currently
+        // ACTIVE design (Default, or whichever variant is being edited);
+        // `variants` parks every OTHER (inactive) custom variant, keyed by
+        // property type name; `_defaultLayout` parks the Default design while
+        // a variant is active. See switchVariant()/makeCustomVariant().
+        variants: (existingTemplate?.layout_json?.variants) ? { ...existingTemplate.layout_json.variants } : {},
+        activeVariantType: null,
+        _defaultLayout: null,
 
         // ── Selection (ids, not indices — survives restacking and undo) ──────
         selIds: [],
@@ -1300,6 +1341,15 @@ function builder() {
 
         init() {
             this.normalizeZ(false);
+            // §18 — a real loaded property (?property=) should open on ITS
+            // OWN design if the template already has a custom variant for its
+            // type, so the builder previews exactly what that property's ad
+            // will actually look like, not always the Default.
+            const loadedType = this.propertyData?.property_type_raw;
+            if (loadedType) {
+                const match = Object.keys(this.variants).find(k => k.trim().toLowerCase() === loadedType.trim().toLowerCase());
+                if (match) this.switchVariant(match);
+            }
             this.$nextTick(() => this.fitZoom());
             // Keep the fit honest when the canvas size changes under it.
             this.$watch('canvasW', () => { if (this.zoomMode === 'fit') this.fitZoom(); });
@@ -1316,19 +1366,26 @@ function builder() {
             };
         },
 
-        get useOnPropertyUrl() {
-            return this.propertyAdUrl || @json(route('corex.properties.index'));
+        /**
+         * §18 — the full save payload: the Default design at the top level
+         * (exactly the shape every template had before this feature), plus
+         * `variants` for any property type given its own custom design.
+         * Packs whichever design is CURRENTLY active (it lives unpacked in
+         * the top-level elements/canvas* state, not yet written back to
+         * `variants`/`_defaultLayout` until a switch happens) so an in-
+         * progress edit is never lost on save.
+         */
+        get layoutJsonFull() {
+            const packed = this._packActiveVariant();
+            const defaultLayout = this.activeVariantType === null ? packed : (this._defaultLayout || packed);
+            const variants = this.activeVariantType === null
+                ? this.variants
+                : { ...this.variants, [this.activeVariantType]: packed };
+            return { ...defaultLayout, variants };
         },
 
-        // §18 — what actually renders on the canvas. Only differs from
-        // `elements` when a real property is loaded (?property=) AND it has a
-        // type: then an element scoped to OTHER property types drops out,
-        // giving a true preview of what that exact property's ad will look
-        // like. With no property loaded (the common design-time case) this is
-        // always the full list — CoreXAd.elementVisibleForProperty() fails
-        // open on missing property-type context.
-        get visibleElements() {
-            return this.elements.filter(el => this.CoreXAd.elementVisibleForProperty(el, this.propertyData || {}));
+        get useOnPropertyUrl() {
+            return this.propertyAdUrl || @json(route('corex.properties.index'));
         },
 
         get selIdx() {
@@ -1587,6 +1644,85 @@ function builder() {
             this.commit();
             this.canvasW = p.w;
             this.canvasH = p.h;
+        },
+
+        /* ═══ §18 — property-type variants ═══════════════════════════════════
+           `elements`/`canvasW`/etc are always the currently ACTIVE design. Every
+           OTHER design (the Default when a variant is active, or a variant
+           when Default is active) sits parked as a plain object — `variants`
+           for custom variants, `_defaultLayout` for the Default — until the
+           user switches back to it. This re-uses every existing drag/resize/
+           undo/group/layers mechanic unchanged: they all just keep operating
+           on `elements` etc., with no idea a variant switch ever happened. */
+
+        /** The active design, packaged the same shape a parked one is stored in. */
+        _packActiveVariant() {
+            return {
+                canvasW: this.canvasW, canvasH: this.canvasH,
+                canvasBg: this.canvasBg, canvasBgMode: this.canvasBgMode,
+                canvasBgFrom: this.canvasBgFrom, canvasBgTo: this.canvasBgTo, canvasBgAngle: this.canvasBgAngle,
+                canvasPreset: this.canvasPreset,
+                elements: this.elements,
+            };
+        },
+
+        /** Make `target` the live, editable state — the canvas/undo/etc all read this directly. */
+        _unpackVariant(target, newType) {
+            const t = target || {};
+            this.elements      = JSON.parse(JSON.stringify(t.elements || []));
+            this.canvasW       = t.canvasW ?? 1200;
+            this.canvasH       = t.canvasH ?? 628;
+            this.canvasBg      = t.canvasBg ?? '#071325';
+            this.canvasBgMode  = t.canvasBgMode ?? 'solid';
+            this.canvasBgFrom  = t.canvasBgFrom ?? '#071325';
+            this.canvasBgTo    = t.canvasBgTo ?? '#0b2a4a';
+            this.canvasBgAngle = t.canvasBgAngle ?? 160;
+            this.canvasPreset  = t.canvasPreset ?? 'facebook';
+            this.activeVariantType = newType;
+            this.selIds = [];
+            this.past = [];
+            this.future = [];
+            this.$nextTick(() => this.fitZoom());
+        },
+
+        /**
+         * `null` = Default; any other value = the (already-custom) variant of
+         * that name. Undo history does NOT carry across a switch — each
+         * variant gets a fresh undo stack, since dragging/resizing on one
+         * design has no meaningful "undo" on a completely different one.
+         */
+        switchVariant(newType) {
+            if (newType === this.activeVariantType) return;
+            const packed = this._packActiveVariant();
+            if (this.activeVariantType === null) {
+                this._defaultLayout = packed;
+            } else {
+                this.variants = { ...this.variants, [this.activeVariantType]: packed };
+            }
+            const target = newType === null ? this._defaultLayout : this.variants[newType];
+            this._unpackVariant(target, newType);
+        },
+
+        /** Give `type` its own design — a clone of the CURRENT Default, ready to edit independently. */
+        makeCustomVariant(type) {
+            if (this.variants[type]) { this.switchVariant(type); return; } // already custom — just switch to it
+            const defaultSnapshot = this.activeVariantType === null ? this._packActiveVariant() : this._defaultLayout;
+            this.variants = { ...this.variants, [type]: JSON.parse(JSON.stringify(defaultSnapshot)) };
+            this.switchVariant(type);
+            this.dirty = true;
+        },
+
+        /** Delete `type`'s custom design — it goes back to using the Default. */
+        revertVariant(type) {
+            if (!confirm(`Delete the custom design for "${type}"? It will use the Default design instead.`)) return;
+            const wasActive = this.activeVariantType === type;
+            const next = { ...this.variants };
+            delete next[type];
+            this.variants = next;
+            if (wasActive) {
+                this._unpackVariant(this._defaultLayout, null); // straight to Default — never pack the deleted state back
+            }
+            this.dirty = true;
         },
 
         /**
@@ -2334,22 +2470,6 @@ function builder() {
             this.mutate('selectedFeatures', cur);
         },
 
-        /* ═══ §18 — per-element property-type visibility ═══════════════════ */
-
-        isVisibleForType(el, pt) {
-            // null/unset = every type (the default, and what every template
-            // saved before this feature existed already implicitly means).
-            return el.visibleFor == null ? true : el.visibleFor.includes(pt);
-        },
-
-        toggleVisibleForType(pt) {
-            const el = this.sel;
-            if (!el) return;
-            let cur = el.visibleFor == null ? [...this.propertyTypeOptions] : [...el.visibleFor];
-            cur = cur.includes(pt) ? cur.filter(x => x !== pt) : [...cur, pt];
-            this.mutate('visibleFor', cur);
-        },
-
         /* ═══ Media upload ════════════════════════════════════════════════ */
 
         async uploadMedia(e) {
@@ -2386,17 +2506,7 @@ function builder() {
                 const token = document.querySelector('meta[name="csrf-token"]').content;
                 const payload = {
                     name: this.name.trim(),
-                    layout_json: {
-                        elements:      this.elements,
-                        canvasW:       this.canvasW,
-                        canvasH:       this.canvasH,
-                        canvasBg:      this.canvasBg,
-                        canvasBgMode:  this.canvasBgMode,
-                        canvasBgFrom:  this.canvasBgFrom,
-                        canvasBgTo:    this.canvasBgTo,
-                        canvasBgAngle: this.canvasBgAngle,
-                        canvasPreset:  this.canvasPreset,
-                    },
+                    layout_json: this.layoutJsonFull, // §18 — Default + any property-type variants
                     _token: token,
                 };
 
