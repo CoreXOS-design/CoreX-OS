@@ -109,6 +109,10 @@ class AdManagerController extends Controller
         $scope     = $this->adScope($user);
         $allAgents = $scope !== 'own';   // 'branch' or 'all' → can see other agents
 
+        // The current agency's Remove Background hole-fill thresholds (ad-manager.md
+        // §15.1 round 4) — nullable, passed through to CoreXAd.configureBgRemoval().
+        $agency = $user->effectiveAgencyId() ? \App\Models\Agency::find($user->effectiveAgencyId()) : null;
+
         // Only ACTIVE listings that are LIVE somewhere (company website / P24 / PP) —
         // never drafts, sold or rented. "Live somewhere" mirrors Property::portalLinks().
         $websiteLiveIds = \App\Models\PropertyWebsiteSyndication::where('enabled', true)
@@ -203,6 +207,7 @@ class AdManagerController extends Controller
             'prebuilt'        => $this->prebuiltTemplates(),
             'customTemplates' => $customTemplates,
             'platforms'       => $this->platforms(),
+            'agency'          => $agency,
         ]);
     }
 

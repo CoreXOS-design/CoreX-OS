@@ -609,6 +609,21 @@ snapshots the fallback face.
   born, and second renderers drift;
 - every font in the kernel's `FONTS` is actually loaded by `_ad-fonts`.
 
+### 12.6 Cache-busting (§15.1 round 4)
+
+All three surfaces load the kernel via `asset_v('js/corex-ad-render.js')`
+(`app/Support/helpers.php`) instead of a hand-written `?v=1` query string.
+`asset_v()` appends the file's own `filemtime()` as the version — it changes
+automatically the moment the file is edited/deployed, with no manual number
+to remember to bump. Before this, every fix shipped this session (rounds 1–4,
+§18) went out behind the SAME unbumped `?v=1` — a browser that had already
+cached the kernel kept running whichever version it fetched first,
+indefinitely, with no way to tell which fixes were actually live in a given
+tab without a hard refresh. This is very likely why property 3080's "ear
+disc" symptom was reported as still present in the same investigation that
+found round 3 already fixes it against the current photo (§15.1 round 4) —
+a stale cached copy of the script, not a live bug.
+
 `tests/js/ad-render-kernel.mjs` (`node tests/js/ad-render-kernel.mjs`) exercises the render
 logic itself against the shipped kernel — the four drift bugs, the new properties, legacy
 back-compat, HTML escaping, and the photo-override path. 31 checks.
@@ -1249,13 +1264,137 @@ reason a real garment must be. That's the accepted boundary of a
 border-connectivity technique, not an oversight; see the existing "remaining,
 accepted limit" note above, which this round doesn't change.
 
-**Deliberately not built:** any adjustable tolerance/threshold control (a fixed
-value tuned for a light, roughly-solid backdrop); manual background-colour
-picking (always auto-sampled from the corners); a "transparent fill behind the
-shape mask" or "no placeholder box when the photo is missing" option (both
-explicitly dropped from scope on request, see §15's "Deliberately not built").
+*Round 4 (2026-08-02, same day) — an upper bound on `_fillEnclosedHoles`
+(property 2934, SAME agent, a different pose).* Reported as "additional
+evidence": the same agent's photo produced a DIFFERENT artefact on a
+different property's ad — earrings rendered correctly, but a large section of
+the white collar/blouse was missing, cut with a hard straight edge. Investigated
+before any code change, per the same evidence-based discipline as round 3:
 
-**Acceptance criteria**
+- **Which file did each property actually process?** Could not be proven.
+  `agents/{id}/photo.webp`'s underlying bytes were overwritten in place on
+  2026-06-25 (the `user_documents` row's `file_path` never changed, only its
+  content did) — an orphaned older photo with a different pose (arms crossed,
+  a wide open V-neck collar) still sat on disk, unreferenced since. nginx
+  access logs on the host only retain ~14 days, starting well after that
+  replacement — every retained request for the current URL returns the
+  CURRENT file's byte count, with no trace of the old one ever being served in
+  the retained window. The fix below is deliberately justified on its own
+  merits, NOT on an assumed timeline of which file which ad used — the defect
+  it fixes is real and reproducible against the actual old file regardless.
+- **Ruled out:** a persistent/shared cache serving stale output (none
+  exists — confirmed by re-reading `stripBackground()`/`_bgRemovalCache`, a
+  plain in-memory object scoped to one page load); the algorithm referencing
+  the AD's own background/colour behind the subject (`_processBackgroundRemoval`
+  draws only the `<img>` element's own decoded bitmap — nothing in the kernel
+  reads or blends against the surrounding template); non-determinism (a
+  faithful PHP/GD port run twice against the same file produced byte-identical
+  output, `md5sum` confirmed).
+- **Confirmed, reproducible defect:** `_fillEnclosedHoles()` (round 3) had a
+  size FLOOR (`HOLE_MIN_PX`) but no ceiling. A pose where a genuine patch of
+  light-coloured clothing is fully enclosed by dark clothing on every side
+  (arms crossed, an open collar) satisfies the exact same "enclosed pocket"
+  test as an earring gap — round 3 had no way to tell them apart, so it
+  erased a real 2059px patch of collar outright.
+
+**Fix — two additional guards, both required, both agency-configurable
+(never hardcoded per-call):**
+- `holeMaxPx` (area cap, default **1200**) — rejects a pocket whose total pixel
+  count exceeds this.
+- `holeMaxDimensionPx` (bounding-box cap, default **45**) — rejects a pocket
+  whose LONGEST bounding-box side exceeds this.
+
+Both are necessary; NEITHER alone covers every measured case. Measured on the
+real photos (500px working resolution):
+
+| | area (px) | longest bbox side (px) |
+|---|---|---|
+| genuine holes (earrings, small gaps) | 46–851 | ≤41 |
+| failing case A (small collar gap) | 602 | 51 |
+| failing case B (large collar patch) | 2059 | 131 |
+
+Failing case A's AREA (602) is *smaller* than the largest genuine hole
+(851) — an area cap tight enough to exclude 602 would also wrongly exclude
+725 and 851. The bounding-box dimension is what separates every measured case
+cleanly (≤41 vs. ≥51), which is why it exists as an independent guard, not
+folded into the area check. `holeMaxPx` still exists as a second, independent
+line of defence for a large pocket whose proportions happen to keep its
+longest side under the dimension cap.
+
+Existing `HOLE_MIN_PX` was renamed `holeMinPx` and folded into the same
+agency-configurable mechanism (default unchanged, 30).
+
+**Agency-configurable, not hardcoded.** All three thresholds live on
+`agencies.ad_bg_removal_hole_{min,max,max_dimension}_px` (nullable —
+null = "use the kernel's default"), read once per page load by each of the
+three render surfaces and pushed into the kernel via
+`CoreXAd.configureBgRemoval({ holeMinPx, holeMaxPx, holeMaxDimensionPx })`,
+called immediately after the kernel script tag. **Deliberately NOT surfaced
+in the Agency Onboarding Setup Wizard** — non-negotiable #10a's own carve-out
+for "an expert/rarely-touched knob" applies here: this is pixel-level tuning
+for a specific photo-processing edge case, not a business-relevant setting an
+agency needs walking through at setup. This is Johan's own call, made
+directly in this session, not inferred by the lane — recorded here per
+non-negotiable #10a so the omission is a decision on the record, not an
+oversight.
+
+**Regression-tested against real photos, not just synthetic cases:** Elize's
+current photo (close-up headshot) — both earring holes still fill correctly,
+zero change from round 3; Elize's old orphaned photo (arms-crossed pose) —
+the 602px and 2059px collar patches are now correctly rejected, composited
+onto a contrasting background and visually confirmed intact; Retha's, Kym's,
+Johan's and Maggie's photos — no change, still clean, across a real mix of
+poses/clothing (a dark shirt with no light collar at all, busy hair with many
+small strand-gaps, a name-badge pinhole).
+
+**A genuine footgun found and fixed along the way — `@json()` cannot take an
+inline multi-key array literal.** The first attempt at wiring
+`configureBgRemoval({...})` into all three surfaces passed the array directly:
+`@json(['holeMinPx' => …, 'holeMaxPx' => …, …])`. This compiled "successfully"
+(`artisan view:cache` reported no error) but threw a `ParseError` — "Unclosed
+`[` … does not match `)`" — the moment the view actually RENDERED. Root cause,
+confirmed by reading `Illuminate\View\Compilers\Concerns\CompilesJson`:
+`@json($value, $options, $depth)` is compiled by exploding its ENTIRE argument
+on every top-level comma, expecting up to three positional arguments — an
+inline array literal's own key-value commas get sliced apart the same way,
+truncating the array and feeding its own later fragments in as `$options`/
+`$depth`. `view:cache` never catches this because it only pre-compiles each
+file's Blade syntax; it does not exercise the `@extends`/`@section` render
+path the same way an actual `view()->render()` call does — this is why the
+bug was invisible until Tinker-rendered the real controller output. **Fix:**
+build the array in a `@php` block first, assign it to a bare variable with NO
+top-level commas, then pass ONLY that variable to `@json($var)`. Applies to
+all three surfaces identically (`$_bgRemovalCfg` in `ad.blade.php`/
+`ad-builder.blade.php`, same in `ad-manager.blade.php`). Worth remembering for
+any FUTURE `@json(...)` call anywhere in this codebase that isn't a single
+bare variable/expression.
+
+**Deliberately not built:** manual background-colour picking (always
+auto-sampled from the corners); a "transparent fill behind the shape mask" or
+"no placeholder box when the photo is missing" option (both explicitly
+dropped from scope on request, see §15's "Deliberately not built"); an
+aspect-ratio-based guard (evaluated and rejected — some GENUINE small holes
+measured MORE elongated, e.g. 5.33:1, than the failing large patch's 2.18:1,
+so aspect ratio alone is not a safe discriminator on this data; absolute
+bounding-box dimension is what actually separates every case).
+
+**Acceptance criteria (round 4)**
+- [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
+- [x] A modest-area but elongated hole (longest bbox side > `holeMaxDimensionPx`)
+      is NOT filled — proves the area cap alone would have missed this case.
+- [x] The original earring-sized fix (round 3) is NOT regressed by adding the
+      upper bound.
+- [x] `configureBgRemoval()` actually changes behaviour when an agency raises
+      or lowers any of the three thresholds.
+- [x] Every threshold defaults sensibly when an agency has never configured
+      it (`null` on the agencies row) — every agency before this shipped gets
+      identical behaviour to before it existed.
+- [x] Verified against real photos, not only synthetic test frames: Elize
+      current + old, Retha, Kym — before/after composited on a contrasting
+      background and visually confirmed.
+- [x] `tests/js/ad-render-kernel.mjs` covers all of the above directly.
+
+**Acceptance criteria (rounds 1–3, unchanged)**
 - [x] A plain white/near-white backdrop is removed; the person is preserved.
 - [x] A white patch fully inside the subject (not touching the image border)
       is NOT removed — proves this is a border-connectivity flood fill, not a
@@ -1689,18 +1828,34 @@ template builder" this was asked for.
 - `public/js/corex-ad-render.js` — `stripBackground()`, `_processBackgroundRemoval()`,
   `_floodFillTransparent()`, `_cornerColor()`, `backgroundRemovalsSettled()`,
   `_bgRemovalCache`; `imgTag()` adds the onload hook; `makeElement()` seeds
-  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` (`HOLE_MIN_PX = 30`)
-  and `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
-  `_floodFillTransparent()`, and both exported on `CoreXAd`.
-- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background" checkbox
-  in the Agent Image panel.
-- `resources/views/corex/properties/ad.blade.php` — `_capture()` awaits
-  `backgroundRemovalsSettled()` before `html2canvas`.
-- `resources/views/tools/ad-manager.blade.php` — `downloadRow()` awaits
+  `removeBackground: false`; round 3 adds `_fillEnclosedHoles()` and
+  `_featherAlpha()`, both called from `_processBackgroundRemoval()` right after
+  `_floodFillTransparent()`, and both exported on `CoreXAd`; round 4 adds
+  `_bgRemovalConfig` (`holeMinPx`/`holeMaxPx`/`holeMaxDimensionPx`, agency-
+  configurable defaults) and `configureBgRemoval(cfg)` (exported on `CoreXAd`),
+  and extends `_fillEnclosedHoles()` to track each component's bounding box and
+  gate on the area + dimension caps alongside the existing floor.
+- `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
+- `app/Models/Agency.php` — the three columns added to `$fillable`/`$casts`.
+- `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
+  current agency and passes it to the view.
+- `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
+  cache-busting query string, no manual version number to remember to bump).
+- `resources/views/corex/properties/ad-builder.blade.php`,
+  `resources/views/corex/properties/ad.blade.php`,
+  `resources/views/tools/ad-manager.blade.php` — "Remove background" checkbox
+  in the Agent Image panel (Ad Builder only); all three now call
+  `window.CoreXAd.configureBgRemoval({...})` immediately after the kernel
+  script tag loads, with the current agency's (nullable) threshold values; all
+  three load the kernel via `asset_v('js/corex-ad-render.js')` instead of a
+  static `?v=1` (round 4 — see §12 cache-busting note); `ad.blade.php`'s
+  `_capture()` and `ad-manager.blade.php`'s `downloadRow()` await
   `backgroundRemovalsSettled()` before `html2canvas`.
 - `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
   onload-hook emission/omission, enclosed-holes fill/no-fill/border-touching cases,
-  edge feathering.
+  edge feathering, round 4's large-hole/elongated-hole rejection and
+  `configureBgRemoval()` override coverage.
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil

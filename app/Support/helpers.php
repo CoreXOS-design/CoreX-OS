@@ -23,3 +23,25 @@ if (! function_exists('feature')) {
         return app(AgencyFeatureService::class)->enabled($key);
     }
 }
+
+if (! function_exists('asset_v')) {
+    /**
+     * asset() with an automatic cache-busting query string — the file's own
+     * mtime, so a browser that cached an old copy fetches fresh the moment
+     * the file changes on disk, with NO manual version number to remember to
+     * bump on deploy. For public/ files not run through the Vite/Mix asset
+     * pipeline (e.g. public/js/corex-ad-render.js), where a hand-written
+     * "?v=1" is easy to ship a fix behind without ever changing.
+     *
+     * Falls back to a static "?v=1" only if the file genuinely can't be
+     * stat'd (shouldn't happen for a real public asset) — never breaks the
+     * page over a missing file.
+     */
+    function asset_v(string $path): string
+    {
+        $full  = public_path($path);
+        $stamp = is_file($full) ? (string) filemtime($full) : '1';
+
+        return asset($path) . '?v=' . $stamp;
+    }
+}
