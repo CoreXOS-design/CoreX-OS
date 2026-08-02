@@ -944,40 +944,53 @@ colour backdrop (the common studio-headshot shape) — not a photo with a
 busy/textured/gradient background, which is a materially harder problem this
 deliberately does not attempt.
 
-**Fixed 2026-08-02 — a real photo (Retha's) had its white shirt swept away
-along with the white backdrop.** The first version sampled the backdrop colour
-from all FOUR image corners and seeded the flood fill from the ENTIRE frame
-border, including the bottom row. A headshot crop routinely has the subject's
-shoulders/shirt reaching the bottom (and sometimes lower-side) edge of the
-frame — when that garment is a similar tone to the backdrop (a white shirt on
-a white/light backdrop is the exact common case, not an edge case), seeding
-from the bottom edge let the fill flow straight from the backdrop into the
-garment: both connected, both the same colour, no edge between them to stop
-at. **Three changes, in order of how much they actually mattered:**
-1. **Seeds no longer include the bottom row, and side-column seeding is
-   restricted to the upper half of the frame** (`sideSeedLimit = h * 0.5`) —
-   the bottom edge of a headshot crop is essentially never backdrop.
-2. **A hard floor**, `noRemoveBelow = h * 0.82`: the bottom ~18% of the frame
-   is NEVER erased, full stop, regardless of how the fill's connectivity
-   technically reaches it. This is the actual backstop — restricting seeds
-   alone does not stop the fill from reaching a garment via propagation
-   through legitimately-connected background pixels above the seed line; only
-   an explicit height floor does.
-3. **Corner sampling uses the TOP-LEFT and TOP-RIGHT corners only**, not all
-   four — averaging in bottom corners (often clothing) pulled the sampled
-   "backdrop colour" toward the clothing colour, loosening the very tolerance
-   meant to tell them apart. Tolerance itself was also tightened (26 vs the
-   original 40) now that the reference colour is a cleaner backdrop-only
-   sample.
+**Fixed 2026-08-02, in two rounds — a real photo (Retha's) exposed both ends
+of this trade-off in production, same day.**
 
-**The trade-off is deliberate and stated, not silent:** genuine backdrop that
-happens to sit in the protected bottom band (a loose/half-body crop with
-visible background low in the frame) is now ALSO left un-removed. Failing to
-fully clear a strip of background is the safe direction to fail in; eating
-part of the subject is not. `tests/js/ad-render-kernel.mjs` reproduces the
-exact reported shape (a light garment touching the bottom edge) as a named
-regression test, plus asserts the stated trade-off explicitly rather than
-leaving it as an unverified side-effect.
+*Round 1 — the shirt got swept away with the backdrop.* The original version
+sampled the backdrop colour from all FOUR image corners and seeded the flood
+fill from the ENTIRE frame border, including the bottom row. A headshot crop
+routinely has the subject's shoulders/shirt reaching the bottom (and sometimes
+lower-side) edge of the frame — when that garment is a similar tone to the
+backdrop (a white shirt on a white/light backdrop is the common case, not an
+edge case), seeding from the bottom edge let the fill flow straight from the
+backdrop into the garment. Fixed: **seeds no longer include the bottom row**,
+side-column seeding is **restricted to the upper half of the frame**
+(`sideSeedLimit = h * 0.5`), and **corner sampling uses only the TOP-LEFT/
+TOP-RIGHT corners** (bottom corners are often clothing, and averaging them in
+had pulled the sampled "backdrop colour" toward the clothing colour). Tolerance
+tightened 40→26 now the sample is cleaner.
+
+*Round 1 ALSO added a hard floor* (`noRemoveBelow = h * 0.82`, "never erase
+the bottom ~18% of the frame, full stop") as a backstop, reasoning that
+restricting seeds alone doesn't stop the fill reaching a garment via
+propagation through legitimately-connected background above the seed line.
+
+*Round 2 — the floor overcorrected: "left ~20% at the bottom."* Reported the
+same day. The floor is BLIND — it has no idea whether that band is actually
+backdrop or clothing, and Retha's actual photo has genuine visible backdrop
+below the shoulders (not every crop has the garment reaching the literal
+bottom pixel), which the floor now refused to touch. **The floor is removed.**
+Propagation is unrestricted by y-position once a pixel is seeded — a
+background pixel below the seed line still connects upward to more background
+regardless of its row — so genuine connected backdrop is correctly cleared
+all the way down again. What actually stops a real garment from being eaten is
+what a colour algorithm can legitimately reason about: not seeding from the
+ambiguous bottom edge, sampling the backdrop colour from a clean spot, and a
+tolerance tight enough to catch a real (even modest) colour difference.
+
+**The remaining, accepted limit — stated, not silently patched around:** a
+garment truly colour-IDENTICAL to the backdrop, with zero edge between them,
+gives no signal any colour-based algorithm can use, and will still be swept in
+too. A blind position-based floor could paper over that one synthetic
+worst-case, but at the cost of breaking the much more common real case (a real
+photo where the garment DOES differ from the backdrop, even subtly, and
+genuine backdrop legitimately extends low in the frame) — precisely the
+regression Retha's photo demonstrated. `tests/js/ad-render-kernel.mjs` covers
+all three shapes explicitly: a garment with a real colour difference survives
+even at the bottom edge; genuine low-frame backdrop is removed; a
+colour-identical garment is knowingly, explicitly swept in (asserted, not
+discovered by surprise).
 
 **Mechanism.** A checkbox — "Remove background" — in the Agent Image panel sets
 `el.removeBackground`. The kernel's `imgTag()` adds `onload="window.CoreXAd.
@@ -1033,9 +1046,15 @@ scope on request, see §15's "Deliberately not built").
 - [x] A white patch fully inside the subject (not touching the image border)
       is NOT removed — proves this is a border-connectivity flood fill, not a
       naive global colour threshold.
-- [x] A light-coloured garment touching the BOTTOM edge of the frame is NOT
-      removed — the exact real-photo regression (Retha's shirt), reproduced
-      as a named test.
+- [x] A garment with a real (even modest) colour difference from the backdrop
+      is NOT removed even touching the bottom edge — round 1's regression
+      (Retha's shirt), reproduced realistically (not a same-colour edge case).
+- [x] Genuine backdrop connected all the way to the bottom of the frame IS
+      removed — round 2's regression ("left ~20% at the bottom"), fixed by
+      removing the blind height floor round 1 added.
+- [x] A garment truly colour-identical to the backdrop is knowingly swept in
+      too — the accepted, stated limit of a colour-based cutout, asserted
+      explicitly rather than left as a surprise.
 - [x] Toggling the checkbox off reverts to the untouched original photo.
 - [x] A cross-origin/tainted photo degrades to showing the original — never a
       broken/blank image, never a thrown error visible to the user.
