@@ -826,6 +826,10 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
             // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
             // from the preview the agent approved.
             if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
+            // An Agent Image with "Remove background" on swaps its <img src> once the
+            // in-browser cutout finishes — await that too, or a fast capture can
+            // rasterise the un-stripped original photo.
+            try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(r => setTimeout(r, 80));
             const c = await html2canvas(canvas, {
                 width: cfg.w, height: cfg.h, scale: 2,

@@ -719,6 +719,15 @@
                                     <input type="number" min="0" :value="sel.borderRadius ?? 16" @input="mutate('borderRadius', +$event.target.value)">
                                 </div>
                             </template>
+                            <hr class="pp-sep">
+                            <div class="pp-row">
+                                <label style="display:flex;align-items:center;gap:7px;cursor:pointer;">
+                                    <input type="checkbox" :checked="!!sel.removeBackground" @change="mutate('removeBackground', $event.target.checked)"
+                                           style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
+                                    <span style="font-weight:600;color:var(--chrome-text);">Remove background</span>
+                                </label>
+                            </div>
+                            <div class="pp-hint" x-show="sel.removeBackground">Cuts out a plain/solid-colour backdrop (e.g. a white studio background) so only the person remains. Works best on a simple, evenly-lit background — processed once per photo, in the browser.</div>
                         </div>
                     </template>
 

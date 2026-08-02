@@ -386,6 +386,10 @@ function adManager() {
             if (!el) return;
             const saved = el.style.transform;
             el.style.transform = 'none';
+            // A batch of Agent Images with "Remove background" on need their in-browser
+            // cutout to finish before a bulk run rasterises them — otherwise a fast
+            // capture could grab the un-stripped original.
+            try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(res => setTimeout(res, 60));
             try {
                 const c = await html2canvas(el, { width: r.cw, height: r.ch, scale: 2, useCORS: true, backgroundColor: '#071325', logging: false });

@@ -905,6 +905,96 @@ unchanged.
 
 ---
 
+## 15.1 "Remove background" — client-side cutout for a plain-backdrop photo
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** The request's own example: an agent's headshot on a **white studio
+backdrop** should lose that backdrop and show only the person, so the photo sits
+directly on the ad's own background/colour instead of carrying a visible white
+box around it. This is scoped to the Agent Image element (`agent_avatar`/
+`agent_2_avatar`) only, same as the shape picker (§15) — not a general image
+tool.
+
+**This is NOT AI/ML person segmentation** — no model, no third-party API (no
+`remove.bg`-style cost or network dependency, no photo ever leaves the browser).
+It is a **flood-fill colour cutout**, the same class of technique behind
+PowerPoint's "Remove Background": sample the backdrop colour from the four image
+corners, then flood-fill transparency inward from every BORDER pixel that
+colour-matches (within a tolerance) — stopping wherever the colour changes
+sharply. A pixel only turns transparent if it is both colour-matched AND
+reachable from the border without crossing that edge, so **a white shirt collar
+in the middle of the photo survives** (it's not connected to the border) while
+an actual solid/near-solid backdrop is removed. Works best on the case it's
+built for — a plain, evenly-lit, roughly-solid-colour backdrop (the common
+studio-headshot shape) — not a photo with a busy/textured/gradient background,
+which is a materially harder problem this deliberately does not attempt.
+
+**Mechanism.** A checkbox — "Remove background" — in the Agent Image panel sets
+`el.removeBackground`. The kernel's `imgTag()` adds `onload="window.CoreXAd.
+stripBackground(this)"` to the `<img>` when that's on; `stripBackground()`
+downscales the photo onto an offscreen `<canvas>` (capped at 500px on the
+longest side, so a full-resolution profile photo is never slow), runs the
+flood-fill (`_floodFillTransparent`/`_cornerColor`), and swaps the `<img>`'s
+`src` to the resulting transparent-PNG data URL. **One `onload` attribute is
+the ONLY per-surface change** — it fires identically whether the `<img>` was
+inserted via Alpine's reactive `x-html` (Builder) or `renderLayout()`'s
+imperative `innerHTML` (generator/bulk manager), so nothing else needed
+touching in any of the three surfaces.
+
+**Same-origin only** (relies on the existing `Property::adSafeImageUrl()`
+resolution, §10e, that already makes html2canvas work) — a genuinely
+cross-origin photo makes the canvas "tainted", `getImageData()` throws, and the
+function resolves to `null`: the original photo keeps showing rather than the
+ad breaking. Errors of any kind degrade the same way — this never crashes an ad.
+
+**Cached per source URL, re-processed only once even across a bulk run.** A
+`_bgRemovalCache` keyed by the ORIGINAL `<img>.src` stores the in-flight/settled
+Promise, so if the same agent's photo appears across many properties in a bulk
+Ad Manager run, only the FIRST occurrence actually runs the flood-fill; every
+other `<img>` for that same URL gets the cached result instantly. Re-loading the
+SAME processed data URL (the swap itself triggers a second `load` event) is
+guarded by `img.dataset.bgStripped`, so it can't loop.
+
+**Capture-timing safety.** Both capture paths — the single-property generator's
+`_capture()` and the bulk Ad Manager's `downloadRow()` — now `await
+CoreXAd.backgroundRemovalsSettled()` before calling `html2canvas`, alongside
+their existing fixed-delay buffers (80ms/60ms — precedent already in this
+codebase for the identical font-loading race, §12.4-adjacent). This is a
+best-effort guarantee, not a formally provable one — genuinely slow processing
+(a very large source photo before downscaling, or a slow device) could in
+theory still race a capture that fires immediately; flagged here rather than
+silently assumed solved.
+
+**Toggling off reverts cleanly.** `imgTag()` always starts from `imageSrc()`'s
+resolved ORIGINAL photo URL — turning `removeBackground` off simply stops
+adding the `onload` hook on the next render, so the element shows the
+untouched original photo. Nothing is ever mutated on the `Property`/`User`
+model or `prop` data; the swap only ever touches the live `<img>` DOM node.
+
+**Deliberately not built:** any adjustable tolerance/threshold control (a fixed
+value tuned for a light, roughly-solid backdrop); manual background-colour
+picking (always auto-sampled from the corners); edge feathering/anti-aliasing
+of the cutout boundary; a "transparent fill behind the shape mask" or "no
+placeholder box when the photo is missing" option (both explicitly dropped from
+scope on request, see §15's "Deliberately not built").
+
+**Acceptance criteria**
+- [x] A plain white/near-white backdrop is removed; the person is preserved.
+- [x] A white patch fully inside the subject (not touching the image border)
+      is NOT removed — proves this is a border-connectivity flood fill, not a
+      naive global colour threshold.
+- [x] Toggling the checkbox off reverts to the untouched original photo.
+- [x] A cross-origin/tainted photo degrades to showing the original — never a
+      broken/blank image, never a thrown error visible to the user.
+- [x] The SAME source photo across many bulk-run properties is only processed
+      once (cache hit for every subsequent occurrence).
+- [x] `tests/js/ad-render-kernel.mjs` covers the flood-fill algorithm directly
+      (synthetic pixel buffers — no real Canvas/Image needed) and the
+      onload-hook emission/omission.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -985,3 +1075,17 @@ unchanged.
   suppresses the plain Border Radius input for those two fields only.
 - `tests/js/ad-render-kernel.mjs` — rename, default-circle, every shape branch, legacy
   fallback coverage.
+
+### "Remove background" cutout (§15.1)
+- `public/js/corex-ad-render.js` — `stripBackground()`, `_processBackgroundRemoval()`,
+  `_floodFillTransparent()`, `_cornerColor()`, `backgroundRemovalsSettled()`,
+  `_bgRemovalCache`; `imgTag()` adds the onload hook; `makeElement()` seeds
+  `removeBackground: false`.
+- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background" checkbox
+  in the Agent Image panel.
+- `resources/views/corex/properties/ad.blade.php` — `_capture()` awaits
+  `backgroundRemovalsSettled()` before `html2canvas`.
+- `resources/views/tools/ad-manager.blade.php` — `downloadRow()` awaits
+  `backgroundRemovalsSettled()` before `html2canvas`.
+- `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
+  onload-hook emission/omission.

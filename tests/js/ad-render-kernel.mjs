@@ -187,6 +187,68 @@ ok('the shape picker applies to Agent 2 as well as Agent 1',
 ok('isAgentAvatarField() does not falsely match an unrelated image field',
     !K.isAgentAvatarField('image_1') && !K.isAgentAvatarField('agency_logo'));
 
+section('Remove Background — flood-fill cutout (pure pixel logic, no real Canvas needed)');
+
+// A synthetic W×H RGBA buffer: a solid backdrop colour everywhere, with an
+// inset "person" square of a different colour, and a same-backdrop-coloured
+// "collar" square placed in the MIDDLE (not touching the border) — the one
+// case a naive global colour-threshold would get wrong.
+function makeFrame(w, h, bg, subjectRect, collarRect) {
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            let [r, g, b] = bg;
+            if (subjectRect && x >= subjectRect.x && x < subjectRect.x + subjectRect.w
+                            && y >= subjectRect.y && y < subjectRect.y + subjectRect.h) {
+                [r, g, b] = subjectRect.color;
+            }
+            if (collarRect && x >= collarRect.x && x < collarRect.x + collarRect.w
+                            && y >= collarRect.y && y < collarRect.y + collarRect.h) {
+                [r, g, b] = bg; // same colour as the backdrop, but NOT touching the border
+            }
+            data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        }
+    }
+    return { data };
+}
+const alphaAt = (frame, w, x, y) => frame.data[(y * w + x) * 4 + 3];
+
+const W = 40, H = 40;
+const white = [255, 255, 255];
+const subject = { x: 10, y: 10, w: 20, h: 20, color: [40, 90, 160] }; // a blue "person"
+const collar  = { x: 17, y: 15, w: 6, h: 4 };                        // white patch INSIDE the subject
+
+const frame = makeFrame(W, H, white, subject, collar);
+K.cornerColor(frame.data, W, H); // must not throw on the exported entry point
+K.floodFillTransparent(frame, W, H);
+
+ok('a corner (background) pixel becomes transparent', alphaAt(frame, W, 0, 0) === 0);
+ok('a border-edge background pixel becomes transparent', alphaAt(frame, W, Math.floor(W / 2), 0) === 0);
+ok('the subject (a different colour, filling out from the middle) stays fully opaque',
+    alphaAt(frame, W, 20, 20) === 255);
+ok('a white patch INSIDE the subject — not connected to the border — survives (the whole point of flood-fill vs a naive colour threshold)',
+    alphaAt(frame, W, 19, 16) === 255);
+
+const noisyBg = makeFrame(W, H, [250, 248, 252], subject, null); // near-white, not pure white
+K.floodFillTransparent(noisyBg, W, H);
+ok('a near-white (not pure #fff) backdrop is still recognised within tolerance',
+    alphaAt(noisyBg, W, 0, 0) === 0);
+
+const cc = K.cornerColor(frame.data, W, H);
+ok('cornerColor() reads the actual corner pixels', cc[0] > 200 && cc[1] > 200 && cc[2] > 200);
+
+const photoProp = { agent_avatar: '/storage/agents/1.jpg', agent_2_avatar: '/storage/agents/2.jpg' };
+ok('removeBackground=true on an Agent Image emits the onload hook',
+    K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {})
+        .includes('onload="window.CoreXAd.stripBackground(this)"'));
+ok('removeBackground=false (the default) emits NO onload hook — a legacy avatar is untouched',
+    !K.contentHtml(el({ field: 'agent_avatar' }), photoProp, {}).includes('stripBackground'));
+ok('applies to Agent 2 as well as Agent 1',
+    K.contentHtml(el({ field: 'agent_2_avatar', removeBackground: true }), photoProp, {}).includes('stripBackground'));
+ok('an unrelated image field ignores removeBackground even if somehow set (scoped to Agent Image only)',
+    !K.contentHtml(el({ field: 'image_1', removeBackground: true }), { image_1: '/storage/p/1.jpg' }, {}).includes('stripBackground'));
+
 section('Templates saved BEFORE any of this still render unchanged');
 
 ok('a legacy Agent Image (no shapeType at all, old borderRadius:50 baked in) still renders circular',
