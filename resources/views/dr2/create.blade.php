@@ -249,20 +249,9 @@
                 <button type="button" id="dr2_bond_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new bond originator (firm &amp; contact)</button>
             </div>
 
-            {{-- Note 2 — External Agency (firm & contact), same searchable-supplier picker as the
-                 attorney / bond-originator fields. Emailable via Email Parties + a document-copy
-                 recipient; never an e-sign signer (a provider is not a Contact, so it is excluded
-                 from the signer builder by construction). --}}
-            <div class="field-full" id="dr2-extagency">
-                <label class="ds-label block mb-1">External agency (firm &amp; contact)</label>
-                <input type="hidden" name="external_agency_provider_id" id="dr2_extagency_provider_id" value="{{ old('external_agency_provider_id', $deal->external_agency_provider_id) }}">
-                <input type="hidden" name="external_agency_contact_id" id="dr2_extagency_contact_id" value="{{ old('external_agency_contact_id', $deal->external_agency_contact_id) }}">
-                <div style="position:relative;">
-                    <input type="text" id="dr2_extagency_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…">
-                    <div id="dr2_extagency_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
-                </div>
-                <button type="button" id="dr2_extagency_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency (firm &amp; contact)</button>
-            </div>
+            {{-- External Agency is captured PER SIDE in "Sides, Splits & Agents" below
+                 (each side has its own firm+contact picker). The old single top-level
+                 external-agency field was retired here — see the per-side pickers. --}}
 
             {{-- (Enhancement 7 / walk fix 1+2) Financials — commission with a VAT basis toggle
                  and live two-way % ↔ amount binding. Stored truth stays DR1's (Incl-VAT total);
@@ -395,9 +384,20 @@
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="listing_our_share_percent" class="w-full" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" placeholder="Our Share %">
                         </div>
-                        <div>
+                        {{-- External Agency (firm & contact) — same searchable-supplier picker as
+                             attorney / bond-originator. The hidden name is the display label,
+                             persisted to listing_external_agency (unchanged); provider+contact ids
+                             make this side's agency an emailable party via Email Parties. --}}
+                        <div id="dr2-lext">
                             <label class="ds-label block mb-1">External Agency</label>
-                            <input type="text" name="listing_external_agency" class="w-full" placeholder="External agency name" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                            <input type="hidden" name="listing_external_agency" id="dr2_lext_name" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                            <input type="hidden" name="listing_external_agency_provider_id" id="dr2_lext_provider_id" value="{{ old('listing_external_agency_provider_id', $deal->listing_external_agency_provider_id) }}">
+                            <input type="hidden" name="listing_external_agency_contact_id" id="dr2_lext_contact_id" value="{{ old('listing_external_agency_contact_id', $deal->listing_external_agency_contact_id) }}">
+                            <div style="position:relative;">
+                                <input type="text" id="dr2_lext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
+                                <div id="dr2_lext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                            </div>
+                            <button type="button" id="dr2_lext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -446,9 +446,17 @@
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="selling_our_share_percent" class="w-full" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" placeholder="Our Share %">
                         </div>
-                        <div>
+                        {{-- External Agency (firm & contact) — same picker as the listing side. --}}
+                        <div id="dr2-sext">
                             <label class="ds-label block mb-1">External Agency</label>
-                            <input type="text" name="selling_external_agency" class="w-full" placeholder="External agency name" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                            <input type="hidden" name="selling_external_agency" id="dr2_sext_name" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                            <input type="hidden" name="selling_external_agency_provider_id" id="dr2_sext_provider_id" value="{{ old('selling_external_agency_provider_id', $deal->selling_external_agency_provider_id) }}">
+                            <input type="hidden" name="selling_external_agency_contact_id" id="dr2_sext_contact_id" value="{{ old('selling_external_agency_contact_id', $deal->selling_external_agency_contact_id) }}">
+                            <div style="position:relative;">
+                                <input type="text" id="dr2_sext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
+                                <div id="dr2_sext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                            </div>
+                            <button type="button" id="dr2_sext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -621,38 +629,9 @@
             });
 
 
-            // External-agency auto-tick: typing an external-agency NAME on a side
-            // ticks that side's "External agency handled this side" box for you.
-            // Un-tick is deliberately non-destructive — we only clear a box that
-            // THIS logic ticked, that was NOT already checked when the page loaded
-            // (i.e. not a saved-external deal), and that the user did not tick
-            // themselves. Clearing the name in those safe cases un-ticks the box.
-            ['listing', 'selling'].forEach(side => {
-                const nameEl = document.querySelector(`input[name="${side}_external_agency"]`);
-                const boxEl  = document.getElementById(`${side}_external`);
-                if (!nameEl || !boxEl) return;
-
-                const wasCheckedOnLoad = boxEl.checked;
-                let autoTicked = false;
-
-                // The user taking manual control of the box wins — stop auto-managing.
-                boxEl.addEventListener('change', () => { autoTicked = false; });
-
-                const apply = () => {
-                    const hasName = nameEl.value.trim() !== '';
-                    if (hasName && !boxEl.checked) {
-                        boxEl.checked = true;   // programmatic — does not fire 'change'
-                        autoTicked = true;
-                    } else if (!hasName && boxEl.checked && autoTicked && !wasCheckedOnLoad) {
-                        boxEl.checked = false;
-                        autoTicked = false;
-                    }
-                };
-
-                nameEl.addEventListener('input', apply);
-                nameEl.addEventListener('blur', apply);
-                apply(); // reflect any pre-filled name (old()/edit repopulation)
-            });
+            // External-agency auto-tick now lives inside the per-side external-agency
+            // pickers (dr2_lext / dr2_sext): selecting or typing an agency ticks that
+            // side's "External agency handled this side" box. See the picker IIFE below.
         </script>
     </form>
 
@@ -1180,53 +1159,87 @@
         });
     })();
 
-    // ---------- Note 2: external agency = FIRM + contact (mirror of the bond-originator picker) ----------
+    // ---------- Per-side external agency = FIRM + contact (mirror of the attorney / bond-originator
+    //            picker), one per side. Both sides share ONE add-new modal (dr2_extagency_modal),
+    //            writing back into whichever side opened it. ----------
     (function () {
-        const xSearch = document.getElementById('dr2_extagency_search');
-        if (!xSearch) { return; }
-        const xResults = document.getElementById('dr2_extagency_results');
-        const xProvId = document.getElementById('dr2_extagency_provider_id');
-        const xContactId = document.getElementById('dr2_extagency_contact_id');
-        const SPEC = '&specialty=external_agency';
-        const closeX = () => { xResults.style.display = 'none'; xResults.innerHTML = ''; };
-        xSearch.addEventListener('input', () => { xProvId.value = ''; xContactId.value = ''; });
-        const runX = debounce(() => {
-            const q = xSearch.value.trim();
-            if (q.length < 2) { closeX(); return; }
-            fetch(R.attorneySearch + '?q=' + encodeURIComponent(q) + SPEC, { headers: { Accept: 'application/json' } })
-                .then(r => r.ok ? r.json() : { results: [] })
-                .then(data => {
-                    const rows = (data && data.results) || [];
-                    if (!rows.length) { closeX(); return; }
-                    xResults.innerHTML = rows.map((row, i) => {
-                        const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
-                        const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
-                        return '<div class="dr2-xrow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
-                    }).join('');
-                    xResults.style.display = 'block';
-                    xResults.querySelectorAll('.dr2-xrow').forEach(el => {
-                        const row = rows[parseInt(el.dataset.i, 10)];
-                        el.addEventListener('click', () => {
-                            xSearch.value = row.label; xProvId.value = row.provider_id || ''; xContactId.value = row.contact_id || ''; closeX();
-                        });
-                    });
-                }).catch(closeX);
-        }, 220);
-        xSearch.addEventListener('input', runX);
-        xSearch.addEventListener('focus', runX);
-        document.addEventListener('click', e => { if (!e.target.closest('#dr2-extagency')) closeX(); });
-
         const xModal = document.getElementById('dr2_extagency_modal');
+        if (!xModal) { return; }
         const nxFirm = document.getElementById('dr2_nx_firm'), nxAtt = document.getElementById('dr2_nx_attorney');
         const nxContact = document.getElementById('dr2_nx_contact'), nxEmail = document.getElementById('dr2_nx_email');
         const nxAddress = document.getElementById('dr2_nx_address'), nxErr = document.getElementById('dr2_nx_error');
-        document.getElementById('dr2_extagency_addnew').addEventListener('click', () => {
-            nxFirm.value = xSearch.value.trim(); nxAtt.value = nxContact.value = nxEmail.value = nxAddress.value = '';
-            nxErr.style.display = 'none'; xModal.style.display = 'flex'; nxFirm.focus();
-        });
+        const SPEC = '&specialty=external_agency';
+        let active = null;
+
+        const fieldsFor = (side) => {
+            const p = side === 'listing' ? 'dr2_lext' : 'dr2_sext';
+            return {
+                box:     document.getElementById(side === 'listing' ? 'dr2-lext' : 'dr2-sext'),
+                search:  document.getElementById(p + '_search'),
+                name:    document.getElementById(p + '_name'),
+                prov:    document.getElementById(p + '_provider_id'),
+                contact: document.getElementById(p + '_contact_id'),
+                results: document.getElementById(p + '_results'),
+                addnew:  document.getElementById(p + '_addnew'),
+                chk:     document.getElementById(side + '_external'),
+            };
+        };
+
+        const wire = (side) => {
+            const f = fieldsFor(side);
+            if (!f.search) { return; }
+            const close = () => { f.results.style.display = 'none'; f.results.innerHTML = ''; };
+            const tick  = () => { if (f.chk && !f.chk.checked) { f.chk.checked = true; } };
+
+            // A free-typed name still persists (legacy behaviour) + marks the side external;
+            // a picked provider additionally sets the ids that make it an emailable party.
+            f.search.addEventListener('input', () => {
+                f.prov.value = ''; f.contact.value = ''; f.name.value = f.search.value;
+                if (f.search.value.trim() !== '') { tick(); }
+            });
+
+            const run = debounce(() => {
+                const q = f.search.value.trim();
+                if (q.length < 2) { close(); return; }
+                fetch(R.attorneySearch + '?q=' + encodeURIComponent(q) + SPEC, { headers: { Accept: 'application/json' } })
+                    .then(r => r.ok ? r.json() : { results: [] })
+                    .then(data => {
+                        const rows = (data && data.results) || [];
+                        if (!rows.length) { close(); return; }
+                        f.results.innerHTML = rows.map((row, i) => {
+                            const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
+                            const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
+                            return '<div class="dr2-xsrow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                        }).join('');
+                        f.results.style.display = 'block';
+                        f.results.querySelectorAll('.dr2-xsrow').forEach(el => {
+                            const row = rows[parseInt(el.dataset.i, 10)];
+                            el.addEventListener('click', () => {
+                                f.search.value = row.label; f.name.value = row.label;
+                                f.prov.value = row.provider_id || ''; f.contact.value = row.contact_id || '';
+                                tick(); close();
+                            });
+                        });
+                    }).catch(close);
+            }, 220);
+            f.search.addEventListener('input', run);
+            f.search.addEventListener('focus', run);
+            document.addEventListener('click', e => { if (!e.target.closest('#' + f.box.id)) close(); });
+
+            f.addnew.addEventListener('click', () => {
+                active = f;
+                nxFirm.value = f.search.value.trim(); nxAtt.value = nxContact.value = nxEmail.value = nxAddress.value = '';
+                nxErr.style.display = 'none'; xModal.style.display = 'flex'; nxFirm.focus();
+            });
+        };
+
+        wire('listing');
+        wire('selling');
+
         document.getElementById('dr2_nx_cancel').addEventListener('click', () => xModal.style.display = 'none');
         xModal.addEventListener('click', e => { if (e.target === xModal) xModal.style.display = 'none'; });
         document.getElementById('dr2_nx_save').addEventListener('click', function () {
+            if (!active) { return; }
             const firm = nxFirm.value.trim();
             if (!firm) { nxErr.textContent = 'A firm is required.'; nxErr.style.display = 'block'; return; }
             this.disabled = true;
@@ -1236,7 +1249,10 @@
                 body: JSON.stringify({ specialty: 'external_agency', firm, attorney: nxAtt.value.trim() || null, contact: nxContact.value.trim() || null, email: nxEmail.value.trim() || null, address: nxAddress.value.trim() || null }),
             }).then(r => r.json().then(j => ({ ok: r.ok, j }))).then(({ ok, j }) => {
                 if (!ok) { nxErr.textContent = (j && j.message) || 'Could not save the external agency.'; nxErr.style.display = 'block'; return; }
-                xSearch.value = j.label || firm; xProvId.value = j.provider_id || ''; xContactId.value = j.contact_id || ''; xModal.style.display = 'none';
+                active.search.value = j.label || firm; active.name.value = j.label || firm;
+                active.prov.value = j.provider_id || ''; active.contact.value = j.contact_id || '';
+                if (active.chk && !active.chk.checked) { active.chk.checked = true; }
+                xModal.style.display = 'none';
             }).catch(() => { nxErr.textContent = 'Network error — please try again.'; nxErr.style.display = 'block'; })
               .finally(() => { this.disabled = false; });
         });

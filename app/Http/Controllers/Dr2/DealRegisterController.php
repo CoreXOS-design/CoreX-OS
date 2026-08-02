@@ -475,9 +475,6 @@ class DealRegisterController extends Controller
             'attorney_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'bond_originator_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
             'bond_originator_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
-            // Note 2 — external agency = firm + contact, same searchable-supplier pattern.
-            'external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
-            'external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
             'accepted_status'  => ['nullable', 'string', 'max:1'],
             'commission_status' => ['nullable', 'string', 'max:50'],
             'registration_date' => ['nullable', 'date'],
@@ -486,10 +483,16 @@ class DealRegisterController extends Controller
             'listing_external'        => ['nullable'],
             'listing_our_share_percent' => ['nullable', 'numeric'],
             'listing_external_agency' => ['nullable', 'string', 'max:255'],
+            // Per-side external agency = firm + contact (same searchable-supplier picker
+            // as attorney / bond-originator). The name column above is the display label.
+            'listing_external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'listing_external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
 
             'selling_external'        => ['nullable'],
             'selling_our_share_percent' => ['nullable', 'numeric'],
             'selling_external_agency' => ['nullable', 'string', 'max:255'],
+            'selling_external_agency_provider_id' => ['nullable', 'integer', 'exists:agency_service_providers,id'],
+            'selling_external_agency_contact_id'  => ['nullable', 'integer', 'exists:agency_service_provider_contacts,id'],
 
             'listing_agents'  => ['array'],
             'selling_agents'  => ['array'],
@@ -636,8 +639,6 @@ class DealRegisterController extends Controller
             'attorney_contact_id'  => ! empty($data['attorney_contact_id']) ? (int) $data['attorney_contact_id'] : null,
             'bond_originator_provider_id' => ! empty($data['bond_originator_provider_id']) ? (int) $data['bond_originator_provider_id'] : null,
             'bond_originator_contact_id'  => ! empty($data['bond_originator_contact_id']) ? (int) $data['bond_originator_contact_id'] : null,
-            'external_agency_provider_id' => ! empty($data['external_agency_provider_id']) ? (int) $data['external_agency_provider_id'] : null,
-            'external_agency_contact_id'  => ! empty($data['external_agency_contact_id']) ? (int) $data['external_agency_contact_id'] : null,
             'accepted_status'  => $data['accepted_status'] ?? null,
             'commission_status' => $data['commission_status'] ?? null,
             'registration_date' => $data['registration_date'] ?? null,
@@ -646,10 +647,14 @@ class DealRegisterController extends Controller
             'listing_external' => !empty($data['listing_external']),
             'listing_our_share_percent' => $data['listing_our_share_percent'] ?? 100,
             'listing_external_agency' => $data['listing_external_agency'] ?? null,
+            'listing_external_agency_provider_id' => ! empty($data['listing_external_agency_provider_id']) ? (int) $data['listing_external_agency_provider_id'] : null,
+            'listing_external_agency_contact_id'  => ! empty($data['listing_external_agency_contact_id']) ? (int) $data['listing_external_agency_contact_id'] : null,
 
             'selling_external' => !empty($data['selling_external']),
             'selling_our_share_percent' => $data['selling_our_share_percent'] ?? 100,
             'selling_external_agency' => $data['selling_external_agency'] ?? null,
+            'selling_external_agency_provider_id' => ! empty($data['selling_external_agency_provider_id']) ? (int) $data['selling_external_agency_provider_id'] : null,
+            'selling_external_agency_contact_id'  => ! empty($data['selling_external_agency_contact_id']) ? (int) $data['selling_external_agency_contact_id'] : null,
         ]);
 
         // Stamp link provenance only when a property is picked; never clobber a

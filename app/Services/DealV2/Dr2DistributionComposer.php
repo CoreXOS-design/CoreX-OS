@@ -74,7 +74,7 @@ class Dr2DistributionComposer
             'buyer'             => $this->contactRecipients($deal, 'buyer'),
             'transfer_attorney' => $this->providerRecipient($deal->attorney_provider_id, $deal->attorney_contact_id),
             'bond_originator'   => $this->providerRecipient($deal->bond_originator_provider_id, $deal->bond_originator_contact_id),
-            'external_agency'   => $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id),
+            'external_agency'   => $this->externalAgencyRecipients($deal),
             'bond_attorney'     => $this->providerRecipient($deal->bond_attorney_provider_id, $deal->bond_attorney_contact_id),
             default             => [],
         };
@@ -160,6 +160,37 @@ class Dr2DistributionComposer
             'email'       => $email,
             'phone'       => $phone,
         ]];
+    }
+
+    /**
+     * External Agency is captured PER SIDE (listing + selling) in "Sides, Splits & Agents",
+     * each a firm+contact provider pick (mirror of attorney / bond originator). The single
+     * External Agency party surfaces BOTH sides' agencies as recipients, deduped (both sides
+     * may name the same firm). Deals saved under the retired top-level external-agency field
+     * still surface (legacy fallback) when no per-side pick exists, so emailability is never lost.
+     */
+    private function externalAgencyRecipients(Deal $deal): array
+    {
+        $recipients = array_merge(
+            $this->providerRecipient($deal->listing_external_agency_provider_id, $deal->listing_external_agency_contact_id),
+            $this->providerRecipient($deal->selling_external_agency_provider_id, $deal->selling_external_agency_contact_id),
+        );
+
+        if (empty($recipients)) {
+            $recipients = $this->providerRecipient($deal->external_agency_provider_id, $deal->external_agency_contact_id);
+        }
+
+        $seen = [];
+        $out  = [];
+        foreach ($recipients as $r) {
+            $key = ($r['id'] ?? '') . ':' . ($r['contact_id'] ?? '');
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $r;
+        }
+        return $out;
     }
 
     /**

@@ -117,11 +117,15 @@ class Deal extends Model
         'listing_split_percent',
         'listing_our_share_percent',
         'listing_external_agency',
+        'listing_external_agency_provider_id',
+        'listing_external_agency_contact_id',
 
         'selling_external',
         'selling_split_percent',
         'selling_our_share_percent',
         'selling_external_agency',
+        'selling_external_agency_provider_id',
+        'selling_external_agency_contact_id',
 
         'is_demo',
 
