@@ -1492,6 +1492,14 @@ the round-4 thresholds it sits alongside.
       synthetic gradient-corridor frame: default cap stops before the
       "plateau", raised cap sweeps it, real flat backdrop unaffected.
 
+**⛔ REVERTED (2026-08-02, same day) — see "Round 6 — REVERTED" note at the
+end of this section before reading any further.** The fix below shipped to
+live, was found to make the ad visibly WORSE (a flat white rectangle over a
+photographic background, not a colour-matched blend), and was pulled the
+same day. Round 5 is the accepted state. This write-up is kept for the
+record — do not re-implement `cutoutMatteColor` from this description
+without reading why it failed.
+
 *Round 6 (2026-08-02, same day) — the remaining artefact was a compositing
 gap, not the removal algorithm at all.* Round 5 fixed the collar erasure,
 confirmed on a fresh pull. What remained on the SAME photo: a hard, straight
@@ -1587,10 +1595,13 @@ overlapping shape at all (stays unset, no crash), `removeBackground` false
 (never touched), already-configured (never overwritten), two consecutive
 runs (identical result both times).
 
-**Held for approval, not run against live** — prepared and fully tested
-against a locally-constructed replica in QA2 (QA2's own database has no ad
-templates at all, so the real Template 1 row was read directly from live
-for investigation, per explicit instruction, but never written to).
+**Deployed to Staging and live 2026-08-02, then reverted the same day** —
+prepared and fully tested against a locally-constructed replica in QA2
+(QA2's own database has no ad templates at all, so the real Template 1 row
+was read directly from live for investigation, per explicit instruction).
+Approved, deployed QA2→Staging→live, ran cleanly, backfilled Template 1's
+`agent_avatar` element to `cutoutMatteColor:#ffffff` — and was visibly wrong
+in production: see "Round 6 — REVERTED" below.
 
 **Acceptance criteria (round 6)**
 - [x] Compositing the real cutout onto the template's actual split
@@ -1612,6 +1623,47 @@ for investigation, per explicit instruction, but never written to).
       `removeBackground` enabled anywhere in the system — the migration is
       the complete fix, not a special case.
 - [x] `tests/js/ad-render-kernel.mjs` covers `cutoutMatteColor` directly.
+
+**Round 6 — REVERTED (2026-08-02, same day).** Deployed to Staging and live,
+then pulled the same day on the agency's report that ad 2934 got visibly
+worse, not better. **The root-cause diagnosis above (the compositing gap)
+was correct — the fix was wrong.** `cutoutMatteColor` assumed whatever sits
+behind the Agent Image element at that position is a flat-coloured
+decorative SHAPE (the case simulated and tested against: a synthetic
+black/white split). In the ACTUAL Template 1 design, the shape at that
+z-order is a property/marketing PHOTO, not a flat colour — the "white card"
+read as flat in the simulation because the sample template used for the
+geometry test happened to have `bg:#ffffff`, but the real template paints a
+photographic background there. Painting a solid `#ffffff` rectangle over a
+photographic background is visibly WORSE than the seam it was meant to
+hide: a flat colour block can never blend into a photograph, at any colour
+value. This is a fundamental mismatch in the fix's own assumption, not a
+threshold or tuning problem — no colour choice fixes it, which is why this
+is reverted rather than re-tuned.
+
+**What actually shipped, reverted, in order QA2 → Staging → live:**
+- `public/js/corex-ad-render.js` — the `cutoutMatteColor` block in
+  `frameStyle()` removed (restored to the exact round-5 file, via
+  `git show` against the round-5 commit, not hand-edited).
+- `resources/views/corex/properties/ad-builder.blade.php` — the "Fill
+  removed background with a colour" checkbox + colour picker removed
+  (restored to the round-5 file, same method).
+- `tests/js/ad-render-kernel.mjs` — the 5 `cutoutMatteColor` checks removed
+  (restored to the round-5 file, same method); suite back to 123/123.
+- **Data reversal** — the forward migration
+  (`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+  is kept in place (already ran in production; migration files that have
+  run are not deleted, consistent with the project's no-hard-deletes
+  posture). A new migration,
+  `2026_08_20_000009_revert_cutout_matte_color_backfill.php`, clears
+  `cutoutMatteColor` from every `agent_avatar`/`agent_2_avatar` element that
+  has it set, system-wide (not just Template 1) — undoing the class of
+  change 000008 made, not one row by hand.
+
+**Status:** round 5 is the accepted state until Johan says otherwise. The
+original left-edge seam on ad 2934 (documented above) is UNFIXED and stays
+unfixed — no further attempt was made in this pass, per explicit
+instruction not to reach for another fix immediately.
 
 **Acceptance criteria (round 4)**
 - [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
@@ -2073,31 +2125,32 @@ template builder" this was asked for.
   `floodFillDriftCapPx` to `_bgRemovalConfig`/`configureBgRemoval()` and
   rewrites `_floodFillTransparent()`'s stack entries to carry an inherited
   path-max-distance value alongside each pixel's coordinates, gating
-  propagation on it in addition to the existing flat tolerance check; round 6
-  adds `el.cutoutMatteColor` handling to `frameStyle()` — paints
-  `background-color` behind an Agent Image frame only when BOTH
-  `removeBackground` and `cutoutMatteColor` are set (a per-element property,
-  not agency-config — see round 6's write-up for why).
+  propagation on it in addition to the existing flat tolerance check.
+  Round 6 added `el.cutoutMatteColor` handling to `frameStyle()` — **shipped,
+  then REVERTED the same day** (wrong fix for a correctly-diagnosed cause;
+  see the round-6 write-up's "REVERTED" note above) — the kernel file is
+  back to its round-5 form.
 - `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
   additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
 - `database/migrations/2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies.php` —
   additive, nullable `agencies.ad_bg_removal_flood_fill_drift_cap_px` (round 5).
 - `database/migrations/2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php` —
-  one-time data correction (round 6): derives and sets `cutoutMatteColor` on
-  every existing `removeBackground` Agent Image element from its own
-  template's z-order — at time of writing, exhaustively Template 1 only
-  (confirmed via live query — no other template has `removeBackground`
-  anywhere). NOT run against live yet — held for approval.
+  round 6's one-time data correction. Ran against live/Staging, then its
+  effect was reversed by 000009 the same day. Kept in place (not deleted) as
+  the historical record of an already-run migration.
+- `database/migrations/2026_08_20_000009_revert_cutout_matte_color_backfill.php` —
+  reverses 000008: clears `cutoutMatteColor` from every `agent_avatar`/
+  `agent_2_avatar` element that has it set, system-wide.
 - `app/Models/Agency.php` — the three round 4/5 threshold columns added to
-  `$fillable`/`$casts` (round 6 introduces no new agency column).
+  `$fillable`/`$casts` (round 6 introduced no new agency column).
 - `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
   current agency and passes it to the view.
 - `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
   cache-busting query string, no manual version number to remember to bump).
 - `resources/views/corex/properties/ad-builder.blade.php` — "Remove background"
-  checkbox in the Agent Image panel, plus round 6's new "Fill removed
-  background with a colour" checkbox + colour picker, visible only when
-  "Remove background" is on.
+  checkbox in the Agent Image panel. (Round 6 added a "Fill removed
+  background with a colour" checkbox + colour picker here — shipped, then
+  REVERTED the same day; the file is back to its round-5 form.)
 - `resources/views/corex/properties/ad-builder.blade.php`,
   `resources/views/corex/properties/ad.blade.php`,
   `resources/views/tools/ad-manager.blade.php` — all three call
@@ -2112,9 +2165,9 @@ template builder" this was asked for.
   edge feathering, round 4's large-hole/elongated-hole rejection and
   `configureBgRemoval()` override coverage, round 5's synthetic gradient-corridor
   frame (default cap stops before the plateau, raised cap sweeps it, real flat
-  backdrop unaffected, round 1/2's regression re-asserted unaffected), round 6's
-  `cutoutMatteColor` scoping (unset/no-removeBackground/unrelated-field all
-  no-ops, set+removeBackground paints exactly that colour, Agent 1 + 2).
+  backdrop unaffected, round 1/2's regression re-asserted unaffected). Round 6
+  added 5 `cutoutMatteColor` checks here — removed on revert; suite is back
+  to 123/123.
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil
