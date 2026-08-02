@@ -721,6 +721,82 @@
         return Promise.all(jobs);
     }
 
+    /**
+     * Pure geometry for CSS object-fit cover/contain — the destination rect an
+     * image draws into a box of (boxW, boxH). No DOM, easily unit-testable.
+     */
+    function objectFitRect(fitVal, boxW, boxH, natW, natH) {
+        if (!natW || !natH || !boxW || !boxH) return null;
+        var scale = fitVal === 'contain' ? Math.min(boxW / natW, boxH / natH) : Math.max(boxW / natW, boxH / natH);
+        var dw = natW * scale, dh = natH * scale;
+        return { dw: dw, dh: dh, dx: (boxW - dw) / 2, dy: (boxH - dh) / 2 };
+    }
+
+    /**
+     * html2canvas has long-documented gaps in its CSS object-fit support — it
+     * can rasterise an <img> at its raw intrinsic aspect ratio stretched to
+     * fill the element's box instead of correctly cropping/letterboxing it the
+     * way the live browser (correctly) shows it. A real ad hit this: an Agent
+     * Image sitting at the very edge of the canvas rendered visibly stretched
+     * in the downloaded PNG while the on-screen preview was correct.
+     *
+     * Rather than fight html2canvas's object-fit implementation, this pre-bakes
+     * the SAME crop onto an offscreen <canvas> sized to the element's own box
+     * (same technique already proven for "Remove background") — by the time
+     * html2canvas captures it, the image genuinely IS the right shape, so there
+     * is nothing left for its object-fit handling to get wrong. Every capture
+     * path (single-property generator, Ad Builder export, bulk Ad Manager)
+     * calls this immediately before its html2canvas() call.
+     *
+     * Swaps each qualifying <img>'s `src` to the pre-cropped data URL and
+     * resolves to a restore function — the caller MUST call it (in a
+     * try/finally) once the capture is done, so the live preview / "change
+     * photo" overlay / gallery picker keep reading the ORIGINAL src exactly as
+     * before. This never touches the live DOM permanently.
+     *
+     * 'fill' is left alone (it already stretches on purpose — nothing to
+     * correct). A cross-origin/tainted image is left alone too (object-fit
+     * still applies correctly live in the browser; only the html2canvas
+     * pre-bake is skipped for that one image, never a thrown error).
+     */
+    function prepareImagesForCapture(root) {
+        if (!root) return Promise.resolve(function () {});
+        var imgs = Array.prototype.slice.call(root.querySelectorAll('img'));
+        var restores = [];
+        var loadPromises = [];
+
+        imgs.forEach(function (img) {
+            var fitVal = (img.style.objectFit || '').toLowerCase();
+            if (fitVal !== 'cover' && fitVal !== 'contain') return;
+
+            var box = img.getBoundingClientRect();
+            var w = Math.round(box.width), h = Math.round(box.height);
+            var rect = objectFitRect(fitVal, w, h, img.naturalWidth, img.naturalHeight);
+            if (!rect) return;
+
+            try {
+                var canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, rect.dx, rect.dy, rect.dw, rect.dh);
+                var dataUrl = canvas.toDataURL('image/png'); // throws on a tainted (cross-origin) canvas
+                var originalSrc = img.src;
+                img.src = dataUrl;
+                restores.push(function () { img.src = originalSrc; });
+                loadPromises.push(img.decode ? img.decode().catch(function () {}) : Promise.resolve());
+            } catch (e) {
+                // Tainted canvas or any processing error — leave this image
+                // exactly as the browser already renders it.
+            }
+        });
+
+        return Promise.all(loadPromises).then(function () {
+            return function restoreImages() {
+                restores.forEach(function (fn) { fn(); });
+            };
+        });
+    }
+
     function placeholderHtml(label) {
         return '<div style="width:100%;height:100%;background:linear-gradient(135deg,#0b2a4a,#143d6e);'
              + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;'
@@ -927,6 +1003,8 @@
         avatarShapeCss: avatarShapeCss,
         stripBackground: stripBackground,
         backgroundRemovalsSettled: backgroundRemovalsSettled,
+        objectFitRect: objectFitRect,
+        prepareImagesForCapture: prepareImagesForCapture,
         floodFillTransparent: _floodFillTransparent,
         cornerColor: _cornerColor,
         isClipShape: isClipShape,

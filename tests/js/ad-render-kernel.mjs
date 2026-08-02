@@ -328,5 +328,40 @@ ok('the original src is kept so "reset to original" can restore it', withOv.incl
 ok('the agency logo is tagged so the gallery picker never swaps it',
     K.contentHtml(el({ field: 'agency_logo' }), prop, { tagPhotos: true }).includes('class="js-ad-logo"'));
 
+section('objectFitRect() — the pre-capture crop math (html2canvas object-fit workaround, ad-manager.md §16)');
+
+// A real reported bug: an Agent Image (180x200 box, object-fit:cover) rendered
+// stretched in the downloaded PNG while the live preview was correct. The fix
+// pre-bakes the SAME crop cover/contain would produce onto an offscreen
+// canvas before html2canvas ever sees the image — this is that crop math,
+// tested directly against known photo/box combinations.
+
+// A portrait box (180x200), a landscape source photo (800x600, ratio 4:3) —
+// "cover" must crop the sides, never squash the photo to fit.
+let r = K.objectFitRect('cover', 180, 200, 800, 600);
+ok('cover picks the LARGER scale (fills both dimensions, crops the rest)',
+    Math.abs(r.dw - (800 * (200 / 600))) < 0.01 && Math.abs(r.dh - 200) < 0.01, JSON.stringify(r));
+ok('cover centres the crop horizontally (dx is negative — image wider than the box)',
+    r.dx < 0);
+ok('cover fills the full box vertically (dy is 0 — no vertical crop needed here)',
+    Math.abs(r.dy) < 0.01);
+
+// Same photo, "contain" — must letterbox, never crop.
+r = K.objectFitRect('contain', 180, 200, 800, 600);
+ok('contain picks the SMALLER scale (letterboxes, never crops)',
+    Math.abs(r.dw - 180) < 0.01, JSON.stringify(r));
+ok('contain centres the letterbox vertically (dy is positive — image shorter than the box)',
+    r.dy > 0);
+
+// A square photo into a square box — no crop, no letterbox, exact fit either way.
+r = K.objectFitRect('cover', 100, 100, 500, 500);
+ok('a matching aspect ratio needs no crop at all (cover)', r.dw === 100 && r.dh === 100 && r.dx === 0 && r.dy === 0);
+
+// Robustness — the whole point of this existing rather than crashing mid-capture.
+ok('a zero/missing natural size returns null rather than dividing by zero',
+    K.objectFitRect('cover', 100, 100, 0, 0) === null);
+ok('a zero-size box also returns null rather than producing garbage geometry',
+    K.objectFitRect('cover', 0, 0, 500, 500) === null);
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' : 'ALL ') + (pass + fail) + ' checks' + (fail ? '' : ' passed'));
 process.exit(fail ? 1 : 0);

@@ -2386,13 +2386,25 @@ function builder() {
             await this.$nextTick();
             // Webfonts must be resolved or html2canvas rasterises the fallback face.
             if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
+            // An Agent Image with "Remove background" on swaps its <img src> once the
+            // in-browser cutout finishes — await that too, or a fast capture can
+            // rasterise the un-stripped original photo (sibling of the same gap
+            // already fixed on the generator's _capture()).
+            try { await this.CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(r => requestAnimationFrame(() => setTimeout(r, 40)));
+            const canvasEl = document.getElementById('canvas');
+            let restoreImages = () => {};
             try {
-                return await html2canvas(document.getElementById('canvas'), {
+                // html2canvas has known gaps in its object-fit support — pre-bake the
+                // SAME cover/contain crop onto an offscreen canvas so there is nothing
+                // left for it to get wrong.
+                try { restoreImages = await this.CoreXAd.prepareImagesForCapture(canvasEl); } catch (_) {}
+                return await html2canvas(canvasEl, {
                     useCORS: true, allowTaint: false, scale: 1, logging: false,
                     backgroundColor: this.CoreXAd.canvasBgSolid(this.layoutJson),
                 });
             } finally {
+                restoreImages();
                 this.capturing = false;
             }
         },
