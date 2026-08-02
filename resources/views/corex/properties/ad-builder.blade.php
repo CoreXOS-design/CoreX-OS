@@ -1059,6 +1059,28 @@
                         <input type="color" :value="sel.frameBorderColor || '#ffffff'" @input="mutate('frameBorderColor', $event.target.value)">
                     </div>
 
+                    {{-- Grouping — only when the current selection IS a whole existing
+                         group (clicking any member already selects all of them). --}}
+                    <template x-if="selIsGroup">
+                        <div>
+                            <hr class="pp-sep">
+                            <h3>Grouped — <span x-text="selCount"></span> elements</h3>
+                            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;">
+                                <template x-for="m in selGroupMembers" :key="m.id">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;border-radius:6px;background:var(--chrome-surface-2);">
+                                        <span style="font-size:11px;color:var(--chrome-text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="m.label"></span>
+                                        <button type="button" title="Remove this element from the group — the rest stay grouped"
+                                                @click="ungroupOne(m)"
+                                                style="flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--chrome-text-mute);cursor:pointer;border-radius:4px;">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                            <button class="tb-btn" style="width:100%;justify-content:center;" @click="ungroupSelected()" title="Ungroup (Ctrl Shift G)">Ungroup All</button>
+                        </div>
+                    </template>
+
                     <div class="pp-row" style="display:flex;gap:6px;">
                         <button class="tb-btn" style="flex:1;justify-content:center;" @click="duplicateSelected()">Duplicate</button>
                         <button class="tb-btn" style="flex:1;justify-content:center;" @click="toggleLock()" x-text="allLocked ? 'Unlock' : 'Lock'"></button>
@@ -1301,6 +1323,13 @@ function builder() {
             const gid = [...gids][0];
             return this.elements.filter(e => e.groupId === gid).length === this.selCount;
         },
+        /** The actual element objects in the current group selection — powers the
+         *  Design panel's per-member "remove from group" list. Empty when the
+         *  selection isn't a whole group (selIsGroup false). */
+        get selGroupMembers() {
+            if (!this.selIsGroup) return [];
+            return this.selIdx.map(i => this.elements[i]);
+        },
         /** Layers list — TOP of the ad first, which is how a designer reads a stack. */
         get layers() {
             return [...this.elements].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
@@ -1360,6 +1389,27 @@ function builder() {
             this.commit();
             idxs.forEach(i => { this.elements[i] = { ...this.elements[i], groupId: null }; });
             this.toast('Ungrouped');
+        },
+
+        /** Removes ONE element from its group, leaving the rest of the group intact
+         *  — the single-item counterpart to ungroupSelected()'s "whole group".
+         *  Reachable from the Design panel's per-member list (clicking a member on
+         *  the canvas/Layers always expands to the WHOLE group, so this list is the
+         *  only way to target just one). If that leaves a single member behind, its
+         *  groupId is cleared too — a "group" of one is meaningless leftover state. */
+        ungroupOne(target) {
+            if (!target.groupId) return;
+            const gid = target.groupId;
+            this.commit();
+            const i = this.elements.findIndex(e => e.id === target.id);
+            if (i < 0) return;
+            this.elements[i] = { ...this.elements[i], groupId: null };
+            const remaining = this.elements.filter(e => e.groupId === gid);
+            if (remaining.length === 1) {
+                const ri = this.elements.findIndex(e => e.id === remaining[0].id);
+                this.elements[ri] = { ...this.elements[ri], groupId: null };
+            }
+            this.toast('Removed from group');
         },
 
         /** Remaps groupId on a freshly-cloned element list so a duplicate/paste of a
