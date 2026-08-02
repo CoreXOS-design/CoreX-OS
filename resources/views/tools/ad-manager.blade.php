@@ -157,8 +157,8 @@
                         <button type="button" @click="template = t.id"
                                 class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
                                 :style="template===t.id ? 'border:1.5px solid var(--brand-button,#0ea5e9); box-shadow:0 0 0 1px var(--brand-button,#0ea5e9);' : 'border:1.5px solid var(--border);'">
-                            <div class="adm-tpl-thumb" :style="'aspect-ratio:'+((t.layout_json&&t.layout_json.canvasW)||1200)+'/'+((t.layout_json&&t.layout_json.canvasH)||628)+'; overflow:hidden; background:#071325; position:relative;'">
-                                <div class="adm-scaled" :id="'tplthumb-custom-'+t.id" :data-cw="(t.layout_json&&t.layout_json.canvasW)||1200" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+((t.layout_json&&t.layout_json.canvasW)||1200)+'px;height:'+((t.layout_json&&t.layout_json.canvasH)||628)+'px;'"></div>
+                            <div class="adm-tpl-thumb" :style="'aspect-ratio:'+(thumbLayout(t).canvasW||1200)+'/'+(thumbLayout(t).canvasH||628)+'; overflow:hidden; background:#071325; position:relative;'">
+                                <div class="adm-scaled" :id="'tplthumb-custom-'+t.id" :data-cw="thumbLayout(t).canvasW||1200" :style="'position:absolute;top:0;left:0;transform-origin:top left;width:'+(thumbLayout(t).canvasW||1200)+'px;height:'+(thumbLayout(t).canvasH||628)+'px;'"></div>
                                 <div x-show="previewLoading" class="absolute inset-0 flex items-center justify-center text-[0.6875rem]" style="color:var(--text-muted); background:var(--surface-2);">Loading…</div>
                             </div>
                             <div class="px-3 py-2">
@@ -306,6 +306,12 @@ function adManager() {
         agentProperties(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
         agentSelectedCount(agentId) { const ids = this.agentProperties(agentId).map(p => p.id); return this.selected.filter(s => ids.includes(s)).length; },
 
+        /** "Last generated" tooltip on a property card's ad-count badge. */
+        formatAdDate(iso) {
+            if (!iso) return 'never';
+            return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        },
+
         toggleAgent(id) {
             if (this.openAgents.includes(id)) { this.openAgents = this.openAgents.filter(a => a !== id); }
             else { this.openAgents.push(id); this.skippedAgents = this.skippedAgents.filter(a => a !== id); }
@@ -344,9 +350,20 @@ function adManager() {
             } catch (e) { /* leave previews empty — names still show */ }
             this.previewLoading = false;
             this.$nextTick(() => {
-                this.custom.forEach(t => this.renderCustomInto(t.layout_json, this.previewData, document.getElementById('tplthumb-custom-' + t.id)));
+                this.custom.forEach(t => this.renderCustomInto(this.thumbLayout(t), this.previewData, document.getElementById('tplthumb-custom-' + t.id)));
                 this.fitCanvases();
             });
+        },
+
+        /**
+         * §18 — the picker thumbnail (and its aspect-ratio frame) shows the
+         * design that will ACTUALLY be used for the first selected property,
+         * not always the Default — if the template has a custom variant for
+         * this property's type, resolve it here exactly like generate()
+         * resolves it server-side, per property.
+         */
+        thumbLayout(t) {
+            return CoreXAd.resolveTemplateLayout(t.layout_json, this.previewData?.property_type_raw);
         },
         fitCanvases() {
             document.querySelectorAll('.adm-scaled').forEach(el => {
@@ -386,8 +403,17 @@ function adManager() {
             if (!el) return;
             const saved = el.style.transform;
             el.style.transform = 'none';
+            // A batch of Agent Images with "Remove background" on need their in-browser
+            // cutout to finish before a bulk run rasterises them — otherwise a fast
+            // capture could grab the un-stripped original.
+            try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(res => setTimeout(res, 60));
+            let restoreImages = () => {};
             try {
+                // html2canvas has known gaps in its object-fit support — pre-bake the
+                // SAME cover/contain crop onto an offscreen canvas so there is nothing
+                // left for it to get wrong (a real ad hit this with an Agent Image).
+                try { restoreImages = await CoreXAd.prepareImagesForCapture(el); } catch (_) {}
                 const c = await html2canvas(el, { width: r.cw, height: r.ch, scale: 2, useCORS: true, backgroundColor: '#071325', logging: false });
                 const a = document.createElement('a');
                 a.download = 'ad-' + r.id + '.png';
@@ -396,6 +422,7 @@ function adManager() {
             } catch (e) {
                 window.showToast ? window.showToast('Download failed: ' + (e?.message || 'unknown'), 'error') : alert('Download failed.');
             } finally {
+                restoreImages();
                 el.style.transform = saved;
                 this.fitCanvases();
             }

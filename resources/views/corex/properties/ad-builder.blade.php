@@ -106,6 +106,8 @@
         .ab-btn:hover:not(:disabled) { background: var(--chrome-hover); color: var(--chrome-text); }
         .ab-btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .ab-btn.on { background: color-mix(in srgb, var(--brand-button,#00b4d8) 16%, transparent); color: var(--brand-button,#00b4d8); border-color: color-mix(in srgb, var(--brand-button,#00b4d8) 34%, transparent); }
+        .ab-btn.confirm { background: #19c37d; color: #fff; border-color: #19c37d; }
+        .ab-btn.confirm:hover:not(:disabled) { background: #15a76c; color: #fff; }
         .ab-sep { width: 1px; height: 20px; background: var(--chrome-border); margin: 0 5px; flex-shrink: 0; }
         .ab-num {
             width: 46px; height: 24px; background: var(--chrome-input); border: 1px solid var(--chrome-border);
@@ -113,6 +115,27 @@
             font-family: inherit; padding: 0 5px; outline: none; text-align: center;
         }
         .ab-zoom { font-size: 11px; font-weight: 700; color: var(--chrome-text-soft); min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+
+        /* ─── §18 — "Design for" property-type variant bar ─── */
+        #varbar {
+            flex-shrink: 0; min-height: 38px;
+            background: var(--chrome-surface); border-bottom: 1px solid var(--chrome-border);
+            display: flex; align-items: center; gap: 6px; padding: 5px 14px; flex-wrap: wrap;
+        }
+        .var-label { font-size: 11px; font-weight: 700; color: var(--chrome-text-mute); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 2px; flex-shrink: 0; }
+        .var-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 26px; padding: 0 10px; border-radius: 13px;
+            border: 1.5px solid var(--chrome-border); background: var(--chrome-surface-2); color: var(--chrome-text-soft);
+            font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.1s;
+        }
+        .var-pill:hover { background: var(--chrome-hover); color: var(--chrome-text); }
+        .var-pill.on { background: color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent); color: var(--brand-button,#00b4d8); border-color: color-mix(in srgb, var(--brand-button,#00b4d8) 40%, transparent); }
+        .var-pill.custom:not(.on) { border-color: color-mix(in srgb, #19c37d 45%, transparent); color: #19c37d; }
+        .var-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 6px; background: color-mix(in srgb, #19c37d 22%, transparent); color: #19c37d; }
+        .var-pill.on .var-badge { background: color-mix(in srgb, var(--brand-button,#00b4d8) 22%, transparent); color: var(--brand-button,#00b4d8); }
+        .var-revert { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--chrome-text-mute); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 4px; }
+        .var-revert:hover { color: #e63946; }
 
         /* ─── 3-COLUMN LAYOUT ─── */
         #workspace { flex: 1; display: flex; overflow: hidden; }
@@ -406,6 +429,16 @@
 
     <div class="ab-sep"></div>
 
+    {{-- Grouping — click to enter pick mode, click elements on the canvas, then
+         Confirm/Cancel in the bar at the top-right (opts.js: toggleGroupPick()). --}}
+    <button class="ab-btn" :class="{ on: groupPickMode }" @click="toggleGroupPick()"
+            :title="groupPickMode ? 'Cancel grouping (Esc)' : 'Group elements… (Ctrl G groups the current selection directly)'">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="8" height="8" rx="1"/><rect x="12" y="12" width="8" height="8" rx="1"/><rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="3 3"/></svg>
+        Group…
+    </button>
+
+    <div class="ab-sep"></div>
+
     {{-- Snapping --}}
     <button class="ab-btn" :class="{ on: snapObjects }" @click="snapObjects = !snapObjects" title="Snap to other elements & canvas centre (hold Alt to suspend)">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="3"/></svg>
@@ -442,12 +475,49 @@
     </button>
 
     <div style="margin-left:auto;display:flex;align-items:center;gap:3px;">
-        <span style="font-size:11px;color:var(--chrome-text-mute);" x-show="selCount > 1" x-text="selCount + ' selected'"></span>
+        <template x-if="groupPickMode">
+            <div style="display:flex;align-items:center;gap:8px;padding:2px 4px 2px 10px;border-radius:8px;background:color-mix(in srgb, var(--brand-button,#00b4d8) 12%, transparent);">
+                <span style="font-size:11px;font-weight:600;color:var(--chrome-text);" x-text="'Click elements to group — ' + selCount + ' selected'"></span>
+                <button class="ab-btn confirm" @click="confirmGroupPick()" :disabled="selCount < 2" title="Confirm — group the selected elements">Confirm</button>
+                <button class="ab-btn" @click="cancelGroupPick()" title="Cancel (Esc)">Cancel</button>
+            </div>
+        </template>
+        <span style="font-size:11px;color:var(--chrome-text-mute);" x-show="!groupPickMode && selCount > 1" x-text="selCount + ' selected'"></span>
         <button class="ab-btn" @click="showShortcuts = true" title="Keyboard shortcuts (?)">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
         </button>
     </div>
 </div>
+
+{{-- ═══ §18 — "Design for" property-type variant bar ═══
+     One template, different property types: a house needs Bedrooms/
+     Bathrooms; a vacant land listing only has a stand size. Default is the
+     design used by any type with no custom design of its own. Clicking a
+     type that's still "Default" gives it its own — a clone of the current
+     Default, ready to edit independently — every OTHER type keeps using
+     Default automatically. --}}
+<template x-if="propertyTypeOptions.length > 0">
+    <div id="varbar">
+        <span class="var-label">Design for</span>
+        <button type="button" class="var-pill" :class="{ on: activeVariantType === null }"
+                @click="switchVariant(null)" title="The design every property type uses, unless it has its own custom design below">
+            Default
+        </button>
+        <template x-for="pt in propertyTypeOptions" :key="pt">
+            <button type="button" class="var-pill" :class="{ on: activeVariantType === pt, custom: !!variants[pt] }"
+                    @click="variants[pt] ? switchVariant(pt) : makeCustomVariant(pt)"
+                    :title="variants[pt] ? ('Editing a custom design for ' + pt) : ('Currently uses the Default design — click to give ' + pt + ' its own custom design, starting as a copy of Default')">
+                <span x-text="pt"></span>
+                <span class="var-badge" x-show="!!variants[pt]">Custom</span>
+            </button>
+        </template>
+        <template x-if="activeVariantType !== null">
+            <button type="button" class="var-revert" @click="revertVariant(activeVariantType)">
+                Revert to Default
+            </button>
+        </template>
+    </div>
+</template>
 
 {{-- ═══ WORKSPACE ═══ --}}
 <div id="workspace">
@@ -505,7 +575,7 @@
 
                     {{-- Selection overlay: handles + the element toolbar. Lives OUTSIDE the
                          element box (which is overflow:hidden and would clip edge handles). --}}
-                    <template x-if="selCount > 0 && !previewMode && !capturing">
+                    <template x-if="selCount > 0 && !previewMode && !capturing && !groupPickMode">
                         <div id="sel-overlay" data-html2canvas-ignore
                              :class="selCount === 1 ? 'single' : 'multi'" :style="selOverlayStyle()">
 
@@ -517,6 +587,17 @@
                                 <button title="Rotate 45°" @mousedown.stop @click.stop="rotate45()">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
                                 </button>
+                                <template x-if="selCount >= 2">
+                                    <button :title="selIsGroup ? 'Ungroup (Ctrl Shift G)' : 'Group (Ctrl G)'"
+                                            @mousedown.stop @click.stop="selIsGroup ? ungroupSelected() : groupSelected()">
+                                        <template x-if="selIsGroup">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
+                                        </template>
+                                        <template x-if="!selIsGroup">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="8" height="8" rx="1"/><rect x="12" y="12" width="8" height="8" rx="1"/><rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="3 3"/></svg>
+                                        </template>
+                                    </button>
+                                </template>
                                 <button :title="allLocked ? 'Unlock' : 'Lock'" @mousedown.stop @click.stop="toggleLock()">
                                     <template x-if="allLocked">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
@@ -644,8 +725,6 @@
                         <input type="range" min="0" max="1" step="0.01" :value="sel.elOpacity ?? 1" @input="mutate('elOpacity', +$event.target.value)">
                     </div>
 
-                    <hr class="pp-sep">
-
                     {{-- Image fields --}}
                     <template x-if="CoreXAd.isImageField(sel.field)">
                         <div>
@@ -657,10 +736,47 @@
                                     <option value="fill">Fill</option>
                                 </select>
                             </div>
-                            <div class="pp-row">
-                                <label>Border Radius (px)</label>
-                                <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
+                            {{-- Agent Image gets the shape picker below instead of a plain radius. --}}
+                            <template x-if="sel.field !== 'agent_avatar' && sel.field !== 'agent_2_avatar'">
+                                <div class="pp-row">
+                                    <label>Border Radius (px)</label>
+                                    <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    {{-- Agent Image — shape mask (circle/rounded/square/pill/hexagon/…),
+                         mirrors the Shape element's own picker (§13, same CoreXAd.SHAPES list
+                         and CoreXAd.shapeCss() swatch preview — applied to a photo, not a fill). --}}
+                    <template x-if="sel.field === 'agent_avatar' || sel.field === 'agent_2_avatar'">
+                        <div>
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Shape</label>
+                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;">
+                                    <template x-for="s in CoreXAd.SHAPES" :key="s.type">
+                                        <button type="button" @click="mutate('shapeType', s.type)" :title="s.label"
+                                                :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:' + (sel.shapeType === s.type ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (sel.shapeType === s.type ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'">
+                                            <span :style="CoreXAd.shapeCss({ shapeType: s.type, bg: '#9fb4c9', opacity: 1, borderRadius: 9 })"></span>
+                                        </button>
+                                    </template>
+                                </div>
                             </div>
+                            <template x-if="sel.shapeType === 'rounded'">
+                                <div class="pp-row">
+                                    <label>Corner radius (px)</label>
+                                    <input type="number" min="0" :value="sel.borderRadius ?? 16" @input="mutate('borderRadius', +$event.target.value)">
+                                </div>
+                            </template>
+                            <hr class="pp-sep">
+                            <div class="pp-row">
+                                <label style="display:flex;align-items:center;gap:7px;cursor:pointer;">
+                                    <input type="checkbox" :checked="!!sel.removeBackground" @change="mutate('removeBackground', $event.target.checked)"
+                                           style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
+                                    <span style="font-weight:600;color:var(--chrome-text);">Remove background</span>
+                                </label>
+                            </div>
+                            <div class="pp-hint" x-show="sel.removeBackground">Cuts out a plain/solid-colour backdrop (e.g. a white studio background) so only the person remains. Works best on a simple, evenly-lit background — processed once per photo, in the browser.</div>
                         </div>
                     </template>
 
@@ -686,6 +802,41 @@
                                 <label>Border Radius (px)</label>
                                 <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
                             </div>
+                        </div>
+                    </template>
+
+                    {{-- Beds/Baths/Garages/Parking — display format + icon. Spec: ad-manager.md §14. --}}
+                    <template x-if="CoreXAd.NUMERIC_FEATURE_FIELDS.includes(sel.field)">
+                        <div>
+                            <div class="pp-row">
+                                <label>Display as</label>
+                                <select :value="sel.numberFormat || 'number'" @input="mutate('numberFormat', $event.target.value)">
+                                    <option value="number">Number only — e.g. "3"</option>
+                                    <option value="label">Number + label — e.g. "1 Bedroom" / "3 Bedrooms"</option>
+                                </select>
+                            </div>
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Icon</label>
+                                <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;width:100%;">
+                                    <button type="button" @click="mutate('icon', null)" title="No icon"
+                                            :style="'min-width:0;aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:4px;font-size:9px;overflow:hidden;color:var(--chrome-text-soft);background:' + (!sel.icon ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (!sel.icon ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'">
+                                        None
+                                    </button>
+                                    <template x-for="ic in CoreXAd.ICON_LIST" :key="ic.key">
+                                        <button type="button" @click="mutate('icon', ic.key)" :title="ic.label"
+                                                :style="'min-width:0;aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:4px;overflow:hidden;color:' + (sel.color || '#ffffff') + ';background:' + (sel.icon === ic.key ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (sel.icon === ic.key ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'"
+                                                x-html="CoreXAd.ICONS[ic.key]"></button>
+                                    </template>
+                                </div>
+                            </div>
+                            <template x-if="sel.icon">
+                                <div class="pp-row">
+                                    <label>Icon size (px)</label>
+                                    <input type="number" min="8" max="200" :value="sel.iconSize || sel.fontSize || 18" @input="mutate('iconSize', +$event.target.value)">
+                                </div>
+                            </template>
+                            <div class="pp-hint" x-show="sel.icon">Icon colour follows the field's text colour.</div>
+                            <hr class="pp-sep">
                         </div>
                     </template>
 
@@ -957,6 +1108,28 @@
                         <input type="color" :value="sel.frameBorderColor || '#ffffff'" @input="mutate('frameBorderColor', $event.target.value)">
                     </div>
 
+                    {{-- Grouping — only when the current selection IS a whole existing
+                         group (clicking any member already selects all of them). --}}
+                    <template x-if="selIsGroup">
+                        <div>
+                            <hr class="pp-sep">
+                            <h3>Grouped — <span x-text="selCount"></span> elements</h3>
+                            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;">
+                                <template x-for="m in selGroupMembers" :key="m.id">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;border-radius:6px;background:var(--chrome-surface-2);">
+                                        <span style="font-size:11px;color:var(--chrome-text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="m.label"></span>
+                                        <button type="button" title="Remove this element from the group — the rest stay grouped"
+                                                @click="ungroupOne(m)"
+                                                style="flex:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--chrome-text-mute);cursor:pointer;border-radius:4px;">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                            <button class="tb-btn" style="width:100%;justify-content:center;" @click="ungroupSelected()" title="Ungroup (Ctrl Shift G)">Ungroup All</button>
+                        </div>
+                    </template>
+
                     <div class="pp-row" style="display:flex;gap:6px;">
                         <button class="tb-btn" style="flex:1;justify-content:center;" @click="duplicateSelected()">Duplicate</button>
                         <button class="tb-btn" style="flex:1;justify-content:center;" @click="toggleLock()" x-text="allLocked ? 'Unlock' : 'Lock'"></button>
@@ -992,6 +1165,11 @@
                          @click="selectFromLayers($event, el)">
                         <span class="layer-swatch" :style="'background:' + layerSwatch(el)"></span>
                         <span class="layer-name" x-text="el.label" :title="el.label"></span>
+                        <template x-if="el.groupId">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;flex:none;opacity:0.55;margin:0 2px;" title="Part of a group">
+                                <path d="M8 8a3 3 0 0 1 4-2.8M16 16a3 3 0 0 1-4 2.8M9 15l6-6"/>
+                            </svg>
+                        </template>
                         <button class="layer-ico" @click.stop="toggleHidden(el)" :title="el.hidden ? 'Show' : 'Hide'">
                             <template x-if="!el.hidden">
                                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1052,6 +1230,7 @@
                 <div class="sc-item"><span>Rotate in 15° steps</span><kbd>Shift rotate</kbd></div>
                 <div class="sc-item"><span>Forward / Backward</span><kbd>Ctrl ] / [</kbd></div>
                 <div class="sc-item"><span>To front / To back</span><kbd>Ctrl Shift ] / [</kbd></div>
+                <div class="sc-item"><span>Group / Ungroup</span><kbd>Ctrl G / Ctrl Shift G</kbd></div>
             </div>
             <div>
                 <div class="sc-sec-t">View</div>
@@ -1104,7 +1283,23 @@ function builder() {
         propertyData:  @json($propertyData ?? null),
         propertyId:    @json($property?->id ?? null),
         propertyAdUrl: @json($property ? route('corex.properties.ad', $property) : null),
+        // §18 — the agency's own Property Type names, for the "Design for"
+        // property-type picker.
+        propertyTypeOptions: @json($propertyTypeOptions ?? []),
         returnMarketingPropertyId: new URLSearchParams(window.location.search).get('return_marketing') || null,
+
+        // ── §18 — property-type variants ───────────────────────────────────
+        // A template can carry a FULL alternate design per property type — its
+        // own canvas + its own elements, not per-element toggles — e.g. a
+        // house needs Bedrooms/Bathrooms, a vacant land listing only has a
+        // stand size. `elements`/`canvasW`/etc above are always the currently
+        // ACTIVE design (Default, or whichever variant is being edited);
+        // `variants` parks every OTHER (inactive) custom variant, keyed by
+        // property type name; `_defaultLayout` parks the Default design while
+        // a variant is active. See switchVariant()/makeCustomVariant().
+        variants: (existingTemplate?.layout_json?.variants) ? { ...existingTemplate.layout_json.variants } : {},
+        activeVariantType: null,
+        _defaultLayout: null,
 
         // ── Selection (ids, not indices — survives restacking and undo) ──────
         selIds: [],
@@ -1115,6 +1310,9 @@ function builder() {
         previewMode: false,
         tab: 'design',
         showShortcuts: false,
+        // Top-bar "Group…" entry point — click elements on the canvas to toggle them
+        // into/out of the (reused) selIds, then Confirm/Cancel. See toggleGroupPick().
+        groupPickMode: false,
 
         // ── Snapping ────────────────────────────────────────────────────────
         snapObjects: true,
@@ -1143,6 +1341,15 @@ function builder() {
 
         init() {
             this.normalizeZ(false);
+            // §18 — a real loaded property (?property=) should open on ITS
+            // OWN design if the template already has a custom variant for its
+            // type, so the builder previews exactly what that property's ad
+            // will actually look like, not always the Default.
+            const loadedType = this.propertyData?.property_type_raw;
+            if (loadedType) {
+                const match = Object.keys(this.variants).find(k => k.trim().toLowerCase() === loadedType.trim().toLowerCase());
+                if (match) this.switchVariant(match);
+            }
             this.$nextTick(() => this.fitZoom());
             // Keep the fit honest when the canvas size changes under it.
             this.$watch('canvasW', () => { if (this.zoomMode === 'fit') this.fitZoom(); });
@@ -1157,6 +1364,24 @@ function builder() {
                 canvasBgFrom: this.canvasBgFrom, canvasBgTo: this.canvasBgTo,
                 canvasBgAngle: this.canvasBgAngle,
             };
+        },
+
+        /**
+         * §18 — the full save payload: the Default design at the top level
+         * (exactly the shape every template had before this feature), plus
+         * `variants` for any property type given its own custom design.
+         * Packs whichever design is CURRENTLY active (it lives unpacked in
+         * the top-level elements/canvas* state, not yet written back to
+         * `variants`/`_defaultLayout` until a switch happens) so an in-
+         * progress edit is never lost on save.
+         */
+        get layoutJsonFull() {
+            const packed = this._packActiveVariant();
+            const defaultLayout = this.activeVariantType === null ? packed : (this._defaultLayout || packed);
+            const variants = this.activeVariantType === null
+                ? this.variants
+                : { ...this.variants, [this.activeVariantType]: packed };
+            return { ...defaultLayout, variants };
         },
 
         get useOnPropertyUrl() {
@@ -1176,6 +1401,26 @@ function builder() {
         get allLocked() {
             const s = this.selIdx;
             return s.length > 0 && s.every(i => this.elements[i].locked);
+        },
+        /**
+         * Is the CURRENT selection exactly one whole, existing element-group (not a
+         * partial subset, not a mix of several groups)? Gates the toolbar's
+         * Group/Ungroup toggle — "not the field-catalogue FIELD_GROUPS", a different
+         * kind of grouping (see groupSelected()).
+         */
+        get selIsGroup() {
+            if (this.selCount < 2) return false;
+            const gids = new Set(this.selIdx.map(i => this.elements[i].groupId).filter(Boolean));
+            if (gids.size !== 1) return false;
+            const gid = [...gids][0];
+            return this.elements.filter(e => e.groupId === gid).length === this.selCount;
+        },
+        /** The actual element objects in the current group selection — powers the
+         *  Design panel's per-member "remove from group" list. Empty when the
+         *  selection isn't a whole group (selIsGroup false). */
+        get selGroupMembers() {
+            if (!this.selIsGroup) return [];
+            return this.selIdx.map(i => this.elements[i]);
         },
         /** Layers list — TOP of the ad first, which is how a designer reads a stack. */
         get layers() {
@@ -1197,6 +1442,104 @@ function builder() {
 
         isSelected(el) { return this.selIds.includes(el.id); },
         content(el) { return this.CoreXAd.contentHtml(el, this.propertyData, { placeholders: true }); },
+
+        /* ═══ Element grouping (move/select together) ═══════════════════════
+           A group is just a shared `el.groupId` — grouping is a PERSISTED
+           multi-select, not a new geometry concept. Every place a selection is
+           formed (click, shift-click, marquee, Layers) routes through these so
+           picking any one member always resolves to the whole group. */
+
+        /** Every id sharing `id`'s group (including itself). Ungrouped → just [id]. */
+        groupMembers(id) {
+            const el = this.elements.find(e => e.id === id);
+            if (!el || !el.groupId) return [id];
+            return this.elements.filter(e => e.groupId === el.groupId).map(e => e.id);
+        },
+
+        /** Union of groupMembers() for every id in `ids`, deduped. */
+        expandToGroups(ids) {
+            const out = new Set();
+            ids.forEach(id => this.groupMembers(id).forEach(m => out.add(m)));
+            return [...out];
+        },
+
+        /** 2+ selected elements → bundle them into one persisted group (overwrites
+         *  any groupId they already had — groups don't nest). */
+        groupSelected() {
+            if (this.selCount < 2) return;
+            this.commit();
+            const gid = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            this.selIdx.forEach(i => { this.elements[i] = { ...this.elements[i], groupId: gid }; });
+            this.toast('Grouped ' + this.selCount + ' elements');
+        },
+
+        /** Clears groupId from every selected element (their whole group — selecting
+         *  any member already expands the selection to it, see elMouseDown()). */
+        ungroupSelected() {
+            const idxs = this.selIdx.filter(i => this.elements[i].groupId);
+            if (!idxs.length) return;
+            this.commit();
+            idxs.forEach(i => { this.elements[i] = { ...this.elements[i], groupId: null }; });
+            this.toast('Ungrouped');
+        },
+
+        /** Removes ONE element from its group, leaving the rest of the group intact
+         *  — the single-item counterpart to ungroupSelected()'s "whole group".
+         *  Reachable from the Design panel's per-member list (clicking a member on
+         *  the canvas/Layers always expands to the WHOLE group, so this list is the
+         *  only way to target just one). If that leaves a single member behind, its
+         *  groupId is cleared too — a "group" of one is meaningless leftover state. */
+        ungroupOne(target) {
+            if (!target.groupId) return;
+            const gid = target.groupId;
+            this.commit();
+            const i = this.elements.findIndex(e => e.id === target.id);
+            if (i < 0) return;
+            this.elements[i] = { ...this.elements[i], groupId: null };
+            const remaining = this.elements.filter(e => e.groupId === gid);
+            if (remaining.length === 1) {
+                const ri = this.elements.findIndex(e => e.id === remaining[0].id);
+                this.elements[ri] = { ...this.elements[ri], groupId: null };
+            }
+            this.toast('Removed from group');
+        },
+
+        /** Remaps groupId on a freshly-cloned element list so a duplicate/paste of a
+         *  group becomes its OWN new group — never silently re-merged with the
+         *  original (which would happen if the groupId were just copied verbatim). */
+        _remapGroups(list) {
+            const map = {};
+            return list.map(el => {
+                if (!el.groupId) return el;
+                if (!map[el.groupId]) map[el.groupId] = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                return { ...el, groupId: map[el.groupId] };
+            });
+        },
+
+        /**
+         * Top-bar "Group…" button: an explicit picking mode for building a group from
+         * scratch, as an alternative to shift-clicking/marqueeing first. Reuses `selIds`
+         * as the pending set (so every touched element gets the SAME per-element
+         * .selected outline it always gets — no separate "pending" visual system), and
+         * suspends the normal drag/toolbar/handles while active (elMouseDown(),
+         * canvasMouseDown()) so a stray click can't move or delete something mid-pick.
+         */
+        toggleGroupPick() {
+            if (this.groupPickMode) { this.cancelGroupPick(); return; }
+            this.groupPickMode = true;
+            // Whatever was already selected becomes the starting pick set; empty is fine too.
+        },
+
+        cancelGroupPick() {
+            this.groupPickMode = false;
+            this.selIds = [];
+        },
+
+        confirmGroupPick() {
+            if (this.selCount < 2) return;
+            this.groupSelected();
+            this.groupPickMode = false;
+        },
 
         /* ═══ History ═════════════════════════════════════════════════════ */
 
@@ -1303,6 +1646,85 @@ function builder() {
             this.canvasH = p.h;
         },
 
+        /* ═══ §18 — property-type variants ═══════════════════════════════════
+           `elements`/`canvasW`/etc are always the currently ACTIVE design. Every
+           OTHER design (the Default when a variant is active, or a variant
+           when Default is active) sits parked as a plain object — `variants`
+           for custom variants, `_defaultLayout` for the Default — until the
+           user switches back to it. This re-uses every existing drag/resize/
+           undo/group/layers mechanic unchanged: they all just keep operating
+           on `elements` etc., with no idea a variant switch ever happened. */
+
+        /** The active design, packaged the same shape a parked one is stored in. */
+        _packActiveVariant() {
+            return {
+                canvasW: this.canvasW, canvasH: this.canvasH,
+                canvasBg: this.canvasBg, canvasBgMode: this.canvasBgMode,
+                canvasBgFrom: this.canvasBgFrom, canvasBgTo: this.canvasBgTo, canvasBgAngle: this.canvasBgAngle,
+                canvasPreset: this.canvasPreset,
+                elements: this.elements,
+            };
+        },
+
+        /** Make `target` the live, editable state — the canvas/undo/etc all read this directly. */
+        _unpackVariant(target, newType) {
+            const t = target || {};
+            this.elements      = JSON.parse(JSON.stringify(t.elements || []));
+            this.canvasW       = t.canvasW ?? 1200;
+            this.canvasH       = t.canvasH ?? 628;
+            this.canvasBg      = t.canvasBg ?? '#071325';
+            this.canvasBgMode  = t.canvasBgMode ?? 'solid';
+            this.canvasBgFrom  = t.canvasBgFrom ?? '#071325';
+            this.canvasBgTo    = t.canvasBgTo ?? '#0b2a4a';
+            this.canvasBgAngle = t.canvasBgAngle ?? 160;
+            this.canvasPreset  = t.canvasPreset ?? 'facebook';
+            this.activeVariantType = newType;
+            this.selIds = [];
+            this.past = [];
+            this.future = [];
+            this.$nextTick(() => this.fitZoom());
+        },
+
+        /**
+         * `null` = Default; any other value = the (already-custom) variant of
+         * that name. Undo history does NOT carry across a switch — each
+         * variant gets a fresh undo stack, since dragging/resizing on one
+         * design has no meaningful "undo" on a completely different one.
+         */
+        switchVariant(newType) {
+            if (newType === this.activeVariantType) return;
+            const packed = this._packActiveVariant();
+            if (this.activeVariantType === null) {
+                this._defaultLayout = packed;
+            } else {
+                this.variants = { ...this.variants, [this.activeVariantType]: packed };
+            }
+            const target = newType === null ? this._defaultLayout : this.variants[newType];
+            this._unpackVariant(target, newType);
+        },
+
+        /** Give `type` its own design — a clone of the CURRENT Default, ready to edit independently. */
+        makeCustomVariant(type) {
+            if (this.variants[type]) { this.switchVariant(type); return; } // already custom — just switch to it
+            const defaultSnapshot = this.activeVariantType === null ? this._packActiveVariant() : this._defaultLayout;
+            this.variants = { ...this.variants, [type]: JSON.parse(JSON.stringify(defaultSnapshot)) };
+            this.switchVariant(type);
+            this.dirty = true;
+        },
+
+        /** Delete `type`'s custom design — it goes back to using the Default. */
+        revertVariant(type) {
+            if (!confirm(`Delete the custom design for "${type}"? It will use the Default design instead.`)) return;
+            const wasActive = this.activeVariantType === type;
+            const next = { ...this.variants };
+            delete next[type];
+            this.variants = next;
+            if (wasActive) {
+                this._unpackVariant(this._defaultLayout, null); // straight to Default — never pack the deleted state back
+            }
+            this.dirty = true;
+        },
+
         /**
          * Delete the selection. A LOCKED element is skipped — the padlock already stops
          * dragging and nudging, so it must stop the far more destructive Del key too,
@@ -1342,13 +1764,13 @@ function builder() {
             if (!this.selCount) return;
             this.commit();
             let z = this.elements.length ? Math.max(...this.elements.map(e => e.zIndex || 0)) : 0;
-            const copies = this.selIdx.map(i => ({
+            const copies = this._remapGroups(this.selIdx.map(i => ({
                 ...JSON.parse(JSON.stringify(this.elements[i])),
                 id: Date.now() + Math.random(),
                 x: this.elements[i].x + 16,
                 y: this.elements[i].y + 16,
                 zIndex: ++z,
-            }));
+            })));
             this.elements.push(...copies);
             this.selIds = copies.map(c => c.id);
         },
@@ -1407,13 +1829,13 @@ function builder() {
             if (!this._clip.length) return;
             this.commit();
             let z = this.elements.length ? Math.max(...this.elements.map(e => e.zIndex || 0)) : 0;
-            const copies = this._clip.map(c => ({
+            const copies = this._remapGroups(this._clip.map(c => ({
                 ...JSON.parse(JSON.stringify(c)),
                 id: Date.now() + Math.random(),
                 x: c.x + 20,
                 y: c.y + 20,
                 zIndex: ++z,
-            }));
+            })));
             this.elements.push(...copies);
             this.selIds = copies.map(c => c.id);
             // Paste again → step further down, never stack on the same spot.
@@ -1589,15 +2011,28 @@ function builder() {
 
         elMouseDown(e, el) {
             if (this.previewMode) return;
+
+            // Group-pick mode: a click ONLY toggles membership in the pending set —
+            // never starts a drag, never single-selects, ignores lock (grouping doesn't
+            // move anything, so a locked element can still be picked).
+            if (this.groupPickMode) {
+                const members = this.groupMembers(el.id);
+                this.selIds = this.isSelected(el)
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
+                return;
+            }
+
             if (el.locked) { this.selIds = [el.id]; return; }
 
             if (e.shiftKey) {
+                const members = this.groupMembers(el.id);
                 this.selIds = this.isSelected(el)
-                    ? this.selIds.filter(id => id !== el.id)
-                    : [...this.selIds, el.id];
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
                 if (!this.isSelected(el)) return;
             } else if (!this.isSelected(el)) {
-                this.selIds = [el.id];
+                this.selIds = this.groupMembers(el.id);
             }
 
             this._ds = {
@@ -1640,9 +2075,11 @@ function builder() {
 
         canvasMouseDown(e) {
             if (this.previewMode) return;
-            if (!e.shiftKey) this.selIds = [];
+            // Group-pick mode: marquee-dragging ADDS to the pending set (never replaces
+            // it) so a stray background click can't wipe out picks made so far.
+            if (!this.groupPickMode && !e.shiftKey) this.selIds = [];
             const p = this.canvasPoint(e);
-            this._ds = { type: 'marquee', ox: p.x, oy: p.y, additive: e.shiftKey, base: [...this.selIds], moved: false };
+            this._ds = { type: 'marquee', ox: p.x, oy: p.y, additive: this.groupPickMode || e.shiftKey, base: [...this.selIds], moved: false };
             this.marquee = { x: p.x, y: p.y, w: 0, h: 0 };
         },
 
@@ -1751,7 +2188,8 @@ function builder() {
                     el.x < m.x + m.w && el.x + el.w > m.x &&
                     el.y < m.y + m.h && el.y + el.h > m.y
                 ).map(el => el.id);
-                this.selIds = ds.additive ? [...new Set([...ds.base, ...hit])] : hit;
+                // A marquee catching even ONE member of a group selects the whole group.
+                this.selIds = this.expandToGroups(ds.additive ? [...ds.base, ...hit] : hit);
             }
         },
 
@@ -1791,12 +2229,22 @@ function builder() {
         /* ═══ Layers ══════════════════════════════════════════════════════ */
 
         selectFromLayers(e, el) {
+            const members = this.groupMembers(el.id);
+            // Group-pick mode: the Layers list is a picking surface too — handy for an
+            // element stacked behind/under another one on the canvas. Always toggles,
+            // regardless of shift.
+            if (this.groupPickMode) {
+                this.selIds = this.isSelected(el)
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
+                return;
+            }
             if (e.shiftKey) {
                 this.selIds = this.isSelected(el)
-                    ? this.selIds.filter(id => id !== el.id)
-                    : [...this.selIds, el.id];
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
             } else {
-                this.selIds = [el.id];
+                this.selIds = members;
             }
         },
 
@@ -1952,7 +2400,12 @@ function builder() {
             if (e.key === 'Alt') this._altDown = true;
 
             // Esc and Ctrl+S work even from inside a field (you just typed the name).
-            if (e.key === 'Escape') { this.showShortcuts = false; if (!this._typing(e)) this.selIds = []; return; }
+            if (e.key === 'Escape') {
+                this.showShortcuts = false;
+                if (this.groupPickMode) { this.cancelGroupPick(); return; }
+                if (!this._typing(e)) this.selIds = [];
+                return;
+            }
             const meta = e.ctrlKey || e.metaKey;
             if (meta && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(); return; }
             if (this._typing(e)) return;
@@ -1966,6 +2419,7 @@ function builder() {
                 if (k === 'x') { e.preventDefault(); this.cut(); return; }
                 if (k === 'v') { e.preventDefault(); this.paste(); return; }
                 if (k === 'a') { e.preventDefault(); this.selectAll(); return; }
+                if (k === 'g') { e.preventDefault(); e.shiftKey ? this.ungroupSelected() : this.groupSelected(); return; }
                 if (e.key === ']') { e.preventDefault(); this.zOrder(e.shiftKey ? 'front' : 'up'); return; }
                 if (e.key === '[') { e.preventDefault(); this.zOrder(e.shiftKey ? 'back' : 'down'); return; }
                 if (e.key === '0') { e.preventDefault(); this.fitZoom(); return; }
@@ -2052,17 +2506,7 @@ function builder() {
                 const token = document.querySelector('meta[name="csrf-token"]').content;
                 const payload = {
                     name: this.name.trim(),
-                    layout_json: {
-                        elements:      this.elements,
-                        canvasW:       this.canvasW,
-                        canvasH:       this.canvasH,
-                        canvasBg:      this.canvasBg,
-                        canvasBgMode:  this.canvasBgMode,
-                        canvasBgFrom:  this.canvasBgFrom,
-                        canvasBgTo:    this.canvasBgTo,
-                        canvasBgAngle: this.canvasBgAngle,
-                        canvasPreset:  this.canvasPreset,
-                    },
+                    layout_json: this.layoutJsonFull, // §18 — Default + any property-type variants
                     _token: token,
                 };
 
@@ -2103,13 +2547,25 @@ function builder() {
             await this.$nextTick();
             // Webfonts must be resolved or html2canvas rasterises the fallback face.
             if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
+            // An Agent Image with "Remove background" on swaps its <img src> once the
+            // in-browser cutout finishes — await that too, or a fast capture can
+            // rasterise the un-stripped original photo (sibling of the same gap
+            // already fixed on the generator's _capture()).
+            try { await this.CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
             await new Promise(r => requestAnimationFrame(() => setTimeout(r, 40)));
+            const canvasEl = document.getElementById('canvas');
+            let restoreImages = () => {};
             try {
-                return await html2canvas(document.getElementById('canvas'), {
+                // html2canvas has known gaps in its object-fit support — pre-bake the
+                // SAME cover/contain crop onto an offscreen canvas so there is nothing
+                // left for it to get wrong.
+                try { restoreImages = await this.CoreXAd.prepareImagesForCapture(canvasEl); } catch (_) {}
+                return await html2canvas(canvasEl, {
                     useCORS: true, allowTaint: false, scale: 1, logging: false,
                     backgroundColor: this.CoreXAd.canvasBgSolid(this.layoutJson),
                 });
             } finally {
+                restoreImages();
                 this.capturing = false;
             }
         },

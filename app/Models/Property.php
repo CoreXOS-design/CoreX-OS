@@ -468,6 +468,8 @@ class Property extends Model
         'rental_upload_keys'      => 'array',
         'gallery_expected_count'  => 'integer',
         'gallery_stored_count'    => 'integer',
+        'ad_generated_count'      => 'integer',
+        'ad_last_generated_at'    => 'datetime',
         'rental_images_json'      => 'array',
         'features_json'       => 'array',
         'features_json_meta'  => 'array',
@@ -2206,6 +2208,25 @@ class Property extends Model
     }
 
     /**
+     * Count of `spaces_json` entries of a given `type` (e.g. 'Parking') — unlike
+     * beds/baths/garages there is no dedicated column, so this is the shared
+     * derivation used by both the Ad Manager (adData()) and the printable
+     * brochure (PropertyBrochureService), which must never drift onto two
+     * different counts for the same listing.
+     */
+    public function spaceCount(string $type): int
+    {
+        $sj   = $this->spaces_json ?? [];
+        $list = $sj['spaces'] ?? (isset($sj[0]) ? $sj : []);
+
+        $sum = collect($list)
+            ->where('type', $type)
+            ->sum(fn ($s) => (float) ($s['count'] ?? 1));
+
+        return (int) round($sum);
+    }
+
+    /**
      * Single source of truth for the data the Ad Manager injects into a
      * template — used by both the generator (ad.blade.php) and the
      * property-linked builder live preview (ad-builder.blade.php).
@@ -2237,6 +2258,7 @@ class Property extends Model
         $beds    = $this->beds;
         $baths   = $this->baths;
         $garages = $this->garages;
+        $parking = $this->spaceCount('Parking');
         $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
 
         // Status badge — honest label derived from the listing, never fabricated.
@@ -2279,6 +2301,13 @@ class Property extends Model
             'title'             => strtoupper((string) $this->title),
             'suburb'            => strtoupper((string) $this->suburb) . ($this->city ? ', ' . strtoupper((string) $this->city) : ''),
             'property_type'     => strtoupper(str_replace('_', ' ', (string) $this->property_type)),
+            // Exact, untransformed property_type name (matches a
+            // property_setting_items.name literally) — kept separate from the
+            // display-formatted 'property_type' above so the ad kernel's
+            // per-property template-variant resolution (§18,
+            // CoreXAd.resolveTemplateLayout()) never depends on that display
+            // string's casing/formatting choices.
+            'property_type_raw' => trim((string) $this->property_type),
             'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
             // Full amenity list — the Ad Builder "Features" element lets the user
             // pick which of these to display. Deduped, blanks dropped.
@@ -2289,7 +2318,15 @@ class Property extends Model
             'beds'              => (string) ($beds ?? ''),
             'baths'             => (string) ($baths ?? ''),
             'garages'           => (string) ($garages ?? ''),
+            'parking'           => $parking > 0 ? (string) $parking : '',
             'size_m2'           => $size,
+            // Raw (unformatted) floor/land size for the "Size / Land Size" combined
+            // field — it does its own formatting client-side so it can pick either
+            // number and format it identically. Vacant land has no floor size at
+            // all, only an erf size — this is the same "prefer X, fall back to Y"
+            // shape as garages_or_parking, for the same reason.
+            'floor_size_m2'     => (string) ($this->size_m2 ?? ''),
+            'land_size_m2'      => (string) ($this->erf_size_m2 ?? ''),
             'reference'         => $this->external_id ?: ('REF ' . $this->id),
             'address'           => $this->address ?: null,
             'status_badge'      => $statusBadge,

@@ -121,6 +121,7 @@
         body { font-family: 'Figtree', sans-serif; background: var(--chrome-bg); color: var(--chrome-text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #ad-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
+        @keyframes ad-spin { to { transform: rotate(360deg); } }
         .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface); overflow: hidden; transition: all 0.18s ease; }
         .tpl-card:hover { border-color: var(--brand-button,#00b4d8); background: var(--chrome-surface); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
         .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface-2); color: var(--chrome-text); transition: all 0.12s; white-space: nowrap; }
@@ -131,10 +132,6 @@
         .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:var(--chrome-text-soft); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
         .agent-pill:hover { color:var(--chrome-text); background:var(--chrome-hover); }
         .agent-pill.active { background:var(--brand-button,#00b4d8); color:#fff; }
-        .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid var(--chrome-border); background:var(--chrome-surface); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
-        .custom-tpl-card:hover { border-color:var(--brand-button,#00b4d8); }
-        .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:rgba(255,255,255,0.45); }
-        .custom-tpl-badge { font-size:9px;font-weight:700;background:color-mix(in srgb, var(--brand-button,#00b4d8) 16%, transparent);color:var(--brand-button,#00b4d8);border-radius:4px;padding:2px 6px;letter-spacing:0.06em;text-transform:uppercase; }
         .ad-root { position: absolute; inset: 0; font-family: 'Figtree', Arial, sans-serif; }
         .ad-img-fit { width: 100%; height: 100%; object-fit: cover; display: block; }
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
@@ -303,21 +300,34 @@
                 </a>
                 @endif
             </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
+            {{-- SAME grid + card/thumb classes as the pre-built cards above, so every
+                 preview in the picker is visually the same size — a custom template
+                 gets a big top thumbnail (contain-fit within the standard 1200×628
+                 reference frame fitThumbs() scales, since a custom canvas can be ANY
+                 size/ratio) with name + meta below, not the old compact list row. --}}
+            <div class="tpl-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px;">
                 <template x-for="tpl in savedTemplates" :key="tpl.id">
-                    <div class="custom-tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
-                        <div class="custom-tpl-thumb"><span x-text="tpl.name.charAt(0).toUpperCase()"></span></div>
-                        <div style="flex:1;min-width:0;">
-                            <div style="font-size:14px;font-weight:700;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
-                            <div style="font-size:11px;color:var(--chrome-text-mute);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
+                    <div class="tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
+                        <div class="tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; position:relative; background:#071325;">
+                            <div class="tpl-thumb-inner" style="position:absolute;top:0;left:0;width:1200px;height:628px;transform-origin:top left;transform:scale(0.2667);">
+                                <div :style="customThumbStyle(tpl)"
+                                     x-init="$nextTick(() => CoreXAd.renderLayout(resolvedTemplateLayout(tpl), propertyData, $el, { placeholders: true, paintBackground: true }))"></div>
+                            </div>
                         </div>
-                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
-                            <template x-if="tpl.can_manage">
-                                <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:10px;color:var(--chrome-text-soft);text-decoration:none;" @click.stop>Edit</a>
-                            </template>
-                            <template x-if="!tpl.can_manage">
-                                <span style="font-size:9px;color:var(--chrome-text-mute);" title="Only the creator (or a manager) can edit this">view only</span>
-                            </template>
+                        <div style="padding:18px 20px 22px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                                <div style="font-size:15px;font-weight:800;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
+                                <template x-if="tpl.can_manage">
+                                    <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:11px;font-weight:600;color:var(--chrome-text-soft);text-decoration:none;flex-shrink:0;" @click.stop>Edit</a>
+                                </template>
+                                <template x-if="!tpl.can_manage">
+                                    <span style="font-size:10px;color:var(--chrome-text-mute);flex-shrink:0;" title="Only the creator (or a manager) can edit this">view only</span>
+                                </template>
+                            </div>
+                            <div style="font-size:12px;color:var(--chrome-text-soft);line-height:1.6;margin-top:5px;" x-text="(resolvedTemplateLayout(tpl).elements?.length || 0) + ' elements · ' + (resolvedTemplateLayout(tpl).canvasW || 1200) + '×' + (resolvedTemplateLayout(tpl).canvasH || 628)"></div>
+                            <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--brand-button,#00b4d8);">
+                                Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -364,36 +374,62 @@
         </template>
         <template x-if="hasCoAgent"><div style="width:1px;height:18px;background:var(--chrome-border);"></div></template>
 
-        <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
-            <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-            Facebook <span class="plat-size">1200×628</span>
-        </button>
-        <button class="plat-btn" :class="{active: platform==='instagram'}" @click="platform='instagram'; onGenerate()">
-            <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            Instagram <span class="plat-size">1080×1080</span>
-        </button>
-        <button class="plat-btn" :class="{active: platform==='story'}"     @click="platform='story'; onGenerate()">
-            <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-            Story <span class="plat-size">1080×1920</span>
-        </button>
-        <button class="plat-btn" :class="{active: platform==='whatsapp'}"  @click="platform='whatsapp'; onGenerate()">
-            <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            WhatsApp <span class="plat-size">900×900</span>
-        </button>
+        {{-- Platform size selector — MEANINGLESS for a custom template (its size is
+             fixed in the Ad Builder; cfg's custom-template branch never reads
+             `platform` at all), so it no longer renders for one — it used to stay
+             fully clickable and show whichever platform was "active" even though
+             every one of these buttons was a complete no-op, which is exactly what
+             made "Facebook 1200×628" look highlighted/selected while the template
+             actually rendered its own real (square) size. See ad-manager.md §16. --}}
+        <template x-if="template !== 'custom'">
+            <div style="display:contents;">
+                <button class="plat-btn" :class="{active: platform==='facebook'}"  @click="platform='facebook'; onGenerate()">
+                    <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                    Facebook <span class="plat-size">1200×628</span>
+                </button>
+                <button class="plat-btn" :class="{active: platform==='instagram'}" @click="platform='instagram'; onGenerate()">
+                    <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                    Instagram <span class="plat-size">1080×1080</span>
+                </button>
+                <button class="plat-btn" :class="{active: platform==='story'}"     @click="platform='story'; onGenerate()">
+                    <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                    Story <span class="plat-size">1080×1920</span>
+                </button>
+                <button class="plat-btn" :class="{active: platform==='whatsapp'}"  @click="platform='whatsapp'; onGenerate()">
+                    <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    WhatsApp <span class="plat-size">900×900</span>
+                </button>
 
-        {{-- Custom size --}}
-        <button class="plat-btn" :class="{active: platform==='custom'}" @click="platform='custom'; onGenerate()" title="Set a custom size">
-            <svg style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg>
-            Custom
-        </button>
-        <template x-if="platform==='custom'">
-            <div style="display:inline-flex;align-items:center;gap:5px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:3px 7px;">
-                <input type="number" min="200" max="4000" step="10" x-model.number="customW" @input="onGenerate()" title="Width (px)"
-                       style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
-                <span style="color:var(--chrome-text-mute);font-size:11px;">×</span>
-                <input type="number" min="200" max="4000" step="10" x-model.number="customH" @input="onGenerate()" title="Height (px)"
-                       style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
-                <span style="color:var(--chrome-text-mute);font-size:10px;">px</span>
+                {{-- Custom size --}}
+                <button class="plat-btn" :class="{active: platform==='custom'}" @click="platform='custom'; onGenerate()" title="Set a custom size">
+                    <svg style="width:13px;height:13px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg>
+                    Custom
+                </button>
+                <template x-if="platform==='custom'">
+                    <div style="display:inline-flex;align-items:center;gap:5px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:3px 7px;">
+                        <input type="number" min="200" max="4000" step="10" x-model.number="customW" @input="onGenerate()" title="Width (px)"
+                               style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                        <span style="color:var(--chrome-text-mute);font-size:11px;">×</span>
+                        <input type="number" min="200" max="4000" step="10" x-model.number="customH" @input="onGenerate()" title="Height (px)"
+                               style="width:62px;background:var(--chrome-input);color:var(--chrome-text);border:1px solid var(--chrome-border);border-radius:5px;font-size:12px;font-weight:600;font-family:inherit;padding:4px 6px;outline:none;">
+                        <span style="color:var(--chrome-text-mute);font-size:10px;">px</span>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        {{-- Custom template — its size is fixed at build time in the Ad Builder, not
+             selectable here. Read-only, honest about what's about to export, with a
+             direct way to change it (ad-manager.md §16). --}}
+        <template x-if="template === 'custom'">
+            <div style="display:inline-flex;align-items:center;gap:8px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:9px;padding:5px 10px;">
+                <span style="font-size:12px;font-weight:600;color:var(--chrome-text-soft);">
+                    Custom template size — <span x-text="cfg.w + '×' + cfg.h"></span>
+                </span>
+                <a :href="`{{ route('corex.ad-templates.builder') }}/${_customTemplateId}?property={{ $property->id }}`"
+                   style="font-size:11px;font-weight:700;color:var(--brand-button,#00b4d8);text-decoration:none;white-space:nowrap;">
+                    Change in Ad Builder →
+                </a>
             </div>
         </template>
 
@@ -437,6 +473,19 @@
              export (which captures only #ad-canvas) can never include them.
              Populated by mountImageTools(); one region per property image. --}}
         <div id="ad-img-tools" data-html2canvas-ignore="true"></div>
+
+        {{-- Capture veil — _capture() briefly sets #ad-scale-wrapper's transform to
+             'none' so html2canvas grabs the design at its true native size, but the
+             wrapper sits inside an overflow:hidden box sized to the SCALED preview —
+             so for that window the user saw the design snap to a cropped, zoomed-in
+             corner before snapping back. Covers the whole preview so nothing of that
+             transient state is visible; data-html2canvas-ignore keeps it out of the
+             actual capture. --}}
+        <div data-html2canvas-ignore="true" x-show="capturingPreview" x-cloak
+             style="position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:var(--chrome-surface,#0b1220);">
+            <svg style="width:26px;height:26px;color:var(--brand-button,#00b4d8);animation:ad-spin 0.8s linear infinite;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="34 100"/></svg>
+            <span style="font-size:12px;font-weight:600;color:var(--chrome-text-soft);">Rendering…</span>
+        </div>
     </div>
 
 </div>
@@ -513,6 +562,11 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         template: null,
         platform: 'facebook',
         generating: false,
+        // _capture() briefly removes #ad-scale-wrapper's zoom transform to grab the
+        // design at native size — the wrapper's overflow:hidden clip box (sized to
+        // the SCALED preview) then shows a cropped, zoomed-in corner of the design
+        // until the transform is restored. This veils that window (see markup).
+        capturingPreview: false,
         exporting: false,
         returnMarketing: new URLSearchParams(window.location.search).get('return_marketing') || null,
         platforms,
@@ -522,6 +576,7 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         galleryImages: galleryImages || [],
         picker: { open: false, currentSrc: '', canReset: false },
         _customLayout: null,
+        _customTemplateId: null,
         // Custom canvas size (the "Custom" size button).
         customW: 1080,
         customH: 1080,
@@ -579,10 +634,53 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
             return q ? this.savedTemplates.filter(t => (t.name || '').toLowerCase().includes(q)).length : this.savedTemplates.length;
         },
 
+        /**
+         * Picker thumbnail sizing for a custom (agency-built) template — a "contain"
+         * fit CENTRED inside the SAME 1200×628 logical reference frame the pre-built
+         * cards' .tpl-thumb-inner uses (fitThumbs() then scales that whole frame to
+         * the card's actual responsive width) — so every card in the picker ends up
+         * the SAME on-screen size, custom or pre-built. Unlike the pre-built cards
+         * (always designed at exactly 1200×628), a custom template can be ANY canvas
+         * size/ratio (square, story-tall, etc.), so it's contained + letterboxed
+         * within that reference frame rather than stretched to fill it.
+         */
+        /**
+         * §18 — resolve the design that will ACTUALLY generate for THIS
+         * property (its own type may have a custom variant) rather than
+         * always the template's Default — same resolution generate() and
+         * the Ad Manager's picker thumbnails use.
+         */
+        resolvedTemplateLayout(tpl) {
+            return CoreXAd.resolveTemplateLayout(tpl.layout_json, this.propertyData?.property_type_raw);
+        },
+
+        customThumbStyle(tpl) {
+            const lj = this.resolvedTemplateLayout(tpl);
+            const cw = lj.canvasW || 1200, ch = lj.canvasH || 628;
+            const REF_W = 1200, REF_H = 628; // same reference frame fitThumbs() scales
+            const scale = Math.min(REF_W / cw, REF_H / ch);
+            const w = cw * scale, h = ch * scale;
+            const left = Math.round((REF_W - w) / 2), top = Math.round((REF_H - h) / 2);
+            return 'position:absolute;left:' + left + 'px;top:' + top + 'px;'
+                 + 'width:' + cw + 'px;height:' + ch + 'px;'
+                 + 'transform-origin:top left;transform:scale(' + scale + ');';
+        },
+
         get cfg() {
             if (this.template === 'custom' && this._customLayout) {
-                const preset = this._customLayout.canvasPreset || 'facebook';
-                return platforms[preset] || { w: this._customLayout.canvasW || 1200, h: this._customLayout.canvasH || 628, baseFontPx: 16, label: 'Custom' };
+                // ALWAYS the template's own saved canvasW/canvasH — never a preset's
+                // fixed size. canvasPreset is just the label of the button last
+                // clicked in the Ad Builder; a designer can pick a preset THEN
+                // resize the canvas, leaving the preset name stale relative to the
+                // actual dimensions the elements were positioned against. The old
+                // code trusted platforms[preset] whenever the preset name happened
+                // to match a real platform key — sizing the live preview/canvas
+                // WRONG for any such template, while _capture() (which always read
+                // canvasW/H directly) rendered it correctly, so a size mismatch
+                // would only ever surface at generate/download time.
+                const w = this._customLayout.canvasW || 1200;
+                const h = this._customLayout.canvasH || 628;
+                return { w, h, baseFontPx: Math.max(12, Math.round(Math.min(w, h) / 38)), label: 'Custom' };
             }
             if (this.platform === 'custom') {
                 const w = Math.max(200, Math.min(4000, +this.customW || 1080));
@@ -613,10 +711,13 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         get previewW() { return Math.round(this.cfg.w * this.scale); },
         get previewH() { return Math.round(this.cfg.h * this.scale); },
 
-        selectTemplate(t) { this.template = t; this._customLayout = null; this.step = 'generate'; this.$nextTick(() => this.applyAgent()); },
+        selectTemplate(t) { this.template = t; this._customLayout = null; this._customTemplateId = null; this.step = 'generate'; this.$nextTick(() => this.applyAgent()); },
         selectCustomTemplate(tpl) {
             this.template = 'custom';
-            this._customLayout = tpl.layout_json;
+            // §18 — resolve THIS property's design (its type may have a custom
+            // variant) once, at selection time, rather than always the Default.
+            this._customLayout = this.resolvedTemplateLayout(tpl);
+            this._customTemplateId = tpl.id;
             this.step = 'generate';
             this.$nextTick(() => this.applyAgent());
         },
@@ -820,22 +921,43 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
                 canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
                 canvas.style.background = CoreXAd.canvasBackground(this._customLayout);
             }
+            // Veil the preview BEFORE untransforming — the wrapper sits inside an
+            // overflow:hidden box sized to the scaled-down preview, so removing its
+            // zoom transform (needed for html2canvas to grab the design at native
+            // size) would otherwise flash a cropped, zoomed-in corner of the design
+            // at the user for the whole capture window.
+            this.capturingPreview = true;
             const saved = wrapper.style.transform;
             wrapper.style.transform = 'none';
-            // A template can pick any of the ad fonts — if the face has not finished
-            // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
-            // from the preview the agent approved.
-            if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
-            await new Promise(r => setTimeout(r, 80));
-            const c = await html2canvas(canvas, {
-                width: cfg.w, height: cfg.h, scale: 2,
-                useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
-            });
-            wrapper.style.transform = saved;
-            // The capture untransformed the wrapper (and resized the canvas for a
-            // custom layout); realign the "change photo" regions to the images.
-            this.scheduleMountTools();
-            return c;
+            let restoreImages = () => {};
+            try {
+                // A template can pick any of the ad fonts — if the face has not finished
+                // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
+                // from the preview the agent approved.
+                if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
+                // An Agent Image with "Remove background" on swaps its <img src> once the
+                // in-browser cutout finishes — await that too, or a fast capture can
+                // rasterise the un-stripped original photo.
+                try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
+                await new Promise(r => setTimeout(r, 80));
+                // html2canvas has known gaps in its object-fit support — pre-bake the
+                // SAME cover/contain crop onto an offscreen canvas so there is nothing
+                // left for it to get wrong (a real ad hit this: an Agent Image
+                // rendered stretched in the download while the preview was correct).
+                try { restoreImages = await CoreXAd.prepareImagesForCapture(canvas); } catch (_) {}
+                const c = await html2canvas(canvas, {
+                    width: cfg.w, height: cfg.h, scale: 2,
+                    useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
+                });
+                return c;
+            } finally {
+                restoreImages();
+                wrapper.style.transform = saved;
+                this.capturingPreview = false;
+                // The capture untransformed the wrapper (and resized the canvas for a
+                // custom layout); realign the "change photo" regions to the images.
+                this.scheduleMountTools();
+            }
         },
 
         async exportForMarketing() {

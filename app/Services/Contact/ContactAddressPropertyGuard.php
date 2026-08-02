@@ -183,6 +183,17 @@ final class ContactAddressPropertyGuard
      * (TrackedPropertyAddress::normaliseStreet + TrackedProperty::normaliseSuburb) —
      * the same normalisation every ingestion path and the Property model itself use,
      * so this is a re-use of the single source, not a parallel matcher.
+     *
+     * Unit number is a HARD discriminator here (unlike the TrackedProperty matcher,
+     * which is deliberately unit-blind — see 2026_06_16_122400 migration comment).
+     * Agency Stock is unit-granular by construction: each flat in a sectional-title
+     * complex is its OWN Property row sharing the same street_number/street_name/suburb
+     * (confirmed live — 67 Colin Street, Uvongo Beach / "Glyndale Sands" holds units
+     * 101, 402, 403, 601 as four separate Property rows). Matching on street alone
+     * false-positives every other unit in the same building as "already on our books".
+     * A missing unit on either side never blocks the match (partial captures still
+     * warn); only a conflicting non-blank unit on BOTH sides vetoes it — mirrors
+     * TrackedPropertyMatchOrCreateService::numbersConflict().
      */
     private function matchStockProperty(int $agencyId, array $facts, string $mode): ?Property
     {
@@ -205,7 +216,23 @@ final class ContactAddressPropertyGuard
             return null;
         }
 
-        return $query->first();
+        $factUnit = $this->normaliseUnit($facts['unit_number'] ?? null);
+        foreach ($query->get() as $candidate) {
+            $candUnit = $this->normaliseUnit($candidate->unit_number);
+            if ($factUnit !== null && $candUnit !== null && $factUnit !== $candUnit) {
+                continue;
+            }
+            return $candidate;
+        }
+
+        return null;
+    }
+
+    /** Normalise a unit number for equality (lowercased + trimmed). Blank ⇒ null (never a veto). */
+    private function normaliseUnit(?string $value): ?string
+    {
+        $v = strtolower(trim((string) ($value ?? '')));
+        return $v === '' ? null : $v;
     }
 
     /** Canonical facts array built from raw captured address components. */

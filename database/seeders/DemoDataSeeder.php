@@ -195,6 +195,22 @@ class DemoDataSeeder extends Seeder
         $this->stage0_referenceData();
         $this->stage1_agencyBranchesUsers();
 
+        // Agency-scoped backfills that need the Stage-1 agency row to exist
+        // first — see the comment in stage0_referenceData().
+        //
+        // On a genuinely fresh agency (created via raw insert above, not
+        // Agency::create()) AgencyObserver::created() never fires, so nothing
+        // has provisioned the base property_status/type/category/mandate/
+        // condition vocabulary yet — including "Sold by 3rd Party" (AT-352).
+        // Call the same idempotent provisioner the observer would have
+        // called, BEFORE backfillPropertyStatusItems() adds its extra nuance
+        // items: provisionDefaultsFor() only fills a group that is completely
+        // empty, so it must run first or it finds property_status non-empty
+        // and (correctly, for a curated agency) skips it.
+        \App\Models\PropertySettingItem::provisionDefaultsFor(self::AGENCY_ID);
+        $this->backfillPropertyStatusItems();
+        $this->backfillPropertyTypeOptions();
+
         // The permanent System Owner login (Demo@corexos.co.za) — Johan's
         // private door at /demo-owner-login, used to wire the demo up to live.
         // It MUST be re-created by the demo rebuild itself: the documented
@@ -427,10 +443,13 @@ class DemoDataSeeder extends Seeder
         // Stage-0 backfills for reference tables that have no canonical
         // seeder file. The exact rows are taken from local nexus_os —
         // do NOT invent. Idempotent: find-or-create by natural key.
+        //
+        // backfillPropertyStatusItems() and backfillPropertyTypeOptions() are
+        // NOT here — both are agency-scoped (self::AGENCY_ID) and Stage 0 runs
+        // BEFORE Stage 1 creates that agency row. They run right after
+        // stage1_agencyBranchesUsers() in run() instead.
         $this->backfillContactTypes();
-        $this->backfillPropertyStatusItems();
         $this->backfillDocumentLibraryTypes();
-        $this->backfillPropertyTypeOptions();
 
         // PerformanceSettingsSeeder (above) is correct for the LIVE agency but
         // stamps HFC's real name / address / phone / FFC into the global
@@ -672,12 +691,18 @@ class DemoDataSeeder extends Seeder
 
     private function stage1_agencyBranchesUsers(): void
     {
-        // Reuse agency 1 (the base migration creates it as "HFC Coastal") and
-        // OVERWRITE it into the fictional demo agency. fic_no is set here on
-        // purpose: HfcRmcpMasterSeeder only stamps the real FIC number when
-        // agencies.fic_no is empty, so filling it now makes that seeder's
+        // Reuse agency 1 if it already exists (an old-style install where a
+        // migration inserted it as "HFC Coastal") and OVERWRITE it into the
+        // fictional demo agency; CREATE it if this is a schema-snapshot
+        // bootstrap (CLAUDE.md #12a), which loads database/schema/mysql-schema.sql
+        // — structure only, no data — so a fresh demo rebuilt via migrate:fresh
+        // never had row 1 to begin with. A blind UPDATE silently affects 0 rows
+        // in that case, leaving every agency-scoped insert downstream (branches,
+        // users, property_setting_items, …) to fail on the FK. fic_no is set
+        // here on purpose: HfcRmcpMasterSeeder only stamps the real FIC number
+        // when agencies.fic_no is empty, so filling it now makes that seeder's
         // guard short-circuit instead of writing HFC's real registration.
-        DB::table('agencies')->where('id', self::AGENCY_ID)->update([
+        $agencyAttributes = [
             'name'         => self::DEMO_AGENCY_NAME,
             'trading_name' => self::DEMO_AGENCY_TRADING,
             'reg_no'       => self::DEMO_AGENCY_REG,
@@ -687,7 +712,16 @@ class DemoDataSeeder extends Seeder
             'is_demo'      => 1,
             'is_active'    => 1,
             'updated_at'   => now(),
-        ]);
+        ];
+        if (DB::table('agencies')->where('id', self::AGENCY_ID)->exists()) {
+            DB::table('agencies')->where('id', self::AGENCY_ID)->update($agencyAttributes);
+        } else {
+            DB::table('agencies')->insert($agencyAttributes + [
+                'id'         => self::AGENCY_ID,
+                'slug'       => Str::slug(self::DEMO_AGENCY_NAME),
+                'created_at' => now(),
+            ]);
+        }
 
         // 3 branches.
         foreach (array_keys(self::TOWN_SUBURBS) as $i => $town) {
