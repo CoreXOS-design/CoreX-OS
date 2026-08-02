@@ -728,7 +728,11 @@
             shadowY:       4,
             shadowBlur:    12,
             shadowColor:   '#000000',
-            shadowOpacity: 0.45
+            shadowOpacity: 0.45,
+            // Builder-only (like `locked`) — elements sharing a groupId select and
+            // move together in the Ad Builder. Ignored by the generator/bulk
+            // manager; does not affect frameStyle()/contentHtml() output at all.
+            groupId:       null
         };
     }
 

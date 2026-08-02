@@ -517,6 +517,17 @@
                                 <button title="Rotate 45°" @mousedown.stop @click.stop="rotate45()">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
                                 </button>
+                                <template x-if="selCount >= 2">
+                                    <button :title="selIsGroup ? 'Ungroup (Ctrl Shift G)' : 'Group (Ctrl G)'"
+                                            @mousedown.stop @click.stop="selIsGroup ? ungroupSelected() : groupSelected()">
+                                        <template x-if="selIsGroup">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
+                                        </template>
+                                        <template x-if="!selIsGroup">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="8" height="8" rx="1"/><rect x="12" y="12" width="8" height="8" rx="1"/><rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="3 3"/></svg>
+                                        </template>
+                                    </button>
+                                </template>
                                 <button :title="allLocked ? 'Unlock' : 'Lock'" @mousedown.stop @click.stop="toggleLock()">
                                     <template x-if="allLocked">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
@@ -1027,6 +1038,11 @@
                          @click="selectFromLayers($event, el)">
                         <span class="layer-swatch" :style="'background:' + layerSwatch(el)"></span>
                         <span class="layer-name" x-text="el.label" :title="el.label"></span>
+                        <template x-if="el.groupId">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;flex:none;opacity:0.55;margin:0 2px;" title="Part of a group">
+                                <path d="M8 8a3 3 0 0 1 4-2.8M16 16a3 3 0 0 1-4 2.8M9 15l6-6"/>
+                            </svg>
+                        </template>
                         <button class="layer-ico" @click.stop="toggleHidden(el)" :title="el.hidden ? 'Show' : 'Hide'">
                             <template x-if="!el.hidden">
                                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1087,6 +1103,7 @@
                 <div class="sc-item"><span>Rotate in 15° steps</span><kbd>Shift rotate</kbd></div>
                 <div class="sc-item"><span>Forward / Backward</span><kbd>Ctrl ] / [</kbd></div>
                 <div class="sc-item"><span>To front / To back</span><kbd>Ctrl Shift ] / [</kbd></div>
+                <div class="sc-item"><span>Group / Ungroup</span><kbd>Ctrl G / Ctrl Shift G</kbd></div>
             </div>
             <div>
                 <div class="sc-sec-t">View</div>
@@ -1212,6 +1229,19 @@ function builder() {
             const s = this.selIdx;
             return s.length > 0 && s.every(i => this.elements[i].locked);
         },
+        /**
+         * Is the CURRENT selection exactly one whole, existing element-group (not a
+         * partial subset, not a mix of several groups)? Gates the toolbar's
+         * Group/Ungroup toggle — "not the field-catalogue FIELD_GROUPS", a different
+         * kind of grouping (see groupSelected()).
+         */
+        get selIsGroup() {
+            if (this.selCount < 2) return false;
+            const gids = new Set(this.selIdx.map(i => this.elements[i].groupId).filter(Boolean));
+            if (gids.size !== 1) return false;
+            const gid = [...gids][0];
+            return this.elements.filter(e => e.groupId === gid).length === this.selCount;
+        },
         /** Layers list — TOP of the ad first, which is how a designer reads a stack. */
         get layers() {
             return [...this.elements].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
@@ -1232,6 +1262,58 @@ function builder() {
 
         isSelected(el) { return this.selIds.includes(el.id); },
         content(el) { return this.CoreXAd.contentHtml(el, this.propertyData, { placeholders: true }); },
+
+        /* ═══ Element grouping (move/select together) ═══════════════════════
+           A group is just a shared `el.groupId` — grouping is a PERSISTED
+           multi-select, not a new geometry concept. Every place a selection is
+           formed (click, shift-click, marquee, Layers) routes through these so
+           picking any one member always resolves to the whole group. */
+
+        /** Every id sharing `id`'s group (including itself). Ungrouped → just [id]. */
+        groupMembers(id) {
+            const el = this.elements.find(e => e.id === id);
+            if (!el || !el.groupId) return [id];
+            return this.elements.filter(e => e.groupId === el.groupId).map(e => e.id);
+        },
+
+        /** Union of groupMembers() for every id in `ids`, deduped. */
+        expandToGroups(ids) {
+            const out = new Set();
+            ids.forEach(id => this.groupMembers(id).forEach(m => out.add(m)));
+            return [...out];
+        },
+
+        /** 2+ selected elements → bundle them into one persisted group (overwrites
+         *  any groupId they already had — groups don't nest). */
+        groupSelected() {
+            if (this.selCount < 2) return;
+            this.commit();
+            const gid = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            this.selIdx.forEach(i => { this.elements[i] = { ...this.elements[i], groupId: gid }; });
+            this.toast('Grouped ' + this.selCount + ' elements');
+        },
+
+        /** Clears groupId from every selected element (their whole group — selecting
+         *  any member already expands the selection to it, see elMouseDown()). */
+        ungroupSelected() {
+            const idxs = this.selIdx.filter(i => this.elements[i].groupId);
+            if (!idxs.length) return;
+            this.commit();
+            idxs.forEach(i => { this.elements[i] = { ...this.elements[i], groupId: null }; });
+            this.toast('Ungrouped');
+        },
+
+        /** Remaps groupId on a freshly-cloned element list so a duplicate/paste of a
+         *  group becomes its OWN new group — never silently re-merged with the
+         *  original (which would happen if the groupId were just copied verbatim). */
+        _remapGroups(list) {
+            const map = {};
+            return list.map(el => {
+                if (!el.groupId) return el;
+                if (!map[el.groupId]) map[el.groupId] = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+                return { ...el, groupId: map[el.groupId] };
+            });
+        },
 
         /* ═══ History ═════════════════════════════════════════════════════ */
 
@@ -1377,13 +1459,13 @@ function builder() {
             if (!this.selCount) return;
             this.commit();
             let z = this.elements.length ? Math.max(...this.elements.map(e => e.zIndex || 0)) : 0;
-            const copies = this.selIdx.map(i => ({
+            const copies = this._remapGroups(this.selIdx.map(i => ({
                 ...JSON.parse(JSON.stringify(this.elements[i])),
                 id: Date.now() + Math.random(),
                 x: this.elements[i].x + 16,
                 y: this.elements[i].y + 16,
                 zIndex: ++z,
-            }));
+            })));
             this.elements.push(...copies);
             this.selIds = copies.map(c => c.id);
         },
@@ -1442,13 +1524,13 @@ function builder() {
             if (!this._clip.length) return;
             this.commit();
             let z = this.elements.length ? Math.max(...this.elements.map(e => e.zIndex || 0)) : 0;
-            const copies = this._clip.map(c => ({
+            const copies = this._remapGroups(this._clip.map(c => ({
                 ...JSON.parse(JSON.stringify(c)),
                 id: Date.now() + Math.random(),
                 x: c.x + 20,
                 y: c.y + 20,
                 zIndex: ++z,
-            }));
+            })));
             this.elements.push(...copies);
             this.selIds = copies.map(c => c.id);
             // Paste again → step further down, never stack on the same spot.
@@ -1627,12 +1709,13 @@ function builder() {
             if (el.locked) { this.selIds = [el.id]; return; }
 
             if (e.shiftKey) {
+                const members = this.groupMembers(el.id);
                 this.selIds = this.isSelected(el)
-                    ? this.selIds.filter(id => id !== el.id)
-                    : [...this.selIds, el.id];
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
                 if (!this.isSelected(el)) return;
             } else if (!this.isSelected(el)) {
-                this.selIds = [el.id];
+                this.selIds = this.groupMembers(el.id);
             }
 
             this._ds = {
@@ -1786,7 +1869,8 @@ function builder() {
                     el.x < m.x + m.w && el.x + el.w > m.x &&
                     el.y < m.y + m.h && el.y + el.h > m.y
                 ).map(el => el.id);
-                this.selIds = ds.additive ? [...new Set([...ds.base, ...hit])] : hit;
+                // A marquee catching even ONE member of a group selects the whole group.
+                this.selIds = this.expandToGroups(ds.additive ? [...ds.base, ...hit] : hit);
             }
         },
 
@@ -1826,12 +1910,13 @@ function builder() {
         /* ═══ Layers ══════════════════════════════════════════════════════ */
 
         selectFromLayers(e, el) {
+            const members = this.groupMembers(el.id);
             if (e.shiftKey) {
                 this.selIds = this.isSelected(el)
-                    ? this.selIds.filter(id => id !== el.id)
-                    : [...this.selIds, el.id];
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
             } else {
-                this.selIds = [el.id];
+                this.selIds = members;
             }
         },
 
@@ -2001,6 +2086,7 @@ function builder() {
                 if (k === 'x') { e.preventDefault(); this.cut(); return; }
                 if (k === 'v') { e.preventDefault(); this.paste(); return; }
                 if (k === 'a') { e.preventDefault(); this.selectAll(); return; }
+                if (k === 'g') { e.preventDefault(); e.shiftKey ? this.ungroupSelected() : this.groupSelected(); return; }
                 if (e.key === ']') { e.preventDefault(); this.zOrder(e.shiftKey ? 'front' : 'up'); return; }
                 if (e.key === '[') { e.preventDefault(); this.zOrder(e.shiftKey ? 'back' : 'down'); return; }
                 if (e.key === '0') { e.preventDefault(); this.fitZoom(); return; }
