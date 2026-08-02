@@ -198,43 +198,19 @@
         </div>
     @endforeach
 
-    {{-- Authorising-practitioner signature zone — candidate practitioner flows only.
-         The authorising party (a full-status Property Practitioner / Principal, resolved
-         from the shared authorisation queue at sign time) is a FULL-PARITY signer: this
-         sig-party-block mirrors every other party's block, and the per-page initials row
-         carries their box too (SignatureTemplate::enumeratedSigningParties). Bound by
-         ROLE-IDENTITY (data-recipient-identity), never a name — the authoriser is the one
-         signer whose person is unknown at document creation, so a name key cannot match
-         the claiming practitioner; identity binds instead. Label is DESIGNATION-driven,
-         not a hardcoded "Supervisor" string. --}}
-    @if(!empty($is_candidate_flow))
-        @php
-            // Base checkpoint-family identity: both the pre-external 'supervisor'
-            // authorisation and the post-external 'supervisor_final' signoff are the
-            // same human and fold onto this identity (CHECKPOINT_ROLE_ALIASES).
-            $authIdentity = $authorising_identity ?? 'supervisor';
-            $authLabel    = $authorising_designation ?? 'Authorising Practitioner';
-        @endphp
-        <div class="sig-party-block">
-            <p class="sig-text">
-                Thus authorised and signed by the {{ $authLabel }} at
-                <span class="sig-field" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="location"></span>
-                on this
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="day"></span>
-                day of
-                <span class="sig-field sig-field-medium" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="month"></span>
-                20<span class="sig-field sig-field-year" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="year"></span>
-                at
-                <span class="sig-field sig-field-short" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="time"></span>
-                am / pm.
-            </p>
+    {{-- Authorising-practitioner parity — candidate practitioner flows.
+         The authoriser is a FULL-PARITY signer: for EVERY signature/initial the candidate
+         makes, the authoriser makes the SAME mark at the SAME place. That is now enforced
+         MARK-LEVEL and structure-agnostically at compose time by
+         App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector, which mirrors every
+         candidate mark (wherever it sits — component, mid-body, or an imported non-component
+         doc) and injects one authoriser ceremony attestation per segment.
 
-            <div class="sig-row-adaptive cols-1">
-                <div class="sig-cell">
-                    <div class="sig-cell-line" data-marker-party="supervisor" data-recipient-identity="{{ $authIdentity }}" data-marker-type="signature" data-marker-index="supervisor-0"></div>
-                    <div class="sig-cell-label">{{ $authLabel }}</div>
-                </div>
-            </div>
-        </div>
-    @endif
+         The old component-only authoriser sig-party-block was DELIBERATELY REMOVED here: it
+         provisioned exactly ONE authoriser surface at the tail of the block, so a document
+         with candidate signatures mid-body (or authored without this component) left those
+         marks unmirrored (the "3 mid-body signature blocks" defect). Re-adding a fixed block
+         here would also DOUBLE the injector's per-mark mirror of the candidate's final
+         signature. The injector is the single authoriser authority — do not reinstate a
+         hardcoded authoriser block in this component. --}}
 </div>

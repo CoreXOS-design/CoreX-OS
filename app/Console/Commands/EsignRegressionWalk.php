@@ -525,8 +525,29 @@ final class EsignRegressionWalk extends Command
             '[' . implode(',', $roles) . ']',
         );
 
-        // (b) parity block: identity-stamped, no placeholder name, designation label
-        $block = view('docuperfect.web-templates.components.signature-block', [
+        // (b) MARK-LEVEL PARITY — the core invariant (Johan 2026-08; Exhibit A).
+        // A segment with THREE candidate signature marks in the MIDDLE of the body must
+        // yield THREE co-located authoriser mirrors — NOT one tail surface. Driven by the
+        // marks, structure-agnostic, holds for ANY imported document.
+        $inj  = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class);
+        $Inj  = \App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class;
+        $authSig = fn ($h) => preg_match_all('/data-authoriser-mirror="true"[^>]*data-marker-type="signature"|data-marker-type="signature"[^>]*data-authoriser-mirror="true"/', (string) $h);
+
+        $midBody = '<div class="corex-document-wrapper">'
+            . '<p>Clause 1</p><div class="sig-cell-line" data-marker-party="agent" data-marker-type="signature" data-marker-index="m0"></div>'
+            . '<p>Clause 2</p><div class="sig-cell-line" data-marker-party="agent" data-marker-type="signature" data-marker-index="m1"></div>'
+            . '<p>Clause 3</p><div class="sig-cell-line" data-marker-party="agent" data-marker-type="signature" data-marker-index="m2"></div>'
+            . '</div>';
+        $oMid = $inj->inject($midBody);
+        $this->assert(
+            'AUTH-b) MARK-LEVEL: 3 mid-body candidate signature marks -> 3 co-located authoriser mirrors (Exhibit A: was 1 under the segment-level injector)',
+            $authSig($oMid) === 3,
+            'authoriser mirrors=' . $authSig($oMid) . ' (expected 3)',
+        );
+
+        // (b2) the shared signature-block component no longer HARDCODES a standalone
+        // authoriser surface — the injector is the single authority, so nothing doubles it.
+        $comp = view('docuperfect.web-templates.components.signature-block', [
             'is_candidate_flow' => true,
             'authorising_designation' => 'Authorising Practitioner',
             'authorising_identity' => 'supervisor',
@@ -534,14 +555,10 @@ final class EsignRegressionWalk extends Command
             'document_context' => 'sales',
             'recipients_by_role' => ['seller' => [['name' => 'Rec One']], 'agent' => [['name' => 'Cand']]],
         ])->render();
-        $authFrag = preg_match('/Thus authorised and signed by the.*?<\/div>\s*<\/div>\s*<\/div>/s', $block, $mm) ? $mm[0] : '';
-        $sigStamped = (bool) preg_match('/data-marker-type="signature"[^>]*data-recipient-identity="supervisor"|data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $authFrag);
-        $noPlaceholderName = $authFrag !== '' && ! str_contains($authFrag, 'data-name=');
-        $designationLabel = str_contains($authFrag, 'Authorising Practitioner') && ! str_contains($block, 'Supervising Practitioner');
         $this->assert(
-            'AUTH-b) authoriser parity block is identity-stamped, has NO placeholder name, and is designation-labelled',
-            $sigStamped && $noPlaceholderName && $designationLabel,
-            'idStamped=' . ($sigStamped ? 'Y' : 'n') . ' noPlaceholderName=' . ($noPlaceholderName ? 'Y' : 'n') . ' designationLabel=' . ($designationLabel ? 'Y' : 'n'),
+            'AUTH-b2) signature-block component no longer emits a hardcoded authoriser surface (single authority = injector, no doubling)',
+            ! str_contains($comp, 'data-marker-index="supervisor-0"'),
+            str_contains($comp, 'data-marker-index="supervisor-0"') ? 'component STILL emits supervisor-0 (would double the mirror)' : 'clean',
         );
 
         // (c)+(d)+(e) bake ownership across the checkpoint fold + isolation + completeness
@@ -597,30 +614,60 @@ final class EsignRegressionWalk extends Command
             "authoriserSigSlots=$need baked=$got | overall: $art",
         );
 
-        // (f) COMPOSE-TIME INJECTOR — an imported segment authored WITHOUT the mandate
-        // signature-block component must still yield exactly ONE full-parity authoriser
-        // surface; a component segment is never double-injected; a pure-info segment gets
-        // nothing. Guards the Monday-import gap (imported disclosure/addendum leaving the
-        // authoriser nowhere to sign).
-        $inj = app(\App\Services\Docuperfect\CandidateAuthoriserSurfaceInjector::class);
-        $authSig = fn ($h) => preg_match_all('/data-marker-type="signature"[^>]*data-recipient-identity="supervisor"|data-recipient-identity="supervisor"[^>]*data-marker-type="signature"/', $h);
-        $nonComp = '<div class="corex-document-wrapper"><h1>Mandatory Disclosure</h1><div class="sig-section"><div class="sig-cell-line" data-marker-party="seller" data-marker-type="signature" data-name="E2E Seller"></div></div></div>';
-        $comp = '<div class="corex-document-wrapper"><div class="sig-party-block"><div class="sig-cell-line" data-marker-party="supervisor" data-recipient-identity="supervisor" data-marker-type="signature"></div></div><div class="sig-cell-line" data-marker-party="seller" data-marker-type="signature" data-name="Rec One"></div></div>';
-        $info = '<div class="corex-document-wrapper"><h1>Info</h1><p>No signing.</p></div>';
-        $oNon = $inj->inject($nonComp);
-        $oCmp = $inj->inject($comp);
-        $oInf = $inj->inject($info);
-        $oPack = $inj->inject($comp . $nonComp . $info);
-        $injOk = $authSig($oNon) === 1                         // non-component → exactly one, designation-labelled
-            && str_contains($oNon, 'Authorising Practitioner') && ! str_contains($oNon, 'data-name="supervisor"')
-            && $authSig($oCmp) === 1 && ! str_contains($oCmp, 'data-authoriser-injected')   // idempotent
-            && $authSig($oInf) === 0                            // info page untouched
-            && $authSig($oPack) === 2 && substr_count($oPack, 'data-authoriser-injected') === 1; // pack: 1 kept + 1 injected
+        // (f) INJECTOR ACROSS DOC SHAPES — mark-level, structure-agnostic, on ANY import.
+        //  - non-component (lease) segment: SignatureSurfaceNormalizer output (.signature-line)
+        //    — the candidate (agent) sig is mirrored; a NON-candidate party (lessor) is NOT.
+        //  - a pure-information segment gets nothing.
+        //  - re-running the injector is a no-op (idempotent; no doubling).
+        //  - the authoriser is identity-bound (no placeholder data-name) and its ceremony
+        //    attestation is designation-labelled.
+        $lease = '<div class="corex-document-wrapper"><div class="signature-section">'
+            . '<div class="signature-col" data-marker-party="agent"><div class="signature-line" data-marker-party="agent" data-marker-type="signature" data-marker-index="la"></div></div>'
+            . '<div class="signature-col" data-marker-party="lessor"><div class="signature-line" data-marker-party="lessor" data-marker-type="signature" data-marker-index="ll"></div></div>'
+            . '</div></div>';
+        $info  = '<div class="corex-document-wrapper"><h1>Info</h1><p>No signing.</p></div>';
+        $oLease = $inj->inject($lease);
+        $oInfo  = $inj->inject($info);
+        $oMidReRun = $inj->inject($oMid); // idempotency: re-run the already-mirrored mid-body doc
+        $leaseMirrors = $authSig($oLease);
+        $lessorMirror = preg_match_all('/data-authoriser-mirror="true"[^>]*data-marker-index="ll-auth"/', $oLease);
+        $injOk = $leaseMirrors === 1                                   // lease agent sig mirrored (no component needed)
+            && $lessorMirror === 0                                     // lessor (non-candidate) NEVER mirrored
+            && $authSig($oInfo) === 0                                  // pure-info segment untouched
+            && $authSig($oMidReRun) === 3                              // idempotent — still 3, no doubles
+            && str_contains($oLease, 'Authorising Practitioner')      // ceremony designation-labelled
+            && ! preg_match('/data-authoriser-mirror="true"[^>]*data-name=/', $oLease); // identity-bound, no placeholder name
         $this->assert(
-            'AUTH-f) compose-time injector: non-component segment gets exactly ONE authoriser surface, component idempotent, info untouched',
+            'AUTH-f) injector is mark-level on a non-component (lease) doc, ignores non-candidate parties + info pages, and is idempotent',
             $injOk,
-            'nonComp=' . $authSig($oNon) . ' comp=' . $authSig($oCmp) . ' info=' . $authSig($oInf)
-                . ' packSurfaces=' . $authSig($oPack) . ' packInjected=' . substr_count($oPack, 'data-authoriser-injected'),
+            'leaseMirrors=' . $leaseMirrors . ' lessorMirror=' . $lessorMirror . ' info=' . $authSig($oInfo) . ' reRun=' . $authSig($oMidReRun),
+        );
+
+        // (g) COMPLETENESS 1:1 BY LOCATION — the bank-reject guard. Every candidate mark
+        // must have a FILLED authoriser mark at its OWN anchor; one missing/unfilled = the
+        // whole document FAILS. This is the assertion the old "no empty slot" guard could
+        // not make — a never-created authoriser mark is absent, not empty, so it slipped
+        // through green (Exhibit A).
+        $filled = preg_replace('/data-authoriser-mirror="true"/', 'data-authoriser-mirror="true" data-signed="true"', $oMid);
+        $passWhenFilled = $Inj::unmirroredCandidateMarks($filled);
+        // strip exactly ONE authoriser mirror -> its candidate mark becomes unmirrored
+        $bdom = new \DOMDocument();
+        @$bdom->loadHTML('<?xml encoding="utf-8"?>' . $filled, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $bxp = new \DOMXPath($bdom);
+        $stripped = false;
+        foreach ($bxp->query('//*[@data-authoriser-mirror="true"][@data-marker-type="signature"]') as $mm2) {
+            if ($mm2 instanceof \DOMElement && str_contains($mm2->getAttribute('data-marker-index'), 'm1')) {
+                $mm2->parentNode?->removeChild($mm2);
+                $stripped = true;
+                break;
+            }
+        }
+        $broken = (string) $bdom->saveHTML();
+        $failWhenMissing = $Inj::unmirroredCandidateMarks($broken);
+        $this->assert(
+            'AUTH-g) COMPLETENESS 1:1 by location: PASSES when every candidate mark has a filled authoriser mark; FAILS the doc when one is missing (bank-reject)',
+            count($passWhenFilled) === 0 && $stripped && count($failWhenMissing) === 1,
+            'violationsWhenComplete=' . count($passWhenFilled) . ' stripped=' . ($stripped ? 'y' : 'n') . ' violationsWhenOneMissing=' . count($failWhenMissing),
         );
     }
 

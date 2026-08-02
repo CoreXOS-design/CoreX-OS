@@ -681,22 +681,59 @@ class SignatureService
     }
 
     /**
-     * Count signature locations per role by reading the template's blade view.
+     * Count signature locations per role.
      *
-     * Inline signature-line includes use: ['party' => 'seller']
-     * Final signature-block includes use: ["parties" => ["Seller", "Agent"]]
+     * PRIMARY (engine-side, structure-agnostic): count the ACTUAL signature marks in the
+     * composed document (merged_html) — every party's real `data-marker-type="signature"`
+     * markers, wherever they sit. This holds for ANY imported document.
+     *
+     * FALLBACK (PDF templates only): the former blade-file grep for the `signature-line` /
+     * `signature-block` partial names — used ONLY when the composed HTML carries no marks
+     * (e.g. a coordinate-based PDF template), so PDF placement is unchanged. That grep was
+     * document-coupled: it returned [] for any template not authored with those exact HFC
+     * partials, collapsing every role to one location.
      *
      * Returns ['seller' => 3, 'agent' => 1, ...] — total distinct locations per role.
      */
     protected function countSignatureLocationsPerRole(SignatureTemplate $sigTemplate): array
     {
-        $counts = [];
-
-        // Navigate to the Template model via Document
         $document = $sigTemplate->document;
         if (!$document) {
-            return $counts;
+            return [];
         }
+
+        // Primary: count real marks in the composed document.
+        $html = $document->web_template_data['merged_html']
+            ?? $document->web_template_data['canonical_html']
+            ?? '';
+        if (trim($html) !== '') {
+            $counts = [];
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING
+            );
+            $xp = new \DOMXPath($dom);
+            foreach ($xp->query('//*[@data-marker-type="signature"][@data-marker-party]') as $el) {
+                if (!$el instanceof \DOMElement) {
+                    continue;
+                }
+                $party = strtolower(trim($el->getAttribute('data-marker-party')));
+                if ($party === '') {
+                    continue;
+                }
+                $role = (string) preg_replace('/_\d+$/', '', $party);
+                // Fold checkpoint family to base identity (supervisor_final -> supervisor).
+                $role = SignatureTemplate::CHECKPOINT_ROLE_ALIASES[$role] ?? $role;
+                $counts[$role] = ($counts[$role] ?? 0) + 1;
+            }
+            if ($counts !== []) {
+                return $counts;
+            }
+        }
+
+        // Fallback: blade-file grep (PDF/coordinate templates with no composed marks).
+        $counts = [];
 
         $template = $document->template;
         if (!$template || !$template->blade_view) {
@@ -1905,6 +1942,29 @@ class SignatureService
      */
     public function completeDocument(SignatureTemplate $template): void
     {
+        // Authoriser-parity completeness guard (candidate flows) — the bank-reject rule.
+        // Every candidate signature/initial mark must carry a FILLED authoriser mark at its
+        // OWN anchor. CandidateAuthoriserSurfaceInjector guarantees those surfaces at compose
+        // time and the mark-level bake fills them, so this should never trip; if the FINAL
+        // document nonetheless carries an unmirrored/unfilled candidate mark the document is
+        // incomplete and a bank/conveyancer rejects the whole thing — surface it LOUDLY (with
+        // the exact anchors) so it can never ship silently. Non-blocking: completion is the
+        // durable legal record and must not be lost; the alarm drives the fix.
+        if ($template->is_candidate_flow) {
+            $wtd = $template->document?->web_template_data ?? [];
+            $finalHtml = $wtd['canonical_html'] ?? $wtd['merged_html'] ?? '';
+            $violations = CandidateAuthoriserSurfaceInjector::unmirroredCandidateMarks($finalHtml);
+            if ($violations !== []) {
+                \Illuminate\Support\Facades\Log::error('AUTHORISER_PARITY_INCOMPLETE', [
+                    'signature_template_id' => $template->id,
+                    'document_id'           => $template->document_id,
+                    'unmirrored_marks'      => count($violations),
+                    'anchors'               => array_slice($violations, 0, 20),
+                    'note'                  => 'candidate signature/initial mark(s) lack a filled authoriser mark at their anchor — bank/conveyancer reject risk',
+                ]);
+            }
+        }
+
         // 1. Lock the document
         $template->update([
             'status' => SignatureTemplate::STATUS_COMPLETED,

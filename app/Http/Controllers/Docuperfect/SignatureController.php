@@ -2491,13 +2491,16 @@ class SignatureController extends Controller
         $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
         $clauseFlags = $webTemplateData['clause_flags'] ?? [];
 
-        // Deduplicate supervisor/supervisor_final — same person, one initial block
-        $signingParties = collect($template->parties_json ?? [])->filter(function ($p) {
-            return ($p['role'] ?? '') !== 'supervisor_final';
-        })->map(fn($p) => [
+        // Checkpoint-fold + dedup via the SINGLE shared authority
+        // (SignatureTemplate::enumeratedSigningParties — folds supervisor_final onto
+        // supervisor via CHECKPOINT_ROLE_ALIASES, dedups by role). Never re-implement the
+        // fold inline with a literal 'supervisor_final' string: it silently drifts from the
+        // model's alias map the moment another checkpoint role is added (the "two authoriser
+        // boxes" defect the shared method exists to prevent).
+        $signingParties = collect($template->enumeratedSigningParties())->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
-        ])->unique('role')->values()->toArray();
+        ])->values()->toArray();
 
         // §20 — per-segment titles for the (possibly pack) review body.
         // Ordered to match the merged_html .corex-document-wrapper order
