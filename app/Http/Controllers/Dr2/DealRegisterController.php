@@ -512,6 +512,21 @@ class DealRegisterController extends Controller
             ]);
         }
 
+        // STANDARDS Rule 17 — a NEW deal must belong to a real agency. An unscoped
+        // owner/super_admin (no branch, no active agency switcher) resolves
+        // effectiveAgencyId() to NULL; BelongsToAgency's single-agency fallback is a
+        // no-op on any multi-agency install, so the deal would silently save with
+        // agency_id=NULL, and pipeline-building code downstream that casts it to
+        // (int) then manufactures the invalid sentinel 0 and 1452s the
+        // deal_step_instances FK (QA1 deal 218). Block here with a clear message —
+        // never invent, hardcode, or silently omit the agency.
+        $effectiveAgencyId = $user?->effectiveAgencyId();
+        if ($isNew && ! $effectiveAgencyId) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'agency_id' => 'Select an agency before creating a deal — switch into an agency, then try again.',
+            ]);
+        }
+
         if ($isNew) {
             if (empty($data['accepted_status']))   { $data['accepted_status'] = 'P'; }
             if (empty($data['commission_status'])) { $data['commission_status'] = 'Not Paid'; }
@@ -607,6 +622,9 @@ class DealRegisterController extends Controller
             'selling_split_percent' => $sellingSplit,
             'file_no'          => $data['file_no'] ?? null,
             'branch_id'        => $data['branch_id'] ?? null,
+            // Explicitly stamped (not left to BelongsToAgency's auto-stamp) so a NEW
+            // deal never depends on the owner-bypass fallback gap — see the guard above.
+            'agency_id'        => $isNew ? $effectiveAgencyId : $deal->agency_id,
 
             'property_id'      => $propertyId,
             'property_address' => $data['property_address'] ?? null,

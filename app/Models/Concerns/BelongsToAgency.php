@@ -89,6 +89,20 @@ trait BelongsToAgency
             if ($singleAgencyId > 0) {
                 $model->agency_id = $singleAgencyId;
             }
+
+            // STANDARDS Rule 17 backstop — 0 is NEVER a legitimate agency id (ids start at
+            // 1) and never a deliberate "global row" (that's a genuine NULL, honoured above).
+            // Every other branch above either force-stamps a real id, trusts an explicit
+            // non-empty value, honours an explicit NULL, or stamps the single-agency
+            // fallback — none of them ever produce a bare 0. If one still reaches here, a
+            // caller manufactured the invalid sentinel (e.g. `(int) $possiblyNullAgencyId`).
+            // Refuse loudly now instead of letting a NOT-NULL/FK insert 500 downstream with
+            // a cryptic 1452/1048 (see the deal_step_instances AT-334 incident).
+            if ((int) $model->agency_id === 0 && $model->agency_id !== null) {
+                throw new \RuntimeException(
+                    get_class($model) . ': refusing to create with agency_id = 0 (invalid sentinel — no agency has id 0). Resolve the correct agency before creating this record.'
+                );
+            }
         });
     }
 

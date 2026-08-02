@@ -255,6 +255,8 @@ class PipelineController extends Controller
 
         try {
             $this->pipelines->createPipeline($deal, $template->id);
+        } catch (\App\Exceptions\MissingAgencyContextException $e) {
+            return back()->with('error', $e->userMessage());
         } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
         }

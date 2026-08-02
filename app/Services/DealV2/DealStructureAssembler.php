@@ -40,6 +40,15 @@ class DealStructureAssembler
         }
 
         $agencyId = (int) $deal->agency_id;                 // parent-derived (P1 lesson: never rely on auto-stamp)
+        if ($agencyId <= 0) {
+            // STANDARDS Rule 17 (AT-253) — a null/unset deal->agency_id must never be
+            // silently cast to the invalid sentinel 0 and inserted into deal_step_instances
+            // (NOT NULL, FK -> agencies). Refuse loudly with the canonical Rule-17
+            // exception — it self-renders a friendly message even though it isn't a
+            // \DomainException (so it won't hit saveStructure()'s existing catch; that's
+            // fine, Laravel's handler calls its render() instead) — never 1452 the DB.
+            throw new \App\Exceptions\MissingAgencyContextException("building the pipeline for deal {$deal->id}");
+        }
         $userId   = Auth::id();
         $defs     = $this->catalog->resolve($selections);
 

@@ -72,6 +72,17 @@ class Dr1PipelineService
             );
         }
 
+        // STANDARDS Rule 17 (AT-253) — a null/unset deal->agency_id must never reach the
+        // deal_step_instances insert below: bound as-is it 1048s (NOT NULL) on a null
+        // deal->agency_id, or (via a caller's naive (int) cast elsewhere) 1452s on the
+        // invalid sentinel 0. Refuse loudly here with the canonical Rule-17 exception —
+        // IS-A RuntimeException so PipelineController::attach()'s existing catch still
+        // works, and it self-renders a friendly message even where uncaught (e.g. the
+        // best-effort auto-attach in DealRegisterController::store()'s catch(Throwable)).
+        if ((int) $deal->agency_id <= 0) {
+            throw new \App\Exceptions\MissingAgencyContextException("attaching a pipeline to deal {$deal->id}");
+        }
+
         $template = DealPipelineTemplate::with('steps.dependencies')->findOrFail($templateId);
         $fromDate = $opts['from_date'] ?? null;
 
