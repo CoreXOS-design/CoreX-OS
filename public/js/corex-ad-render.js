@@ -727,47 +727,89 @@
      * truly colour-identical to the backdrop with zero edge between them —
      * that is a real, inherent limit of colour-based cutout, not a bug to
      * patch around with a blind position rule.
+     *
+     * *Round 5 — a real photo hit a THIRD failure shape: a smooth lighting
+     * gradient.* A well-lit collar's highlight can sit only a MODEST colour
+     * distance from the backdrop (measured on a real photo: median ~18,
+     * up to ~26 — i.e. individually within tolerance, never "identical")
+     * while being 4-connected, pixel by pixel, all the way back to a real
+     * seed through a gradual, unbroken chain. Each step alone passes the
+     * flat tolerance check, so the fill marches out of genuine backdrop and
+     * deep into lit fabric. Measured directly on the failing photo: distance
+     * from the fixed backdrop reference sits at ~0 for ~600 hops of the
+     * fill's actual path (real backdrop, correctly flat), then jumps to
+     * ~23 in a single hop at the exact point the fill crosses from
+     * background into the lit collar edge — and stays elevated (17–25) for
+     * the rest of the path deeper into the fabric. A per-pixel tolerance
+     * check alone cannot see this: it only ever asks "is THIS pixel close
+     * enough to backdrop", never "how far has the fill already drifted to
+     * get here."
+     *
+     * Fix: track `pathMax2` — the HIGHEST single-pixel squared colour
+     * distance seen ANYWHERE along the chain of already-accepted pixels
+     * connecting a given pixel back to its seed (each pixel inherits the max
+     * of its own distance and whichever neighbour first reached it). Once
+     * `pathMax2` exceeds `floodFillDriftCapPx` (squared), stop — do not
+     * remove this pixel, and do not propagate past it either, so everything
+     * beyond it is protected too. Real backdrop keeps `pathMax2` at ~0 for
+     * its entire (often very long) path, since it's genuinely flat —
+     * measured across 5 real photos, the 90th percentile of path-max-distance
+     * across every removed pixel is 0 in EVERY photo tested, so this cap is
+     * invisible to ordinary backdrop removal. It only engages at the exact
+     * point a path's drift first exceeds the cap — which on the failing
+     * photo is right where genuine backdrop ends and the lit collar begins.
+     * `floodFillDriftCapPx` (default 20) sits below where that photo's leak
+     * sits (~22–25) and above where four OTHER real photos' entire removed
+     * area sat (their own 95th-98th percentiles), so it engages ONLY on the
+     * one failure case tested, not as a blanket tightening of every photo's
+     * cutout.
      */
     function _floodFillTransparent(imageData, w, h) {
         var px = imageData.data;
         var bg = _cornerColor(px, w, h);
         var tol2 = 26 * 26; // Euclidean colour-distance tolerance, squared (avoid a sqrt per pixel)
+        var driftCapPx = _bgRemovalConfig.floodFillDriftCapPx;
+        var driftCap2 = driftCapPx * driftCapPx;
         var visited = new Uint8Array(w * h);
-        var stack = [];
+        var stack = []; // (x, y, pathMax2-inherited-from-whichever-neighbour-reached-it-first) triples
         var sideSeedLimit = Math.floor(h * 0.5);
 
-        for (var x = 0; x < w; x++) { stack.push(x, 0); }
-        for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, w - 1, y); }
+        for (var x = 0; x < w; x++) { stack.push(x, 0, 0); }
+        for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, 0, w - 1, y, 0); }
 
         while (stack.length) {
-            var yy = stack.pop(), xx = stack.pop();
+            var inheritedPathMax2 = stack.pop(), yy = stack.pop(), xx = stack.pop();
             if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
             var idx = yy * w + xx;
             if (visited[idx]) continue;
             visited[idx] = 1;
             var o = idx * 4;
             var dr = px[o] - bg[0], dg = px[o + 1] - bg[1], db = px[o + 2] - bg[2];
-            if ((dr * dr + dg * dg + db * db) > tol2) continue; // not backdrop-like — stop here
+            var d2 = dr * dr + dg * dg + db * db;
+            if (d2 > tol2) continue; // not backdrop-like — stop here
+            var pathMax2 = d2 > inheritedPathMax2 ? d2 : inheritedPathMax2;
+            if (pathMax2 > driftCap2) continue; // drifted too far from true backdrop along this path — stop, protect this pixel and everything beyond it
             px[o + 3] = 0;
-            stack.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1);
+            stack.push(xx + 1, yy, pathMax2, xx - 1, yy, pathMax2, xx, yy + 1, pathMax2, xx, yy - 1, pathMax2);
         }
     }
 
     /**
-     * Agency-configurable thresholds for `_fillEnclosedHoles()` — see that
-     * function's docblock for what each one protects against and the
-     * evidence behind its default. Never hardcode a NEW threshold here
-     * without going through `configureBgRemoval()`; these three are read
-     * from `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`
+     * Agency-configurable thresholds for the background-removal pipeline —
+     * see `_floodFillTransparent()`'s and `_fillEnclosedHoles()`'s docblocks
+     * for what each one protects against and the evidence behind its
+     * default. Never hardcode a NEW threshold here without going through
+     * `configureBgRemoval()`; these are read from `agencies.ad_bg_removal_*`
      * (nullable — null means "use this file's default"), passed in once per
      * page by each of the three render surfaces (ad.blade.php,
      * ad-builder.blade.php, tools/ad-manager.blade.php). Spec: ad-manager.md
-     * §15.1 round 4.
+     * §15.1 rounds 4–5.
      */
     var _bgRemovalConfig = {
         holeMinPx: 30,          // below this, treat it as a catch-light/noise — never fill
         holeMaxPx: 1200,        // above this AREA, treat it as clothing/fabric — never fill
         holeMaxDimensionPx: 45, // above this LONGEST bbox side, treat it as clothing/fabric — never fill
+        floodFillDriftCapPx: 20, // round 5 — see _floodFillTransparent()'s docblock
     };
 
     /**
@@ -780,7 +822,7 @@
      */
     function configureBgRemoval(cfg) {
         cfg = cfg || {};
-        ['holeMinPx', 'holeMaxPx', 'holeMaxDimensionPx'].forEach(function (key) {
+        ['holeMinPx', 'holeMaxPx', 'holeMaxDimensionPx', 'floodFillDriftCapPx'].forEach(function (key) {
             if (cfg[key] !== null && cfg[key] !== undefined && !isNaN(cfg[key])) {
                 _bgRemovalConfig[key] = +cfg[key];
             }

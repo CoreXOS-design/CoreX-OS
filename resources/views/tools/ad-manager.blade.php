@@ -24,6 +24,7 @@
         'holeMinPx'          => $agency->ad_bg_removal_hole_min_px ?? null,
         'holeMaxPx'          => $agency->ad_bg_removal_hole_max_px ?? null,
         'holeMaxDimensionPx' => $agency->ad_bg_removal_hole_max_dimension_px ?? null,
+        'floodFillDriftCapPx' => $agency->ad_bg_removal_flood_fill_drift_cap_px ?? null,
     ];
 @endphp
 <script>
