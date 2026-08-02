@@ -2206,6 +2206,25 @@ class Property extends Model
     }
 
     /**
+     * Count of `spaces_json` entries of a given `type` (e.g. 'Parking') — unlike
+     * beds/baths/garages there is no dedicated column, so this is the shared
+     * derivation used by both the Ad Manager (adData()) and the printable
+     * brochure (PropertyBrochureService), which must never drift onto two
+     * different counts for the same listing.
+     */
+    public function spaceCount(string $type): int
+    {
+        $sj   = $this->spaces_json ?? [];
+        $list = $sj['spaces'] ?? (isset($sj[0]) ? $sj : []);
+
+        $sum = collect($list)
+            ->where('type', $type)
+            ->sum(fn ($s) => (float) ($s['count'] ?? 1));
+
+        return (int) round($sum);
+    }
+
+    /**
      * Single source of truth for the data the Ad Manager injects into a
      * template — used by both the generator (ad.blade.php) and the
      * property-linked builder live preview (ad-builder.blade.php).
@@ -2237,6 +2256,7 @@ class Property extends Model
         $beds    = $this->beds;
         $baths   = $this->baths;
         $garages = $this->garages;
+        $parking = $this->spaceCount('Parking');
         $size    = $this->size_m2 ? number_format($this->size_m2) . ' M²' : null;
 
         // Status badge — honest label derived from the listing, never fabricated.
@@ -2289,6 +2309,7 @@ class Property extends Model
             'beds'              => (string) ($beds ?? ''),
             'baths'             => (string) ($baths ?? ''),
             'garages'           => (string) ($garages ?? ''),
+            'parking'           => $parking > 0 ? (string) $parking : '',
             'size_m2'           => $size,
             'reference'         => $this->external_id ?: ('REF ' . $this->id),
             'address'           => $this->address ?: null,

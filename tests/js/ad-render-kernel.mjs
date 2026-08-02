@@ -101,6 +101,41 @@ ok('verticalAlign default', K.textStyle(el({ field: 'title' })).includes('align-
 ok('a hidden element is display:none (so it is absent from the ad AND the PNG)',
     K.frameStyle(el({ field: 'title', hidden: true })).includes('display:none'));
 
+section('Beds/Baths/Garages/Parking — Number + Label display + icon (ad-manager.md §14)');
+
+const bedsProp = { ...prop, beds: '3', baths: '1.5', garages: '1', parking: '0' };
+
+ok('default (no numberFormat) stays a bare number — legacy behaviour',
+    K.textValue(el({ field: 'beds' }), bedsProp, {}) === '3');
+ok('"label" format pluralises for a count > 1', K.textValue(el({ field: 'beds', numberFormat: 'label' }), bedsProp, {}) === '3 Bedrooms');
+ok('"label" format singularises for a count of exactly 1',
+    K.textValue(el({ field: 'garages', numberFormat: 'label' }), bedsProp, {}) === '1 Garage');
+ok('"label" format keeps a real half (baths) and pluralises it',
+    K.textValue(el({ field: 'baths', numberFormat: 'label' }), bedsProp, {}) === '1.5 Bathrooms');
+ok('"Parking" never pluralises/singularises, even at count 1',
+    K.featureWord('parking', 1) === 'Parking' && K.featureWord('parking', 3) === 'Parking');
+ok('a whole-number decimal string ("3.0") drops the trailing zero', K.formatFeatureNumber(3.0) === '3');
+ok('label format on the GENERATOR with an empty value renders nothing (never "undefined Bedrooms")',
+    K.textValue(el({ field: 'beds', numberFormat: 'label' }), { ...bedsProp, beds: '' }, {}) === '');
+ok('label format on the BUILDER with an empty value falls back to the preview, still pluralised',
+    K.textValue(el({ field: 'beds', numberFormat: 'label' }), { ...bedsProp, beds: '' }, { placeholders: true }) === '4 Bedrooms');
+ok('non-numeric garbage never throws — falls back to the raw string',
+    K.textValue(el({ field: 'beds', numberFormat: 'label' }), { ...bedsProp, beds: 'N/A' }, {}) === 'N/A');
+
+const iconEl = el({ field: 'beds', icon: 'bed', numberFormat: 'label' });
+const renderedIconHtml = K.contentHtml(iconEl, bedsProp, {});
+ok('an element with an icon renders its SVG inline before the value',
+    renderedIconHtml.includes('<svg') && renderedIconHtml.indexOf('<svg') < renderedIconHtml.indexOf('3 Bedrooms'), renderedIconHtml);
+ok('an element with icon=null renders no <svg> at all (default/legacy)',
+    !K.contentHtml(el({ field: 'beds' }), bedsProp, {}).includes('<svg'));
+ok('an unknown icon key is ignored rather than emitting a broken tag',
+    !K.contentHtml(el({ field: 'beds', icon: 'not-a-real-icon' }), bedsProp, {}).includes('<svg'));
+ok('ICON_LIST only offers keys that actually exist in ICONS',
+    K.ICON_LIST.every((ic) => !!K.ICONS[ic.key]));
+
+ok('parking is a real builder field with its own default size',
+    K.FIELD_DEFAULTS.parking && K.FIELD_DEFAULTS.parking.w === 80);
+
 section('Templates saved BEFORE any of this still render unchanged');
 
 const legacyShape = { id: 1, field: 'shape', x: 0, y: 0, w: 100, h: 100, zIndex: 1, bg: '#00b4d8', opacity: 1, borderRadius: 50 };

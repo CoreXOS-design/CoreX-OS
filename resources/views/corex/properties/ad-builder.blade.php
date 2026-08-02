@@ -689,6 +689,41 @@
                         </div>
                     </template>
 
+                    {{-- Beds/Baths/Garages/Parking — display format + icon. Spec: ad-manager.md §14. --}}
+                    <template x-if="CoreXAd.NUMERIC_FEATURE_FIELDS.includes(sel.field)">
+                        <div>
+                            <div class="pp-row">
+                                <label>Display as</label>
+                                <select :value="sel.numberFormat || 'number'" @input="mutate('numberFormat', $event.target.value)">
+                                    <option value="number">Number only — e.g. "3"</option>
+                                    <option value="label">Number + label — e.g. "1 Bedroom" / "3 Bedrooms"</option>
+                                </select>
+                            </div>
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Icon</label>
+                                <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:5px;width:100%;">
+                                    <button type="button" @click="mutate('icon', null)" title="No icon"
+                                            :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;font-size:10px;color:var(--chrome-text-soft);background:' + (!sel.icon ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (!sel.icon ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'">
+                                        None
+                                    </button>
+                                    <template x-for="ic in CoreXAd.ICON_LIST" :key="ic.key">
+                                        <button type="button" @click="mutate('icon', ic.key)" :title="ic.label"
+                                                :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;color:' + (sel.color || '#ffffff') + ';background:' + (sel.icon === ic.key ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (sel.icon === ic.key ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'"
+                                                x-html="CoreXAd.ICONS[ic.key]"></button>
+                                    </template>
+                                </div>
+                            </div>
+                            <template x-if="sel.icon">
+                                <div class="pp-row">
+                                    <label>Icon size (px)</label>
+                                    <input type="number" min="8" max="200" :value="sel.iconSize || sel.fontSize || 18" @input="mutate('iconSize', +$event.target.value)">
+                                </div>
+                            </template>
+                            <div class="pp-hint" x-show="sel.icon">Icon colour follows the field's text colour.</div>
+                            <hr class="pp-sep">
+                        </div>
+                    </template>
+
                     {{-- Features — pick which amenities to display --}}
                     <template x-if="sel.field === 'features'">
                         <div>
