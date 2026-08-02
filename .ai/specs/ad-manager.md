@@ -1378,6 +1378,120 @@ measured MORE elongated, e.g. 5.33:1, than the failing large patch's 2.18:1,
 so aspect ratio alone is not a safe discriminator on this data; absolute
 bounding-box dimension is what actually separates every case).
 
+*Round 5 (2026-08-02, same day) — a THIRD, distinct failure shape found on
+the SAME real photo: the main flood fill leaking into a lit collar highlight.*
+Reported as "a pale, hard-edged region at the bottom-left that runs to the
+frame border" — round 4 shipped correctly (its own regression table showed
+zero change on this exact photo) but didn't touch this artefact, because it
+turned out not to be an enclosed-hole issue at all.
+
+**Investigation corrected the initial framing before any code changed.** The
+natural first hypothesis — a border-touching region incorrectly PROTECTED
+from removal (i.e. something `_fillEnclosedHoles`'s border-touch guard was
+over-protecting) — was measured first, exactly as asked, and ruled out: the
+one border-touching survivor found (3052px, bbox 75×123, touching the bottom
+edge) traced back to source and was confirmed correct — genuine, untouched
+fabric, never a candidate for removal at all. The ACTUAL defect is the
+OPPOSITE: real collar fabric being ERASED, by `_floodFillTransparent()`
+(rounds 1/2's original pass), not anything `_fillEnclosedHoles` (rounds 3/4)
+ever touches. Confirmed by colour-coding which pass removes which pixel and
+tracing a probe pixel's ancestry: it belongs to the SAME single connected
+component as the entire 131,319px border-seeded fill.
+
+**Root cause, measured precisely.** A well-lit patch of the (real, present —
+confirmed against the unprocessed source photo, no gap in the garment) white
+collar sits at a colour distance from the sampled backdrop that individual
+pixels never exceed the flat tolerance (measured: min 0, median 17.7, max
+26.0 in the affected area) — this is NOT the "truly colour-identical garment"
+case rounds 1/2 already accept as a hard limit. It's a smooth, unbroken
+4-connected chain from real backdrop into the lit fabric. Traced the actual
+flood-fill path into the leak: distance from backdrop sits at ~0 for roughly
+600 hops (genuine, flat backdrop) then jumps to ~23 in a SINGLE hop at the
+exact point the fill crosses from background into the collar edge, staying
+elevated (17–25) for the rest of the path deeper into the fabric. A per-pixel
+tolerance check cannot see this — it only ever asks "is this ONE pixel close
+enough to backdrop", never "how far has the fill already drifted to get
+here." Confirmed the `objectFit:cover` crop (180×200) is not a contributing
+factor — cover's own geometry keeps the full vertical range visible here (no
+crop) and only trims 25px off each side horizontally, well clear of the
+leak's location. Ran the same measurement against Retha's, Kym's, Johan's and
+Maggie's photos — zero leaks in any of them; this is 1-in-5 tested, not a
+systemic problem, correlating with a specific evenly-lit highlight condition.
+
+**Fix — `floodFillDriftCapPx` (default 20): a path-max drift cap on the main
+flood fill.** Tracks, per pixel, the HIGHEST single-pixel colour distance
+seen anywhere along the chain of already-accepted pixels connecting it back
+to a seed (each pixel inherits the max of its own distance and whichever
+neighbour first reached it). Once that running max exceeds the cap,
+propagation stops — the pixel is neither removed nor does the fill continue
+past it, so everything beyond is protected too. Evidence for the default:
+measured path-max-distance across every removed pixel in all 5 test photos —
+**the 90th percentile is 0 in EVERY photo** (real backdrop is genuinely flat,
+so this signal is silent almost everywhere) — while the failing photo's leak
+sits at 22–25 the moment it crosses from backdrop into fabric. 20 sits below
+where the leak starts climbing and above where four clean photos' own
+highest percentiles sat, so it engages ONLY on the measured failure case, not
+as a blanket tightening of every photo's cutout.
+
+**Three explored alternatives, and why this one shipped:**
+- **A narrow relaxation of the border-touch rule** (the ask's own first
+  hypothesis) — moot once investigation corrected the framing: there was
+  never a survivor to relax protection for; the pixels in question were
+  never protected in the first place, they were being wrongly erased.
+- **Fix at source (re-crop/re-shoot the agent photo)** — doesn't touch the
+  algorithm, zero regression risk to any other photo, but is a process
+  fix, not retroactive: already-uploaded photos with this lighting stay
+  broken, and CoreX can't enforce photography practice. Recorded as ongoing
+  guidance, not a substitute for a code fix.
+- **A soft fade at the cut-out's bottom edge** — would only soften the edge
+  of whatever got removed; the real collar detail is still lost. Rejected
+  as symptom-masking, not a fix (BUILD_STANDARD.md: "fix root causes, not
+  symptoms... no quick patches").
+
+**Regression-tested against all 5 real photos, composited on a contrasting
+background and visually confirmed, plus an exact pixel-diff (not just
+eyeballing) between the pre- and post-fix output:**
+- Elize's photo (the failing case): the 3052px-class leak is gone, collar
+  fully intact, matching the untouched side of the same photo. Both earrings
+  still correctly filled (round 3, unaffected).
+- Elize's OLD orphaned photo (round 4's test case): unaffected — the
+  602px/2059px collar-patch rejections are byte-for-byte identical before
+  and after this change, confirming no interaction between round 4's
+  enclosed-hole guard and round 5's flood-fill guard.
+- Retha, Kym, Johan, Maggie: pixel-diffed before vs. after — 0.3–0.8% of
+  removed pixels changed in each, exclusively as thin (≤14px-wide) fringe
+  clusters along hair/subject edges, not blob-shaped erasures. Visually
+  inspected the single largest cluster (Retha, 495px, a hair edge) — the
+  diff is a few strands of fine hair now correctly PRESERVED instead of
+  swept away with the backdrop, a marginal improvement, not a regression.
+
+**Agency-configurable, not hardcoded.** `agencies
+.ad_bg_removal_flood_fill_drift_cap_px` (nullable — null = kernel default,
+20), same mechanism and same non-negotiable #10a Setup Wizard carve-out as
+the round-4 thresholds it sits alongside.
+
+**Acceptance criteria (round 5)**
+- [x] A smooth-gradient path that individually stays within the flat colour
+      tolerance the whole way is stopped once its cumulative path-max
+      distance exceeds `floodFillDriftCapPx` — the collar-leak regression.
+- [x] Genuine flat backdrop (path-max ~0 throughout) is completely
+      unaffected — clears exactly as before.
+- [x] Raising `floodFillDriftCapPx` above the flat tolerance (26) recovers
+      the pre-round-5 behaviour exactly, proving the cap — not something
+      else — is what protects the gradient case.
+- [x] `configureBgRemoval()` actually changes `floodFillDriftCapPx` when an
+      agency sets it; defaults to 20 when unset.
+- [x] Round 1/2's "a garment with a real colour difference survives touching
+      the bottom edge" is not regressed by the new cap.
+- [x] Round 4's enclosed-hole guard (602px/2059px collar-patch rejection) is
+      byte-for-byte unchanged with the new cap active.
+- [x] Verified against 5 real photos (not just synthetic frames): the one
+      failing case is fixed; the other four show only thin, non-blob edge
+      fringing (0.3–0.8% of removed pixels), visually confirmed harmless.
+- [x] `tests/js/ad-render-kernel.mjs` covers the mechanism directly with a
+      synthetic gradient-corridor frame: default cap stops before the
+      "plateau", raised cap sweeps it, real flat backdrop unaffected.
+
 **Acceptance criteria (round 4)**
 - [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
 - [x] A modest-area but elongated hole (longest bbox side > `holeMaxDimensionPx`)
@@ -1834,10 +1948,16 @@ template builder" this was asked for.
   `_bgRemovalConfig` (`holeMinPx`/`holeMaxPx`/`holeMaxDimensionPx`, agency-
   configurable defaults) and `configureBgRemoval(cfg)` (exported on `CoreXAd`),
   and extends `_fillEnclosedHoles()` to track each component's bounding box and
-  gate on the area + dimension caps alongside the existing floor.
+  gate on the area + dimension caps alongside the existing floor; round 5 adds
+  `floodFillDriftCapPx` to `_bgRemovalConfig`/`configureBgRemoval()` and
+  rewrites `_floodFillTransparent()`'s stack entries to carry an inherited
+  path-max-distance value alongside each pixel's coordinates, gating
+  propagation on it in addition to the existing flat tolerance check.
 - `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
   additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
-- `app/Models/Agency.php` — the three columns added to `$fillable`/`$casts`.
+- `database/migrations/2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies.php` —
+  additive, nullable `agencies.ad_bg_removal_flood_fill_drift_cap_px` (round 5).
+- `app/Models/Agency.php` — all four columns added to `$fillable`/`$casts`.
 - `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
   current agency and passes it to the view.
 - `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
@@ -1855,7 +1975,9 @@ template builder" this was asked for.
 - `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
   onload-hook emission/omission, enclosed-holes fill/no-fill/border-touching cases,
   edge feathering, round 4's large-hole/elongated-hole rejection and
-  `configureBgRemoval()` override coverage.
+  `configureBgRemoval()` override coverage, round 5's synthetic gradient-corridor
+  frame (default cap stops before the plateau, raised cap sweeps it, real flat
+  backdrop unaffected, round 1/2's regression re-asserted unaffected).
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil

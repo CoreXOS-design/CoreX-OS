@@ -24,6 +24,7 @@
             'holeMinPx'          => $_brandAgency->ad_bg_removal_hole_min_px ?? null,
             'holeMaxPx'          => $_brandAgency->ad_bg_removal_hole_max_px ?? null,
             'holeMaxDimensionPx' => $_brandAgency->ad_bg_removal_hole_max_dimension_px ?? null,
+            'floodFillDriftCapPx' => $_brandAgency->ad_bg_removal_flood_fill_drift_cap_px ?? null,
         ];
     @endphp
     <style id="agency-brand">

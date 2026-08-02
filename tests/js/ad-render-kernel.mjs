@@ -441,6 +441,86 @@ ok('configureBgRemoval() raising holeMaxDimensionPx actually changes the outcome
     alphaAt(elongatedFrameRaised, BW, 23, 40) === 0);
 K.configureBgRemoval({ holeMinPx: 30, holeMaxPx: 1200, holeMaxDimensionPx: 45 }); // restore defaults for later tests
 
+// REGRESSION #5 (property 2934, SAME photo/agent as round 4 — a THIRD,
+// distinct failure shape found on the SAME real photo): a well-lit collar
+// highlight sits at a MODEST colour distance from the backdrop — measured on
+// the real photo, individual pixels ran up to ~26 (i.e. within the flat
+// per-pixel tolerance, never "identical") — while being 4-connected, pixel by
+// pixel, all the way back to a real seed through a gradual, unbroken chain.
+// Each step alone passes the flat tolerance check, so the ORIGINAL flood
+// fill (rounds 1/2) marches straight out of genuine backdrop and deep into
+// lit fabric. `floodFillDriftCapPx` tracks the HIGHEST single-pixel colour
+// distance seen anywhere along a pixel's path back to its seed and stops
+// propagation once that exceeds the cap — even though every individual step
+// stays under the flat tolerance.
+section('_floodFillTransparent() drift cap — round 5 (a smooth lighting gradient must not leak deep into fabric)');
+
+// A vertical corridor whose colour distance from white climbs linearly from
+// 0 (touching the seeded background) to 24 over 20 rows, then PLATEAUS at 24
+// for the rest — simulating the real photo's gradient-into-highlight, then
+// "deep in the fabric, but individually still within the flat tolerance".
+// Outside the corridor is solid black (nowhere near tolerance) so the fill
+// can ONLY travel down this one path — isolates the test to just the new
+// path-max mechanism.
+function makeGradientCorridorFrame(w, h, corridorX0, corridorW) {
+    const frame = { data: new Uint8ClampedArray(w * h * 4) };
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4;
+            const inCorridor = x >= corridorX0 && x < corridorX0 + corridorW;
+            // Open white backdrop across the full width for the first 10 rows
+            // (so corner-sampling at (0,0)/(w-1,0) correctly reads white, and
+            // the fill has real open backdrop to seed from) — below that,
+            // only the corridor continues; everything else is a solid black
+            // wall, never within tolerance, so the fill can ONLY travel down
+            // the one corridor path once past row 10.
+            if (y < 10 || inCorridor) {
+                let delta = 0;
+                if (inCorridor && y >= 10) delta = y < 30 ? Math.round((y - 10) / 19 * 24) : 24;
+                // Vary ONLY the red channel so the actual Euclidean colour
+                // distance equals `delta` exactly (varying all 3 channels
+                // would scale the real distance by sqrt(3)).
+                frame.data[i] = 255 - delta; frame.data[i + 1] = 255; frame.data[i + 2] = 255; frame.data[i + 3] = 255;
+            } else {
+                frame.data[i] = 0; frame.data[i + 1] = 0; frame.data[i + 2] = 0; frame.data[i + 3] = 255;
+            }
+        }
+    }
+    return frame;
+}
+
+const GW = 40, GH = 50;
+const CORRIDOR_X = 15, CORRIDOR_W = 10;
+
+// With the default cap (20): propagation must stop partway up the gradient,
+// well before reaching the y>=30 plateau (distance 24 there).
+const gradientDefault = makeGradientCorridorFrame(GW, GH, CORRIDOR_X, CORRIDOR_W);
+K.floodFillTransparent(gradientDefault, GW, GH);
+ok('genuine flat backdrop (top strip, distance 0) is removed as always',
+    alphaAt(gradientDefault, GW, CORRIDOR_X + 2, 2) === 0);
+ok('default drift cap (20) stops propagation before the gradient reaches the deep plateau (distance 24) — the collar-leak regression',
+    alphaAt(gradientDefault, GW, CORRIDOR_X + 2, 45) === 255);
+
+// Raising the cap well above 26 (the flat per-pixel tolerance itself) removes
+// the new protection entirely — recovers the OLD (pre-round-5) behaviour,
+// proving the cap — not some other change — is what's responsible.
+K.configureBgRemoval({ floodFillDriftCapPx: 100 });
+const gradientRaised = makeGradientCorridorFrame(GW, GH, CORRIDOR_X, CORRIDOR_W);
+K.floodFillTransparent(gradientRaised, GW, GH);
+ok('raising floodFillDriftCapPx above the flat tolerance recovers the old behaviour — the plateau IS swept, proving the cap (not something else) is what protects it above',
+    alphaAt(gradientRaised, GW, CORRIDOR_X + 2, 45) === 0);
+K.configureBgRemoval({ floodFillDriftCapPx: 20 }); // restore default for later tests
+
+// The original "ate a light shirt" regression tests (rounds 1/2) must still
+// pass unchanged — the drift cap must not be so aggressive that it reproduces
+// that bug via a different mechanism. (Re-run here, after touching
+// configureBgRemoval, to prove no cross-test pollution.)
+const distinctRecheck = makeFrame(W, H2, white, head, null);
+paintRect(distinctRecheck, W, { x: 5, y: 34, w: 30, h: 6 }, garmentColor);
+K.floodFillTransparent(distinctRecheck, W, H2);
+ok('round 1/2\'s "a garment with a real colour difference survives touching the bottom edge" is NOT regressed by the round-5 drift cap',
+    alphaAt(distinctRecheck, W, 10, 37) === 255 && alphaAt(distinctRecheck, W, 20, 38) === 255);
+
 // _featherAlpha(): a hard 0/255 edge should soften to an intermediate value
 // right at the boundary, without changing fully-interior or fully-exterior
 // pixels.

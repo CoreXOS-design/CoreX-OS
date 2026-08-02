@@ -185,6 +185,8 @@ class Agency extends Model
         'ad_bg_removal_hole_min_px',
         'ad_bg_removal_hole_max_px',
         'ad_bg_removal_hole_max_dimension_px',
+        // round 5 — flood-fill drift cap, same carve-out.
+        'ad_bg_removal_flood_fill_drift_cap_px',
         'assistant_fica_required_default',
         'show_prospected_badge',
         'properties_sort_mode',
@@ -349,6 +351,7 @@ class Agency extends Model
         'ad_bg_removal_hole_min_px' => 'integer', // ad-manager.md §15.1 round 4
         'ad_bg_removal_hole_max_px' => 'integer',
         'ad_bg_removal_hole_max_dimension_px' => 'integer',
+        'ad_bg_removal_flood_fill_drift_cap_px' => 'integer', // round 5
 
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',
