@@ -655,6 +655,20 @@ original, which is what would happen if `groupId` were copied verbatim onto the
 clone. A small link icon in the Layers panel marks a grouped row (discoverability
 — nothing else in the panel would otherwise reveal that a row belongs to a group).
 
+**Top-bar "Group…" picker (an alternative to shift-click-first).** A dedicated
+`Group…` button in the top toolbar (`toggleGroupPick()`) enters an explicit
+picking mode instead of requiring the elements to already be selected: click any
+element (canvas OR Layers panel — both route through the same toggle) to add or
+remove it from the pending set, marquee-drag to add several at once (the marquee
+is force-additive while picking, never a replace), then **Confirm** (shown in the
+header, green accent) to group, or **Cancel**/`Esc` to back out with nothing
+changed. Reuses `selIds` as the pending set — no parallel data structure — so
+every touched element gets the SAME per-element `.selected` outline it always
+gets; a lock doesn't block a pick (grouping never moves anything). While picking,
+the floating per-element toolbar and resize handles are suspended
+(`!groupPickMode` added to their `x-if`) so a stray click can't drag, resize or
+delete something mid-pick — picking is a protected, single-purpose mode.
+
 **`groupId` is builder-only**, the same treatment `locked` already gets (§12.3):
 the kernel's `makeElement()` seeds it as `null` so the schema stays symmetric
 across all three ad surfaces, but neither `frameStyle()` nor `contentHtml()` ever
@@ -679,6 +693,9 @@ flattens to one level).
 - [x] A template saved before this change opens with every element ungrouped.
 - [x] Grouping has zero effect on the rendered ad — same PNG/HTML on the
       generator and bulk Ad Manager whether an element is grouped or not.
+- [x] The top-bar Group… button enters a picking mode; clicking/marqueeing toggles
+      membership without dragging, resizing or deleting anything; Confirm requires
+      2+ picked; Cancel/Esc discards the pick with zero mutation.
 
 ---
 
@@ -886,4 +903,6 @@ garages" holds even before a real listing is attached.
 - `resources/views/corex/properties/ad-builder.blade.php` — `groupMembers()`,
   `expandToGroups()`, `selIsGroup`, `groupSelected()`, `ungroupSelected()`, `_remapGroups()`;
   group-aware `elMouseDown()`/marquee/`selectFromLayers()`; toolbar Group/Ungroup button;
-  `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator.
+  `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator; top-bar
+  `Group…` picker (`groupPickMode`, `toggleGroupPick()`/`cancelGroupPick()`/
+  `confirmGroupPick()`) + header Confirm/Cancel bar.
