@@ -233,6 +233,30 @@ ok('the shape picker applies to Agent 2 as well as Agent 1',
 ok('isAgentAvatarField() does not falsely match an unrelated image field',
     !K.isAgentAvatarField('image_1') && !K.isAgentAvatarField('agency_logo'));
 
+// REGRESSION #6 (property 2934, Template 1 — same agent/photo already fixed
+// by round 5, a DIFFERENT artefact this time): a hard vertical seam down the
+// agent photo, reading as a crop boundary. Root cause was NOT the removal
+// algorithm — it was a compositing gap: Template 1's Agent Image element sat
+// partly outside its own white card background (over a dark decorative
+// shape instead), and frameStyle() never painted any fill of its own behind
+// Agent Image elements — so a transparent (correctly-removed) pixel simply
+// revealed whatever shape happened to be underneath, different on each side
+// of the card's edge. `cutoutMatteColor` lets the designer paint an explicit
+// fill behind the cutout instead of relying on exact alignment with
+// whatever's behind it in the template.
+section('Agent Image — cutoutMatteColor (§15.1 round 6, a compositing gap, not a removal defect)');
+
+ok('unset cutoutMatteColor (every existing template) paints NO background at all — completely unchanged behaviour',
+    !K.frameStyle(el({ field: 'agent_avatar', removeBackground: true })).includes('background-color'));
+ok('cutoutMatteColor without removeBackground is a no-op — a normal (non-cutout) photo has no transparent pixels to matte',
+    !K.frameStyle(el({ field: 'agent_avatar', removeBackground: false, cutoutMatteColor: '#ffffff' })).includes('background-color'));
+ok('removeBackground WITH cutoutMatteColor paints exactly that colour behind the frame',
+    K.frameStyle(el({ field: 'agent_avatar', removeBackground: true, cutoutMatteColor: '#ffffff' })).includes('background-color:#ffffff;'));
+ok('applies to Agent 2 as well as Agent 1',
+    K.frameStyle(el({ field: 'agent_2_avatar', removeBackground: true, cutoutMatteColor: '#07111e' })).includes('background-color:#07111e;'));
+ok('an unrelated image field ignores cutoutMatteColor even if somehow set (scoped to Agent Image only, matches removeBackground\'s own scoping)',
+    !K.frameStyle(el({ field: 'image_1', removeBackground: true, cutoutMatteColor: '#ffffff' })).includes('background-color'));
+
 section('Remove Background — flood-fill cutout (pure pixel logic, no real Canvas needed)');
 
 // A synthetic W×H RGBA buffer: a solid backdrop colour everywhere, with an

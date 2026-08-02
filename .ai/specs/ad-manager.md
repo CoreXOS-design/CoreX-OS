@@ -1492,6 +1492,127 @@ the round-4 thresholds it sits alongside.
       synthetic gradient-corridor frame: default cap stops before the
       "plateau", raised cap sweeps it, real flat backdrop unaffected.
 
+*Round 6 (2026-08-02, same day) — the remaining artefact was a compositing
+gap, not the removal algorithm at all.* Round 5 fixed the collar erasure,
+confirmed on a fresh pull. What remained on the SAME photo: a hard, straight
+vertical edge down the left side of the jacket ("reads as a crop boundary,
+not a photo edge"), and a pale wedge near the shoulder with a hard edge.
+Investigated before touching any code, per the same discipline as every
+prior round — and this time the cause was NOT the algorithm at all.
+
+**Root cause, proven with the real template's own saved data.** Template 1's
+`agent_avatar` element sits at `x:0, y:880, w:180, h:200` — its own template
+also has a white "card" background shape at `x:43, w:990` (spans canvas
+x 43–1033) sitting on top of a full-bleed dark shape at `x:-20, w:1130`
+(spans the whole canvas, `zIndex:2`, BELOW the card's `zIndex:3`). The Agent
+Image element (`zIndex:20`) draws on top of both. `frameStyle()`
+(`public/js/corex-ad-render.js:311-347`, read directly, not assumed) has
+never painted any background of its own for Agent Image elements — only
+`shapeCss()` (line 349) applies `el.bg`, for decorative shapes. So a
+transparent (correctly-removed) cutout pixel simply reveals whatever's
+underneath in the real DOM stack: for canvas x 0–43 (43px of the 180px-wide
+box, since the box starts at x=0, 43px LEFT of the card's own boundary)
+that's the dark shape; for x 43–180 that's the white card. Confirmed by
+simulation, not just reasoning: composited the SAME round-5-fixed cutout,
+cropped with the EXACT `objectFit:cover` math (`prepareImagesForCapture()`),
+onto (a) the template's real split background — reproduces the reported hard
+vertical stripe pixel-for-pixel — and (b) a uniform white background —
+completely clean, no edge, no wedge, both artefacts gone at once. This also
+rules out the `objectFit:cover` crop itself as a contributing cause: cover's
+own geometry (natural 500×500 post-strip, box 180×200) keeps the FULL
+vertical range visible (no vertical crop at all) and only trims 25px off
+each side horizontally — nowhere near where the seam actually sits (which is
+a compositing/z-stack effect, not a slice through the subject). This is
+systemic geometry (this exact template's element positioning vs. its own
+card), not photo-specific — it would reproduce identically for any agent's
+photo run through this same template, since it depends only on the
+template's own layout, never on the photo's pixels.
+
+**Three options considered, one chosen:**
+- **A narrow relaxation of the border-touch rule** (a natural first guess,
+  matching how round 4 was framed) — doesn't apply: there is no removal-
+  algorithm boundary involved anywhere in this defect.
+- **Reposition the element** so it sits entirely within the card (e.g.
+  `x:45`) — would fix Template 1 alone, permanently forecloses the
+  legitimate design pattern of an agent photo deliberately bleeding off a
+  card's edge for future templates, and fixes nothing for the NEXT template
+  a designer builds with the same positioning choice.
+- **`cutoutMatteColor` — an explicit fill painted behind the cutout,
+  bounded to the element's own box** (shipped). Doesn't constrain future
+  template design at all; a designer who wants exactly this bleed-off-the-
+  card look keeps it, and just tells the cutout what colour to show instead
+  of leaving it to accident.
+
+**Fix — `el.cutoutMatteColor`, a PER-ELEMENT property (not a numeric
+threshold, and not agency-wide).** `frameStyle()` now paints
+`background-color: <cutoutMatteColor>` on an Agent Image frame when BOTH
+`removeBackground` and `cutoutMatteColor` are set — scoped tightly: a normal
+(non-cutout) Agent Image has no transparent pixels to matte, so the property
+is inert there; an element with `removeBackground` but no `cutoutMatteColor`
+(every existing template, by definition, since the property is brand new)
+renders IDENTICALLY to before — zero visual change unless a designer
+explicitly opts in. This is deliberately NOT an agency-wide numeric
+threshold like rounds 3–5's: it's a design choice (which colour goes behind
+THIS element in THIS template) exactly the same shape as `bg`/`color`/
+`shapeType`, which are ALL already per-element, set in the Ad Builder, not
+agency settings — an agency-wide "matte colour" would be meaningless anyway,
+since the correct value depends entirely on what a SPECIFIC template's OTHER
+elements look like at that exact position.
+
+**Ad Builder UI** — a checkbox + colour picker ("Fill removed background
+with a colour") inside the existing Agent Image panel, visible only when
+"Remove background" is on, with a hint explaining WHY ("match whatever this
+element overlaps behind it").
+
+**Data correction — one-time, exhaustive, not agent/photo-specific.**
+Queried the live system directly (not assumed): Template 1 is the ONLY
+template, in the entire system, with `removeBackground` enabled on any
+element — so correcting it is the COMPLETE fix for every current usage, not
+a special case picked for one property. A migration
+(`2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php`)
+finds every `agent_avatar`/`agent_2_avatar` element with `removeBackground`
+and no `cutoutMatteColor`, and derives the correct colour from the
+template's OWN data — the `bg` of whichever overlapping sibling `shape` has
+the HIGHEST z-index below the avatar's own (i.e. whichever shape the browser
+actually paints on top, matching real DOM order) — never a hardcoded guess.
+**Important correction made DURING testing, not after:** the first version
+picked the LARGEST overlapping shape by AREA, not z-index — tested against a
+replica of the real case and it picked the WRONG shape (the full-bleed dark
+background, which geometrically covers the entire box by construction,
+outscoring the smaller-but-actually-on-top white card). Fixed to select by
+z-index; re-tested against the same replica and it now correctly resolves to
+the card's own `#ffffff`. Idempotent (re-running never touches an
+already-set `cutoutMatteColor`) and safe on every edge case tested: no
+overlapping shape at all (stays unset, no crash), `removeBackground` false
+(never touched), already-configured (never overwritten), two consecutive
+runs (identical result both times).
+
+**Held for approval, not run against live** — prepared and fully tested
+against a locally-constructed replica in QA2 (QA2's own database has no ad
+templates at all, so the real Template 1 row was read directly from live
+for investigation, per explicit instruction, but never written to).
+
+**Acceptance criteria (round 6)**
+- [x] Compositing the real cutout onto the template's actual split
+      background reproduces both reported artefacts exactly.
+- [x] Compositing the SAME cutout onto a uniform matching colour eliminates
+      both artefacts at once — proves a single mechanism explains both, and
+      that the removal algorithm's own output was never the problem.
+- [x] The `objectFit:cover` crop is confirmed NOT a contributing factor —
+      full vertical range visible, horizontal trim nowhere near the seam.
+- [x] `cutoutMatteColor` unset (every existing template) paints nothing —
+      zero visual change.
+- [x] `cutoutMatteColor` without `removeBackground` is a no-op.
+- [x] `cutoutMatteColor` WITH `removeBackground` paints exactly that colour,
+      scoped to Agent Image fields only, both Agent 1 and Agent 2.
+- [x] The data-correction migration derives the correct colour from the
+      template's own z-order, is idempotent, and is verified safe against
+      every edge case (no overlap, flag off, already-set, re-run).
+- [x] Confirmed via live query: Template 1 is the only template with
+      `removeBackground` enabled anywhere in the system — the migration is
+      the complete fix, not a special case.
+- [x] `tests/js/ad-render-kernel.mjs` covers `cutoutMatteColor` directly.
+
 **Acceptance criteria (round 4)**
 - [x] A large enclosed hole (area > `holeMaxPx`) is NOT filled.
 - [x] A modest-area but elongated hole (longest bbox side > `holeMaxDimensionPx`)
@@ -1952,20 +2073,34 @@ template builder" this was asked for.
   `floodFillDriftCapPx` to `_bgRemovalConfig`/`configureBgRemoval()` and
   rewrites `_floodFillTransparent()`'s stack entries to carry an inherited
   path-max-distance value alongside each pixel's coordinates, gating
-  propagation on it in addition to the existing flat tolerance check.
+  propagation on it in addition to the existing flat tolerance check; round 6
+  adds `el.cutoutMatteColor` handling to `frameStyle()` — paints
+  `background-color` behind an Agent Image frame only when BOTH
+  `removeBackground` and `cutoutMatteColor` are set (a per-element property,
+  not agency-config — see round 6's write-up for why).
 - `database/migrations/2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies.php` —
   additive, nullable `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`.
 - `database/migrations/2026_08_20_000007_add_ad_bg_removal_drift_cap_to_agencies.php` —
   additive, nullable `agencies.ad_bg_removal_flood_fill_drift_cap_px` (round 5).
-- `app/Models/Agency.php` — all four columns added to `$fillable`/`$casts`.
+- `database/migrations/2026_08_20_000008_backfill_cutout_matte_color_for_removebg_avatars.php` —
+  one-time data correction (round 6): derives and sets `cutoutMatteColor` on
+  every existing `removeBackground` Agent Image element from its own
+  template's z-order — at time of writing, exhaustively Template 1 only
+  (confirmed via live query — no other template has `removeBackground`
+  anywhere). NOT run against live yet — held for approval.
+- `app/Models/Agency.php` — the three round 4/5 threshold columns added to
+  `$fillable`/`$casts` (round 6 introduces no new agency column).
 - `app/Http/Controllers/Tools/AdManagerController.php` — `index()` resolves the
   current agency and passes it to the view.
 - `app/Support/helpers.php` — new `asset_v()` global helper (filemtime-based
   cache-busting query string, no manual version number to remember to bump).
+- `resources/views/corex/properties/ad-builder.blade.php` — "Remove background"
+  checkbox in the Agent Image panel, plus round 6's new "Fill removed
+  background with a colour" checkbox + colour picker, visible only when
+  "Remove background" is on.
 - `resources/views/corex/properties/ad-builder.blade.php`,
   `resources/views/corex/properties/ad.blade.php`,
-  `resources/views/tools/ad-manager.blade.php` — "Remove background" checkbox
-  in the Agent Image panel (Ad Builder only); all three now call
+  `resources/views/tools/ad-manager.blade.php` — all three call
   `window.CoreXAd.configureBgRemoval({...})` immediately after the kernel
   script tag loads, with the current agency's (nullable) threshold values; all
   three load the kernel via `asset_v('js/corex-ad-render.js')` instead of a
@@ -1977,7 +2112,9 @@ template builder" this was asked for.
   edge feathering, round 4's large-hole/elongated-hole rejection and
   `configureBgRemoval()` override coverage, round 5's synthetic gradient-corridor
   frame (default cap stops before the plateau, raised cap sweeps it, real flat
-  backdrop unaffected, round 1/2's regression re-asserted unaffected).
+  backdrop unaffected, round 1/2's regression re-asserted unaffected), round 6's
+  `cutoutMatteColor` scoping (unset/no-removeBackground/unrelated-field all
+  no-ops, set+removeBackground paints exactly that colour, Agent 1 + 2).
 
 ### Generator fixes + picker previews (§16)
 - `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil

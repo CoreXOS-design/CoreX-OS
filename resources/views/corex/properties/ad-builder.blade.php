@@ -791,6 +791,31 @@
                                 </label>
                             </div>
                             <div class="pp-hint" x-show="sel.removeBackground">Cuts out a plain/solid-colour backdrop (e.g. a white studio background) so only the person remains. Works best on a simple, evenly-lit background — processed once per photo, in the browser.</div>
+
+                            {{-- §15.1 round 6 — what shows through the removed background.
+                                 Unset by default (transparent, unchanged behaviour) — the
+                                 designer only needs this if another shape in the template
+                                 sits behind part of this element, so a removed pixel would
+                                 otherwise reveal the WRONG colour on that side. --}}
+                            <template x-if="sel.removeBackground">
+                                <div>
+                                    <div class="pp-row">
+                                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;">
+                                            <input type="checkbox" :checked="!!sel.cutoutMatteColor"
+                                                   @change="mutate('cutoutMatteColor', $event.target.checked ? (sel.cutoutMatteColor || '#ffffff') : null)"
+                                                   style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
+                                            <span style="font-weight:600;color:var(--chrome-text);">Fill removed background with a colour</span>
+                                        </label>
+                                    </div>
+                                    <template x-if="sel.cutoutMatteColor">
+                                        <div class="pp-row">
+                                            <label>Colour</label>
+                                            <input type="color" :value="sel.cutoutMatteColor" @input="mutate('cutoutMatteColor', $event.target.value)">
+                                        </div>
+                                    </template>
+                                    <div class="pp-hint">Match whatever this element overlaps behind it (a card, a panel). If this element sits partly off that background, the removed area shows the WRONG colour there instead of blending in — set this to fix it.</div>
+                                </div>
+                            </template>
                         </div>
                     </template>
 

@@ -326,6 +326,35 @@
             s += 'border-radius:' + radius + 'px;';
         }
 
+        /**
+         * §15.1 round 6 — a real template exposed a compositing gap, not an
+         * algorithm bug: "Remove background" correctly makes the studio
+         * backdrop transparent, but the FRAME behind an Agent Image has never
+         * painted any fill of its own (unlike shapeCss(), which always applies
+         * el.bg) — so a transparent cutout pixel reveals whatever DECORATIVE
+         * SHAPE happens to sit behind it in the z-stack. A real template
+         * positioned its Agent Image element partially outside its own white
+         * card background (over a dark shape instead) — every transparent
+         * pixel on that side showed dark, creating a hard vertical seam
+         * exactly at the card's edge that read as a crop/mask boundary, not a
+         * removal defect. Confirmed empirically: compositing the SAME
+         * processed cutout onto a uniform matching colour shows no edge at
+         * all, whatever the template's own decorative shapes are doing
+         * underneath.
+         *
+         * `el.cutoutMatteColor` (unset by default — every existing template's
+         * appearance is completely unchanged) lets the designer paint an
+         * explicit, KNOWN fill behind the cutout — bounded to the frame's own
+         * box by the existing `overflow:hidden` above, so it can never bleed
+         * outside the element like the decorative shapes it replaces
+         * reliance on. Scoped to removeBackground — a normal (non-cutout)
+         * Agent Image already shows its full rectangular photo with no
+         * transparent pixels, so a matte fill would never be visible there.
+         */
+        if (isAgentAvatarField(el.field) && el.removeBackground && el.cutoutMatteColor) {
+            s += 'background-color:' + el.cutoutMatteColor + ';';
+        }
+
         if (el.hidden && !opts.showHidden) s += 'display:none;';
         if (el.rotation) s += 'transform:rotate(' + el.rotation + 'deg);';
         if (el.frameBorderWidth) {
