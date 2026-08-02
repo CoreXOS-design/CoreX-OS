@@ -837,6 +837,74 @@ garages" holds even before a real listing is attached.
 
 ---
 
+## 15. Agent Image — renamed from "Avatar", plus a shape picker
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** The catalogue label read **"Agent 1 · Avatar"** / **"Agent 2 ·
+Avatar"** — renamed to **"Agent Image"** to match the rest of CoreX's copy
+(`profilePhotoUrl()`, the My Portal profile page, etc. all say "photo"/"image",
+never "avatar"). This is a **display-label change only** — the underlying field
+keys (`agent_avatar`, `agent_2_avatar`) are unchanged, so nothing about a saved
+template's data shape moved. A pre-existing element's OWN saved `label` (which
+may have been hand-edited, or is simply the old catalogue text baked in at
+creation time) is untouched — only the catalogue text a fresh drag reads from
+changes; per-element labels have always been editor-set copy, never a live
+lookup.
+
+**Shape picker.** The Agent Image previously offered only a plain numeric
+"Border Radius (px)" field — in practice used to fake a circle by setting it
+larger than half the box. It now gets the **same shape picker as the
+decorative Shape element** (§13): a 10-shape visual grid (Rectangle, Rounded,
+Circle, Pill, Triangle, Diamond, Pentagon, Hexagon, Star, Chevron), reusing
+`CoreXAd.SHAPES` and `CoreXAd.shapeCss()` for the swatch previews verbatim — no
+new picker UI to design or maintain, and no separate "matching" rule (an agent
+can put their photo in a star cutout if they want).
+
+**Mechanism (`el.shapeType`, same property name the Shape element already
+uses).** `frameStyle()` gains `avatarShapeCss(shapeType, borderRadius)`:
+- A clip-path shape (Triangle…Chevron) sets `clip-path` from the SAME
+  `SHAPE_CLIPS` map the decorative Shape element uses, and zeroes
+  `border-radius` (the two would fight otherwise).
+- `circle` → `border-radius:50%` (a true ellipse on a non-square box, the
+  conventional profile-photo crop — NOT the old oversized-px hack).
+- `pill` → `border-radius:9999px` (stays a stadium shape even on a wide box,
+  distinct from `circle`).
+- `rounded` → `el.borderRadius`px, a REAL adjustable corner radius (previously
+  the only option was the oversized-hack number, which only ever looked like a
+  circle no matter what value was entered).
+- `rectangle` → `border-radius:0`.
+The frame — not the `<img>` — carries the clip/radius (`overflow:hidden` on the
+frame does the actual visual clipping, same pattern the Shape element already
+uses for its own children); `imgTag()` needed zero changes.
+
+**Backward compatible by construction.** An element with no `shapeType` at all
+— every Agent Image saved before this change — skips `avatarShapeCss()`
+entirely and falls through to the EXISTING `el.borderRadius || 0` handling, so
+a legacy avatar (saved with the old `borderRadius:50` default) renders
+byte-identical to before. A brand-new element defaults to `shapeType: 'circle'`
+(seeded in `FIELD_DEFAULTS`), preserving today's circular default look — this
+is a pure superset, not a behaviour change for anyone who does nothing.
+
+**Deliberately not built (dropped mid-conversation on request):** a
+"backgroundless" option — either a transparent fill behind the shape mask, or
+suppressing the placeholder box shown when no photo is uploaded. Neither is
+built; the existing tinted-box placeholder behaviour (`emptyPhotoHtml()`) is
+unchanged.
+
+**Acceptance criteria**
+- [x] Catalogue reads "Agent 1 · Image" / "Agent 2 · Image", not "Avatar".
+- [x] A legacy Agent Image (no `shapeType`) renders exactly as it did before —
+      same circular crop, same `borderRadius` value.
+- [x] A brand-new Agent Image defaults to a circle (no visual regression for
+      an agent who never touches the new picker).
+- [x] Every one of the 10 shapes, including clip-path shapes, can mask an
+      Agent Image, identically for Agent 1 and Agent 2.
+- [x] `tests/js/ad-render-kernel.mjs` covers the rename, the default, every
+      shape branch, and the legacy fallback.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -906,3 +974,14 @@ garages" holds even before a real listing is attached.
   `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator; top-bar
   `Group…` picker (`groupPickMode`, `toggleGroupPick()`/`cancelGroupPick()`/
   `confirmGroupPick()`) + header Confirm/Cancel bar.
+
+### Agent Image rename + shape picker (§15)
+- `public/js/corex-ad-render.js` — catalogue labels; `isAgentAvatarField()`,
+  `avatarShapeCss()`; `frameStyle()` applies the shape mask to Agent Image elements;
+  `FIELD_DEFAULTS` seeds `shapeType: 'circle'`, `borderRadius: 16` for both agent avatar
+  fields.
+- `resources/views/corex/properties/ad-builder.blade.php` — shape-picker panel block
+  (reuses the existing Shape-element grid markup) for `agent_avatar`/`agent_2_avatar`;
+  suppresses the plain Border Radius input for those two fields only.
+- `tests/js/ad-render-kernel.mjs` — rename, default-circle, every shape branch, legacy
+  fallback coverage.
