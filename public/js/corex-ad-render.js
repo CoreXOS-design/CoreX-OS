@@ -643,24 +643,46 @@
         });
     }
 
+    /**
+     * TOP corners ONLY. A headshot crop very commonly has the subject's
+     * shoulders/clothing reaching the BOTTOM corners — averaging those in pulls
+     * the sampled "backdrop colour" toward the clothing colour, which is exactly
+     * what let a white shirt get swept in as if it were a white background.
+     */
     function _cornerColor(px, w, h) {
-        var pts = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]];
+        var pts = [[0, 0], [w - 1, 0]];
         var r = 0, g = 0, b = 0;
         pts.forEach(function (p) {
             var i = (p[1] * w + p[0]) * 4;
             r += px[i]; g += px[i + 1]; b += px[i + 2];
         });
-        return [r / 4, g / 4, b / 4];
+        return [r / pts.length, g / pts.length, b / pts.length];
     }
 
+    /**
+     * Seeding from the BOTTOM edge is the actual bug a real photo hit: a
+     * headshot's shoulders/shirt routinely touch the bottom (and sometimes
+     * lower-side) frame edge, and a shirt similar in tone to the backdrop got
+     * swept into the same connected "background" region and erased along with
+     * it. Seeds are now top row + side columns in the upper half ONLY — never
+     * the bottom row — and a hard floor (`noRemoveBelow`) refuses to erase
+     * anything in roughly the bottom fifth of the frame regardless of how the
+     * fill's connectivity reaches it, because that band is the subject's
+     * shoulders/torso in essentially every headshot-style crop, never the
+     * backdrop. This trades "won't clear background low in a loose/half-body
+     * crop" for "won't eat clothing" — the safer failure direction.
+     */
     function _floodFillTransparent(imageData, w, h) {
         var px = imageData.data;
         var bg = _cornerColor(px, w, h);
-        var tol2 = 40 * 40; // Euclidean colour-distance tolerance, squared (avoid a sqrt per pixel)
+        var tol2 = 26 * 26; // Euclidean colour-distance tolerance, squared (avoid a sqrt per pixel)
         var visited = new Uint8Array(w * h);
         var stack = [];
-        for (var x = 0; x < w; x++) { stack.push(x, 0, x, h - 1); }
-        for (var y = 0; y < h; y++) { stack.push(0, y, w - 1, y); }
+        var sideSeedLimit = Math.floor(h * 0.5);
+        var noRemoveBelow  = Math.floor(h * 0.82);
+
+        for (var x = 0; x < w; x++) { stack.push(x, 0); }
+        for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, w - 1, y); }
 
         while (stack.length) {
             var yy = stack.pop(), xx = stack.pop();
@@ -671,7 +693,7 @@
             var o = idx * 4;
             var dr = px[o] - bg[0], dg = px[o + 1] - bg[1], db = px[o + 2] - bg[2];
             if ((dr * dr + dg * dg + db * db) > tol2) continue; // not backdrop-like — stop here
-            px[o + 3] = 0;
+            if (yy < noRemoveBelow) px[o + 3] = 0;
             stack.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1);
         }
     }

@@ -933,16 +933,51 @@ tool.
 **This is NOT AI/ML person segmentation** — no model, no third-party API (no
 `remove.bg`-style cost or network dependency, no photo ever leaves the browser).
 It is a **flood-fill colour cutout**, the same class of technique behind
-PowerPoint's "Remove Background": sample the backdrop colour from the four image
-corners, then flood-fill transparency inward from every BORDER pixel that
-colour-matches (within a tolerance) — stopping wherever the colour changes
-sharply. A pixel only turns transparent if it is both colour-matched AND
-reachable from the border without crossing that edge, so **a white shirt collar
-in the middle of the photo survives** (it's not connected to the border) while
-an actual solid/near-solid backdrop is removed. Works best on the case it's
-built for — a plain, evenly-lit, roughly-solid-colour backdrop (the common
-studio-headshot shape) — not a photo with a busy/textured/gradient background,
-which is a materially harder problem this deliberately does not attempt.
+PowerPoint's "Remove Background": sample the backdrop colour, then flood-fill
+transparency inward from seed pixels that colour-match (within a tolerance) —
+stopping wherever the colour changes sharply. A pixel only turns transparent if
+it is both colour-matched AND reachable from a seed without crossing that edge,
+so **a white shirt collar in the middle of the photo survives** (it's not
+connected to any seed) while an actual solid/near-solid backdrop is removed.
+Works best on the case it's built for — a plain, evenly-lit, roughly-solid-
+colour backdrop (the common studio-headshot shape) — not a photo with a
+busy/textured/gradient background, which is a materially harder problem this
+deliberately does not attempt.
+
+**Fixed 2026-08-02 — a real photo (Retha's) had its white shirt swept away
+along with the white backdrop.** The first version sampled the backdrop colour
+from all FOUR image corners and seeded the flood fill from the ENTIRE frame
+border, including the bottom row. A headshot crop routinely has the subject's
+shoulders/shirt reaching the bottom (and sometimes lower-side) edge of the
+frame — when that garment is a similar tone to the backdrop (a white shirt on
+a white/light backdrop is the exact common case, not an edge case), seeding
+from the bottom edge let the fill flow straight from the backdrop into the
+garment: both connected, both the same colour, no edge between them to stop
+at. **Three changes, in order of how much they actually mattered:**
+1. **Seeds no longer include the bottom row, and side-column seeding is
+   restricted to the upper half of the frame** (`sideSeedLimit = h * 0.5`) —
+   the bottom edge of a headshot crop is essentially never backdrop.
+2. **A hard floor**, `noRemoveBelow = h * 0.82`: the bottom ~18% of the frame
+   is NEVER erased, full stop, regardless of how the fill's connectivity
+   technically reaches it. This is the actual backstop — restricting seeds
+   alone does not stop the fill from reaching a garment via propagation
+   through legitimately-connected background pixels above the seed line; only
+   an explicit height floor does.
+3. **Corner sampling uses the TOP-LEFT and TOP-RIGHT corners only**, not all
+   four — averaging in bottom corners (often clothing) pulled the sampled
+   "backdrop colour" toward the clothing colour, loosening the very tolerance
+   meant to tell them apart. Tolerance itself was also tightened (26 vs the
+   original 40) now that the reference colour is a cleaner backdrop-only
+   sample.
+
+**The trade-off is deliberate and stated, not silent:** genuine backdrop that
+happens to sit in the protected bottom band (a loose/half-body crop with
+visible background low in the frame) is now ALSO left un-removed. Failing to
+fully clear a strip of background is the safe direction to fail in; eating
+part of the subject is not. `tests/js/ad-render-kernel.mjs` reproduces the
+exact reported shape (a light garment touching the bottom edge) as a named
+regression test, plus asserts the stated trade-off explicitly rather than
+leaving it as an unverified side-effect.
 
 **Mechanism.** A checkbox — "Remove background" — in the Agent Image panel sets
 `el.removeBackground`. The kernel's `imgTag()` adds `onload="window.CoreXAd.
@@ -998,6 +1033,9 @@ scope on request, see §15's "Deliberately not built").
 - [x] A white patch fully inside the subject (not touching the image border)
       is NOT removed — proves this is a border-connectivity flood fill, not a
       naive global colour threshold.
+- [x] A light-coloured garment touching the BOTTOM edge of the frame is NOT
+      removed — the exact real-photo regression (Retha's shirt), reproduced
+      as a named test.
 - [x] Toggling the checkbox off reverts to the untouched original photo.
 - [x] A cross-origin/tainted photo degrades to showing the original — never a
       broken/blank image, never a thrown error visible to the user.

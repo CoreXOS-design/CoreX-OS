@@ -238,6 +238,34 @@ ok('a near-white (not pure #fff) backdrop is still recognised within tolerance',
 const cc = K.cornerColor(frame.data, W, H);
 ok('cornerColor() reads the actual corner pixels', cc[0] > 200 && cc[1] > 200 && cc[2] > 200);
 
+// REGRESSION for the real production report: Retha's photo had a white shirt
+// swept away along with the white studio backdrop. Root cause — the shirt
+// touches the BOTTOM edge of the frame, so seeding the flood fill from every
+// border (including the bottom) let it flow straight from the backdrop into
+// the shirt, both being the same colour. Reproduced with a garment rect that
+// touches the bottom edge, same colour as the backdrop.
+function paintRect(frame, w, rect, color) {
+    for (let y = rect.y; y < rect.y + rect.h; y++) {
+        for (let x = rect.x; x < rect.x + rect.w; x++) {
+            const i = (y * w + x) * 4;
+            frame.data[i] = color[0]; frame.data[i + 1] = color[1]; frame.data[i + 2] = color[2];
+        }
+    }
+}
+
+const H2 = 40;
+const headshot = makeFrame(W, H2, white, { x: 12, y: 4, w: 16, h: 16, color: [40, 90, 160] }, null);
+paintRect(headshot, W, { x: 5, y: 34, w: 30, h: 6 }, white); // "white shirt" touching the bottom edge (y=39)
+K.floodFillTransparent(headshot, W, H2);
+
+ok('a light garment touching the BOTTOM edge is preserved, not swept away with the backdrop (the reported bug)',
+    alphaAt(headshot, W, 10, 37) === 255 && alphaAt(headshot, W, 20, 38) === 255);
+ok('the actual backdrop well away from the bottom edge is still removed',
+    alphaAt(headshot, W, 0, 0) === 0 && alphaAt(headshot, W, 0, 10) === 0);
+ok('the subject/head is untouched either way', alphaAt(headshot, W, 20, 10) === 255);
+ok('known trade-off, stated not silent: genuine backdrop low in the frame (bottom-left corner, same protected band as the garment) is ALSO left alone — safer than risking clothing',
+    alphaAt(headshot, W, 0, 38) === 255);
+
 const photoProp = { agent_avatar: '/storage/agents/1.jpg', agent_2_avatar: '/storage/agents/2.jpg' };
 ok('removeBackground=true on an Agent Image emits the onload hook',
     K.contentHtml(el({ field: 'agent_avatar', removeBackground: true }), photoProp, {})
