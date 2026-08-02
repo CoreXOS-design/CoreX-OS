@@ -576,7 +576,117 @@
         else if (/avatar$/.test(f))   attrs += ' class="js-ad-avatar"';
         else if (opts.tagPhotos)      attrs += ' data-el-id="' + esc(el.id) + '" data-orig-src="' + esc(baseSrc) + '"';
 
+        // Remove Background — an onload hook works identically whether this <img>
+        // was inserted via Alpine's x-html (Builder) or renderLayout()'s innerHTML
+        // (generator/bulk manager), so this is the ONLY per-surface change needed.
+        if (isAgentAvatarField(f) && el.removeBackground) {
+            attrs += ' onload="window.CoreXAd.stripBackground(this)"';
+        }
+
         return '<img src="' + esc(src) + '" ' + attrs + '>';
+    }
+
+    /**
+     * "Remove background" — a client-side, no-ML cutout for the common case the
+     * feature was built for: a headshot on a plain/solid studio backdrop (the
+     * request's own example: a white background). NOT general arbitrary-scene
+     * person segmentation — that needs a real model; this is a flood fill.
+     *
+     * Algorithm: sample the backdrop colour from the four corners, then flood-fill
+     * transparency inward from every border pixel that matches it within a colour
+     * tolerance, stopping at any edge where the colour changes sharply. A pixel
+     * only turns transparent if it is colour-matched AND reachable from the
+     * border without crossing that edge — so a white shirt collar in the MIDDLE
+     * of the photo survives (not connected to the border), while an actual
+     * solid backdrop is removed. Downscaled to a 500px cap first so a full-
+     * resolution profile photo never makes this slow.
+     *
+     * Same-origin only: relies on the SAME image-URL resolution already built for
+     * html2canvas (Property::adSafeImageUrl()/§10e) — a genuinely cross-origin,
+     * CORS-blocked photo fails silently (getImageData throws) and is left
+     * showing its original background rather than breaking the ad.
+     */
+    var _bgRemovalCache = {}; // original <img>.src → Promise<processed dataURL | null>
+
+    function stripBackground(img) {
+        if (img.dataset.bgStripped === '1') return; // guards the re-load our own src-swap causes
+        var src = img.src;
+        if (!_bgRemovalCache[src]) _bgRemovalCache[src] = _processBackgroundRemoval(img);
+        _bgRemovalCache[src].then(function (dataUrl) {
+            if (dataUrl) {
+                img.dataset.bgStripped = '1';
+                img.src = dataUrl;
+            }
+        });
+    }
+
+    function _processBackgroundRemoval(img) {
+        return new Promise(function (resolve) {
+            try {
+                var nw = img.naturalWidth, nh = img.naturalHeight;
+                if (!nw || !nh) { resolve(null); return; }
+                var MAX = 500;
+                var scale = Math.min(1, MAX / Math.max(nw, nh));
+                var w = Math.max(1, Math.round(nw * scale));
+                var h = Math.max(1, Math.round(nh * scale));
+                var canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                var imageData = ctx.getImageData(0, 0, w, h); // throws on a tainted (cross-origin) canvas
+                _floodFillTransparent(imageData, w, h);
+                ctx.putImageData(imageData, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    function _cornerColor(px, w, h) {
+        var pts = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]];
+        var r = 0, g = 0, b = 0;
+        pts.forEach(function (p) {
+            var i = (p[1] * w + p[0]) * 4;
+            r += px[i]; g += px[i + 1]; b += px[i + 2];
+        });
+        return [r / 4, g / 4, b / 4];
+    }
+
+    function _floodFillTransparent(imageData, w, h) {
+        var px = imageData.data;
+        var bg = _cornerColor(px, w, h);
+        var tol2 = 40 * 40; // Euclidean colour-distance tolerance, squared (avoid a sqrt per pixel)
+        var visited = new Uint8Array(w * h);
+        var stack = [];
+        for (var x = 0; x < w; x++) { stack.push(x, 0, x, h - 1); }
+        for (var y = 0; y < h; y++) { stack.push(0, y, w - 1, y); }
+
+        while (stack.length) {
+            var yy = stack.pop(), xx = stack.pop();
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            var idx = yy * w + xx;
+            if (visited[idx]) continue;
+            visited[idx] = 1;
+            var o = idx * 4;
+            var dr = px[o] - bg[0], dg = px[o + 1] - bg[1], db = px[o + 2] - bg[2];
+            if ((dr * dr + dg * dg + db * db) > tol2) continue; // not backdrop-like — stop here
+            px[o + 3] = 0;
+            stack.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1);
+        }
+    }
+
+    /**
+     * Resolves once every in-flight background-removal job has settled. The
+     * capture paths (single-property + bulk) await this before html2canvas runs,
+     * so a fast bulk run can never rasterise the UN-stripped original because
+     * processing simply hadn't finished yet.
+     */
+    function backgroundRemovalsSettled() {
+        var jobs = Object.keys(_bgRemovalCache).map(function (k) {
+            return _bgRemovalCache[k].catch(function () {});
+        });
+        return Promise.all(jobs);
     }
 
     function placeholderHtml(label) {
@@ -755,7 +865,9 @@
             // Builder-only (like `locked`) — elements sharing a groupId select and
             // move together in the Ad Builder. Ignored by the generator/bulk
             // manager; does not affect frameStyle()/contentHtml() output at all.
-            groupId:       null
+            groupId:       null,
+            // Agent Image only — see imgTag()/stripBackground().
+            removeBackground: d.removeBackground || false
         };
     }
 
@@ -781,6 +893,10 @@
         isAgent2: isAgent2,
         isAgentAvatarField: isAgentAvatarField,
         avatarShapeCss: avatarShapeCss,
+        stripBackground: stripBackground,
+        backgroundRemovalsSettled: backgroundRemovalsSettled,
+        floodFillTransparent: _floodFillTransparent,
+        cornerColor: _cornerColor,
         isClipShape: isClipShape,
         canShadow: canShadow,
         fontStack: fontStack,
