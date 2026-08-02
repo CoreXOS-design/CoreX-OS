@@ -12,8 +12,23 @@
      that had fallen behind: it knew nothing about shapeType/clip-paths, custom image
      and video elements, the features chooser, or the agent-2 empty-slot rule, so those
      elements rendered wrong on a real bulk ad. Spec: ad-manager.md §12. --}}
-<script src="{{ asset('js/corex-ad-render.js') }}?v=1"></script>
+<script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+{{-- Ad Manager "Remove background" hole-fill guard thresholds — agency-
+     configurable, nullable (ad-manager.md §15.1 round 4).
+     @json() splits its argument on EVERY top-level comma (it supports
+     @json($value, $options, $depth)) — an inline multi-key array literal
+     breaks that. Assign to a bare variable first, then @json($var). --}}
+@php
+    $_bgRemovalCfg = [
+        'holeMinPx'          => $agency->ad_bg_removal_hole_min_px ?? null,
+        'holeMaxPx'          => $agency->ad_bg_removal_hole_max_px ?? null,
+        'holeMaxDimensionPx' => $agency->ad_bg_removal_hole_max_dimension_px ?? null,
+    ];
+@endphp
+<script>
+    window.CoreXAd.configureBgRemoval(@json($_bgRemovalCfg));
+</script>
 
 <div class="w-full space-y-5" x-data="adManager()">
 

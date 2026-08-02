@@ -295,6 +295,9 @@ CREATE TABLE `agencies` (
   `dashboard_settings_mode` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'user' COMMENT 'user = individual settings, agency = shared agency settings',
   `split_branches_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `assistants_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `ad_bg_removal_hole_min_px` int unsigned DEFAULT NULL,
+  `ad_bg_removal_hole_max_px` int unsigned DEFAULT NULL,
+  `ad_bg_removal_hole_max_dimension_px` int unsigned DEFAULT NULL,
   `assistant_fica_required_default` tinyint(1) NOT NULL DEFAULT '1',
   `properties_sort_mode` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'created',
   `properties_status_priority` json DEFAULT NULL,
@@ -14098,3 +14101,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1047,'2026_08_20_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1048,'2026_08_20_000003_add_third_party_flags_to_property_sold_records',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1049,'2026_08_20_000004_backfill_default_property_settings_per_agency',198);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1050,'2026_08_20_000005_add_ad_generated_tracking_to_properties',199);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1051,'2026_08_20_000006_add_ad_bg_removal_hole_thresholds_to_agencies',200);

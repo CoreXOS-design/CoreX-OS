@@ -177,6 +177,14 @@ class Agency extends Model
         // AT-267 — Assistants. Ships OFF for every agency; also the resolver's first
         // check, so flipping it off gives every assistant zero permissions instantly.
         'assistants_enabled',
+        // Ad Manager "Remove background" hole-fill guard (ad-manager.md §15.1
+        // round 4) — nullable; null means "use the kernel's evidence-based
+        // default". Expert/rarely-touched knob — deliberately NOT in the
+        // Setup Wizard (non-negotiable #10a carve-out, see the migration's
+        // docblock).
+        'ad_bg_removal_hole_min_px',
+        'ad_bg_removal_hole_max_px',
+        'ad_bg_removal_hole_max_dimension_px',
         'assistant_fica_required_default',
         'show_prospected_badge',
         'properties_sort_mode',
@@ -338,6 +346,9 @@ class Agency extends Model
         'outreach_queue_daily_cap_per_agent' => 'integer', // AT-117 §8
         'viewing_pack_redaction_dpi' => 'integer', // AT-107 Step 5b
         'viewing_pack_default_duration_minutes' => 'integer', // AT-107 Step 8
+        'ad_bg_removal_hole_min_px' => 'integer', // ad-manager.md §15.1 round 4
+        'ad_bg_removal_hole_max_px' => 'integer',
+        'ad_bg_removal_hole_max_dimension_px' => 'integer',
 
         // Per-agency maintenance mode (AT-93).
         'maintenance_mode' => 'boolean',

@@ -11,12 +11,20 @@
     {{-- The shared render kernel — frameStyle/contentHtml here are the SAME ones the
          generator and the bulk Ad Manager use, so a design can never look different
          in the builder than it does on the finished ad. Spec: ad-manager.md §12. --}}
-    <script src="{{ asset('js/corex-ad-render.js') }}?v=1"></script>
+    <script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
     {{-- Agency brand tokens (UI_DESIGN_SYSTEM.md §1.4) — standalone page; declare
          the brand vars so the header + accents use the agency colour. --}}
     @php
         $_brandAgency = ($property?->agency)
             ?? (auth()->user()?->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null);
+        // @json() splits its argument on EVERY top-level comma (it supports
+        // @json($value, $options, $depth)) — an inline multi-key array literal
+        // breaks that. Assign to a bare variable first, then @json($var).
+        $_bgRemovalCfg = [
+            'holeMinPx'          => $_brandAgency->ad_bg_removal_hole_min_px ?? null,
+            'holeMaxPx'          => $_brandAgency->ad_bg_removal_hole_max_px ?? null,
+            'holeMaxDimensionPx' => $_brandAgency->ad_bg_removal_hole_max_dimension_px ?? null,
+        ];
     @endphp
     <style id="agency-brand">
         :root {
@@ -25,6 +33,11 @@
             --brand-button:  {{ $_brandAgency->button_color  ?? '#0ea5e9' }};
         }
     </style>
+    {{-- Ad Manager "Remove background" hole-fill guard thresholds — agency-
+         configurable, nullable (ad-manager.md §15.1 round 4). --}}
+    <script>
+        window.CoreXAd.configureBgRemoval(@json($_bgRemovalCfg));
+    </script>
     {{-- Follow the user's theme (UI_DESIGN_SYSTEM.md §7). Apply before paint. --}}
     <script>
         (function(){

@@ -390,6 +390,57 @@ K.fillEnclosedHoles(borderTouchFrame, W, H2);
 ok('a border-touching patch is never touched by the enclosed-holes pass, garment stays intact',
     alphaAt(borderTouchFrame, W, 10, 37) === 255 && alphaAt(borderTouchFrame, W, 20, 38) === 255);
 
+// REGRESSION #4 (property 2934, SAME agent, a different pose — arms crossed,
+// an open V-neck collar fully enclosed by a dark jacket on both sides): round
+// 3 shipped with only a size FLOOR, so this large, fully-enclosed patch of
+// genuine shirt/collar was treated exactly like a small earring gap and
+// erased outright. Measured on the real photo: genuine holes never exceeded
+// 41px on their longest bounding-box side; the failing collar patch measured
+// 60x131 (2059px) and a second, smaller failing patch measured 30x51 (602px)
+// — notably SMALLER in raw area than the largest genuine hole (851px), which
+// is why an area cap alone cannot separate every case: the bounding-box
+// DIMENSION is the guard that actually does, cleanly, on every measured case.
+section('_fillEnclosedHoles() upper-bound guard — round 4 (a large enclosed patch of clothing must survive)');
+
+// A dedicated larger canvas — the small 40x40 canvas used above has no room
+// for the bounding boxes these cases need.
+const BW = 100, BH = 100;
+const bigSubject = { x: 5, y: 5, w: 90, h: 90, color: [40, 90, 160] };
+
+// A big enclosed hole — well past the default area cap (1200px) — must NOT
+// be filled, unlike the small earring-sized hole above.
+const bigHoleFrame = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 20, w: 50, h: 50 }); // 2500px
+K.floodFillTransparent(bigHoleFrame, BW, BH);
+K.fillEnclosedHoles(bigHoleFrame, BW, BH);
+ok('a large enclosed hole (2500px, past the default 1200px area cap) is NOT filled — a real collar/shirt patch, not an earring',
+    alphaAt(bigHoleFrame, BW, 45, 45) === 255);
+
+// A hole with modest AREA but an elongated bounding box exceeding the default
+// max-dimension (45px) — simulating the 602px/30x51 real-photo case, which an
+// area cap alone would have let through (851px legit hole has MORE area).
+const elongatedFrame = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 15, w: 8, h: 55 }); // 440px, longest side 55
+K.floodFillTransparent(elongatedFrame, BW, BH);
+K.fillEnclosedHoles(elongatedFrame, BW, BH);
+ok('a modest-area but elongated hole (440px, longest side 55px > the 45px default) is NOT filled — area alone would have missed this',
+    alphaAt(elongatedFrame, BW, 23, 40) === 255);
+
+// The small earring-sized hole from the very first case in this section must
+// STILL be filled — the new upper bound must not have tightened the floor.
+ok('the guard does not regress the original earring-sized fix (re-asserted after adding the upper bound)',
+    alphaAt(earringFrame, W, 17, 17) === 0);
+
+// configureBgRemoval() actually takes effect — an agency that raises its own
+// max-dimension threshold gets a DIFFERENT (more permissive) outcome for the
+// SAME elongated hole above, then the config is restored to defaults so it
+// doesn't leak into any later test in this file.
+K.configureBgRemoval({ holeMaxDimensionPx: 60 });
+const elongatedFrameRaised = makeHoleFrame(BW, BH, white, bigSubject, { x: 20, y: 15, w: 8, h: 55 });
+K.floodFillTransparent(elongatedFrameRaised, BW, BH);
+K.fillEnclosedHoles(elongatedFrameRaised, BW, BH);
+ok('configureBgRemoval() raising holeMaxDimensionPx actually changes the outcome for the same elongated hole',
+    alphaAt(elongatedFrameRaised, BW, 23, 40) === 0);
+K.configureBgRemoval({ holeMinPx: 30, holeMaxPx: 1200, holeMaxDimensionPx: 45 }); // restore defaults for later tests
+
 // _featherAlpha(): a hard 0/255 edge should soften to an intermediate value
 // right at the boundary, without changing fully-interior or fully-exterior
 // pixels.

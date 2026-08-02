@@ -754,6 +754,40 @@
     }
 
     /**
+     * Agency-configurable thresholds for `_fillEnclosedHoles()` — see that
+     * function's docblock for what each one protects against and the
+     * evidence behind its default. Never hardcode a NEW threshold here
+     * without going through `configureBgRemoval()`; these three are read
+     * from `agencies.ad_bg_removal_hole_{min,max,max_dimension}_px`
+     * (nullable — null means "use this file's default"), passed in once per
+     * page by each of the three render surfaces (ad.blade.php,
+     * ad-builder.blade.php, tools/ad-manager.blade.php). Spec: ad-manager.md
+     * §15.1 round 4.
+     */
+    var _bgRemovalConfig = {
+        holeMinPx: 30,          // below this, treat it as a catch-light/noise — never fill
+        holeMaxPx: 1200,        // above this AREA, treat it as clothing/fabric — never fill
+        holeMaxDimensionPx: 45, // above this LONGEST bbox side, treat it as clothing/fabric — never fill
+    };
+
+    /**
+     * Called once per page (ad.blade.php / ad-builder.blade.php /
+     * tools/ad-manager.blade.php) with the current agency's settings. Any
+     * key that is null/undefined/omitted keeps this file's default — a
+     * property with no agency (shouldn't happen) or an agency that has never
+     * touched these settings gets identical behaviour to before this
+     * existed.
+     */
+    function configureBgRemoval(cfg) {
+        cfg = cfg || {};
+        ['holeMinPx', 'holeMaxPx', 'holeMaxDimensionPx'].forEach(function (key) {
+            if (cfg[key] !== null && cfg[key] !== undefined && !isNaN(cfg[key])) {
+                _bgRemovalConfig[key] = +cfg[key];
+            }
+        });
+    }
+
+    /**
      * Fills small ENCLOSED pockets of backdrop colour the border-seeded flood
      * fill above can never reach — e.g. the white background visible through a
      * hoop earring, or a gap between a jacket lapel and collar. A real photo
@@ -761,25 +795,58 @@
      * collar, both read as "pasted on" because they were never touched at all.
      *
      * A pocket is filled ONLY if it (a) touches NO edge of the frame anywhere
-     * along its connected boundary, and (b) is at least `HOLE_MIN_PX` pixels.
-     * (a) is what keeps this from ever regressing the "ate a light shirt"
-     * fix (§15.1 round 1/2) — anything connected to a border, even a
-     * backdrop-coloured pocket that snakes all the way to one, is left alone,
-     * exactly like the main fill already does. (b) is what keeps this from
-     * removing a catch-light: a specular highlight in an eye is ALSO within
-     * colour tolerance of a white backdrop and ALSO fully enclosed, but on a
-     * real photo measured 19px and under; real holes (earrings, clothing
-     * gaps) measured 46-851px. 30 sits with comfortable margin on both sides,
-     * verified empirically against a real photo before shipping this, not
-     * picked arbitrarily.
+     * along its connected boundary, (b) is at least `holeMinPx` pixels, (c) is
+     * at most `holeMaxPx` pixels in area, AND (d) its bounding box's LONGEST
+     * side is at most `holeMaxDimensionPx`.
+     *
+     * (a) is what keeps this from ever regressing the "ate a light shirt" fix
+     * (§15.1 round 1/2) — anything connected to a border, even a backdrop-
+     * coloured pocket that snakes all the way to one, is left alone, exactly
+     * like the main fill already does.
+     *
+     * (b) is what keeps this from removing a catch-light: a specular
+     * highlight in an eye is ALSO within colour tolerance of a white backdrop
+     * and ALSO fully enclosed, but on a real photo measured 19px and under.
+     *
+     * (c) and (d) exist because (b) alone is NOT enough — round 3 shipped
+     * with only a floor, and a DIFFERENT pose (arms crossed, a wide V-neck
+     * collar fully enclosed by a dark jacket on both sides) hit the opposite
+     * failure: a large genuine patch of shirt, not an earring, got treated as
+     * a "hole" and erased, because nothing capped how big an enclosed pocket
+     * was allowed to be. Measured on real photos, both defaults come from the
+     * SAME dataset a floor-only fix was checked against, extended with the
+     * failing case:
+     *   - genuine holes (earrings, small gaps): 46–851px area, bounding box
+     *     never wider/taller than 41px.
+     *   - the failing case (an open collar's visible V, fully enclosed by a
+     *     dark jacket): one component alone was 2059px, bbox 60×131.
+     *   - a second, smaller failing case on the SAME photo: 602px, bbox
+     *     30×51 — notably, its AREA (602) is SMALLER than the largest
+     *     genuine hole (851px), so an area cap ALONE cannot separate every
+     *     case correctly; a cap that excludes 602 would also wrongly exclude
+     *     725 and 851. The bounding-box DIMENSION is what actually separates
+     *     every measured case cleanly: every genuine hole's longest side is
+     *     ≤41px; every failing case's longest side is ≥51px. That gap is why
+     *     (d) exists as its own guard, not folded into (c).
+     * `holeMaxPx` (default 1200) sits with margin above the largest genuine
+     * hole (851) and below the large failing case (2059) — a second,
+     * independent line of defence for a large pocket even if some future
+     * photo's proportions happened to keep its longest side under the
+     * dimension cap.
+     *
+     * All three numbers are read from `_bgRemovalConfig` (agency-
+     * configurable — see `configureBgRemoval()`), never hardcoded per-call —
+     * a photo/agent/pose-specific fix would only mask the next pose that
+     * exposes the same class of bug.
      */
-    var HOLE_MIN_PX = 30;
-
     function _fillEnclosedHoles(imageData, w, h) {
         var px = imageData.data;
         var bg = _cornerColor(px, w, h);
         var tol2 = 26 * 26;
         var visited = new Uint8Array(w * h);
+        var holeMinPx = _bgRemovalConfig.holeMinPx;
+        var holeMaxPx = _bgRemovalConfig.holeMaxPx;
+        var holeMaxDimensionPx = _bgRemovalConfig.holeMaxDimensionPx;
 
         for (var y0 = 0; y0 < h; y0++) {
             for (var x0 = 0; x0 < w; x0++) {
@@ -790,10 +857,12 @@
                 var dr0 = px[o0] - bg[0], dg0 = px[o0 + 1] - bg[1], db0 = px[o0 + 2] - bg[2];
                 if ((dr0 * dr0 + dg0 * dg0 + db0 * db0) > tol2) { visited[idx0] = 1; continue; } // not backdrop-coloured
 
-                // Flood this connected backdrop-coloured island; track border contact.
+                // Flood this connected backdrop-coloured island; track border
+                // contact and the bounding box alongside it.
                 var stack = [x0, y0];
                 var component = [idx0];
                 var touchesBorder = (x0 === 0 || y0 === 0 || x0 === w - 1 || y0 === h - 1);
+                var minX = x0, maxX = x0, minY = y0, maxY = y0;
                 visited[idx0] = 1;
 
                 while (stack.length) {
@@ -810,12 +879,16 @@
                         var ndr = px[no] - bg[0], ndg = px[no + 1] - bg[1], ndb = px[no + 2] - bg[2];
                         if ((ndr * ndr + ndg * ndg + ndb * ndb) > tol2) continue; // not backdrop-coloured — a boundary
                         if (nx === 0 || ny === 0 || nx === w - 1 || ny === h - 1) touchesBorder = true;
+                        if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
+                        if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
                         component.push(nidx);
                         stack.push(nx, ny);
                     }
                 }
 
-                if (!touchesBorder && component.length >= HOLE_MIN_PX) {
+                var size = component.length;
+                var longestSide = Math.max(maxX - minX + 1, maxY - minY + 1);
+                if (!touchesBorder && size >= holeMinPx && size <= holeMaxPx && longestSide <= holeMaxDimensionPx) {
                     for (var c = 0; c < component.length; c++) px[component[c] * 4 + 3] = 0;
                 }
             }
@@ -1203,6 +1276,7 @@
         cornerColor: _cornerColor,
         fillEnclosedHoles: _fillEnclosedHoles,
         featherAlpha: _featherAlpha,
+        configureBgRemoval: configureBgRemoval,
         resolveTemplateLayout: resolveTemplateLayout,
         isClipShape: isClipShape,
         canShadow: canShadow,
