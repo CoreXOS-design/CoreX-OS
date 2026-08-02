@@ -132,10 +132,6 @@
         .agent-pill { display:inline-flex; align-items:center; padding:5px 11px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; border:none; background:transparent; color:var(--chrome-text-soft); font-family:inherit; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; transition:all 0.12s; }
         .agent-pill:hover { color:var(--chrome-text); background:var(--chrome-hover); }
         .agent-pill.active { background:var(--brand-button,#00b4d8); color:#fff; }
-        .custom-tpl-card { cursor:pointer; border-radius:12px; border:1.5px solid var(--chrome-border); background:var(--chrome-surface); overflow:hidden; transition:all 0.18s; display:flex; align-items:center; gap:12px; padding:12px 16px; }
-        .custom-tpl-card:hover { border-color:var(--brand-button,#00b4d8); }
-        .custom-tpl-thumb { width:100px; height:52px; background:#071325; border-radius:6px; overflow:hidden; position:relative; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:rgba(255,255,255,0.45); }
-        .custom-tpl-badge { font-size:9px;font-weight:700;background:color-mix(in srgb, var(--brand-button,#00b4d8) 16%, transparent);color:var(--brand-button,#00b4d8);border-radius:4px;padding:2px 6px;letter-spacing:0.06em;text-transform:uppercase; }
         .ad-root { position: absolute; inset: 0; font-family: 'Figtree', Arial, sans-serif; }
         .ad-img-fit { width: 100%; height: 100%; object-fit: cover; display: block; }
         .ad-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #0b2a4a 0%, #143d6e 100%); }
@@ -304,24 +300,34 @@
                 </a>
                 @endif
             </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
+            {{-- SAME grid + card/thumb classes as the pre-built cards above, so every
+                 preview in the picker is visually the same size — a custom template
+                 gets a big top thumbnail (contain-fit within the standard 1200×628
+                 reference frame fitThumbs() scales, since a custom canvas can be ANY
+                 size/ratio) with name + meta below, not the old compact list row. --}}
+            <div class="tpl-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px;">
                 <template x-for="tpl in savedTemplates" :key="tpl.id">
-                    <div class="custom-tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
-                        <div class="custom-tpl-thumb"
-                             x-init="$nextTick(() => CoreXAd.renderLayout(tpl.layout_json, propertyData, $el.querySelector('.custom-tpl-thumb-inner'), { placeholders: true, paintBackground: true }))">
-                            <div class="custom-tpl-thumb-inner" :style="customThumbStyle(tpl)"></div>
+                    <div class="tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
+                        <div class="tpl-thumb" style="width:100%; aspect-ratio:1200/628; overflow:hidden; position:relative; background:#071325;">
+                            <div class="tpl-thumb-inner" style="position:absolute;top:0;left:0;width:1200px;height:628px;transform-origin:top left;transform:scale(0.2667);">
+                                <div :style="customThumbStyle(tpl)"
+                                     x-init="$nextTick(() => CoreXAd.renderLayout(tpl.layout_json, propertyData, $el, { placeholders: true, paintBackground: true }))"></div>
+                            </div>
                         </div>
-                        <div style="flex:1;min-width:0;">
-                            <div style="font-size:14px;font-weight:700;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
-                            <div style="font-size:11px;color:var(--chrome-text-mute);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
-                        </div>
-                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
-                            <template x-if="tpl.can_manage">
-                                <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:10px;color:var(--chrome-text-soft);text-decoration:none;" @click.stop>Edit</a>
-                            </template>
-                            <template x-if="!tpl.can_manage">
-                                <span style="font-size:9px;color:var(--chrome-text-mute);" title="Only the creator (or a manager) can edit this">view only</span>
-                            </template>
+                        <div style="padding:18px 20px 22px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                                <div style="font-size:15px;font-weight:800;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
+                                <template x-if="tpl.can_manage">
+                                    <a :href="`{{ route('corex.ad-templates.builder') }}/${tpl.id}?property={{ $property->id }}`" style="font-size:11px;font-weight:600;color:var(--chrome-text-soft);text-decoration:none;flex-shrink:0;" @click.stop>Edit</a>
+                                </template>
+                                <template x-if="!tpl.can_manage">
+                                    <span style="font-size:10px;color:var(--chrome-text-mute);flex-shrink:0;" title="Only the creator (or a manager) can edit this">view only</span>
+                                </template>
+                            </div>
+                            <div style="font-size:12px;color:var(--chrome-text-soft);line-height:1.6;margin-top:5px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
+                            <div style="margin-top:14px;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--brand-button,#00b4d8);">
+                                Use Template <svg xmlns="http://www.w3.org/2000/svg" style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -602,19 +608,22 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         },
 
         /**
-         * Picker thumbnail sizing for a custom (agency-built) template — "contain"
-         * fit inside the .custom-tpl-thumb box (100×52px, see CSS), centred, since
-         * unlike the fixed 1200×628 pre-built cards a custom template can be ANY
-         * canvas size/ratio (square, story-tall, etc.) and must not be stretched
-         * to fit a box shaped for a different aspect ratio.
+         * Picker thumbnail sizing for a custom (agency-built) template — a "contain"
+         * fit CENTRED inside the SAME 1200×628 logical reference frame the pre-built
+         * cards' .tpl-thumb-inner uses (fitThumbs() then scales that whole frame to
+         * the card's actual responsive width) — so every card in the picker ends up
+         * the SAME on-screen size, custom or pre-built. Unlike the pre-built cards
+         * (always designed at exactly 1200×628), a custom template can be ANY canvas
+         * size/ratio (square, story-tall, etc.), so it's contained + letterboxed
+         * within that reference frame rather than stretched to fill it.
          */
         customThumbStyle(tpl) {
             const lj = tpl.layout_json || {};
             const cw = lj.canvasW || 1200, ch = lj.canvasH || 628;
-            const boxW = 100, boxH = 52;
-            const scale = Math.min(boxW / cw, boxH / ch);
+            const REF_W = 1200, REF_H = 628; // same reference frame fitThumbs() scales
+            const scale = Math.min(REF_W / cw, REF_H / ch);
             const w = cw * scale, h = ch * scale;
-            const left = Math.round((boxW - w) / 2), top = Math.round((boxH - h) / 2);
+            const left = Math.round((REF_W - w) / 2), top = Math.round((REF_H - h) / 2);
             return 'position:absolute;left:' + left + 'px;top:' + top + 'px;'
                  + 'width:' + cw + 'px;height:' + ch + 'px;'
                  + 'transform-origin:top left;transform:scale(' + scale + ');';
