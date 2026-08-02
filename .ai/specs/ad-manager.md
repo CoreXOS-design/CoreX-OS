@@ -1375,117 +1375,137 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
 
 ---
 
-## 18. Property-type conditional visibility — one template, different property types
+## 18. Property-type template variants — one template, different designs per property type
 
 > Status: LIVE · 2026-08-02
 
 **What/why.** Johan's own example: a template built for a house needs
 Bedrooms/Bathrooms; the same template used on a vacant land listing has no
-floor size at all — only a stand/erf size — so those elements are wrong for
-it. Until now the only fix was a second, separate template. This lets ONE
-template look different per property, by scoping individual elements to which
-property type(s) they show for — most valuable for the bulk Ad Manager and
-the single-property generator, where the SAME template runs across a mixed
-portfolio without an agent hand-picking a different template per listing.
+floor size at all — only a stand/erf size. Until now the only fix was a
+second, separate template kept in sync by hand. This gives a saved template
+a "Design for" picker: a **Default** design (used by any property type
+without one of its own) plus, per property type, an optional **fully
+independent alternate design** — its own canvas AND its own elements —
+created by cloning the current Default and then editing it separately.
+Most valuable for the bulk Ad Manager and the single-property generator,
+where the SAME template runs across a mixed portfolio (houses, vacant land,
+apartments, …) without an agent hand-picking a different template per
+listing.
 
-**Mechanism — per-element visibility, not per-template variants.** Every
-element (any field type — text, icon block, shape, image) can carry
-`el.visibleFor`: an array of exact property-type names (the same names the
-property's own "Property Type" dropdown uses — Settings-driven per agency,
-never a hardcoded taxonomy). Two elements can occupy the SAME x/y — a
-Bedrooms icon block scoped to `['House', 'Townhouse']` and a Land Size text
-block scoped to `['Vacant Land / Plot']` — so the layout itself adapts per
-property instead of needing parallel templates kept in sync by hand.
+**This replaced an earlier, narrower attempt shipped the same day** (a
+per-element `visibleFor` checklist toggling individual elements on/off per
+type). Johan's actual ask was a full alternate design per type, not
+element-by-element show/hide — corrected before that version reached wide
+use; see the git history for the superseded commit. The mechanism below is
+what shipped.
 
-`el.visibleFor` absent/null/empty → **always visible.** This is the required
-default: no template saved before this feature carries the key, and none of
-them may lose an element because of it. `prop.property_type_raw` absent/blank
-(the property has no type set, or the Ad Builder simply has no property
-loaded — the common design-time case) → **also always visible.** Hiding on
-missing type information would silently drop a real element from a real ad
-the moment a listing wasn't classified; showing a possibly-irrelevant element
-is the safer failure than hiding a possibly-relevant one — same reasoning as
-the placeholder-leak fix (§17) and the Remove Background degrade-safe path
-(§15.1): every failure mode here fails toward showing real content, never
-toward silently omitting it.
+**Data model — `layout_json.variants`.** A template's `layout_json` keeps its
+existing top-level shape (`canvasW`, `canvasH`, `canvasBg`, `elements`, …) as
+the **Default** design — unchanged, so every template saved before this
+feature needs no migration and no template loses anything. A NEW sibling key,
+`variants`, is a map keyed by the EXACT property-type name (the same string
+the property's own "Property Type" dropdown uses — Settings-driven per
+agency, never a hardcoded taxonomy) to a full alternate design of the same
+shape (`canvasW`/`canvasH`/`canvasBg`/`canvasBgMode`/`canvasBgFrom`/
+`canvasBgTo`/`canvasBgAngle`/`canvasPreset`/`elements`). A property type with
+no entry in `variants` simply uses the Default.
 
-**New kernel function — `elementVisibleForProperty(el, prop)`** (pure,
-unit-tested): case-insensitive/trimmed match of `prop.property_type_raw`
-against `el.visibleFor`. Wired into the ONE place that matters for the actual
-output — `renderLayout()`'s element loop, right alongside the existing
-`el.hidden` (design-time hide) check. Because the single-property generator
-(`ad.blade.php`) and the bulk Ad Manager (`tools/ad-manager.blade.php`) both
-already call `renderLayout()` directly (confirmed by reading both call sites,
-not assumed) for every custom template render, this ONE change is everywhere
-that matters — no separate wiring needed in either surface, the exact payoff
-the shared-kernel architecture (§12) was built for.
+**Resolution — one function, both runtimes.** `CoreXAd.resolveTemplateLayout
+(layoutJson, propertyTypeRaw)` (kernel, pure, unit-tested) and
+`PropertyAdTemplate::resolvedLayoutFor(?string $propertyTypeRaw)` (PHP model
+method, same cases unit-tested) both do the identical thing: case-
+insensitive/trimmed match of the property's type against `variants` keys;
+match → that variant's design; no match (blank type, no variants at all, or
+a type nobody made custom) → the Default. Two implementations exist only
+because resolution has to happen in two different runtimes — the bulk Ad
+Manager resolves server-side (PHP, one property's real classified type at a
+time, inside `AdManagerController::generate()`'s per-property loop, verified
+via Tinker to make two properties of different types in the SAME batch
+render genuinely different designs — 1000×500 custom canvas + a
+`custom_text` element for a vacant-land property vs. the Default 1200×628
+`beds` element for a house, one call, one template); the single-property
+generator and Ad Builder picker thumbnails resolve client-side (JS, from
+`propertyData.property_type_raw`). Never a broken/empty render over missing
+classification data — no match always falls back to the Default design.
 
 **New data key — `Property::adData()['property_type_raw']`.** The exact,
 untransformed `property_type` column value (e.g. `"Vacant Land / Plot"`),
 kept deliberately separate from the existing `'property_type'` key (which
-uppercases for on-ad DISPLAY, §10's "Type" element) so the matching logic
-never depends on that display string's formatting choices.
+uppercases for on-ad DISPLAY, §10's "Type" element) so matching never
+depends on that display string's formatting choices.
 
-**Ad Builder UI.** A universal "Show for property type" checklist — applies
-to every element type, not just numeric feature fields — sits in the common
-properties section (Position/Size/Rotation/Opacity), sourced from the
-agency's own active `property_setting_items` (group `property_type`,
-agency-scoped exactly like the property record's own dropdown, verified via
-Tinker with a real authenticated user — the unscoped/no-user case returns
-every agency's rows and must never be read that way in request code). All
-ticked (i.e. `visibleFor == null`, unset) is the default and changes nothing.
-Unticking any type seeds the full list into `el.visibleFor` and removes just
-that one — mirrors the existing Features chooser's
-`selectedFeatures == null` "show all" convention exactly (`isFeatureOn`/
-`toggleFeature`), so this is a second instance of an already-established UI
-pattern, not a new one.
+**Ad Builder — the "Design for" bar.** A pill row above the canvas: "Default"
+(always first, always exists) plus one pill per the agency's own active
+Property Type. Clicking a type that's still using Default clones the CURRENT
+Default design into a brand-new independent variant and switches straight to
+editing it; clicking an already-custom type (badged "Custom") just switches
+to it; a "Revert to Default" link deletes the active variant and falls back.
+Only `elements`/`canvasW`/etc are ever "live" — whichever design is
+currently active — while every OTHER design sits parked in plain JS state
+(`variants` for custom ones, `_defaultLayout` for the Default while a
+variant is being edited) until switched back to. This re-uses every existing
+drag/resize/undo/group/layers mechanic completely unchanged: none of that
+code has any idea a variant switch ever happened, it just keeps operating on
+`elements`/`canvasW` as it always did. Undo history resets on switch — each
+design gets its own fresh stack, since undoing a drag on one design has no
+meaning on a completely different one. A loaded real property (`?property=`)
+auto-opens on ITS OWN design if the template already has a matching variant,
+so the Ad Builder previews exactly what that property's ad will look like.
 
-**Ad Builder canvas preview.** The canvas now iterates a `visibleElements`
-getter (was `elements` directly) that filters through the same
-`CoreXAd.elementVisibleForProperty()`. With no property loaded (the default
-authoring state) this changes nothing — every element still shows, since
-`elementVisibleForProperty` fails open with no type context. When a real
-property IS loaded (`?property=` — an existing feature) the canvas now shows
-exactly what that property's real ad would show, type-gated elements
-included. The Layers panel is untouched — it iterates the full `elements`
-list regardless, so a type-hidden element stays selectable/editable there,
-the same UX already established for `el.hidden`.
+Verified by direct behavioural simulation (the pack/unpack logic isn't
+unit-testable in the current jsdom-less harness, being tightly coupled to
+the full Alpine component — the same limitation `stripBackground()`'s DOM-
+touching wrapper already had in §15.1, worked around there by testing only
+its pure algorithmic core): create Default content → make a Vacant Land
+variant (confirmed it starts as an exact clone) → edit the variant → switch
+to Default (confirmed unaffected by the variant edit) → switch back to the
+variant (confirmed the edit persisted) → read the save payload while the
+variant is active (confirmed BOTH the Default and the variant are present,
+correctly separated) → revert (confirmed the variant is deleted and the
+Default is restored). Every step passed before this shipped.
 
-**Deliberately not built this round:** a dedicated "preview as any property
-type" dropdown in the Ad Builder (independent of loading a real property) —
-not asked for, and the existing `?property=` load-a-real-property path
-already gives a true preview once a listing of that type exists; a
-higher-level "property category" taxonomy above the agency's own configured
-type names (e.g. bucketing Farm/Commercial under one label) — the agency's
-own exact type names are more precise and need no new taxonomy invented or
-kept in sync; any change to the pre-built (non-custom) ad templates — those
-are hardcoded Blade markup per design, not `layout_json`-driven, and were
-never part of "the template builder" this was asked for.
+**Deliberately not built this round:** a higher-level "property category"
+taxonomy above the agency's own configured type names (e.g. bucketing
+Farm/Commercial under one label) — the agency's own exact type names are
+more precise and need no new taxonomy invented or kept in sync; canvas-size
+mismatch warnings when a variant's dimensions differ from the Default's
+(they're free to differ — the clone is just a starting point) — not
+reported as an issue and adds a UI affordance nobody asked for; any change
+to the pre-built (non-custom) ad templates — those are hardcoded Blade
+markup per design, not `layout_json`-driven, and were never part of "the
+template builder" this was asked for.
 
 **Acceptance criteria**
-- [x] An element with no `visibleFor` at all — every template saved before
-      this feature existed — renders exactly as before, for every property
-      type.
-- [x] An element scoped to specific types renders for a property whose exact
-      (case-insensitive/trimmed) type matches one of them.
-- [x] The same element does NOT render for a property whose type isn't in
-      the list.
-- [x] Two elements can occupy the same position, each scoped to different
-      property types, so one template shows Bedrooms/Bathrooms for a House
-      and Land Size in the identical spot for Vacant Land.
-- [x] A property with no type set at all still shows every element — never
-      silently drops real content over missing classification data.
-- [x] The bulk Ad Manager and single-property generator both honour this
-      automatically via the shared `renderLayout()` — verified by reading
-      both call sites, not by duplicating the check into either surface.
-- [x] The Ad Builder's "Show for property type" checklist offers the
-      agency's own exact, agency-scoped Property Type names (verified via
-      Tinker with a real authenticated user, not the unscoped no-user case).
-- [x] `tests/js/ad-render-kernel.mjs` covers `elementVisibleForProperty()`
-      directly: exact match, case/whitespace tolerance, non-match, a second
-      element of a different type in the same slot, no-`visibleFor` and
-      empty-`visibleFor` both always-show, and missing/blank property type
-      always-show.
+- [x] A template with no `variants` key at all (every template saved before
+      this feature) resolves to its own unchanged design for every property
+      type — no migration needed.
+- [x] A property whose exact (case-insensitive/trimmed) type matches a
+      variant resolves to THAT variant's canvas AND elements, not the
+      Default's.
+- [x] A property whose type has no matching variant — including a blank/
+      unclassified type — resolves to the Default design.
+- [x] Two properties of different types, in the SAME bulk-generate batch,
+      using the SAME selected template, resolve to genuinely different
+      designs (verified via Tinker through the real `generate()` endpoint,
+      not just the model method in isolation).
+- [x] In the Ad Builder, giving a property type its own design starts as an
+      exact clone of the current Default, then edits independently of it —
+      editing the variant never mutates the Default, and vice versa.
+- [x] Switching between Default and a variant, back and forth, always shows
+      each one's own correct, current content — never stale, never bleeding
+      into the other.
+- [x] The save payload includes the Default (top level, unchanged shape) and
+      every custom variant (`variants`), including whichever one is
+      currently being edited at save time.
+- [x] Reverting a variant deletes it and falls back to Default, without
+      resurrecting the deleted content.
+- [x] A real property loaded via `?property=` auto-opens the Ad Builder on
+      its own matching variant, if one exists.
+- [x] `tests/js/ad-render-kernel.mjs` and
+      `tests/Unit/Properties/PropertyAdTemplateVariantTest.php` cover
+      `resolveTemplateLayout()`/`resolvedLayoutFor()` identically: exact
+      match, case/whitespace tolerance, no-match fallback, blank/missing
+      type fallback, no-`variants`-key fallback.
 
 ---
 
@@ -1622,28 +1642,41 @@ never part of "the template builder" this was asked for.
 - `tests/js/ad-render-kernel.mjs` — `objectFitRect()` cover/contain/matching-aspect/
   zero-size coverage.
 
-### Property-type conditional visibility (§18)
+### Property-type template variants (§18)
 - `app/Models/Property.php` — `adData()` gains `'property_type_raw'` (exact,
   untransformed `property_type`, kept separate from the display-uppercased
   `'property_type'` key already there).
-- `public/js/corex-ad-render.js` — `elementVisibleForProperty(el, prop)`
-  (pure, unit-tested), wired into `renderLayout()` alongside the existing
-  `el.hidden` check; exported on `CoreXAd`.
+- `public/js/corex-ad-render.js` — `resolveTemplateLayout(layoutJson,
+  propertyTypeRaw)` (pure, unit-tested), exported on `CoreXAd`; `renderLayout()`
+  itself is unchanged (reverted to its pre-§18 form — resolution happens
+  BEFORE calling it, not inside it).
+- `app/Models/PropertyAdTemplate.php` — `resolvedLayoutFor(?string
+  $propertyTypeRaw)`, the PHP mirror, unit-tested identically
+  (`tests/Unit/Properties/PropertyAdTemplateVariantTest.php`).
+- `app/Http/Controllers/Tools/AdManagerController.php` — `generate()` resolves
+  each property's OWN layout INSIDE the per-property loop (was resolved once,
+  outside the loop, shared by the whole batch); `$row['cw']`/`['ch']` now come
+  from that property's resolved layout too.
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — `builder()`
   fetches the agency's active `property_setting_items` (group
   `property_type`) and passes `$propertyTypeOptions` to the view.
-- `resources/views/corex/properties/ad-builder.blade.php` — universal "Show
-  for property type" checklist (common properties section, applies to every
-  element type); `isVisibleForType()`/`toggleVisibleForType()` (mirrors the
-  existing Features chooser's `selectedFeatures == null` convention); new
-  `visibleElements` getter feeds the canvas `x-for` (was `elements` directly)
-  so a loaded real property (`?property=`) previews type-gated correctly;
-  Layers panel untouched, still iterates the full `elements` list.
-- `resources/views/corex/properties/ad.blade.php`,
-  `resources/views/tools/ad-manager.blade.php` — no changes needed; both
-  already call the shared `renderLayout()` this was wired into (verified by
-  reading both call sites).
-- `tests/js/ad-render-kernel.mjs` — `elementVisibleForProperty()` coverage:
-  exact match, case/whitespace tolerance, non-match, a second element scoped
-  to a different type in the same slot, no-`visibleFor`/empty-`visibleFor`
-  always-show, missing/blank property type always-show.
+- `resources/views/corex/properties/ad-builder.blade.php` — the "Design for"
+  pill bar (`#varbar`); `variants`/`activeVariantType`/`_defaultLayout` state;
+  `_packActiveVariant()`/`_unpackVariant()`/`switchVariant()`/
+  `makeCustomVariant()`/`revertVariant()`; new `layoutJsonFull` getter feeds
+  `save()` (was building the payload inline from top-level fields); `init()`
+  auto-opens a loaded real property's matching variant.
+- `resources/views/corex/properties/ad.blade.php` — `selectCustomTemplate()`
+  and the picker's thumbnail/`customThumbStyle()`/element-count line all
+  resolve via a new `resolvedTemplateLayout(tpl)` helper instead of reading
+  `tpl.layout_json` directly.
+- `resources/views/tools/ad-manager.blade.php` — picker thumbnails (`loadPreviews()`)
+  resolve via a new `thumbLayout(t)` helper (feeds both the render call and
+  the thumbnail's aspect-ratio sizing); the bulk-generated rows themselves need
+  no client-side resolution — the server already resolves them per property.
+- `tests/js/ad-render-kernel.mjs` — `resolveTemplateLayout()` coverage: exact
+  match, case/whitespace tolerance, a variant's own canvas background coming
+  along with its elements, no-match fallback, blank/missing-type fallback,
+  no-`variants`-key fallback.
+- `tests/Unit/Properties/PropertyAdTemplateVariantTest.php` — same cases,
+  server-side.

@@ -271,13 +271,12 @@ class AdManagerController extends Controller
 
         // Custom template (numeric id) vs pre-built (known key). AgencyScope keeps
         // a custom template within the current agency.
-        $customLayout = null;
+        $custom = null;
         if (ctype_digit((string) $tpl)) {
             $custom = PropertyAdTemplate::find((int) $tpl);
             if (! $custom) {
                 abort(404, 'Template not found.');
             }
-            $customLayout = $custom->layout_json;
         } elseif (! in_array($tpl, array_column($this->prebuiltTemplates(), 'key'), true)) {
             abort(422, 'Unknown template.');
         }
@@ -313,12 +312,20 @@ class AdManagerController extends Controller
                 'ai_error'    => null,
             ];
 
-            if ($customLayout !== null) {
+            if ($custom !== null) {
+                // §18 — each property in the batch resolves its OWN layout: a
+                // vacant land listing and a house sharing the same selected
+                // template can render different designs if the template has
+                // a custom variant for one of them. Resolved per property,
+                // not once for the whole batch, so a mixed-type selection
+                // (the exact bulk-manager scenario this was built for) never
+                // forces every row onto one design.
+                $layout        = $custom->resolvedLayoutFor($p->property_type);
                 $row['custom'] = true;
-                $row['layout'] = $customLayout;
+                $row['layout'] = $layout;
                 $row['data']   = $p->adData();
-                $row['cw']     = (int) ($customLayout['canvasW'] ?? $plat['w']);
-                $row['ch']     = (int) ($customLayout['canvasH'] ?? $plat['h']);
+                $row['cw']     = (int) ($layout['canvasW'] ?? $plat['w']);
+                $row['ch']     = (int) ($layout['canvasH'] ?? $plat['h']);
             } else {
                 $row['html'] = view('corex.properties._ad-templates', array_merge(
                     ['tpl' => $tpl, 'baseFontPx' => $plat['base']],

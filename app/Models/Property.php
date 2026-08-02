@@ -2302,8 +2302,9 @@ class Property extends Model
             // Exact, untransformed property_type name (matches a
             // property_setting_items.name literally) — kept separate from the
             // display-formatted 'property_type' above so the ad kernel's
-            // per-element "visible for property type" matching (§18) never
-            // depends on that display string's casing/formatting choices.
+            // per-property template-variant resolution (§18,
+            // CoreXAd.resolveTemplateLayout()) never depends on that display
+            // string's casing/formatting choices.
             'property_type_raw' => trim((string) $this->property_type),
             'features'          => trim(($beds ? $beds . ' Bed' : '') . ($baths ? ' · ' . $baths . ' Bath' : '') . ($garages ? ' · ' . $garages . ' Garage' : ''), ' · '),
             // Full amenity list — the Ad Builder "Features" element lets the user
