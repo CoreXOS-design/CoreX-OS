@@ -121,6 +121,7 @@
         body { font-family: 'Figtree', sans-serif; background: var(--chrome-bg); color: var(--chrome-text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         #ad-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         [x-cloak] { display: none !important; }
+        @keyframes ad-spin { to { transform: rotate(360deg); } }
         .tpl-card { cursor: pointer; border-radius: 18px; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface); overflow: hidden; transition: all 0.18s ease; }
         .tpl-card:hover { border-color: var(--brand-button,#00b4d8); background: var(--chrome-surface); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
         .plat-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--chrome-border); background: var(--chrome-surface-2); color: var(--chrome-text); transition: all 0.12s; white-space: nowrap; }
@@ -306,7 +307,10 @@
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px;">
                 <template x-for="tpl in savedTemplates" :key="tpl.id">
                     <div class="custom-tpl-card" x-show="matchesSearch(tpl.name || '')" @click="selectCustomTemplate(tpl)">
-                        <div class="custom-tpl-thumb"><span x-text="tpl.name.charAt(0).toUpperCase()"></span></div>
+                        <div class="custom-tpl-thumb"
+                             x-init="$nextTick(() => CoreXAd.renderLayout(tpl.layout_json, propertyData, $el.querySelector('.custom-tpl-thumb-inner'), { placeholders: true, paintBackground: true }))">
+                            <div class="custom-tpl-thumb-inner" :style="customThumbStyle(tpl)"></div>
+                        </div>
                         <div style="flex:1;min-width:0;">
                             <div style="font-size:14px;font-weight:700;color:var(--chrome-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="tpl.name"></div>
                             <div style="font-size:11px;color:var(--chrome-text-mute);margin-top:3px;" x-text="(tpl.layout_json?.elements?.length || 0) + ' elements · ' + (tpl.layout_json?.canvasW || 1200) + '×' + (tpl.layout_json?.canvasH || 628)"></div>
@@ -437,6 +441,19 @@
              export (which captures only #ad-canvas) can never include them.
              Populated by mountImageTools(); one region per property image. --}}
         <div id="ad-img-tools" data-html2canvas-ignore="true"></div>
+
+        {{-- Capture veil — _capture() briefly sets #ad-scale-wrapper's transform to
+             'none' so html2canvas grabs the design at its true native size, but the
+             wrapper sits inside an overflow:hidden box sized to the SCALED preview —
+             so for that window the user saw the design snap to a cropped, zoomed-in
+             corner before snapping back. Covers the whole preview so nothing of that
+             transient state is visible; data-html2canvas-ignore keeps it out of the
+             actual capture. --}}
+        <div data-html2canvas-ignore="true" x-show="capturingPreview" x-cloak
+             style="position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:var(--chrome-surface,#0b1220);">
+            <svg style="width:26px;height:26px;color:var(--brand-button,#00b4d8);animation:ad-spin 0.8s linear infinite;" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="34 100"/></svg>
+            <span style="font-size:12px;font-weight:600;color:var(--chrome-text-soft);">Rendering…</span>
+        </div>
     </div>
 
 </div>
@@ -513,6 +530,11 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
         template: null,
         platform: 'facebook',
         generating: false,
+        // _capture() briefly removes #ad-scale-wrapper's zoom transform to grab the
+        // design at native size — the wrapper's overflow:hidden clip box (sized to
+        // the SCALED preview) then shows a cropped, zoomed-in corner of the design
+        // until the transform is restored. This veils that window (see markup).
+        capturingPreview: false,
         exporting: false,
         returnMarketing: new URLSearchParams(window.location.search).get('return_marketing') || null,
         platforms,
@@ -579,10 +601,40 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
             return q ? this.savedTemplates.filter(t => (t.name || '').toLowerCase().includes(q)).length : this.savedTemplates.length;
         },
 
+        /**
+         * Picker thumbnail sizing for a custom (agency-built) template — "contain"
+         * fit inside the .custom-tpl-thumb box (100×52px, see CSS), centred, since
+         * unlike the fixed 1200×628 pre-built cards a custom template can be ANY
+         * canvas size/ratio (square, story-tall, etc.) and must not be stretched
+         * to fit a box shaped for a different aspect ratio.
+         */
+        customThumbStyle(tpl) {
+            const lj = tpl.layout_json || {};
+            const cw = lj.canvasW || 1200, ch = lj.canvasH || 628;
+            const boxW = 100, boxH = 52;
+            const scale = Math.min(boxW / cw, boxH / ch);
+            const w = cw * scale, h = ch * scale;
+            const left = Math.round((boxW - w) / 2), top = Math.round((boxH - h) / 2);
+            return 'position:absolute;left:' + left + 'px;top:' + top + 'px;'
+                 + 'width:' + cw + 'px;height:' + ch + 'px;'
+                 + 'transform-origin:top left;transform:scale(' + scale + ');';
+        },
+
         get cfg() {
             if (this.template === 'custom' && this._customLayout) {
-                const preset = this._customLayout.canvasPreset || 'facebook';
-                return platforms[preset] || { w: this._customLayout.canvasW || 1200, h: this._customLayout.canvasH || 628, baseFontPx: 16, label: 'Custom' };
+                // ALWAYS the template's own saved canvasW/canvasH — never a preset's
+                // fixed size. canvasPreset is just the label of the button last
+                // clicked in the Ad Builder; a designer can pick a preset THEN
+                // resize the canvas, leaving the preset name stale relative to the
+                // actual dimensions the elements were positioned against. The old
+                // code trusted platforms[preset] whenever the preset name happened
+                // to match a real platform key — sizing the live preview/canvas
+                // WRONG for any such template, while _capture() (which always read
+                // canvasW/H directly) rendered it correctly, so a size mismatch
+                // would only ever surface at generate/download time.
+                const w = this._customLayout.canvasW || 1200;
+                const h = this._customLayout.canvasH || 628;
+                return { w, h, baseFontPx: Math.max(12, Math.round(Math.min(w, h) / 38)), label: 'Custom' };
             }
             if (this.platform === 'custom') {
                 const w = Math.max(200, Math.min(4000, +this.customW || 1080));
@@ -820,26 +872,36 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages) {
                 canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
                 canvas.style.background = CoreXAd.canvasBackground(this._customLayout);
             }
+            // Veil the preview BEFORE untransforming — the wrapper sits inside an
+            // overflow:hidden box sized to the scaled-down preview, so removing its
+            // zoom transform (needed for html2canvas to grab the design at native
+            // size) would otherwise flash a cropped, zoomed-in corner of the design
+            // at the user for the whole capture window.
+            this.capturingPreview = true;
             const saved = wrapper.style.transform;
             wrapper.style.transform = 'none';
-            // A template can pick any of the ad fonts — if the face has not finished
-            // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
-            // from the preview the agent approved.
-            if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
-            // An Agent Image with "Remove background" on swaps its <img src> once the
-            // in-browser cutout finishes — await that too, or a fast capture can
-            // rasterise the un-stripped original photo.
-            try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
-            await new Promise(r => setTimeout(r, 80));
-            const c = await html2canvas(canvas, {
-                width: cfg.w, height: cfg.h, scale: 2,
-                useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
-            });
-            wrapper.style.transform = saved;
-            // The capture untransformed the wrapper (and resized the canvas for a
-            // custom layout); realign the "change photo" regions to the images.
-            this.scheduleMountTools();
-            return c;
+            try {
+                // A template can pick any of the ad fonts — if the face has not finished
+                // loading, html2canvas rasterises the FALLBACK and the PNG silently differs
+                // from the preview the agent approved.
+                if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
+                // An Agent Image with "Remove background" on swaps its <img src> once the
+                // in-browser cutout finishes — await that too, or a fast capture can
+                // rasterise the un-stripped original photo.
+                try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
+                await new Promise(r => setTimeout(r, 80));
+                const c = await html2canvas(canvas, {
+                    width: cfg.w, height: cfg.h, scale: 2,
+                    useCORS: true, allowTaint: false, backgroundColor: this._canvasBg(), logging: false,
+                });
+                return c;
+            } finally {
+                wrapper.style.transform = saved;
+                this.capturingPreview = false;
+                // The capture untransformed the wrapper (and resized the canvas for a
+                // custom layout); realign the "change photo" regions to the images.
+                this.scheduleMountTools();
+            }
         },
 
         async exportForMarketing() {

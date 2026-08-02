@@ -1066,6 +1066,89 @@ scope on request, see §15's "Deliberately not built").
 
 ---
 
+## 16. Generator fixes — the "zoom" glitch, a canvas-size mismatch, and a picker preview
+
+> Status: LIVE · 2026-08-02
+
+**Reported by Johan against a real custom template** ("For Sale Template",
+`property_ad_templates.id=1`) — clicking Generate did "a weird zoom in", the
+Agent Image looked stretched, and elements (the agency logo named specifically)
+appeared out of position. Inspected the actual saved `layout_json` via Tinker
+rather than guessing.
+
+**Confirmed and fixed — the zoom glitch.** `_capture()` briefly sets
+`#ad-scale-wrapper`'s CSS `transform` to `none` so html2canvas can grab the
+design at its true native pixel size. But that wrapper sits inside a box sized
+to the SCALED-DOWN preview with `overflow:hidden` — removing the transform
+made the full-size canvas render behind that small clip window, so the user
+saw the preview snap to a cropped, zoomed-in corner of the design for the
+whole capture window (fonts + `backgroundRemovalsSettled()` + the 80ms buffer
++ the actual html2canvas run), then snap back. Fixed with a **capture veil** —
+a `data-html2canvas-ignore` overlay (`capturingPreview`) covering the preview
+with a spinner for exactly that window, wrapped in `try/finally` so it (and
+the transform) are ALWAYS restored even if the capture throws — previously an
+error mid-capture could leave the preview permanently un-scaled until some
+unrelated reactive trigger happened to fix it.
+
+**Confirmed and fixed — a latent canvas-size bug (general fix, not proven to
+be THIS template's specific cause).** `get cfg()` returned
+`platforms[canvasPreset]` — the STANDARD size for whatever preset name is
+stored — instead of the template's own saved `canvasW`/`canvasH`, whenever
+`canvasPreset` happened to match a real platform key. `canvasPreset` is just
+the label of the last preset button clicked in the Ad Builder; a designer can
+pick a preset THEN resize the canvas, leaving the preset name stale relative
+to the actual dimensions every element was positioned against — sizing the
+LIVE preview/canvas wrong while `_capture()` (which always read
+`canvasW`/`canvasH` directly) rendered correctly, so any mismatch would only
+ever surface at generate time. Fixed: `cfg` now always trusts the template's
+own `canvasW`/`canvasH`, never the preset. (This template's own
+`canvasPreset` is the literal string `"custom"` — not a real platform key — so
+its OWN `cfg` was already resolving correctly via the old fallback; this fix
+protects every OTHER custom template that started from a real preset and was
+then resized, which this bug would have silently mis-sized.)
+
+**Investigated, not conclusively resolved — the Agent Image "stretch".** The
+saved element is `agent_avatar`, `w:180 h:200`, `shapeType:"rectangle"`
+(so no clip-path/circle masking is in play at all — a plain sharp rectangle),
+`objectFit:"cover"` (crops, does not distort), `removeBackground:true`. Nothing
+in `frameStyle()`/`imgTag()`/`stripBackground()` was found to alter this
+element's aspect ratio. Two live possibilities, neither confirmed without a
+real browser: (a) what looked like "stretching" was actually the zoom/clip
+glitch above happening to the whole canvas including this element, now fixed
+by the same veil; (b) a background-removal cutout artifact (§15.1, itself
+fixed twice already this session) being described informally as "stretched"
+rather than a true geometric distortion. Flagged rather than patched blind.
+
+**Built — custom template picker previews (the separate feature ask).**
+Custom (agency-built) template cards showed only a letter avatar
+(`tpl.name.charAt(0)`) where pre-built cards already show a live, real-data
+thumbnail (server-rendered Blade, scaled via `transform:scale()`). Custom
+templates can't use that — `layout_json` is client-side JSON, not a Blade
+partial — so each card's `.custom-tpl-thumb` now mounts `CoreXAd.renderLayout()`
+directly (`x-init`, using the page's own `propertyData` + `{placeholders:true}`
+so a template with no chosen agent/photo still shows sensible placeholder
+copy, same as the Ad Builder). New `customThumbStyle(tpl)` computes a
+**"contain" fit** (not the fixed 1200×628 pre-built cards use) — a custom
+template can be any canvas size/ratio (square, story-tall, whatever), and
+stretching it to a box shaped for a different aspect ratio would be exactly
+the kind of visual bug this whole investigation was about.
+
+**Acceptance criteria**
+- [x] Clicking Generate/Download/Export never visibly flashes a cropped,
+      zoomed-in view of the design.
+- [x] A capture error always restores the preview's transform and clears the
+      veil — never leaves it stuck un-scaled.
+- [x] A custom template whose `canvasPreset` matches a real platform name but
+      whose actual `canvasW`/`canvasH` differs renders at ITS OWN size, live,
+      not the preset's.
+- [x] Every custom template card in the picker shows a live, correctly-
+      proportioned preview of the actual design, not a letter avatar.
+- [ ] Agent Image "stretch" — NOT closed; needs the two fixes above verified
+      live against the actual reported template, or a screenshot, to know
+      whether anything further is needed.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -1162,3 +1245,9 @@ scope on request, see §15's "Deliberately not built").
   `backgroundRemovalsSettled()` before `html2canvas`.
 - `tests/js/ad-render-kernel.mjs` — flood-fill algorithm (synthetic pixel buffers),
   onload-hook emission/omission.
+
+### Generator fixes + picker previews (§16)
+- `resources/views/corex/properties/ad.blade.php` — `capturingPreview` + capture veil
+  (`try/finally` in `_capture()`); `get cfg()` always trusts the custom template's own
+  `canvasW`/`canvasH`; `customThumbStyle(tpl)` + live `CoreXAd.renderLayout()` mount per
+  custom-template picker card, replacing the letter-avatar thumb; `@keyframes ad-spin`.
