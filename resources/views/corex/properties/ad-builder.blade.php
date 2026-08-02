@@ -500,7 +500,7 @@
 
                     {{-- Elements. frameStyle() + contentHtml() come from the shared kernel,
                          so what you see here is literally what the generator renders. --}}
-                    <template x-for="el in elements" :key="el.id">
+                    <template x-for="el in visibleElements" :key="el.id">
                         <div class="canvas-el"
                              :class="{ selected: !previewMode && !capturing && isSelected(el), locked: el.locked }"
                              :style="CoreXAd.frameStyle(el)"
@@ -674,7 +674,28 @@
                         <input type="range" min="0" max="1" step="0.01" :value="sel.elOpacity ?? 1" @input="mutate('elOpacity', +$event.target.value)">
                     </div>
 
-                    <hr class="pp-sep">
+                    {{-- §18 — per-element property-type visibility. Universal (applies to
+                         every element type): lets one template look different for a House
+                         vs a Vacant Land, e.g. a Bedrooms icon block scoped to "House" and a
+                         Land Size block scoped to "Vacant Land / Plot" occupying the same
+                         spot. All ticked (the default) = always shows, unaffected. --}}
+                    <template x-if="propertyTypeOptions.length > 0">
+                        <div>
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Show for property type</label>
+                                <div style="display:flex;flex-direction:column;gap:5px;max-height:170px;overflow-y:auto;width:100%;">
+                                    <template x-for="pt in propertyTypeOptions" :key="pt">
+                                        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--chrome-text);cursor:pointer;font-weight:500;">
+                                            <input type="checkbox" :checked="isVisibleForType(sel, pt)" @change="toggleVisibleForType(pt)" style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
+                                            <span x-text="pt"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="pp-hint" x-show="sel.visibleFor != null && sel.visibleFor.length < propertyTypeOptions.length">Hidden entirely when generating an ad for a property whose type isn't ticked above. Design a different region per property type by placing another element in the same spot, scoped to the other type(s).</div>
+                            <hr class="pp-sep">
+                        </div>
+                    </template>
 
                     {{-- Image fields --}}
                     <template x-if="CoreXAd.isImageField(sel.field)">
@@ -1234,6 +1255,9 @@ function builder() {
         propertyData:  @json($propertyData ?? null),
         propertyId:    @json($property?->id ?? null),
         propertyAdUrl: @json($property ? route('corex.properties.ad', $property) : null),
+        // §18 — the agency's own Property Type names, for the per-element
+        // "Show for property type" checklist.
+        propertyTypeOptions: @json($propertyTypeOptions ?? []),
         returnMarketingPropertyId: new URLSearchParams(window.location.search).get('return_marketing') || null,
 
         // ── Selection (ids, not indices — survives restacking and undo) ──────
@@ -1294,6 +1318,17 @@ function builder() {
 
         get useOnPropertyUrl() {
             return this.propertyAdUrl || @json(route('corex.properties.index'));
+        },
+
+        // §18 — what actually renders on the canvas. Only differs from
+        // `elements` when a real property is loaded (?property=) AND it has a
+        // type: then an element scoped to OTHER property types drops out,
+        // giving a true preview of what that exact property's ad will look
+        // like. With no property loaded (the common design-time case) this is
+        // always the full list — CoreXAd.elementVisibleForProperty() fails
+        // open on missing property-type context.
+        get visibleElements() {
+            return this.elements.filter(el => this.CoreXAd.elementVisibleForProperty(el, this.propertyData || {}));
         },
 
         get selIdx() {
@@ -2297,6 +2332,22 @@ function builder() {
             let cur = el.selectedFeatures == null ? [...this.featuresList] : [...el.selectedFeatures];
             cur = cur.includes(f) ? cur.filter(x => x !== f) : [...cur, f];
             this.mutate('selectedFeatures', cur);
+        },
+
+        /* ═══ §18 — per-element property-type visibility ═══════════════════ */
+
+        isVisibleForType(el, pt) {
+            // null/unset = every type (the default, and what every template
+            // saved before this feature existed already implicitly means).
+            return el.visibleFor == null ? true : el.visibleFor.includes(pt);
+        },
+
+        toggleVisibleForType(pt) {
+            const el = this.sel;
+            if (!el) return;
+            let cur = el.visibleFor == null ? [...this.propertyTypeOptions] : [...el.visibleFor];
+            cur = cur.includes(pt) ? cur.filter(x => x !== pt) : [...cur, pt];
+            this.mutate('visibleFor', cur);
         },
 
         /* ═══ Media upload ════════════════════════════════════════════════ */
