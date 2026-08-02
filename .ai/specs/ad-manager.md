@@ -851,6 +851,98 @@ garages" holds even before a real listing is attached.
 
 ---
 
+## 14.2 "Size / Land Size" combined field — vacant land has no floor size
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Same shape of problem as §14.1, reported the same way: a fixed
+"Size m²" field shows the property's floor size — but **vacant land has no
+floor size at all**, only a stand/erf size. Before the placeholder-leak fix
+(§17, found investigating this exact report), a vacant-land listing didn't
+even render blank — it showed the field's design-time **preview text
+("450 m²") as if it were the property's real size**, on the actual generated
+ad. New field **`size_or_land`** resolves per property: floor size
+(`size_m2`) if the property has one (`> 0`), else the land/erf size
+(`erf_size_m2`), else hidden — never both, matching `garages_or_parking`'s
+exact resolution shape.
+
+**Data.** `Property::adData()` already exposed `size_m2` **pre-formatted**
+(`"450 M²"` string, via PHP `number_format()`) for the existing plain "Size
+m²" field — changing that would break every template already using it. So
+this adds two NEW raw (unformatted) keys instead: `floor_size_m2` (mirrors
+`size_m2`'s own value, just not pre-formatted) and `land_size_m2`
+(`erf_size_m2`, previously not exposed to the Ad Manager at all). The
+combined field does its OWN formatting client-side (`formatSizeNumber()`,
+matching PHP's `number_format()` thousands-separator convention exactly, so
+"1,250 M²" reads identically whichever field shows it) so both candidates
+can be formatted identically regardless of which one wins.
+
+**The "Erf" suffix is deliberate, not decoration.** Showing land size with
+no indication it ISN'T the floor size would be exactly the kind of ambiguous
+real-estate marketing copy CoreX exists to prevent (a buyer could easily read
+"450 M²" as house size when it's actually the stand size). Floor size shows
+bare (`"450 M²"`, matching the existing plain field's convention exactly);
+land size always appends `" Erf"` (`"2,754 M² Erf"`) — the standard SA term
+for a stand/plot, per `CLAUDE.md`'s South African context.
+
+**No icon/"Number + label" panel** — unlike Beds/Baths/Garages/Parking,
+size has no singular/plural concept, so `size_or_land` is deliberately NOT a
+member of `NUMERIC_FEATURE_FIELDS` (that set specifically gates the icon +
+display-format panel, §14) — it needs no extra per-element configuration
+beyond the position/style every element already gets.
+
+**Acceptance criteria**
+- [x] A listing with a floor size shows it, bare, exactly like the existing
+      plain Size m² field.
+- [x] Vacant land (no floor size, real erf size) shows the erf size with the
+      "Erf" suffix — verified against a real property (id 1290) via Tinker.
+- [x] A listing with neither renders empty, never a fabricated size.
+- [x] Thousands-separator formatting matches the plain field's PHP
+      `number_format()` output exactly.
+- [x] `tests/js/ad-render-kernel.mjs` covers both-present / zero-explicit /
+      absent / neither / builder-placeholder / thousands-separator paths.
+
+---
+
+## 17. Placeholder-leak fix — a missing field must never fabricate data onto a real ad
+
+> Status: LIVE · 2026-08-02 — found investigating the §14.2 report, fixed the same day
+
+**What/why.** While diagnosing "vacant land shows a fabricated 450 m²",
+traced `textValue()`'s generic fallback (every text field that isn't one of
+the special-cased ones above) and found: **`return el.preview || el.label ||
+'';` ran unconditionally, ignoring `opts.placeholders` entirely.** The
+Agent-2 fields and the numeric feature fields (§14) already had their own
+`if (!opts.placeholders) return '';` guard — but the generic path every OTHER
+field falls through (`reference`, `address`, `agent_phone`, `agency_name`,
+`website`, `size_m2` before §14.2, and any custom/decorative field with no
+matching property key) did not. **This meant any of those fields, on any
+property missing that data, rendered its DESIGN-TIME PREVIEW TEXT on the
+actual generated ad as if it were real** — a property with no captured
+floor size showed "450 m²", one with no reference showed "REF 12345", one
+with a blank agent phone column would have shown "082 000 0000" — all
+fabricated, all indistinguishable from real data to whoever received the ad.
+
+**Fix.** The generic fallback now carries the exact same guard the
+special-cased fields already had: `if (!opts.placeholders) return '';` before
+falling back to `el.preview || el.label`. The Builder still shows every
+field's preview copy when the real value is missing (so designing against an
+incomplete property still looks right); the generator and bulk Ad Manager now
+render nothing rather than fiction. This generalises a rule that was already
+correct for two special cases to the one function that governs all of them —
+"fix the class, not the instance" (BUILD_STANDARD §6).
+
+**Acceptance criteria**
+- [x] Every generic text field with no real data renders empty on the
+      generator, never its design-time preview.
+- [x] The Ad Builder is completely unaffected — still shows every preview
+      when designing against an incomplete property.
+- [x] A field WITH real data is completely unaffected either way.
+- [x] `tests/js/ad-render-kernel.mjs` covers the generic path directly
+      (`reference`, `address`, `agent_phone`) plus the untouched real-data case.
+
+---
+
 ## 15. Agent Image — renamed from "Avatar", plus a shape picker
 
 > Status: LIVE · 2026-08-02
@@ -1290,6 +1382,17 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
   existing `prop.garages`/`prop.parking` and the existing numeric-feature panel.
 - `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
   / icon coverage.
+
+### "Size / Land Size" combined field + placeholder-leak fix (§14.2, §17)
+- `public/js/corex-ad-render.js` — `size_or_land` field/defaults/catalogue entry,
+  `resolveSizeOrLand()`, `formatSizeNumber()`, its `textValue()` branch; the generic
+  `textValue()` fallback now guards on `opts.placeholders` (the actual bug fix, affects
+  every field that falls through to it, not just size).
+- `app/Models/Property.php` — `adData()` gains `floor_size_m2`/`land_size_m2` (raw,
+  unformatted) alongside the existing pre-formatted `size_m2`.
+- `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
+  / thousands-separator coverage for the new field; generic-fallback placeholder-leak
+  coverage (`reference`, `address`, `agent_phone`, plus the untouched real-data case).
 
 ### Element grouping (§13.1)
 - `public/js/corex-ad-render.js` — `makeElement()` seeds `groupId: null` (builder-only,
