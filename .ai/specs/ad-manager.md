@@ -699,6 +699,59 @@ controls, before the Features chooser block.
       `PropertyBrochureService` and `adData()` agree on every listing.
 - [x] `tests/js/ad-render-kernel.mjs` and `AdRenderKernelTest.php` pass.
 
+### 14.1 "Garages / Parking" combined field — for bulk ad runs across mixed listings
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Bulk **Tools → Ad Manager** applies ONE template across MANY
+properties in a single run (§10b). A template built with a plain **Garages**
+field prints blank (or "0 Garages" in label mode) on any listing that only
+has parking bays, and a **Parking** field does the mirror-image wrong thing
+on a listing with a garage — there is no single template that reads correctly
+across a mixed batch. New field **`garages_or_parking`** (catalogue label
+"Garages / Parking") resolves **per property, at render time**: garages if
+the listing has any (`> 0`), else parking, else hidden — never both, never a
+"0" value. The two existing standalone **Garages** and **Parking** fields are
+unchanged and still exist for a template that must always read one specific
+source.
+
+**Resolution (`resolveGaragesOrParking(prop)`)** — garages wins whenever it
+is a real positive count; "no garage" covers both an explicit `"0"` and an
+absent/empty value the same way, because a bulk run cannot assume every
+listing's garage column was ever populated. Falls to parking only when
+garages resolves to nothing. Neither present → `null`, which renders **empty**
+on the generator (the same "hide the zero" convention as the Parking field
+and the printable brochure's specs bar) and the label-format word for
+whichever source won ("1 Garage" / "3 Garages" / "2 Parking" — Parking still
+never pluralises).
+
+**No new backend data.** The resolver reads the SAME `prop.garages` /
+`prop.parking` values `Property::adData()` already emits — no new PHP, no new
+column. It is a value-selection rule at the rendering layer, not a new data
+source.
+
+**Builder UI — nothing to add.** `garages_or_parking` is a member of
+`NUMERIC_FEATURE_FIELDS` (§14), so it automatically gets the same "Display
+as" + icon-picker panel as Beds/Baths/Garages/Parking with zero additional
+Blade code — the panel is gated on membership in that list, not on a
+per-field template block.
+
+**Builder preview (no real property yet).** Falls back to the field's
+`preview` value read as a **garages** count/word ("2 Garages") — "defaults to
+garages" holds even before a real listing is attached.
+
+**Acceptance criteria**
+- [x] A listing with a garage shows the garages count/word; a listing with
+      only parking bays shows the parking count/word from the SAME template
+      element — no per-property re-editing needed for a bulk run.
+- [x] A listing with neither renders empty, never "0 Garages".
+- [x] Works identically in bare-number and "Number + label" mode.
+- [x] Carries an icon exactly like the other three numeric fields (no special
+      icon-switching — the icon is the agent's own choice, independent of
+      which source resolved).
+- [x] `tests/js/ad-render-kernel.mjs` covers both-present / zero-explicit /
+      absent / neither / builder-placeholder / icon paths.
+
 ---
 
 ## 11. Files to create / modify
@@ -753,3 +806,10 @@ controls, before the Features chooser block.
 - `resources/views/corex/properties/ad-builder.blade.php` — "Display as" + icon-picker
   panel for the four numeric fields.
 - `tests/js/ad-render-kernel.mjs` — label/pluralisation/icon/legacy-back-compat checks.
+
+### "Garages / Parking" combined field (§14.1)
+- `public/js/corex-ad-render.js` — `garages_or_parking` field/defaults/catalogue entry,
+  `resolveGaragesOrParking()`, its `textValue()` branch. No backend/Blade changes — reuses
+  existing `prop.garages`/`prop.parking` and the existing numeric-feature panel.
+- `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
+  / icon coverage.

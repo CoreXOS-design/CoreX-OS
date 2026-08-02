@@ -136,6 +136,37 @@ ok('ICON_LIST only offers keys that actually exist in ICONS',
 ok('parking is a real builder field with its own default size',
     K.FIELD_DEFAULTS.parking && K.FIELD_DEFAULTS.parking.w === 80);
 
+section('"Garages / Parking" combined field — for bulk ad runs across mixed listings');
+
+const withGarage  = { garages: '2', parking: '5' };   // has both — garages wins
+const parkOnly    = { garages: '0', parking: '3' };   // no garage (explicit 0) — falls to parking
+const parkOnly2   = { garages: '', parking: '4' };    // no garage (absent) — falls to parking
+const neitherProp = { garages: '0', parking: '' };    // has neither — hidden like any other zero spec
+
+ok('garages present and > 0 → garages wins over parking',
+    K.resolveGaragesOrParking(withGarage).field === 'garages' && K.resolveGaragesOrParking(withGarage).num === 2);
+ok('garages explicitly "0" → falls back to parking', K.resolveGaragesOrParking(parkOnly).field === 'parking');
+ok('garages absent/empty string → falls back to parking', K.resolveGaragesOrParking(parkOnly2).field === 'parking');
+ok('neither present → resolves to null (hidden, not "0 Garages")', K.resolveGaragesOrParking(neitherProp) === null);
+
+const gp = (o) => el({ field: 'garages_or_parking', ...o });
+ok('bare number mode shows the resolved garages count',
+    K.textValue(gp({}), withGarage, {}) === '2');
+ok('bare number mode falls back to the resolved parking count on a garage-less listing',
+    K.textValue(gp({}), parkOnly, {}) === '3');
+ok('label mode reads "Garage"/"Garages" when resolved to garages',
+    K.textValue(gp({ numberFormat: 'label' }), { garages: '1', parking: '5' }, {}) === '1 Garage');
+ok('label mode reads "Parking" (never pluralised) when it falls back',
+    K.textValue(gp({ numberFormat: 'label' }), parkOnly, {}) === '3 Parking');
+ok('a listing with neither renders EMPTY on the generator (never "0 Garages")',
+    K.textValue(gp({ numberFormat: 'label' }), neitherProp, {}) === '');
+ok('the BUILDER preview (no real property yet) defaults to garages wording',
+    K.textValue(gp({ numberFormat: 'label' }), {}, { placeholders: true }) === '2 Garages');
+ok('the field carries an icon like any other numeric feature field',
+    K.contentHtml(gp({ icon: 'garage' }), withGarage, {}).includes('<svg'));
+ok('is a real draggable builder field, in the numeric-feature set',
+    !!K.FIELD_DEFAULTS.garages_or_parking && K.NUMERIC_FEATURE_FIELDS.includes('garages_or_parking'));
+
 section('Templates saved BEFORE any of this still render unchanged');
 
 const legacyShape = { id: 1, field: 'shape', x: 0, y: 0, w: 100, h: 100, zIndex: 1, bg: '#00b4d8', opacity: 1, borderRadius: 50 };
