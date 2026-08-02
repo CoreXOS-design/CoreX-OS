@@ -1,7 +1,7 @@
 # Ad Manager — Module Spec
 
 > Status: ACTIVE — build in flight on `AT-7-Finish-ad-manager-for-CoreX`
-> Last updated: 2026-06-13 (Andre)
+> Last updated: 2026-08-02 (Johan) — §14 numeric feature display format + icon
 > Pillars: **Property** (read), **Agent** (read), **Agency** (read/scope)
 
 ---
@@ -616,6 +616,91 @@ Blade, not `layout_json` — a real conversion, specced separately if wanted).
 
 ---
 
+## 14. Numeric feature fields — display format + icon (Beds/Baths/Garages/Parking)
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** The Beds/Baths/Garages builder fields only ever rendered a bare
+number (`"3"`). An agent building a custom template had no way to show
+`"3 Bedrooms"` with correct singular/plural, or to pair the value with a
+real-estate icon — both standard on the printable brochure (§10c) but missing
+from the customisable Ad Builder. This closes that gap and adds a fourth
+numeric field, **Parking** (previously brochure-only), to the builder catalogue
+for consistency.
+
+**Data model.** No new table/column — everything lives in the existing
+`layout_json.elements[]` shape (§3). Three new per-element properties, valid
+only on `field ∈ {beds, baths, garages, parking}`:
+
+| Property | Values | Default |
+|---|---|---|
+| `numberFormat` | `'number'` \| `'label'` | `'number'` (bare number — unchanged legacy behaviour) |
+| `icon` | a key into the kernel's `ICONS` map, or `null` | `null` (no icon) |
+| `iconSize` | px, falls back to `fontSize` when unset | `null` |
+
+A legacy element (saved before this change) carries none of these keys —
+`el.numberFormat === 'label'` is false for `undefined`, so it renders exactly
+as before. Icon default is **off**, including for brand-new elements the
+agent hasn't touched, so nothing changes until the agent opts in.
+
+**Singular/plural.** `"label"` format renders `"{number} {word}"` with the
+word chosen by count — Bedroom/Bedrooms, Bathroom/Bathrooms, Garage/Garages —
+mirroring the brochure's existing rule exactly (`_brochure.blade.php`). A real
+half (e.g. 1.5 baths) is kept and pluralises. **Parking never pluralises**
+("Parking" at any count) — same convention the brochure already uses. Handles
+the full input space per BUILD_STANDARD.md §2: empty on the **generator**
+renders nothing (never `"undefined Bedrooms"`); empty on the **builder**
+(`opts.placeholders`) falls back to the field's preview, still formatted;
+non-numeric garbage falls back to the raw string rather than throwing.
+
+**Icon set.** A curated 12-icon real-estate set (Bed, Bath, Garage/Car,
+Parking, Size, House, Location, Key, Pool, Garden, Door, Price Tag) — single-
+path/simple-shape SVGs, `viewBox="0 0 24 24"`, `fill="currentColor"` so an
+icon always follows the element's own text colour (no separate icon-colour
+control). The Bed/Bath/Garage/Parking icons are the SAME paths already
+proven in the printable brochure. Icon is purely decorative/optional — an
+agent can pair any icon with any of the four fields (e.g. a Key icon on
+Garages), it is not locked to a "matching" icon.
+
+**Parking as a new field.** `Property::spaceCount(string $type): int` is the
+single derivation (sum of `spaces_json` entries of that `type`) — previously
+duplicated as a private method on `PropertyBrochureService`; that now
+delegates to the Property method so the brochure and the Ad Manager can never
+compute two different Parking counts for the same listing.
+`Property::adData()['parking']` is `''` when the count is 0 (no data to show,
+same "hide the zero" convention as the brochure's specs bar), else the count
+as a string — matching how `beds`/`baths`/`garages` are already emitted.
+
+**Rendering (one kernel, three surfaces — §12).** `contentHtml()`'s shared
+text-field branch prefixes an inline `<span>` icon (sized to `iconSize` or
+`fontSize`, `margin-right` scaled to size) before the value span — it is not
+a separate canvas element, so it always moves and aligns with the text as one
+unit. Because all three ad surfaces (Builder, single-property generator, bulk
+Ad Manager) render through `corex-ad-render.js`, the format/icon choice
+appears identically on all three the moment it's saved — no per-surface work.
+
+**Builder UI.** A "Display as" select (Number only / Number + label) and a
+6-column icon grid (mirrors the existing Shape picker's visual-swatch
+pattern, §13) appear in the property panel only when the selected element's
+field is one of the four numeric fields. Selecting an icon shows an "Icon
+size" px input. Panel: `ad-builder.blade.php`, right after the frame/opacity
+controls, before the Features chooser block.
+
+**Acceptance criteria**
+- [x] A Beds/Baths/Garages/Parking element defaults to a bare number — no
+      visual change to any template saved before this change.
+- [x] "Number + label" pluralises correctly at 0, 1, 2+, and a real half
+      (baths); Parking never pluralises.
+- [x] An icon renders inline, sized and coloured correctly, on Builder,
+      generator and bulk Ad Manager alike (one kernel, no drift).
+- [x] Empty value on the generator renders nothing; on the builder falls
+      back to the preview; non-numeric input never throws.
+- [x] `Property::spaceCount()` is the only Parking-counting code path;
+      `PropertyBrochureService` and `adData()` agree on every listing.
+- [x] `tests/js/ad-render-kernel.mjs` and `AdRenderKernelTest.php` pass.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -656,3 +741,15 @@ Blade, not `layout_json` — a real conversion, specced separately if wanted).
   drift bugs in §12.1).
 - `tests/Feature/Properties/AdRenderKernelTest.php` — the drift guard (new).
 - `tests/js/ad-render-kernel.mjs` — render-logic checks against the shipped kernel (new).
+
+### Numeric feature display format + icon (§14)
+- `public/js/corex-ad-render.js` — `NUMERIC_FEATURE_FIELDS`, `FEATURE_LABELS`, `ICONS`,
+  `ICON_LIST`, `parking` field/defaults, label formatting in `textValue()`, icon rendering
+  in `contentHtml()`/`iconHtml()`.
+- `app/Models/Property.php` — `spaceCount()` (new, shared with the brochure); `adData()`
+  gains the `parking` key.
+- `app/Services/Properties/PropertyBrochureService.php` — delegates Parking counting to
+  `Property::spaceCount()` instead of its own private copy.
+- `resources/views/corex/properties/ad-builder.blade.php` — "Display as" + icon-picker
+  panel for the four numeric fields.
+- `tests/js/ad-render-kernel.mjs` — label/pluralisation/icon/legacy-back-compat checks.

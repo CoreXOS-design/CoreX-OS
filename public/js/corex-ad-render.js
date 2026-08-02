@@ -99,6 +99,7 @@
         beds:             { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '4' },
         baths:            { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '3' },
         garages:          { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
+        parking:          { w: 80,  h: 36,  fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'center', letterSpacing: 0, padding: 4, preview: '2' },
         size_m2:          { w: 120, h: 36,  fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '450 m²' },
         reference:        { w: 160, h: 28,  fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.08, padding: 4, preview: 'REF 12345' },
         address:          { w: 360, h: 32,  fontSize: 13, fontWeight: '500', color: 'rgba(255,255,255,0.7)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '12 Marine Drive' },
@@ -154,6 +155,7 @@
         { type: 'beds',          group: 'property', label: 'Beds',         iconBg: '#0369a1' },
         { type: 'baths',         group: 'property', label: 'Baths',        iconBg: '#0369a1' },
         { type: 'garages',       group: 'property', label: 'Garages',      iconBg: '#0369a1' },
+        { type: 'parking',       group: 'property', label: 'Parking',      iconBg: '#0369a1' },
         { type: 'size_m2',       group: 'property', label: 'Size m²',      iconBg: '#065f46' },
         { type: 'reference',     group: 'property', label: 'Reference',    iconBg: '#475569' },
         { type: 'address',       group: 'property', label: 'Address',      iconBg: '#475569' },
@@ -178,6 +180,62 @@
         { type: 'line',        group: 'decorative', label: 'Divider Line', iconBg: '#334155' },
         { type: 'shape',       group: 'decorative', label: 'Shape',        iconBg: '#334155' },
         { type: 'gradient',    group: 'decorative', label: 'Gradient',     iconBg: '#334155' }
+    ];
+
+    /**
+     * Numeric feature fields — Beds/Baths/Garages/Parking. Each element of these
+     * types can display as a bare number (legacy/default) or as "Number + Label"
+     * with correct singular/plural (e.g. "1 Bedroom" vs "3 Bedrooms"), and can
+     * carry an icon from ICONS. `el.numberFormat` ('number'|'label'), `el.icon`
+     * (a key into ICONS, or null/undefined) and `el.iconSize` (px) are the new
+     * per-element properties this powers. Spec: .ai/specs/ad-manager.md §14.
+     */
+    var NUMERIC_FEATURE_FIELDS = ['beds', 'baths', 'garages', 'parking'];
+
+    // "Parking" does not pluralise in CoreX copy — matches the printable brochure.
+    var FEATURE_LABELS = {
+        beds:    { singular: 'Bedroom',  plural: 'Bedrooms' },
+        baths:   { singular: 'Bathroom', plural: 'Bathrooms' },
+        garages: { singular: 'Garage',   plural: 'Garages' },
+        parking: { singular: 'Parking',  plural: 'Parking' }
+    };
+
+    /**
+     * Curated real-estate icon set. Single-path/simple-shape, viewBox 0 0 24 24,
+     * `fill="currentColor"` (except where a hole needs fill-rule) so every icon
+     * always follows the element's own text colour — no separate icon-colour
+     * control needed. width/height are set to 100% so the icon fills whatever
+     * box the caller sizes it to (see iconHtml()).
+     */
+    var ICONS = {
+        bed:     '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M2 10h9V6H4a2 2 0 0 0-2 2v2zm11 0h9V8a2 2 0 0 0-2-2h-7v4zM2 12v6h2v-2h16v2h2v-6H2z"/></svg>',
+        bath:    '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M4 5a2 2 0 0 1 4 0v1H6.8A1.8 1.8 0 0 0 5 7.8V11H3a1 1 0 0 0-1 1 5 5 0 0 0 3 4.6V19h2v-1.2h10V19h2v-2.4A5 5 0 0 0 22 12a1 1 0 0 0-1-1H7V7.8c0-.1.1-.2.2-.2H10V6H6V5z"/></svg>',
+        garage:  '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11v6h-2.5v-2h-9v2H5v-6zm2.2-.5h9.6l-1-2.6a.6.6 0 0 0-.6-.4H8.8a.6.6 0 0 0-.6.4l-1 2.6zM7 12.5a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4zm10 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4z"/></svg>',
+        parking: '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path fill-rule="evenodd" d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm5 4v10h2.3v-3.1h2.1a3.45 3.45 0 0 0 0-6.9H9zm2.3 2h1.9a1.45 1.45 0 0 1 0 2.9h-1.9V9z"/></svg>',
+        ruler:   '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M3 3h8v2H5v6H3V3zm18 18h-8v-2h6v-6h2v8z"/></svg>',
+        house:   '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M12 2 2 11h3v10h6v-6h2v6h6V11h3L12 2z"/></svg>',
+        pin:     '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>',
+        key:     '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M14.5 2a5.5 5.5 0 1 0 3.9 9.4L20 13l-1.5 1.5L20 16l-2 2-1.5-1.5L15 18l-2-2 1.4-1.4A5.5 5.5 0 0 0 14.5 2zm0 2.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg>',
+        pool:    '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M2 15c1.5-1.5 3-1.5 4.5 0s3 1.5 4.5 0 3-1.5 4.5 0 3 1.5 4.5 0v3c-1.5 1.5-3 1.5-4.5 0s-3-1.5-4.5 0-3 1.5-4.5 0-3-1.5-4.5 0v-3z"/></svg>',
+        tree:    '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M12 2 8 9h2l-3 6h4v5h2v-5h4l-3-6h2L12 2z"/></svg>',
+        door:    '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M6 22V8a6 6 0 0 1 12 0v14h-2V8a4 4 0 0 0-8 0v14H6z"/></svg>',
+        tag:     '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="M21.4 11.6 12.4 2.6A2 2 0 0 0 11 2H4a2 2 0 0 0-2 2v7c0 .5.2 1 .6 1.4l9 9c.8.8 2 .8 2.8 0l7-7a2 2 0 0 0 0-2.8zM7 8.5A1.5 1.5 0 1 1 7 5.5a1.5 1.5 0 0 1 0 3z"/></svg>'
+    };
+
+    /** Picker order + human labels — the "list of icons" the builder panel offers. */
+    var ICON_LIST = [
+        { key: 'bed',     label: 'Bed' },
+        { key: 'bath',    label: 'Bath' },
+        { key: 'garage',  label: 'Garage / Car' },
+        { key: 'parking', label: 'Parking' },
+        { key: 'ruler',   label: 'Size' },
+        { key: 'house',   label: 'House' },
+        { key: 'pin',     label: 'Location' },
+        { key: 'key',     label: 'Key' },
+        { key: 'pool',    label: 'Pool' },
+        { key: 'tree',    label: 'Garden' },
+        { key: 'door',    label: 'Door' },
+        { key: 'tag',     label: 'Price Tag' }
     ];
 
     /* ── Primitives ─────────────────────────────────────────────────────── */
@@ -345,6 +403,23 @@
         return s;
     }
 
+    /**
+     * "3" / "1" / "1.5" → a clean number string. Whole numbers drop the decimal
+     * (Property::adData() sends baths as a decimal:1 string, e.g. "3.0"); a real
+     * half (e.g. baths "1.5") is kept. Never throws on garbage input.
+     */
+    function formatFeatureNumber(num) {
+        if (Math.abs(num - Math.round(num)) < 0.001) return String(Math.round(num));
+        return String(Math.round(num * 10) / 10);
+    }
+
+    /** Singular/plural word for a numeric feature field at a given count. */
+    function featureWord(field, num) {
+        var meta = FEATURE_LABELS[field];
+        if (!meta) return '';
+        return (field !== 'parking' && num === 1) ? meta.singular : meta.plural;
+    }
+
     /* ── Value resolution ───────────────────────────────────────────────── */
 
     /**
@@ -369,6 +444,20 @@
                 : all.filter(function (x) { return el.selectedFeatures.indexOf(x) !== -1; });
             if (chosen.length) return chosen.join('  ·  ');
             return prop.features || el.preview || el.label || '';
+        }
+
+        // Beds/Baths/Garages/Parking in "Number + Label" mode — e.g. "1 Bedroom" /
+        // "3 Bedrooms". Default ('number' or unset — legacy elements have no
+        // numberFormat at all) falls straight through to the raw-number path below.
+        if (NUMERIC_FEATURE_FIELDS.indexOf(f) !== -1 && el.numberFormat === 'label') {
+            var raw = prop[f];
+            if (raw === undefined || raw === null || raw === '') {
+                if (!opts.placeholders) return '';
+                raw = el.preview || '0';
+            }
+            var num = parseFloat(raw);
+            if (isNaN(num)) return String(raw);
+            return formatFeatureNumber(num) + ' ' + featureWord(f, num);
         }
 
         var v = prop[f];
@@ -505,9 +594,21 @@
                  + esc(prop.watermark || el.text || 'COREX') + '</div>';
         }
 
-        // Text field.
+        // Text field. An icon (Beds/Baths/Garages/Parking) sits inline before the
+        // value — it is NOT a separate element, so it always aligns and re-flows
+        // with the text as one unit under textAlign/verticalAlign.
+        var iconEl = el.icon && ICONS[el.icon] ? iconHtml(el) : '';
         return '<div style="' + textStyle(el) + '">'
-             + '<span style="width:100%;">' + esc(textValue(el, prop, opts)) + '</span></div>';
+             + iconEl
+             + '<span style="' + (iconEl ? '' : 'width:100%;') + '">' + esc(textValue(el, prop, opts)) + '</span></div>';
+    }
+
+    /** The inline icon swatch for a text element carrying `el.icon`. */
+    function iconHtml(el) {
+        var size = el.iconSize || el.fontSize || 18;
+        var gap = Math.max(4, Math.round(size * 0.4));
+        return '<span style="flex:none;display:inline-flex;width:' + size + 'px;height:' + size + 'px;'
+             + 'margin-right:' + gap + 'px;">' + ICONS[el.icon] + '</span>';
     }
 
     /**
@@ -579,6 +680,12 @@
             src:           d.src || '',
             mediaKind:     '',
             selectedFeatures: null,
+            // Beds/Baths/Garages/Parking — display format + optional icon. Default
+            // 'number' + no icon matches the pre-existing raw-number behaviour, so
+            // a legacy template (these keys absent entirely) renders identically.
+            numberFormat:  d.numberFormat || 'number',
+            icon:          d.icon || null,
+            iconSize:      d.iconSize || null,
             gradFrom:      d.gradFrom || '#071325',
             gradTo:        d.gradTo || 'rgba(7,19,37,0)',
             gradAngle:     def(d.gradAngle, 180),
@@ -604,6 +711,10 @@
         FIELD_DEFAULTS: FIELD_DEFAULTS,
         FIELD_GROUPS: FIELD_GROUPS,
         FIELDS: FIELDS,
+        NUMERIC_FEATURE_FIELDS: NUMERIC_FEATURE_FIELDS,
+        FEATURE_LABELS: FEATURE_LABELS,
+        ICONS: ICONS,
+        ICON_LIST: ICON_LIST,
 
         esc: esc,
         hexToRgba: hexToRgba,
@@ -624,6 +735,9 @@
         textStyle: textStyle,
 
         textValue: textValue,
+        formatFeatureNumber: formatFeatureNumber,
+        featureWord: featureWord,
+        iconHtml: iconHtml,
         imageSrc: imageSrc,
         baseImageSrc: baseImageSrc,
         canvasBackground: canvasBackground,
