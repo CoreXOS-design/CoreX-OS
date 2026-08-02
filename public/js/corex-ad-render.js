@@ -660,17 +660,28 @@
     }
 
     /**
-     * Seeding from the BOTTOM edge is the actual bug a real photo hit: a
+     * Seeding from the BOTTOM edge was the actual bug a real photo hit: a
      * headshot's shoulders/shirt routinely touch the bottom (and sometimes
      * lower-side) frame edge, and a shirt similar in tone to the backdrop got
      * swept into the same connected "background" region and erased along with
-     * it. Seeds are now top row + side columns in the upper half ONLY — never
-     * the bottom row — and a hard floor (`noRemoveBelow`) refuses to erase
-     * anything in roughly the bottom fifth of the frame regardless of how the
-     * fill's connectivity reaches it, because that band is the subject's
-     * shoulders/torso in essentially every headshot-style crop, never the
-     * backdrop. This trades "won't clear background low in a loose/half-body
-     * crop" for "won't eat clothing" — the safer failure direction.
+     * it. Seeds are top row + side columns in the upper half ONLY — never the
+     * bottom row. A first attempt ALSO added a hard floor that refused to
+     * erase anything in the bottom ~18% of the frame no matter what — that
+     * overcorrected: a real photo with genuine backdrop visible below the
+     * shoulders (not every crop has the garment touching the very bottom
+     * pixel) got left with a visible strip of un-removed background, because
+     * the floor is blind to whether that band is actually backdrop or
+     * clothing. Removed. Propagation is UNRESTRICTED once seeded — a
+     * background pixel connects to more background below it regardless of y
+     * position — so genuine backdrop low in the frame is still correctly
+     * cleared; only the SEED set and the colour reference changed. The
+     * remaining defence against eating a garment is what a colour algorithm
+     * can actually reason about: not starting from the bottom edge, sampling
+     * the backdrop colour from a clean spot, and a tolerance tight enough to
+     * stop at a real (even subtle) edge. It cannot help a garment that is
+     * truly colour-identical to the backdrop with zero edge between them —
+     * that is a real, inherent limit of colour-based cutout, not a bug to
+     * patch around with a blind position rule.
      */
     function _floodFillTransparent(imageData, w, h) {
         var px = imageData.data;
@@ -679,7 +690,6 @@
         var visited = new Uint8Array(w * h);
         var stack = [];
         var sideSeedLimit = Math.floor(h * 0.5);
-        var noRemoveBelow  = Math.floor(h * 0.82);
 
         for (var x = 0; x < w; x++) { stack.push(x, 0); }
         for (var y = 0; y < sideSeedLimit; y++) { stack.push(0, y, w - 1, y); }
@@ -693,7 +703,7 @@
             var o = idx * 4;
             var dr = px[o] - bg[0], dg = px[o + 1] - bg[1], db = px[o + 2] - bg[2];
             if ((dr * dr + dg * dg + db * db) > tol2) continue; // not backdrop-like — stop here
-            if (yy < noRemoveBelow) px[o + 3] = 0;
+            px[o + 3] = 0;
             stack.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1);
         }
     }
