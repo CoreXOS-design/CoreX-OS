@@ -106,6 +106,8 @@
         .ab-btn:hover:not(:disabled) { background: var(--chrome-hover); color: var(--chrome-text); }
         .ab-btn:disabled { opacity: 0.3; cursor: not-allowed; }
         .ab-btn.on { background: color-mix(in srgb, var(--brand-button,#00b4d8) 16%, transparent); color: var(--brand-button,#00b4d8); border-color: color-mix(in srgb, var(--brand-button,#00b4d8) 34%, transparent); }
+        .ab-btn.confirm { background: #19c37d; color: #fff; border-color: #19c37d; }
+        .ab-btn.confirm:hover:not(:disabled) { background: #15a76c; color: #fff; }
         .ab-sep { width: 1px; height: 20px; background: var(--chrome-border); margin: 0 5px; flex-shrink: 0; }
         .ab-num {
             width: 46px; height: 24px; background: var(--chrome-input); border: 1px solid var(--chrome-border);
@@ -406,6 +408,16 @@
 
     <div class="ab-sep"></div>
 
+    {{-- Grouping — click to enter pick mode, click elements on the canvas, then
+         Confirm/Cancel in the bar at the top-right (opts.js: toggleGroupPick()). --}}
+    <button class="ab-btn" :class="{ on: groupPickMode }" @click="toggleGroupPick()"
+            :title="groupPickMode ? 'Cancel grouping (Esc)' : 'Group elements… (Ctrl G groups the current selection directly)'">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="8" height="8" rx="1"/><rect x="12" y="12" width="8" height="8" rx="1"/><rect x="2" y="2" width="20" height="20" rx="2" stroke-dasharray="3 3"/></svg>
+        Group…
+    </button>
+
+    <div class="ab-sep"></div>
+
     {{-- Snapping --}}
     <button class="ab-btn" :class="{ on: snapObjects }" @click="snapObjects = !snapObjects" title="Snap to other elements & canvas centre (hold Alt to suspend)">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="3"/></svg>
@@ -442,7 +454,14 @@
     </button>
 
     <div style="margin-left:auto;display:flex;align-items:center;gap:3px;">
-        <span style="font-size:11px;color:var(--chrome-text-mute);" x-show="selCount > 1" x-text="selCount + ' selected'"></span>
+        <template x-if="groupPickMode">
+            <div style="display:flex;align-items:center;gap:8px;padding:2px 4px 2px 10px;border-radius:8px;background:color-mix(in srgb, var(--brand-button,#00b4d8) 12%, transparent);">
+                <span style="font-size:11px;font-weight:600;color:var(--chrome-text);" x-text="'Click elements to group — ' + selCount + ' selected'"></span>
+                <button class="ab-btn confirm" @click="confirmGroupPick()" :disabled="selCount < 2" title="Confirm — group the selected elements">Confirm</button>
+                <button class="ab-btn" @click="cancelGroupPick()" title="Cancel (Esc)">Cancel</button>
+            </div>
+        </template>
+        <span style="font-size:11px;color:var(--chrome-text-mute);" x-show="!groupPickMode && selCount > 1" x-text="selCount + ' selected'"></span>
         <button class="ab-btn" @click="showShortcuts = true" title="Keyboard shortcuts (?)">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
         </button>
@@ -505,7 +524,7 @@
 
                     {{-- Selection overlay: handles + the element toolbar. Lives OUTSIDE the
                          element box (which is overflow:hidden and would clip edge handles). --}}
-                    <template x-if="selCount > 0 && !previewMode && !capturing">
+                    <template x-if="selCount > 0 && !previewMode && !capturing && !groupPickMode">
                         <div id="sel-overlay" data-html2canvas-ignore
                              :class="selCount === 1 ? 'single' : 'multi'" :style="selOverlayStyle()">
 
@@ -1167,6 +1186,9 @@ function builder() {
         previewMode: false,
         tab: 'design',
         showShortcuts: false,
+        // Top-bar "Group…" entry point — click elements on the canvas to toggle them
+        // into/out of the (reused) selIds, then Confirm/Cancel. See toggleGroupPick().
+        groupPickMode: false,
 
         // ── Snapping ────────────────────────────────────────────────────────
         snapObjects: true,
@@ -1313,6 +1335,31 @@ function builder() {
                 if (!map[el.groupId]) map[el.groupId] = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
                 return { ...el, groupId: map[el.groupId] };
             });
+        },
+
+        /**
+         * Top-bar "Group…" button: an explicit picking mode for building a group from
+         * scratch, as an alternative to shift-clicking/marqueeing first. Reuses `selIds`
+         * as the pending set (so every touched element gets the SAME per-element
+         * .selected outline it always gets — no separate "pending" visual system), and
+         * suspends the normal drag/toolbar/handles while active (elMouseDown(),
+         * canvasMouseDown()) so a stray click can't move or delete something mid-pick.
+         */
+        toggleGroupPick() {
+            if (this.groupPickMode) { this.cancelGroupPick(); return; }
+            this.groupPickMode = true;
+            // Whatever was already selected becomes the starting pick set; empty is fine too.
+        },
+
+        cancelGroupPick() {
+            this.groupPickMode = false;
+            this.selIds = [];
+        },
+
+        confirmGroupPick() {
+            if (this.selCount < 2) return;
+            this.groupSelected();
+            this.groupPickMode = false;
         },
 
         /* ═══ History ═════════════════════════════════════════════════════ */
@@ -1706,6 +1753,18 @@ function builder() {
 
         elMouseDown(e, el) {
             if (this.previewMode) return;
+
+            // Group-pick mode: a click ONLY toggles membership in the pending set —
+            // never starts a drag, never single-selects, ignores lock (grouping doesn't
+            // move anything, so a locked element can still be picked).
+            if (this.groupPickMode) {
+                const members = this.groupMembers(el.id);
+                this.selIds = this.isSelected(el)
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
+                return;
+            }
+
             if (el.locked) { this.selIds = [el.id]; return; }
 
             if (e.shiftKey) {
@@ -1758,9 +1817,11 @@ function builder() {
 
         canvasMouseDown(e) {
             if (this.previewMode) return;
-            if (!e.shiftKey) this.selIds = [];
+            // Group-pick mode: marquee-dragging ADDS to the pending set (never replaces
+            // it) so a stray background click can't wipe out picks made so far.
+            if (!this.groupPickMode && !e.shiftKey) this.selIds = [];
             const p = this.canvasPoint(e);
-            this._ds = { type: 'marquee', ox: p.x, oy: p.y, additive: e.shiftKey, base: [...this.selIds], moved: false };
+            this._ds = { type: 'marquee', ox: p.x, oy: p.y, additive: this.groupPickMode || e.shiftKey, base: [...this.selIds], moved: false };
             this.marquee = { x: p.x, y: p.y, w: 0, h: 0 };
         },
 
@@ -1911,6 +1972,15 @@ function builder() {
 
         selectFromLayers(e, el) {
             const members = this.groupMembers(el.id);
+            // Group-pick mode: the Layers list is a picking surface too — handy for an
+            // element stacked behind/under another one on the canvas. Always toggles,
+            // regardless of shift.
+            if (this.groupPickMode) {
+                this.selIds = this.isSelected(el)
+                    ? this.selIds.filter(id => !members.includes(id))
+                    : [...new Set([...this.selIds, ...members])];
+                return;
+            }
             if (e.shiftKey) {
                 this.selIds = this.isSelected(el)
                     ? this.selIds.filter(id => !members.includes(id))
@@ -2072,7 +2142,12 @@ function builder() {
             if (e.key === 'Alt') this._altDown = true;
 
             // Esc and Ctrl+S work even from inside a field (you just typed the name).
-            if (e.key === 'Escape') { this.showShortcuts = false; if (!this._typing(e)) this.selIds = []; return; }
+            if (e.key === 'Escape') {
+                this.showShortcuts = false;
+                if (this.groupPickMode) { this.cancelGroupPick(); return; }
+                if (!this._typing(e)) this.selIds = [];
+                return;
+            }
             const meta = e.ctrlKey || e.metaKey;
             if (meta && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(); return; }
             if (this._typing(e)) return;
