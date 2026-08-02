@@ -610,9 +610,75 @@ reactive state; "fit" re-fits on window resize and on canvas-size change.
 - **Preview mode** hides all editor chrome to check the artwork alone.
 
 **Deliberately NOT in this slice:** inline text editing on the canvas (the panel's Text field
-is the single entry point); grouping; free rotation of a multi-selection (the bounding box is
+is the single entry point); free rotation of a multi-selection (the bounding box is
 axis-aligned); starting a custom template from a pre-built one (pre-builts are server-rendered
 Blade, not `layout_json` — a real conversion, specced separately if wanted).
+**Grouping was deferred here — built in §13.1.**
+
+---
+
+## 13.1 Element grouping — select and move together
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Building a multi-element composite (e.g. a price badge + its
+background shape, or an agent photo + name + phone as one unit) meant re-selecting
+every piece by hand — shift-click each one, every time — with no way to move the
+composite as a single thing by default. A group is a **persisted multi-select**,
+not a new geometry concept: elements sharing an `el.groupId` behave as one unit
+everywhere a selection is FORMED, and the existing multi-select drag/nudge/rotate/
+lock/delete/duplicate logic then applies completely unchanged, because all of it
+already operates on whatever is in `selIds` — grouping only had to change how
+`selIds` gets FORMED, nothing about what happens once it's formed.
+
+**Selection routes through `groupMembers(id)`/`expandToGroups(ids)`** in all three
+places a selection is formed — `elMouseDown()` (plain click and shift-click),
+the marquee-drag mouseup, and `selectFromLayers()` — so a plain click on ANY
+member selects the whole group, a marquee that catches even one member expands to
+the whole group, and shift-click toggles the whole group on/off as a unit (never a
+single member peeled off an otherwise-intact group).
+
+**Group** (toolbar button, `Ctrl G`) bundles the current 2+-element selection into
+one new group, overwriting any `groupId` its members already had — groups don't
+nest; combining pieces of two existing groups (via shift-click) flattens them into
+one new group. **Ungroup** (`Ctrl Shift G`) clears `groupId` from the current
+selection — since selecting any one member already expands to the whole group,
+this always ungroups the WHOLE thing, never a partial slice. The toolbar shows a
+single toggling button (mirrors the existing Lock/Unlock pattern) gated by
+`selIsGroup` — a getter that also requires the selection to be the group's ENTIRE
+membership, not a shift-clicked subset, so the icon and tooltip never promise an
+Ungroup that would actually leave part of the group behind.
+
+**Duplicate/copy-paste remap group IDs** (`_remapGroups()`) — a duplicated or
+pasted group becomes its OWN new group, never silently re-merged with the
+original, which is what would happen if `groupId` were copied verbatim onto the
+clone. A small link icon in the Layers panel marks a grouped row (discoverability
+— nothing else in the panel would otherwise reveal that a row belongs to a group).
+
+**`groupId` is builder-only**, the same treatment `locked` already gets (§12.3):
+the kernel's `makeElement()` seeds it as `null` so the schema stays symmetric
+across all three ad surfaces, but neither `frameStyle()` nor `contentHtml()` ever
+reads it — the generator and bulk Ad Manager render a grouped element exactly like
+an ungrouped one. A legacy element (saved before this change, no `groupId` key at
+all) is simply ungrouped — `!el.groupId` is falsy for `undefined` — so nothing
+about an existing template changes.
+
+**Deliberately not in this slice:** a whole-group bounding-box RESIZE that scales
+every member proportionally — resizing still targets one element at a time, even
+inside a group; free rotation of a group (inherits the existing multi-select
+rotation limit, §13); nested groups (a group inside a group — grouping always
+flattens to one level).
+
+**Acceptance criteria**
+- [x] Clicking any one member of a group selects every member; dragging any one
+      moves the whole group together, preserving relative layout.
+- [x] Group requires 2+ selected; Ungroup only fires on a selection that is a
+      whole existing group.
+- [x] Duplicating or pasting a group produces an independent new group, not a
+      silent merge back into the original.
+- [x] A template saved before this change opens with every element ungrouped.
+- [x] Grouping has zero effect on the rendered ad — same PNG/HTML on the
+      generator and bulk Ad Manager whether an element is grouped or not.
 
 ---
 
@@ -813,3 +879,11 @@ garages" holds even before a real listing is attached.
   existing `prop.garages`/`prop.parking` and the existing numeric-feature panel.
 - `tests/js/ad-render-kernel.mjs` — both-present / zero / absent / neither / builder-preview
   / icon coverage.
+
+### Element grouping (§13.1)
+- `public/js/corex-ad-render.js` — `makeElement()` seeds `groupId: null` (builder-only,
+  unread by `frameStyle()`/`contentHtml()`).
+- `resources/views/corex/properties/ad-builder.blade.php` — `groupMembers()`,
+  `expandToGroups()`, `selIsGroup`, `groupSelected()`, `ungroupSelected()`, `_remapGroups()`;
+  group-aware `elMouseDown()`/marquee/`selectFromLayers()`; toolbar Group/Ungroup button;
+  `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator.
