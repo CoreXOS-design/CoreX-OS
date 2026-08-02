@@ -1124,14 +1124,30 @@ Custom (agency-built) template cards showed only a letter avatar
 (`tpl.name.charAt(0)`) where pre-built cards already show a live, real-data
 thumbnail (server-rendered Blade, scaled via `transform:scale()`). Custom
 templates can't use that — `layout_json` is client-side JSON, not a Blade
-partial — so each card's `.custom-tpl-thumb` now mounts `CoreXAd.renderLayout()`
-directly (`x-init`, using the page's own `propertyData` + `{placeholders:true}`
-so a template with no chosen agent/photo still shows sensible placeholder
-copy, same as the Ad Builder). New `customThumbStyle(tpl)` computes a
-**"contain" fit** (not the fixed 1200×628 pre-built cards use) — a custom
-template can be any canvas size/ratio (square, story-tall, whatever), and
-stretching it to a box shaped for a different aspect ratio would be exactly
-the kind of visual bug this whole investigation was about.
+partial — so each card mounts `CoreXAd.renderLayout()` directly (`x-init`,
+using the page's own `propertyData` + `{placeholders:true}` so a template
+with no chosen agent/photo still shows sensible placeholder copy, same as the
+Ad Builder).
+
+**Fixed same day — the first version rendered noticeably smaller than the
+pre-built previews.** It reused the OLD compact list-row card (`.custom-tpl-
+card`/`.custom-tpl-thumb`, a 100×52px icon-sized box next to the name) rather
+than the pre-built cards' big-thumbnail grid layout (`.tpl-card`/`.tpl-thumb`,
+`width:100%; aspect-ratio:1200/628`, in the same `minmax(300px,1fr)` grid).
+Custom template cards now use the IDENTICAL `.tpl-card`/`.tpl-thumb` markup
+and grid as pre-built cards, so every card in the picker is the same size.
+The harder part: pre-built thumbnails are always designed at exactly
+1200×628 and rescaled to the card's actual responsive width by the existing
+`fitThumbs()` (`.tpl-thumb-inner` scaled by `clientWidth/1200`, re-run on
+resize/search/step-change) — a custom template can be ANY canvas size, so
+`customThumbStyle(tpl)` first **contain-fits it, centred, into that SAME
+1200×628 logical reference frame** (not a smaller ad-hoc box), and
+`fitThumbs()` then scales that whole frame down to the card's real width
+exactly as it already does for pre-built cards — no new resize/observer code
+needed, since the custom cards use the exact same `.tpl-thumb`/`.tpl-thumb-
+inner` class names `fitThumbs()` already queries. Dead CSS from the old
+compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
+— the last one already unused before this) removed.
 
 **Acceptance criteria**
 - [x] Clicking Generate/Download/Export never visibly flashes a cropped,
@@ -1143,6 +1159,10 @@ the kind of visual bug this whole investigation was about.
       not the preset's.
 - [x] Every custom template card in the picker shows a live, correctly-
       proportioned preview of the actual design, not a letter avatar.
+- [x] A custom template's picker preview is the SAME on-screen size as a
+      pre-built template's — both use `.tpl-card`/`.tpl-thumb` and the same
+      `fitThumbs()` responsive scaling, only the reference-frame contain-fit
+      differs.
 - [ ] Agent Image "stretch" — NOT closed; needs the two fixes above verified
       live against the actual reported template, or a screenshot, to know
       whether anything further is needed.
