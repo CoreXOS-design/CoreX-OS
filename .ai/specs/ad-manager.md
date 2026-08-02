@@ -677,6 +677,17 @@ an ungrouped one. A legacy element (saved before this change, no `groupId` key a
 all) is simply ungrouped — `!el.groupId` is falsy for `undefined` — so nothing
 about an existing template changes.
 
+**Design-panel ungroup — everything, or a single item.** Clicking any member
+always selects the WHOLE group (by design, above) — so there was previously no
+way to target just one member for removal. When the current selection
+`selIsGroup`, the Design tab now shows a **"Grouped — N elements"** block: a
+list of every member (`selGroupMembers`) with its own small ✕ button —
+`ungroupOne(el)` clears `groupId` on JUST that element, leaving the rest of the
+group intact — plus an **"Ungroup All"** button (the existing
+`ungroupSelected()`, same as `Ctrl Shift G`/the toolbar toggle). If removing one
+member leaves a single element behind, `ungroupOne()` clears its `groupId` too
+— a "group" of one is meaningless leftover state, not a real group.
+
 **Deliberately not in this slice:** a whole-group bounding-box RESIZE that scales
 every member proportionally — resizing still targets one element at a time, even
 inside a group; free rotation of a group (inherits the existing multi-select
@@ -696,6 +707,9 @@ flattens to one level).
 - [x] The top-bar Group… button enters a picking mode; clicking/marqueeing toggles
       membership without dragging, resizing or deleting anything; Confirm requires
       2+ picked; Cancel/Esc discards the pick with zero mutation.
+- [x] The Design panel, when a group is selected, offers both "Ungroup All" and a
+      per-member "remove just this one" control; removing down to one member
+      dissolves that leftover member's group too.
 
 ---
 
@@ -1063,7 +1077,9 @@ scope on request, see §15's "Deliberately not built").
   group-aware `elMouseDown()`/marquee/`selectFromLayers()`; toolbar Group/Ungroup button;
   `Ctrl G`/`Ctrl Shift G`; shortcuts panel entry; Layers panel group indicator; top-bar
   `Group…` picker (`groupPickMode`, `toggleGroupPick()`/`cancelGroupPick()`/
-  `confirmGroupPick()`) + header Confirm/Cancel bar.
+  `confirmGroupPick()`) + header Confirm/Cancel bar; Design-panel "Grouped — N
+  elements" block (`selGroupMembers` getter, `ungroupOne()`) with a per-member
+  ✕ plus an "Ungroup All" button.
 
 ### Agent Image rename + shape picker (§15)
 - `public/js/corex-ad-render.js` — catalogue labels; `isAgentAvatarField()`,
