@@ -405,6 +405,29 @@ ok('featherAlpha() softens a hard edge pixel to an intermediate alpha (not a bin
 ok('featherAlpha() leaves a fully-interior subject pixel opaque', afterInterior === 255);
 ok('featherAlpha() leaves a fully-exterior backdrop pixel transparent', afterOutside === 0);
 
+section('Property-type conditional visibility — elementVisibleForProperty() (§18)');
+
+const houseEl = el({ field: 'beds', visibleFor: ['House', 'Townhouse'] });
+const landEl  = el({ field: 'custom_text', text: 'Land size', visibleFor: ['Vacant Land / Plot'] });
+const anyEl   = el({ field: 'price' }); // no visibleFor at all — every template before §18
+
+ok('an element scoped to specific types shows for a matching type (exact name)',
+    K.elementVisibleForProperty(houseEl, { property_type_raw: 'House' }));
+ok('matching is case-insensitive and trims whitespace',
+    K.elementVisibleForProperty(houseEl, { property_type_raw: '  house  ' }));
+ok('an element scoped to specific types is hidden for a non-matching type',
+    !K.elementVisibleForProperty(houseEl, { property_type_raw: 'Vacant Land / Plot' }));
+ok('a DIFFERENT element scoped to Vacant Land shows for that type, in the very same spot the House element hid from',
+    K.elementVisibleForProperty(landEl, { property_type_raw: 'Vacant Land / Plot' }));
+ok('an element with no visibleFor at all (every pre-§18 template) always shows, regardless of type',
+    K.elementVisibleForProperty(anyEl, { property_type_raw: 'Vacant Land / Plot' })
+    && K.elementVisibleForProperty(anyEl, { property_type_raw: 'House' }));
+ok('an element with an EMPTY visibleFor array (explicitly cleared) also always shows',
+    K.elementVisibleForProperty(el({ field: 'beds', visibleFor: [] }), { property_type_raw: 'House' }));
+ok('a scoped element still shows when the property has no type set at all — fails open, never silently drops a real element',
+    K.elementVisibleForProperty(houseEl, { property_type_raw: '' })
+    && K.elementVisibleForProperty(houseEl, {}));
+
 section('Templates saved BEFORE any of this still render unchanged');
 
 ok('a legacy Agent Image (no shapeType at all, old borderRadius:50 baked in) still renders circular',

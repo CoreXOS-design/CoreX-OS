@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
+use App\Models\PropertySettingItem;
 use Illuminate\Http\Request;
 
 class PropertyAdTemplateController extends Controller
@@ -28,7 +29,20 @@ class PropertyAdTemplateController extends Controller
             }
         }
 
-        return view('corex.properties.ad-builder', compact('template', 'property', 'propertyData'));
+        // §18 — the agency's own configured Property Type list, so the
+        // per-element "Show for property type" checklist offers the exact
+        // same names the property record itself uses (Settings-driven, not a
+        // hardcoded taxonomy). Agency-scoped via PropertySettingItem's own
+        // global scope, same as every other property-type dropdown.
+        $propertyTypeOptions = PropertySettingItem::group(PropertySettingItem::GROUP_TYPE)
+            ->where('active', true)
+            ->orderBy('sort_order')
+            ->pluck('name')
+            ->all();
+
+        return view('corex.properties.ad-builder', compact(
+            'template', 'property', 'propertyData', 'propertyTypeOptions'
+        ));
     }
 
     /**

@@ -1026,6 +1026,42 @@
     }
 
     /**
+     * §18 — Property-type conditional visibility. An element can carry
+     * `el.visibleFor`, an array of exact `property_setting_items` (group
+     * 'property_type') names it should show for — e.g. a Bedrooms icon block
+     * scoped to ['House', 'Townhouse'] and a Land Size block scoped to
+     * ['Vacant Land / Plot'] can occupy the SAME spot in one template, so one
+     * design adapts per property instead of needing a separate template per
+     * property type.
+     *
+     * `el.visibleFor` absent/null/empty → ALWAYS visible. This is the
+     * required default for every template saved before this feature existed —
+     * none of them carry this key, and none may lose an element because of it.
+     *
+     * `prop.property_type_raw` absent/blank (property has no type set, or the
+     * Ad Builder has no property loaded at all — the common design-time case)
+     * → ALWAYS visible too. Hiding on missing type information would silently
+     * drop a real element from a real ad the moment an agent forgot to
+     * classify a listing; showing a possibly-irrelevant element is the safer
+     * failure than hiding a possibly-relevant one.
+     *
+     * Matching is case-insensitive/trimmed against the exact configured name
+     * (the same string the property's own "Property Type" dropdown shows) —
+     * not a hardcoded taxonomy, so it stays correct for any agency's own
+     * customised property-type list.
+     */
+    function elementVisibleForProperty(el, prop) {
+        var list = el && el.visibleFor;
+        if (!list || !list.length) return true;
+        var t = ((prop && prop.property_type_raw) || '').trim().toLowerCase();
+        if (!t) return true;
+        for (var i = 0; i < list.length; i++) {
+            if (String(list[i]).trim().toLowerCase() === t) return true;
+        }
+        return false;
+    }
+
+    /**
      * Render a whole layout_json into `root`. Used by the two DOM surfaces; the
      * builder renders reactively through Alpine but calls the same frameStyle()
      * and contentHtml(), so all three stay in lock-step.
@@ -1040,6 +1076,7 @@
 
         (layout.elements || []).forEach(function (el) {
             if (el.hidden) return;                       // hidden in the builder = absent from the ad
+            if (!elementVisibleForProperty(el, prop)) return; // §18 — wrong property type for this element
             var div = document.createElement('div');
             div.style.cssText = frameStyle(el, opts);
             div.innerHTML = contentHtml(el, prop, opts);
@@ -1151,6 +1188,7 @@
         cornerColor: _cornerColor,
         fillEnclosedHoles: _fillEnclosedHoles,
         featherAlpha: _featherAlpha,
+        elementVisibleForProperty: elementVisibleForProperty,
         isClipShape: isClipShape,
         canShadow: canShadow,
         fontStack: fontStack,

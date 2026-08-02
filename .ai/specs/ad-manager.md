@@ -1375,6 +1375,120 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
 
 ---
 
+## 18. Property-type conditional visibility — one template, different property types
+
+> Status: LIVE · 2026-08-02
+
+**What/why.** Johan's own example: a template built for a house needs
+Bedrooms/Bathrooms; the same template used on a vacant land listing has no
+floor size at all — only a stand/erf size — so those elements are wrong for
+it. Until now the only fix was a second, separate template. This lets ONE
+template look different per property, by scoping individual elements to which
+property type(s) they show for — most valuable for the bulk Ad Manager and
+the single-property generator, where the SAME template runs across a mixed
+portfolio without an agent hand-picking a different template per listing.
+
+**Mechanism — per-element visibility, not per-template variants.** Every
+element (any field type — text, icon block, shape, image) can carry
+`el.visibleFor`: an array of exact property-type names (the same names the
+property's own "Property Type" dropdown uses — Settings-driven per agency,
+never a hardcoded taxonomy). Two elements can occupy the SAME x/y — a
+Bedrooms icon block scoped to `['House', 'Townhouse']` and a Land Size text
+block scoped to `['Vacant Land / Plot']` — so the layout itself adapts per
+property instead of needing parallel templates kept in sync by hand.
+
+`el.visibleFor` absent/null/empty → **always visible.** This is the required
+default: no template saved before this feature carries the key, and none of
+them may lose an element because of it. `prop.property_type_raw` absent/blank
+(the property has no type set, or the Ad Builder simply has no property
+loaded — the common design-time case) → **also always visible.** Hiding on
+missing type information would silently drop a real element from a real ad
+the moment a listing wasn't classified; showing a possibly-irrelevant element
+is the safer failure than hiding a possibly-relevant one — same reasoning as
+the placeholder-leak fix (§17) and the Remove Background degrade-safe path
+(§15.1): every failure mode here fails toward showing real content, never
+toward silently omitting it.
+
+**New kernel function — `elementVisibleForProperty(el, prop)`** (pure,
+unit-tested): case-insensitive/trimmed match of `prop.property_type_raw`
+against `el.visibleFor`. Wired into the ONE place that matters for the actual
+output — `renderLayout()`'s element loop, right alongside the existing
+`el.hidden` (design-time hide) check. Because the single-property generator
+(`ad.blade.php`) and the bulk Ad Manager (`tools/ad-manager.blade.php`) both
+already call `renderLayout()` directly (confirmed by reading both call sites,
+not assumed) for every custom template render, this ONE change is everywhere
+that matters — no separate wiring needed in either surface, the exact payoff
+the shared-kernel architecture (§12) was built for.
+
+**New data key — `Property::adData()['property_type_raw']`.** The exact,
+untransformed `property_type` column value (e.g. `"Vacant Land / Plot"`),
+kept deliberately separate from the existing `'property_type'` key (which
+uppercases for on-ad DISPLAY, §10's "Type" element) so the matching logic
+never depends on that display string's formatting choices.
+
+**Ad Builder UI.** A universal "Show for property type" checklist — applies
+to every element type, not just numeric feature fields — sits in the common
+properties section (Position/Size/Rotation/Opacity), sourced from the
+agency's own active `property_setting_items` (group `property_type`,
+agency-scoped exactly like the property record's own dropdown, verified via
+Tinker with a real authenticated user — the unscoped/no-user case returns
+every agency's rows and must never be read that way in request code). All
+ticked (i.e. `visibleFor == null`, unset) is the default and changes nothing.
+Unticking any type seeds the full list into `el.visibleFor` and removes just
+that one — mirrors the existing Features chooser's
+`selectedFeatures == null` "show all" convention exactly (`isFeatureOn`/
+`toggleFeature`), so this is a second instance of an already-established UI
+pattern, not a new one.
+
+**Ad Builder canvas preview.** The canvas now iterates a `visibleElements`
+getter (was `elements` directly) that filters through the same
+`CoreXAd.elementVisibleForProperty()`. With no property loaded (the default
+authoring state) this changes nothing — every element still shows, since
+`elementVisibleForProperty` fails open with no type context. When a real
+property IS loaded (`?property=` — an existing feature) the canvas now shows
+exactly what that property's real ad would show, type-gated elements
+included. The Layers panel is untouched — it iterates the full `elements`
+list regardless, so a type-hidden element stays selectable/editable there,
+the same UX already established for `el.hidden`.
+
+**Deliberately not built this round:** a dedicated "preview as any property
+type" dropdown in the Ad Builder (independent of loading a real property) —
+not asked for, and the existing `?property=` load-a-real-property path
+already gives a true preview once a listing of that type exists; a
+higher-level "property category" taxonomy above the agency's own configured
+type names (e.g. bucketing Farm/Commercial under one label) — the agency's
+own exact type names are more precise and need no new taxonomy invented or
+kept in sync; any change to the pre-built (non-custom) ad templates — those
+are hardcoded Blade markup per design, not `layout_json`-driven, and were
+never part of "the template builder" this was asked for.
+
+**Acceptance criteria**
+- [x] An element with no `visibleFor` at all — every template saved before
+      this feature existed — renders exactly as before, for every property
+      type.
+- [x] An element scoped to specific types renders for a property whose exact
+      (case-insensitive/trimmed) type matches one of them.
+- [x] The same element does NOT render for a property whose type isn't in
+      the list.
+- [x] Two elements can occupy the same position, each scoped to different
+      property types, so one template shows Bedrooms/Bathrooms for a House
+      and Land Size in the identical spot for Vacant Land.
+- [x] A property with no type set at all still shows every element — never
+      silently drops real content over missing classification data.
+- [x] The bulk Ad Manager and single-property generator both honour this
+      automatically via the shared `renderLayout()` — verified by reading
+      both call sites, not by duplicating the check into either surface.
+- [x] The Ad Builder's "Show for property type" checklist offers the
+      agency's own exact, agency-scoped Property Type names (verified via
+      Tinker with a real authenticated user, not the unscoped no-user case).
+- [x] `tests/js/ad-render-kernel.mjs` covers `elementVisibleForProperty()`
+      directly: exact match, case/whitespace tolerance, non-match, a second
+      element of a different type in the same slot, no-`visibleFor` and
+      empty-`visibleFor` both always-show, and missing/blank property type
+      always-show.
+
+---
+
 ## 11. Files to create / modify
 
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
@@ -1507,3 +1621,29 @@ compact layout (`.custom-tpl-card`, `.custom-tpl-thumb`, `.custom-tpl-badge`
   `prepareImagesForCapture()` before `html2canvas()`.
 - `tests/js/ad-render-kernel.mjs` — `objectFitRect()` cover/contain/matching-aspect/
   zero-size coverage.
+
+### Property-type conditional visibility (§18)
+- `app/Models/Property.php` — `adData()` gains `'property_type_raw'` (exact,
+  untransformed `property_type`, kept separate from the display-uppercased
+  `'property_type'` key already there).
+- `public/js/corex-ad-render.js` — `elementVisibleForProperty(el, prop)`
+  (pure, unit-tested), wired into `renderLayout()` alongside the existing
+  `el.hidden` check; exported on `CoreXAd`.
+- `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — `builder()`
+  fetches the agency's active `property_setting_items` (group
+  `property_type`) and passes `$propertyTypeOptions` to the view.
+- `resources/views/corex/properties/ad-builder.blade.php` — universal "Show
+  for property type" checklist (common properties section, applies to every
+  element type); `isVisibleForType()`/`toggleVisibleForType()` (mirrors the
+  existing Features chooser's `selectedFeatures == null` convention); new
+  `visibleElements` getter feeds the canvas `x-for` (was `elements` directly)
+  so a loaded real property (`?property=`) previews type-gated correctly;
+  Layers panel untouched, still iterates the full `elements` list.
+- `resources/views/corex/properties/ad.blade.php`,
+  `resources/views/tools/ad-manager.blade.php` — no changes needed; both
+  already call the shared `renderLayout()` this was wired into (verified by
+  reading both call sites).
+- `tests/js/ad-render-kernel.mjs` — `elementVisibleForProperty()` coverage:
+  exact match, case/whitespace tolerance, non-match, a second element scoped
+  to a different type in the same slot, no-`visibleFor`/empty-`visibleFor`
+  always-show, missing/blank property type always-show.
