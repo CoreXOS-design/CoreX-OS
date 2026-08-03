@@ -2,6 +2,8 @@
 
 namespace App\Services\Images;
 
+use Illuminate\Support\Facades\Log;
+
 /**
  * Bakes a JPEG's EXIF orientation into its pixels, in place, and rewrites the
  * file upright with the orientation tag reset to normal.
@@ -27,6 +29,26 @@ namespace App\Services\Images;
  * GD only (present locally AND on prod, unlike imagick). No-op for anything GD
  * can't decode from EXIF (HEIC/PNG/WebP carry no actionable JPEG orientation) or
  * that is already upright — so it is safe to call on every stored image.
+ *
+ * INVALID/ABSENT ORIENTATION — THE ORIENTATION-0 GAP (property 6142, 2026-08-03)
+ * -------------------------------------------------------------------------------
+ * A valid EXIF Orientation tag is 1–8. Anything else was previously treated as
+ * "no work needed" — the same bucket as a genuinely upright photo. That is false
+ * for some HUAWEI devices (confirmed: HUAWEI Mate X6, software
+ * ICL-L29 15.0.0.209): the camera pipeline writes `Orientation => 0` (not a
+ * valid value) while the pixel buffer is still stored in the sensor's
+ * non-upright native orientation — a firmware quirk, not a missing tag. Every
+ * sampled photo from that device (33/33 in property 6142's gallery) needed the
+ * identical 90° CCW correction (the same transform as EXIF value 8).
+ *
+ * We cannot guess a rotation direction for an unknown/invalid tag in general —
+ * there is no signal to guess from. This is a narrow, evidence-backed exception
+ * for the one device/value combination we have verified, gated on the defect's
+ * own signature (Make=HUAWEI, invalid/absent Orientation, portrait-shaped
+ * canvas — a landscape scene could never legitimately fill a portrait canvas
+ * without rotation). Every other invalid/absent case is left untouched, exactly
+ * as before, but now logged instead of silently swallowed — so the next unknown
+ * device/value shows up in the logs instead of shipping sideways for months.
  */
 class ImageOrientationNormalizer
 {
@@ -60,14 +82,51 @@ class ImageOrientationNormalizer
             return false;
         }
 
-        $exif = @exif_read_data($absPath);
-        $orientation = (int) ($exif['Orientation'] ?? 1);
+        $exif = @exif_read_data($absPath) ?: [];
+        $rawOrientation = $exif['Orientation'] ?? null;
 
-        // 1 = already upright; anything outside 2..8 is absent/invalid — no work.
-        if ($orientation < 2 || $orientation > 8) {
-            return false;
+        // A valid tag (1-8): 1 is confirmed upright (no-op); 2-8 is a known
+        // transform we can apply with certainty.
+        if (is_numeric($rawOrientation) && (int) $rawOrientation >= 1 && (int) $rawOrientation <= 8) {
+            $orientation = (int) $rawOrientation;
+
+            return $orientation === 1 ? false : $this->rewriteUpright($absPath, $orientation);
         }
 
+        // Absent or invalid (e.g. 0) — the tag gives no actionable direction.
+        // Verified exception: HUAWEI's orientation-0 firmware quirk (see class
+        // docblock). Gated on the defect's own signature so this never fires
+        // for a device/value combination we have no evidence about.
+        $make = trim((string) ($exif['Make'] ?? ''));
+        $width = (int) ($info[0] ?? 0);
+        $height = (int) ($info[1] ?? 0);
+
+        if ($width > 0 && $width < $height && strcasecmp($make, 'HUAWEI') === 0) {
+            $this->logBestEffort('info', 'Image orientation: applied HUAWEI orientation-0 heuristic (90 CCW)', [
+                'path' => $absPath,
+                'model' => $exif['Model'] ?? null,
+                'software' => $exif['Software'] ?? null,
+                'raw_orientation' => $rawOrientation,
+            ]);
+
+            return $this->rewriteUpright($absPath, 8);
+        }
+
+        $this->logBestEffort('warning', 'Image orientation: EXIF orientation missing or invalid, no verified correction available — left as-is', [
+            'path' => $absPath,
+            'make' => $make !== '' ? $make : null,
+            'model' => $exif['Model'] ?? null,
+            'raw_orientation' => $rawOrientation,
+            'width' => $width,
+            'height' => $height,
+        ]);
+
+        return false;
+    }
+
+    /** Load, rotate to the given EXIF orientation, and re-save in place. */
+    private function rewriteUpright(string $absPath, int $orientation): bool
+    {
         $bytes = @file_get_contents($absPath);
         $img = $bytes !== false ? @imagecreatefromstring($bytes) : false;
         unset($bytes);
@@ -84,6 +143,20 @@ class ImageOrientationNormalizer
     }
 
     /**
+     * Log without ever letting logging break normalization — this class is
+     * unit-tested via plain PHPUnit with no application container, and
+     * observability must always be best-effort, never load-bearing.
+     */
+    private function logBestEffort(string $level, string $message, array $context): void
+    {
+        try {
+            Log::{$level}($message, $context);
+        } catch (\Throwable) {
+            // no-op — logging is best-effort only
+        }
+    }
+
+    /**
      * Return the GD image transformed so its pixels are upright for the given
      * EXIF orientation. Handles all eight values, including the four mirrored
      * ones (2/4/5/7) that front-camera captures and some editors emit.
@@ -96,19 +169,23 @@ class ImageOrientationNormalizer
         switch ($orientation) {
             case 2: // mirrored horizontally
                 imageflip($img, IMG_FLIP_HORIZONTAL);
+
                 return $img;
             case 3: // rotated 180
                 return $this->rotate($img, 180);
             case 4: // mirrored vertically
                 imageflip($img, IMG_FLIP_VERTICAL);
+
                 return $img;
             case 5: // mirrored vertically + rotated 90 CW
                 imageflip($img, IMG_FLIP_VERTICAL);
+
                 return $this->rotate($img, -90);
             case 6: // rotated 90 CW
                 return $this->rotate($img, -90);
             case 7: // mirrored horizontally + rotated 90 CW
                 imageflip($img, IMG_FLIP_HORIZONTAL);
+
                 return $this->rotate($img, -90);
             case 8: // rotated 90 CCW
                 return $this->rotate($img, 90);
@@ -127,6 +204,7 @@ class ImageOrientationNormalizer
         $rotated = imagerotate($img, $degrees, 0);
         if ($rotated instanceof \GdImage) {
             imagedestroy($img);
+
             return $rotated;
         }
 
