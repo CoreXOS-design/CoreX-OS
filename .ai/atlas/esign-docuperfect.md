@@ -237,6 +237,36 @@ Party→contact mapping at the wizard: sales per-linked-contact with role from `
 
 ---
 
+## Signing capture modal — the ONE component (contract)
+
+Every draw/type signature-and-initial capture on every signing surface renders **one** Blade
+component: `resources/views/docuperfect/signatures/partials/_capture-modal.blade.php`. It carries the
+full treatment — Draw/Type tabs, a typed-name **preview** box, the **consent** line ("…recorded with a
+timestamp and IP address"), and the dark‑navy (`#0b2a4a`) **Apply Signature** button. No signing surface
+may ship its own second modal — a recipient must never see two different modals in one flow (the bug fixed
+2026-08-03; previously the external recipient blade had a separate lean "Sign Here" teal modal for inline
+web‑sig blocks while markers/conditions used the fuller one).
+
+**Rendered at exactly three sites, each passing the Alpine state/handler names it owns:**
+- `resources/views/docuperfect/signatures/external/sign.blade.php` (recipient) — **×2**:
+  `showSignModal`/`captureMode`/`typedName`/`applySignature` (markers + conditions, `variant:'pad'`) and
+  `showWebSigCapture`/`webSigMode`/`webTypedSignature`/`applyWebSignature` (inline web‑sig blocks +
+  amendments, `variant:'manual'`).
+- `resources/views/docuperfect/signatures/partials/signature-modal.blade.php` (agent in‑app, via
+  `signatures/sign.blade.php`) — `showSignModal`/pad. Keeps its own apply‑to‑all modal below the include.
+
+**Deliberately kept separate: the capture ENGINES, not the markup.** The `pad` variant uses SignaturePad +
+`generateTypedSignature`; the `manual` variant keeps the raw‑canvas engine with the ESIGN‑WETINK
+uniform‑size typed render (fixed 96px + crop) and the AT‑303 disclosure‑amendment path. Unifying the markup
+does NOT merge these engines — `$variant` switches only the draw‑canvas block; everything else (tabs, type
+input + preview, consent, buttons) is shared. Params: `$show,$mode,$typed,$apply,$clear,$init,$canvasRef,
+$variant('pad'|'manual'),$title,$placeholder,$showTypedCanvas`.
+
+**Contract guards:** the condition‑initial **empty‑seed** (recipient types their own — `typedName=''` set in
+each host's `corex-open-condition-initial` handler, unaffected by the modal markup) and the **editability**
+of the type input (no `readonly`/`disabled`) are asserted by `EsignRegressionWalk.php` rule 3b, which now
+reads `_capture-modal.blade.php` for the input.
+
 ## Key file:line index
 - `app/Http/Controllers/Docuperfect/SigningController.php` — `:41` show, `:124-153` FICA gate, `:250-344` pipeline, `:3166-3268` addCondition (P0 rendered_row).
 - `app/Http/Controllers/Docuperfect/ESignWizardController.php` — `:138,1465` legal block, `:493-562` recipients, `:1124-1130` esign_role filter.

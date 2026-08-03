@@ -172,10 +172,16 @@ final class EsignRegressionWalk extends Command
             $this->assert('3a) other-condition initial renders BLANK drawable slot (no pre-filled token)', $hasBlank && $noToken, "blankSpan=" . ($hasBlank ? 'Y' : 'n') . " activeSlotHasNoToken=" . ($noToken ? 'Y' : 'n'));
 
             // ── RULE 3b: the condition-initial modal type field is EDITABLE (typeable) ──
+            // The capture modal is now the ONE shared component
+            // (partials/_capture-modal.blade.php); the type input lives there,
+            // parametrized (x-model="{{ $typed }}"). Assert the component carries an
+            // editable x-model input (no readonly/disabled), and that the condition
+            // handler in the external blade opens that shared modal.
+            $modal = @file_get_contents(resource_path('views/docuperfect/signatures/partials/_capture-modal.blade.php')) ?: '';
             $blade = @file_get_contents(resource_path('views/docuperfect/signatures/external/sign.blade.php')) ?: '';
-            $typeInputEditable = (bool) preg_match('/<input[^>]*x-model="typedName"(?![^>]*(?:readonly|disabled))/i', $blade);
+            $typeInputEditable = (bool) preg_match('/<input[^>]*x-model="[^"]+"(?![^>]*(?:readonly|disabled))/i', $modal);
             $condOpensModal = str_contains($blade, "corex-open-condition-initial") && preg_match('/corex-open-condition-initial.*?showSignModal\s*=\s*true/s', $blade);
-            $this->assert('3b-contract) condition-initial type tab editable (x-model typedName, not readonly/disabled, opens shared modal)', $typeInputEditable && (bool) $condOpensModal, "editableTypeInput=" . ($typeInputEditable ? 'Y' : 'n') . " conditionOpensSharedModal=" . ($condOpensModal ? 'Y' : 'n'));
+            $this->assert('3b-contract) condition-initial type tab editable (shared capture modal x-model input, not readonly/disabled, opens shared modal)', $typeInputEditable && (bool) $condOpensModal, "editableTypeInput=" . ($typeInputEditable ? 'Y' : 'n') . " conditionOpensSharedModal=" . ($condOpensModal ? 'Y' : 'n'));
 
             // ── DRIVE completions (each party initials every condition, then completes) ──
             // $inkFor(condition) lets a caller draw DISTINCT ink per condition (extension a);
