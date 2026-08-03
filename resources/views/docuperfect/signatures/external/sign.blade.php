@@ -1601,15 +1601,14 @@ function externalSign() {
                     _conditionToken: d.token,
                 };
                 this.captureMode = 'draw';
-                // Match regular initials EXACTLY (openSignModal): open on a BLANK draw
-                // canvas and seed the type field with the INITIALS, never the full name.
-                // Without this the condition modal kept typedName's init value (the full
-                // signer_name, set at boot), so the type tab pre-rendered the recipient's
-                // whole name — reading as a locked, prepopulated initial instead of one the
-                // recipient actively draws/types (Johan 2026-07-30). Now identical to every
-                // other initial: blank + drawable, initials pre-seeded like page initials.
-                this.typedName = (this.signerName || '')
-                    .split(' ').filter(Boolean).map(n => n.charAt(0).toUpperCase()).join('');
+                // OTHER CONDITIONS block — the recipient must enter their OWN mark, with
+                // NO prepopulation. Open on a BLANK draw canvas AND start the Type tab
+                // EMPTY (not seeded with the signer's name or initials). The prior seed
+                // (initials, replacing an even earlier full-name seed) still pre-filled the
+                // field, which read as an already-adopted / locked initial — Johan's
+                // requirement is that recipients type their own, from empty (2026-08-03).
+                // The input stays editable (x-model, no readonly); Draw remains the default.
+                this.typedName = '';
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
             });

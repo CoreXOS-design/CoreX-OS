@@ -735,7 +735,10 @@ function signDocument() {
                     _conditionToken: d.token,
                 };
                 this.captureMode = 'draw';
-                this.typedName = @json($userInitials ?? '');
+                // OTHER CONDITIONS block — start the Type tab EMPTY (no prepopulation);
+                // the signer enters their own mark. Matches the recipient surface
+                // (external/sign.blade.php) — Johan 2026-08-03. Input stays editable.
+                this.typedName = '';
                 this.showSignModal = true;
                 this.$nextTick(() => this.initCanvas());
             });
