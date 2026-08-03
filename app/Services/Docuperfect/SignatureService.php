@@ -1813,23 +1813,20 @@ class SignatureService
         $failures = [];
         foreach ($authorisers as $authoriser) {
             try {
-                Mail::to($authoriser->email)->send(
-                    (new \App\Mail\Signatures\SupervisorApprovalMail(
-                        supervisorName:    $authoriser->name,
-                        candidateName:     $candidateUser->name,
-                        documentName:      $documentName,
-                        documentTypeLabel: $documentTypeLbl,
-                        contactName:       $contactName,
-                        propertyAddress:   $propertyAddress,
-                        candidatePhone:    $candidateUser->phone ?? $candidateUser->cell ?? null,
-                        reviewUrl:         $reviewUrl,
-                        expiresAt:         now()->addDays(7),
-                        reviewType:        $type,
-                    ))->fromAgent($candidateUser)
-                );
+                // Branch-scoped authoriser model — IN-APP notification only (no email). The eligible
+                // Branch Managers / branch full-status / agency admins see this in their notification
+                // bell and action it from the dashboard authorisation queue. External-recipient and
+                // completion emails are separate and unaffected.
+                $authoriser->notify(\App\Notifications\SignatureActivityNotification::candidateNeedsAuthorisation(
+                    $candidateUser->name,
+                    $documentName,
+                    (int) $template->document_id,
+                    $reviewUrl,
+                    $type,
+                ));
                 $sent++;
             } catch (\Throwable $e) {
-                $failures[] = ($authoriser->email ?: 'user#' . $authoriser->id) . ': ' . $e->getMessage();
+                $failures[] = ('user#' . $authoriser->id) . ': ' . $e->getMessage();
                 Log::error('Failed to send authorisation notification', [
                     'authoriser_id' => $authoriser->id,
                     'template_id'   => $template->id,

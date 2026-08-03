@@ -2282,19 +2282,16 @@ class ESignWizardController extends Controller
                     'id_number'  => '',
                 ];
 
-                // Rebuild signing order: agent → supervisor → external parties
+                // Rebuild signing order: agent → supervisor → external parties.
+                //
+                // No supervisor_final (confirmed model, 2026-08-03): the authoriser co-signs ONCE at
+                // the initial 'supervisor' review, right after the candidate signs. After all external
+                // parties sign, the CANDIDATE's own final approval completes the document — with no
+                // edits, nothing changed from what the authoriser already co-signed, so the final
+                // version IS what the authoriser signed. (approveAndAdvance falls through to
+                // completeDocument when no supervisor_final request exists.)
                 $externalParties = array_filter($signingOrder, fn($r) => $r !== 'agent');
                 $signingOrder = array_merge(['agent', 'supervisor'], array_values($externalParties));
-
-                // Also add supervisor_final as the last step (after all external parties)
-                $signingOrder[] = 'supervisor_final';
-                $parties[] = [
-                    'role'       => 'supervisor_final',
-                    'role_label' => 'supervisor',
-                    'name'       => 'Authorised Practitioner',
-                    'email'      => '',
-                    'id_number'  => '',
-                ];
             }
 
             $documentHash = hash('sha256', json_encode($fields, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -2471,19 +2468,11 @@ class ESignWizardController extends Controller
                 }
             }
 
-            // Candidate flow: create supervisor_final request (last in chain)
-            // Shared queue — any eligible authoriser can claim.
-            if ($isCandidateFlow) {
-                $signatureService->createSigningRequest(
-                    $sigTemplate,
-                    'supervisor_final',
-                    'Authorised Practitioner',
-                    '',
-                    null,
-                    null,
-                    $user
-                );
-            }
+            // No supervisor_final request (confirmed model, 2026-08-03) — the authoriser co-signs ONCE
+            // at the initial 'supervisor' review; the candidate's final approval completes the doc.
+            // NOTE for the future edit path (wet-ink re-sign): if the document is later EDITED, the
+            // authoriser must re-sign wherever the candidate signs and recipients re-sign — reopen the
+            // 'supervisor' checkpoint at that point; do not resurrect a distinct supervisor_final step.
 
             // 4a. Set required flags on sign/initial fields based on contact count per role
             $fields = $this->setSignatureRequiredFlags($fields, $recipients);

@@ -880,23 +880,53 @@ Document pack system fully built. **No further work needed.**
 
 Per Property Practitioners Act 22 of 2019, candidate practitioners (formerly "intern agents") operate under supervision. Material agreements require principal co-signature.
 
-### 11.2 System implementation (mostly works per audit §6)
+### 11.2 System implementation — CONFIRMED MODEL (Johan, 2026-08-03)
 
-When the dispatching agent's role = `candidate_practitioner`:
+A candidate practitioner (designation contains "Candidate") is detected by
+`CandidatePractitionerService::isCandidate()`. When a candidate dispatches a document
+(`is_candidate_flow = true`), the ceremony injects **one** authorisation checkpoint:
 
-- Document state → `STATUS_APPROVAL_PENDING` (cannot dispatch immediately)
-- Principal receives notification (email + SMS)
-- Principal reviews document on supervisor approval surface
-- Approve → document dispatches normally
-- Reject → document cancelled with reason logged
+**Flow (no-edit path):**
+`candidate signs → authoriser co-signs ONCE (initial review) → external recipients sign →
+candidate final-approves → COMPLETE.`
 
-### 11.3 Audit finding
+- The authoriser step (`party_role = supervisor`, `signing_order = 2`) sits right after the
+  candidate and before the external parties. The authoriser co-signs once; the mark-level parity
+  mirror (`CandidateAuthoriserSurfaceInjector`, identity `data-recipient-identity="supervisor"`) is
+  filled here, satisfying PPA §35's "co-signed/approved by supervising principal".
+- After all external parties sign, the flow HOLDS for the **candidate's** own final review
+  (`STATUS_PENDING_AGENT_APPROVAL`, in-app notification to the candidate/creator). With no edits,
+  nothing changed from what the authoriser already co-signed, so **the candidate's final approval
+  completes the document** — the final version IS what the authoriser signed.
+- There is **no** second authoriser step. The old `supervisor_final` role is removed
+  (`approveAndAdvance` falls through to `completeDocument` when no `supervisor_final` request exists;
+  existing in-flight docs that still carry one finish their old flow for backward-compat).
 
-Working end-to-end. One minor TODO: the supervisor approval notification email template currently has a placeholder. Needs proper copy. Trivial fix.
+**Eligible authoriser/approver pool (BRANCH-SCOPED)** — `CandidatePractitionerService::getEligibleAuthorisers($candidate)`:
+- Branch Managers of the candidate's branch — `role='branch_manager'` assigned to it, OR a
+  `user_managed_branches` pivot manager of it (`isBranchManagerOf`),
+- full-status agents of the candidate's branch (`isFullStatus`),
+- agency admins of the candidate's agency — admin/super_admin role, principal, or owner
+  (`isAgencyAdmin`) — they authorise agency-wide.
 
-### 11.4 ES-7 scope
+Shared queue: any pool member can claim and authorise. The dashboard authorisation queue
+(`CoreX\DashboardController`) is scoped to match the pool per viewer (admins agency-wide; BMs /
+full-status their branch), and `canAuthoriseFor($viewer, $candidate)` is the reciprocal check.
 
-Email template cleanup. Approve/reject buttons work; the email words just need polish.
+**Notification channel: IN-APP ONLY (no email).** `SignatureService::notifyEligibleAuthorisers`
+fires at **candidate-complete** (when the candidate signs → `advanceToSupervisor`) and sends
+`SignatureActivityNotification::candidateNeedsAuthorisation` (database channel) to every pool member.
+`SupervisorApprovalMail` is retired from this path. Genuine EXTERNAL-recipient emails and the
+completion email to actual signing parties are separate and unchanged. An empty pool still raises the
+loud `flagAuthoriserNotificationUnresolved` (never a silent dead-end).
+
+### 11.3 FUTURE — edit path (NOT yet built; wet-ink work)
+
+If the document is EDITED after co-signature, the authoriser must **re-sign** wherever the candidate
+signs and the recipients must re-sign; the candidate then approves the final version (= what the
+authoriser last signed). The no-edit flow above is built **additively** so this re-open-for-co-sign on
+change can be layered on later — the `supervisor` checkpoint is reopened, not a resurrected
+`supervisor_final`.
 
 ---
 

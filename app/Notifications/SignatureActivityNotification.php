@@ -50,6 +50,17 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    public static function candidateNeedsAuthorisation(string $candidateName, string $documentName, int $documentId, string $reviewUrl, string $reviewType = 'initial_review'): self
+    {
+        return new self(
+            type: 'candidate_needs_authorisation',
+            message: "{$candidateName}'s document needs your authorisation: {$documentName}",
+            url: $reviewUrl,
+            documentId: $documentId,
+            metadata: ['review_type' => $reviewType],
+        );
+    }
+
     public static function wetInkUploaded(string $signerName, string $documentName, int $documentId, string $inspectUrl): self
     {
         return new self(
