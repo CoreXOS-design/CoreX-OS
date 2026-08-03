@@ -2037,6 +2037,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
         Route::get('/wet-ink/create', [\App\Http\Controllers\Compliance\FicaController::class, 'createWetInk'])->name('wet-ink.create');
         Route::post('/wet-ink', [\App\Http\Controllers\Compliance\FicaController::class, 'storeWetInk'])->name('wet-ink.store');
+        // AT-361 — contact's existing documents feed for the wet-ink link picker (before /{submission}).
+        Route::get('/contact/{contact}/documents', [\App\Http\Controllers\Compliance\FicaController::class, 'contactDocuments'])->name('contact-documents');
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
@@ -2058,6 +2060,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
         // AT-173 — decrypting stream serve for uploaded FICA documents (replaces the direct Storage::url).
         Route::get('/{submission}/documents/{document}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewDocument'])->name('documents.view');
+        // AT-361 — link existing contact documents into the FICA (reference, no copy); RO/CO view them here.
+        Route::post('/{submission}/link-contact-documents', [\App\Http\Controllers\Compliance\FicaController::class, 'linkContactDocuments'])->name('link-contact-documents');
+        Route::post('/{submission}/linked-documents/{contactDocument}/unlink', [\App\Http\Controllers\Compliance\FicaController::class, 'unlinkContactDocument'])->name('linked-documents.unlink');
+        Route::get('/{submission}/linked-documents/{contactDocument}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewLinkedDocument'])->name('linked-documents.view');
     });
 
     // AT-173 — media-encryption status (admin visibility of encryption at rest).

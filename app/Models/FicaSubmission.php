@@ -150,6 +150,22 @@ class FicaSubmission extends Model
         return $this->hasMany(FicaDocument::class);
     }
 
+    /**
+     * AT-361 — contact documents LINKED (referenced) into this FICA process, NOT
+     * copied. Points at the unified `documents` store (App\Models\Document, the
+     * contact's Drive / splitter output) via the fica_submission_documents pivot.
+     * The pivot's `document_type` records the FICA slot the contact doc stands in
+     * for (fica_form | id_copy | proof_of_address | supporting). These surface in
+     * the RO/CO review alongside the uploaded FicaDocuments for approval.
+     */
+    public function linkedDocuments(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(\App\Models\Document::class, 'fica_submission_documents')
+            ->withPivot(['document_type', 'linked_by'])
+            ->withTimestamps()
+            ->latest('fica_submission_documents.created_at');
+    }
+
     public function resendLogs(): HasMany
     {
         return $this->hasMany(FicaResendLog::class);
